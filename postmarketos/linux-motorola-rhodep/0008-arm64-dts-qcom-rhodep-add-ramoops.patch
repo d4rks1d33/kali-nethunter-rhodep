@@ -1,0 +1,44 @@
+From: postmarketOS rhodep port
+Subject: [PATCH] arm64: dts: qcom: sm6375-motorola-rhodep: add ramoops
+
+Add a pstore/ramoops region so that the tail of the kernel log and any
+panic survive a reboot. Without this a bootloop is undebuggable: the ABL
+rewrites the cmdline to console=null, so nothing reaches a serial console
+either, and there is no way to see why the kernel died.
+
+After a failed boot, flash a kernel that does boot (which also needs this
+node) and read /sys/fs/pstore/.
+
+The address is the one the vendor device tree uses (holi.dtsi: ramoops at
+0xd0000000, 2 MiB), so it is known not to be clobbered by the bootloader.
+It sits inside the DDR range declared in the memory node
+(0x80000000 + 0x80000000) and does not overlap any other reserved region.
+
+--- a/arch/arm64/boot/dts/qcom/sm6375-motorola-rhodep.dts
++++ b/arch/arm64/boot/dts/qcom/sm6375-motorola-rhodep.dts
+@@ -99,6 +99,25 @@
+ 			reg = <0 0x85200000 0 0xc00000>;
+ 			no-map;
+ 		};
++
++		/*
++		 * Black box for debugging boot loops: pstore/ramoops keeps the tail
++		 * of the console log and the panic in RAM, and both survive a
++		 * reboot. After a failed boot they can be read from a kernel that
++		 * does boot, under /sys/fs/pstore/.
++		 *
++		 * This is the address the vendor DT uses (holi.dtsi: ramoops at
++		 * 0xd0000000, 2 MiB), so the bootloader is known not to scribble
++		 * over it.
++		 */
++		ramoops@d0000000 {
++			compatible = "ramoops";
++			reg = <0x0 0xd0000000 0x0 0x200000>;
++			record-size = <0x8000>;
++			console-size = <0x100000>;
++			pmsg-size = <0x8000>;
++			ecc-size = <16>;
++		};
+ 	};
+ 
+ 	panel_vci: panel-vci-regulator {

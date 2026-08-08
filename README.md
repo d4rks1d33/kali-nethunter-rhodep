@@ -56,6 +56,11 @@ kernel/
     config-motorola-rhodep.aarch64   full kernel .config (Kali variant, BTF fix + NetHunter)
     nethunter-config.fragment        the ~58 NetHunter symbols merged onto the pmOS config
   APKBUILD            pmaports APKBUILD used by pmbootstrap to build the kernel
+postmarketos/         FULL postmarketOS port source (the base this Kali port builds on)
+  linux-motorola-rhodep/     kernel aport (26 patches + APKBUILD + pmOS config, no NetHunter)
+  device-motorola-rhodep/    device package (deviceinfo, systemd units, JEITA, modem glue)
+  firmware-motorola-rhodep/  firmware aport (APKBUILD; blobs not included)
+  README.md                  how to build the kernel/rootfs with pmbootstrap
 debos/
   wip.toml            kali-nethunter-pro device config for rhodep (bootimg offsets)
   binwrap/            wrappers to run debos/systemd-nspawn inside a container
@@ -123,15 +128,28 @@ variant**. Key differences from a plain pmOS config:
   Motorola bootloader resets on a self-decompressing image.
 
 ## Building the kernel (pmbootstrap)
-The kernel is a pmaports/postmarketOS package. Inside a pmbootstrap environment,
-with `kernel/patches/`, `kernel/APKBUILD` and `kernel/config/*.aarch64` in the
-`device/testing/linux-motorola-rhodep/` aport:
+The kernel is a pmaports/postmarketOS package. **The full postmarketOS port
+source is included in `postmarketos/`** — that directory has the complete
+pmaports aports (kernel + device + firmware) and its own `README.md` with the
+exact pmbootstrap build steps. Use it as-is, then apply the Kali `.config` on top.
+
+Quick version — inside a pmbootstrap environment, with the aport in place
+(`device/testing/linux-motorola-rhodep/`):
 ```
 pmbootstrap checksum linux-motorola-rhodep      # after ANY patch/config change
 pmbootstrap build --force linux-motorola-rhodep
 # output: ~/.local/var/pmbootstrap/packages/edge/aarch64/linux-motorola-rhodep-7.2_rc5-r0.apk
 ```
 Verify after build: no empty `.ko`, **no `.ko.zst`** in the apk.
+
+- For the **pmOS** kernel: use `postmarketos/linux-motorola-rhodep/` as-is (its
+  config has no NetHunter symbols).
+- For the **Kali** kernel: use the same aport but swap in
+  `kernel/config/config-motorola-rhodep.aarch64` (already includes the ~58
+  NetHunter symbols + `CONFIG_MODULE_ALLOW_BTF_MISMATCH=y`), or merge
+  `kernel/config/nethunter-config.fragment` onto the pmOS config with
+  `scripts/kconfig/merge_config.sh` + `make olddefconfig`, then re-add the
+  BTF-mismatch line.
 
 ## Turning the kernel apk into a Debian `linux-image` .deb
 NetHunter/mobile expects a Debian kernel package. Extract the apk and repackage:

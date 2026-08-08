@@ -13,3 +13,8 @@ packages/firmware-motorola-rhodep/lib/firmware/**
 
 # debos build output
 debos/rootfs*.tar.xz
+
+# ...but DO include the documentation screenshots
+!docs/screenshots/
+!docs/screenshots/*.png
+!docs/screenshots/*.jpg

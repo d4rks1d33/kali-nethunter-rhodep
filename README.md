@@ -22,6 +22,19 @@ list; everything here is a from-scratch community port.
 - **Docker**, and all NetHunter kernel features (WiFi USB injection drivers,
   BadUSB HID gadget, CAN, SDR, NFS)
 
+## Screenshots
+
+| Phosh desktop (Kali tools) | `otg on` + monitor mode | wifite scanning |
+|---|---|---|
+| ![Phosh desktop](docs/screenshots/phosh-desktop.png) | ![OTG + airmon-ng](docs/screenshots/otg-airmon-monitor.png) | ![wifite](docs/screenshots/wifite-scan.jpg) |
+
+- **Left**: Phosh app drawer running on the phone — Kali tools (NetHunter,
+  Wireshark, Ophcrack, Guymager, ...), a terminal, battery/WiFi in the top bar.
+- **Middle**: `otg on` powers the USB port (SGM41542 VBUS boost), then
+  `airmon-ng start wlan1` puts the external TP-Link (RTL8188EUS, `rtl8xxxu`) into
+  **monitor mode** — alongside the internal `wlan0` (ath10k).
+- **Right**: `wifite` scanning nearby APs through the USB adapter.
+
 ## Known limitations
 - **Mobile data**: IPA node/driver are in place but `status=disabled`. Blocked by
   the missing SM6375 **interconnect** driver in mainline (enabling IPA hangs the

@@ -1,0 +1,9 @@
+Package: rhodep-modem-support
+Version: 1
+Architecture: arm64
+Maintainer: rhodep port
+Depends: qcom-support-common
+Description: Modem/ADSP/CDSP + WiFi (WCN3990) support for Motorola rhodep
+ Mounts modem_a firmware partition, symlinks .mbn->.mdt for the remoteprocs,
+ sets rmtfs flags, brings up remoteprocs, and loads ath10k_snoc late (after the
+ WLAN protection domain / QMI wlfw appears). Enables the internal WiFi and BT.

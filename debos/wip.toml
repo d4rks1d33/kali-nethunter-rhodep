@@ -1,0 +1,21 @@
+# Motorola Moto G82 5G (motorola-rhodep, SM6375)
+# DTB name: qcom/sm6375-motorola-rhodep.dtb  (appended al kernel, Image plano)
+
+chipset = "sm6375"
+
+# Boot image parameters (mismos offsets que el port pmOS usa via mkbootv2b.py)
+# base=0x0, kernel@0x8000, ramdisk@0x1000000, tags@0x100, pagesize=4096, header v2.
+# NO se declara `dtb` en el header: el DTB va CONCATENADO al kernel (append_dtb),
+# que es lo unico que el bootloader de Motorola ejecuta (Image.gz-dtb resetea).
+[bootimg]
+base = 0x0
+kernel = 0x8000
+ramdisk = 0x1000000
+second = 0x0
+tags = 0x100
+pagesize = 4096
+version = 2
+
+[[device]]
+vendor = "motorola"
+model = "rhodep"

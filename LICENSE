@@ -1,0 +1,4 @@
+Kernel patches: GPL-2.0 (same as the Linux kernel).
+Packaging scripts and glue (packages/, scripts/, debos/): MIT.
+Vendor firmware blobs: NOT included, NOT redistributable (proprietary Qualcomm/
+Motorola). Extract from your own device (see packages/firmware-motorola-rhodep).

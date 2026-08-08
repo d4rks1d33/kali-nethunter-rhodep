@@ -1,0 +1,6 @@
+#!/bin/sh
+set -e
+systemctl daemon-reload 2>/dev/null || true
+systemctl enable readonly-firmware.mount rhodep-modem-fw.service ath10k-late.service 2>/dev/null || true
+systemctl enable rmtfs.service pd-mapper.service tqftpserv.service qrtr-ns.service 2>/dev/null || true
+exit 0

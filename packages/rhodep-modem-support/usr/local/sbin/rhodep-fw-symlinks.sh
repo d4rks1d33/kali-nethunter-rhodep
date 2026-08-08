@@ -1,5 +1,7 @@
 #!/bin/sh
-# Expone firmware modem/adsp/cdsp desde modem_a y arranca los remoteprocs.
+# Expose modem/adsp/cdsp firmware from the modem_a partition and start the
+# remoteprocs. The kernel asks for <base>.mbn but the vendor partition ships
+# <base>.mdt + .bNN segments, so symlink .mbn -> .mdt.
 FW=/lib/firmware/qcom/sm6375/motorola/rhodep
 IMG=/readonly/firmware/image
 mkdir -p "$FW"
@@ -12,7 +14,7 @@ for base in modem adsp cdsp wpss; do
         [ -e "$seg" ] && ln -sf "$seg" "$FW/$(basename "$seg")"
     done
 done
-# arrancar remoteprocs (adsp, luego modem, luego cdsp). Ya con firmware presente.
+# Start the remoteprocs (adsp, then modem, then cdsp) now that firmware is present.
 for name_want in adsp modem cdsp; do
     for r in /sys/class/remoteproc/remoteproc*; do
         [ "$(cat "$r/name" 2>/dev/null)" = "$name_want" ] || continue

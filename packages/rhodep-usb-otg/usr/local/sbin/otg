@@ -1,11 +1,12 @@
 #!/bin/sh
-# rhodep: control del puerto USB-C (puerto unico). DEFAULT = carga.
-# En OTG (boost) el charger NO sensa el cargador entrante (reg0x08 VBUS_STAT=OTG),
-# por eso OTG->carga NO es automatico: hay que apagar OTG a mano (o este cmd lo hace).
-# Uso:
-#   otg on       -> host + VBUS boost (para TP-Link/BT/etc). Deja de cargar.
-#   otg off      -> device + carga (DEFAULT).
-#   otg status   -> estado actual.
+# rhodep: control the single USB-C port. DEFAULT = charging.
+# In OTG (boost) mode the SGM41542 charger cannot sense an incoming charger
+# (reg 0x08 VBUS_STAT reads OTG), so OTG->charge is NOT automatic: turn OTG off
+# by hand (this command does it).
+# Usage:
+#   otg on       -> host + VBUS boost (for USB WiFi/BT adapters). Stops charging.
+#   otg off      -> device + charging (DEFAULT).
+#   otg status   -> current state.
 I2CBUS=0 ; CHG=0x3b ; REG_CFG=0x01 ; REG_STAT=0x08
 ROLE=/sys/class/usb_role/4e00000.usb-role-switch/role
 OTG_BIT=0x20
@@ -15,19 +16,19 @@ case "$1" in
   on|host)
     echo host > "$ROLE"
     cur=$(g $REG_CFG); [ -n "$cur" ] && s $REG_CFG $(printf 0x%02x $((cur|OTG_BIT)))
-    echo "OTG ON (host, VBUS boost). No carga hasta 'otg off'."
+    echo "OTG ON (host, VBUS boost). Not charging until 'otg off'."
     ;;
   off|device|charge)
     cur=$(g $REG_CFG); [ -n "$cur" ] && s $REG_CFG $(printf 0x%02x $((cur & ~OTG_BIT)))
     echo device > "$ROLE"
-    echo "OTG OFF (device, carga habilitada)."
+    echo "OTG OFF (device, charging enabled)."
     ;;
   status|"")
     r=$(cat "$ROLE" 2>/dev/null); c=$(g $REG_CFG); st=$(g $REG_STAT)
-    otg=no; [ -n "$c" ] && [ $((c & OTG_BIT)) -ne 0 ] && otg=si
+    otg=no; [ -n "$c" ] && [ $((c & OTG_BIT)) -ne 0 ] && otg=yes
     chg=$(cat /sys/class/power_supply/bq256xx-charger/status 2>/dev/null)
     cap=$(cat /sys/class/power_supply/cw2217-battery/capacity 2>/dev/null)
     echo "role=$r  OTG=$otg  charger=$chg  bat=${cap}%  (reg01=$c reg08=$st)"
     ;;
-  *) echo "uso: otg on|off|status"; exit 1;;
+  *) echo "usage: otg on|off|status"; exit 1;;
 esac

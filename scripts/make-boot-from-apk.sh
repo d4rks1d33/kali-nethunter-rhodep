@@ -1,15 +1,15 @@
 #!/bin/sh
-# Arma un boot.img nuevo a partir del APK del kernel que acaba de construir
-# pmbootstrap, reusando el initramfs de un boot.img anterior (no cambia cuando
-# solo se toca el kernel).
+# Build a new boot.img from the kernel APK just built by pmbootstrap,
+# reusing the initramfs from a previous boot.img (it does not change when
+# only the kernel is touched).
 #
-# Uso:  sh make-boot-from-apk.sh <boot-viejo.img> <boot-nuevo.img>
-# Ej:   sh make-boot-from-apk.sh /opt/postmarket/out-phosh/boot-v11.img \
-#                               /opt/postmarket/out-phosh/boot-v12.img
+# Usage: sh make-boot-from-apk.sh <old-boot.img> <new-boot.img>
+# Ex:    sh make-boot-from-apk.sh old-boot.img new-boot.img
+#
 set -e
 
-OLD="${1:?falta el boot.img viejo (de donde saco el initramfs)}"
-NEW="${2:?falta el nombre del boot.img nuevo}"
+OLD="${1:?missing old boot.img (source of the initramfs)}"
+NEW="${2:?missing new boot.img name}"
 
 PMB="${PMB:-$HOME/.local/var/pmbootstrap}"
 PKGDIR="$PMB/packages/edge/aarch64"
@@ -23,11 +23,11 @@ echo "apk:        $APK"
 mkdir -p "$WORK/apk" && tar xzf "$APK" -C "$WORK/apk" 2>/dev/null || true
 KERNEL=$(find "$WORK/apk" -name vmlinuz | head -1)
 DTB=$(find "$WORK/apk" -name 'sm6375-motorola-rhodep.dtb' | head -1)
-[ -n "$KERNEL" ] && [ -n "$DTB" ] || { echo "ERROR: falta vmlinuz o el dtb en el apk" >&2; exit 1; }
+[ -n "$KERNEL" ] && [ -n "$DTB" ] || { echo "ERROR: missing vmlinuz or dtb in the apk" >&2; exit 1; }
 echo "vmlinuz:    $(stat -c%s "$KERNEL") bytes"
 echo "dtb:        $(stat -c%s "$DTB") bytes"
 
-# Sacar el initramfs y el cmdline del boot.img viejo (header Android v2)
+# Extract the initramfs and cmdline from the old boot.img (Android v2 header)
 python3 - "$OLD" "$WORK/ramdisk" "$WORK/cmdline" <<'EOF'
 import struct, sys
 old, rd_out, cmd_out = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -50,34 +50,34 @@ EOF
 
 CMDLINE=$(cat "$WORK/cmdline")
 
-# Permitir editar el cmdline via entorno, para imagenes de diagnostico:
-#   CMDLINE_DROP="quiet"  quita esas palabras
-#   CMDLINE_ADD="..."     agrega al final
+# Allow editing the cmdline via env vars, for diagnostic images:
+#   CMDLINE_DROP="quiet"  removes those words
+#   CMDLINE_ADD="..."     appends at the end
 if [ -n "$CMDLINE_DROP" ]; then
 	for w in $CMDLINE_DROP; do
 		CMDLINE=$(printf '%s' "$CMDLINE" | tr ' ' '\n' | grep -vx -- "$w" | tr '\n' ' ')
 	done
-	echo "cmdline:    (quitado: $CMDLINE_DROP)"
+	echo "cmdline:    (removed: $CMDLINE_DROP)"
 fi
 if [ -n "$CMDLINE_ADD" ]; then
 	CMDLINE="$CMDLINE $CMDLINE_ADD"
-	echo "cmdline:    (agregado: $CMDLINE_ADD)"
+	echo "cmdline:    (added: $CMDLINE_ADD)"
 fi
 
-# Asegurar clk_scale=100 en el cmdline
+# Ensure clk_scale=100 in the cmdline
 case "$CMDLINE" in
 	*panel_novatek_nt37701.clk_scale=*) ;;
 	*) CMDLINE="$CMDLINE panel_novatek_nt37701.clk_scale=100"
-	   echo "cmdline:    (agregado clk_scale=100)" ;;
+	   echo "cmdline:    (added clk_scale=100)" ;;
 esac
 
 python3 /opt/postmarket/repo/scripts/mkbootv2b.py \
 	"$KERNEL" "$DTB" "$WORK/ramdisk" "$CMDLINE" "$NEW"
 
 echo
-echo "listo: $NEW"
+echo "done: $NEW"
 md5sum "$NEW"
 echo
-echo "Flashear con:"
+echo "Flash with:"
 echo "  fastboot flash boot_a $(basename "$NEW")"
 echo "  fastboot --set-active=a && fastboot reboot"

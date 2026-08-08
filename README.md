@@ -230,12 +230,38 @@ denied, no fastbootd). So `userdata` is written by **dd from a running Linux on
 the phone** (a rescue boot or an existing OS). This is exactly how pmOS installs.
 
 ### 1. Rescue boot (telnet, does not mount root)
-Build a rescue boot = pmOS kernel + pmOS initramfs + `pmos.debug-shell` on the
-cmdline. Flash it and get a root telnet without touching userdata:
+The rescue image = **pmOS kernel + pmOS initramfs** (from a working pmOS boot.img,
+its kernel+DTB+initramfs are known to boot on this device) + **`pmos.debug-shell`**
+on the cmdline. On boot it brings up the USB-gadget network + a **root telnet on
+`172.16.42.1:23`** and does **not** mount the root filesystem — so you can safely
+`dd` to userdata.
+
+Build it from any working pmOS boot.img (e.g. the pmOS port's `boot-v45-DOCKER.img`)
+with the helper script:
+```
+sh scripts/build-rescue-boot.sh boot-v45-DOCKER.img rescue-boot.img
+```
+The script splits the source boot.img (kernel+appended-DTB, initramfs, cmdline)
+and repacks it as a flat Android v2 image with `pmos.debug-shell` prepended to the
+original cmdline. It keeps the flat `Image` (NOT Image.gz) so the Motorola
+bootloader accepts it.
+
+> Don't have a pmOS boot.img? Build the pmOS kernel (see "Building the kernel"),
+> make a boot.img with `scripts/make-boot-from-apk.sh`, and feed that to
+> `build-rescue-boot.sh`. The rescue image only needs the pmOS initramfs, which
+> implements `pmos.debug-shell` and the sector-4096 subpartition mounting.
+
+Flash and enter:
 ```
 fastboot flash boot_a rescue-boot.img
 fastboot --set-active=a && fastboot reboot
-telnet 172.16.42.1 23
+# wait ~30s (black screen / logo, USB gadget comes up, root is NOT mounted)
+telnet 172.16.42.1 23        # note: telnet, NOT ssh, in the rescue shell
+```
+Inside the rescue shell you have full raw access to the partitions, e.g.:
+```
+losetup -Pf --sector-size 4096 /dev/disk/by-partlabel/userdata   # expose the inner GPT
+blkid /dev/loop0p2                                                # inspect the rootfs
 ```
 
 ### 2. Write the Kali disk to userdata (dd, from a running OS or rescue)

@@ -18,7 +18,9 @@ list; everything here is a from-scratch community port.
   protection (kernel hot-side + userspace cold-side JEITA)
 - **USB host / OTG** with VBUS from the SGM41542 charger → **external USB WiFi
   adapters** (tested: TP-Link TL-WN722N v2/v3 / RTL8188EUS → `wlan1` with
-  **monitor mode**, which the internal WCN3990 cannot do)
+  **monitor mode + packet injection**, which the internal WCN3990 cannot do).
+  Injection uses the `rtl8188eus` (`8188eu`) DKMS driver, not the generic
+  `rtl8xxxu` — see `packages/rhodep-rtl8188eus-fix`.
 - **Docker**, and all NetHunter kernel features (WiFi USB injection drivers,
   BadUSB HID gadget, CAN, SDR, NFS)
 
@@ -31,8 +33,9 @@ list; everything here is a from-scratch community port.
 - **Left**: Phosh app drawer running on the phone — Kali tools (NetHunter,
   Wireshark, Ophcrack, Guymager, ...), a terminal, battery/WiFi in the top bar.
 - **Middle**: `otg on` powers the USB port (SGM41542 VBUS boost), then
-  `airmon-ng start wlan1` puts the external TP-Link (RTL8188EUS, `rtl8xxxu`) into
-  **monitor mode** — alongside the internal `wlan0` (ath10k).
+  `airmon-ng start wlan1` puts the external TP-Link (RTL8188EUS) into
+  **monitor mode** — alongside the internal `wlan0` (ath10k). With the
+  `rtl8188eus`/`8188eu` DKMS driver, `aireplay-ng --test` injection works too.
 - **Right**: `wifite` scanning nearby APs through the USB adapter.
 
 ## Known limitations
@@ -68,11 +71,14 @@ packages/
   rhodep-modem-support/    .deb source: modem/ADSP/CDSP + internal WiFi bring-up
   rhodep-usb-otg/          .deb source: USB-C charge/OTG control (SGM41542 VBUS)
   rhodep-battery-jeita/    .deb source: cold-side (<0C) battery protection
+  rhodep-rtl8188eus-fix/   TP-Link RTL8188EUS (wlan1) monitor+inject: patch the
+                           realtek-rtl8188eus-dkms driver so it builds on 7.2
   firmware-motorola-rhodep/ .deb template (blobs NOT included, see its README)
 scripts/
   mkbootv2b.py             build an Android boot.img v2 (flat Image + appended DTB)
   make-boot-from-apk.sh    build a boot.img reusing an initramfs from a base image
   build-support-debs.sh    build the three support .deb packages
+  build-kernel-headers.sh  build linux-headers-<KVER>.deb (for DKMS / rtl8188eus)
 docs/                       extra notes
 ```
 
@@ -166,6 +172,20 @@ rm -f PKG/usr/lib/modules/$KVER/build PKG/usr/lib/modules/$KVER/source
 # DEBIAN/postinst: depmod -a $KVER ; update-initramfs -u -k $KVER
 fakeroot dpkg-deb --build -Zxz PKG linux-image-${KVER}_7.2~rc5-rhodep2_arm64.deb
 ```
+
+## Kernel headers (for DKMS / external Wi-Fi drivers)
+The apk ships no headers, so DKMS modules (e.g. the TP-Link `rtl8188eus`) cannot
+build. Generate a matching `linux-headers-<KVER>.deb` with:
+```
+KSRC=/path/to/patched/linux-7.2-rc5 \
+CONFIG=kernel/config/config-motorola-rhodep.aarch64 \
+    scripts/build-kernel-headers.sh
+```
+It does a full kernel build once to produce a real `Module.symvers` (with
+mac80211/cfg80211 symbols), packages the headers + aarch64-native `scripts/`,
+and sets up `/lib/modules/<KVER>/build`. Validated by building an out-of-tree
+module with the exact installed vermagic. See `packages/rhodep-rtl8188eus-fix`
+for the full TP-Link RTL8188EUS monitor+injection workflow.
 
 ---
 
@@ -312,7 +332,8 @@ sudo dpkg -i rhodep-usb-otg_*.deb rhodep-battery-jeita_*.deb rhodep-modem-suppor
 
 ## Update Kali + install the toolset (keep the custom kernel safe)
 ```
-sudo apt-mark hold linux-image-7.2.0-rc5 firmware-motorola-rhodep \
+sudo apt-mark hold linux-image-7.2.0-rc5 linux-headers-7.2.0-rc5 \
+     realtek-rtl8188eus-dkms firmware-motorola-rhodep \
      rhodep-modem-support rhodep-usb-otg rhodep-battery-jeita
 sudo apt update && sudo apt full-upgrade -y
 sudo apt install -y kali-linux-default python3-requests hcxdumptool hcxtools
@@ -332,8 +353,12 @@ sudo wifite --kill -i wlan1
 sudo otg off         # back to charging
 otg status           # role / OTG / charger / battery
 ```
-Injection: `rtl8xxxu` (mainline) does monitor fine; if injection is weak on the
-RTL8188EUS, install the `8188eu` DKMS driver (better for that chip).
+Injection: the mainline `rtl8xxxu` does monitor but injection is unreliable on
+the RTL8188EUS. For monitor **+ injection** use the `rtl8188eus` (`8188eu`) DKMS
+driver. It needs kernel headers and a small patch to build on 7.2 — the full
+workflow (headers .deb, `apply-rtl8188eus-fix.sh`, DKMS build, autoload,
+`apt-mark hold`) is in **`packages/rhodep-rtl8188eus-fix/README.md`**. Once
+installed, `8188eu` autoloads at boot and `aireplay-ng --test wlan1mon` passes.
 
 ---
 
@@ -343,10 +368,16 @@ RTL8188EUS, install the `8188eu` DKMS driver (better for that chip).
 - Back to pmOS → dd the pmOS disk image to userdata and flash the pmOS boot.img.
 
 # How to continue the port (open work)
-1. **Mobile data**: write an SM6375 **interconnect** driver
-   (`drivers/interconnect/qcom/sm6375.c`, models: qcm2290 / sm6115) and add the
-   NoC provider nodes to `sm6375.dtsi`; then flip the IPA node (patch 0026) to
-   `status = "okay"`. This is the one big blocker and benefits both ports.
+1. **Mobile data**: an SM6375 **interconnect** driver was written and packaged
+   (`docs/interconnect-sm6375-wip/`, driver + DTS + binding, compiles clean and
+   the DTB phandles resolve). On real HW it still resets the SoC very early with
+   no ramoops. Bisection so far: IPA disabled still hangs (not the IPA), and
+   disabling all QoS register writes still hangs (not a wrong qos_port) — so the
+   fault is at the **bus level** (a wrong RPM bus clock / reg-regmap / mas-slv
+   RPM id). Next: register the buses one at a time (virtual → bimc → sys_noc →
+   config_noc) and cross-check every `mas_rpm_id`/`slv_rpm_id` against a
+   known-good SM6375/holi list. See `docs/interconnect-sm6375-wip/PROGRESS.md`.
+   Benefits both ports.
 2. **Audio**: LPASS LPI pinctrl + LPASS clock controller for SM6375 (models:
    sm6115 / sm6350). Amps (AW88261) and the ADSP side already work downstream.
 3. Sensors (SSC/ADSP), GPS (QMI/QRTR), NFC (Samsung `sec-nfc` — no mainline

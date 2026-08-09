@@ -1,0 +1,10 @@
+config INTERCONNECT_QCOM_SM6375
+	tristate "Qualcomm SM6375 interconnect driver"
+	depends on INTERCONNECT_QCOM
+	depends on QCOM_SMD_RPM
+	depends on ARM64 || COMPILE_TEST
+	select INTERCONNECT_QCOM_SMD_RPM
+	help
+	  This is a driver for the Qualcomm Network-on-Chip on sm6375-based
+	  platforms.
+

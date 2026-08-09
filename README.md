@@ -349,7 +349,7 @@ The single USB-C port defaults to **charging**. To power a USB adapter:
 ```
 sudo otg on          # host + VBUS boost (SGM41542) -> adapter powers up
 sudo airmon-ng start wlan1
-sudo wifite --kill -i wlan1
+sudo wifite
 sudo otg off         # back to charging
 otg status           # role / OTG / charger / battery
 ```

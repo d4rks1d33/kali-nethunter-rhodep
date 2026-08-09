@@ -1,0 +1,156 @@
+apps_proc|id=MASTER_AMPSS_M0|ch=1|bw=16|mas=-1|slv=-1|nl=2|qos=apps_proc_qos|links=SLAVE_EBI, BIMC_SNOC_SLV
+mas_snoc_rt|id=MASTER_SNOC_RT|ch=1|bw=256|mas=-1|slv=-1|nl=1|qos=-|links=SLAVE_SNOC_BIMC_RT
+mas_snoc_bimc_rt|id=MASTER_SNOC_BIMC_RT|ch=1|bw=16|mas=-1|slv=-1|nl=1|qos=mas_snoc_bimc_rt_qos|links=SLAVE_EBI
+mas_snoc_nrt|id=MASTER_SNOC_NRT|ch=1|bw=256|mas=-1|slv=-1|nl=1|qos=-|links=SLAVE_SNOC_BIMC_NRT
+mas_snoc_bimc_nrt|id=MASTER_SNOC_BIMC_NRT|ch=1|bw=16|mas=-1|slv=-1|nl=1|qos=mas_snoc_bimc_nrt_qos|links=SLAVE_EBI
+mas_snoc_bimc|id=SNOC_BIMC_MAS|ch=1|bw=16|mas=ICBID_MASTER_SNOC_BIMC|slv=-1|nl=1|qos=mas_snoc_bimc_qos|links=SLAVE_EBI
+qnm_gpu|id=MASTER_GRAPHICS_3D|ch=1|bw=32|mas=-1|slv=-1|nl=2|qos=qnm_gpu_qos|links=SLAVE_EBI, BIMC_SNOC_SLV
+qnm_cdsp|id=MASTER_CDSP_PROC|ch=1|bw=32|mas=-1|slv=-1|nl=2|qos=qnm_cdsp_qos|links=SLAVE_EBI, BIMC_SNOC_SLV
+tcu_0|id=MASTER_TCU_0|ch=1|bw=8|mas=-1|slv=-1|nl=2|qos=tcu_0_qos|links=SLAVE_EBI, BIMC_SNOC_SLV
+qup0_core_master|id=MASTER_QUP_CORE_0|ch=1|bw=4|mas=ICBID_MASTER_QUP_CORE_0|slv=-1|nl=1|qos=-|links=SLAVE_QUP_CORE_0
+qup1_core_master|id=MASTER_QUP_CORE_1|ch=1|bw=4|mas=ICBID_MASTER_QUP_CORE_1|slv=-1|nl=1|qos=-|links=SLAVE_QUP_CORE_1
+mas_snoc_cnoc|id=SNOC_CNOC_MAS|ch=1|bw=8|mas=-1|slv=-1|nl=43|qos=-|links=SLAVE_BIMC_CFG, SLAVE_APPSS,
+		   SLAVE_CAMERA_NRT_THROTTLE_CFG,
+		   SLAVE_CAMERA_RT_THROTTLE_CFG, SLAVE_CAMERA_CFG,
+		   SLAVE_CLK_CTL, SLAVE_DSP_CFG,
+		   SLAVE_RBCPR_CX_CFG, SLAVE_RBCPR_MX_CFG,
+		   SLAVE_CRYPTO_0_CFG, SLAVE_DCC_CFG,
+		   SLAVE_DDR_PHY_CFG, SLAVE_DDR_SS_CFG,
+		   SLAVE_DISPLAY_CFG, SLAVE_DISPLAY_THROTTLE_CFG,
+		   SLAVE_EMMC_CFG, SLAVE_GRAPHICS_3D_CFG, SLAVE_HWKM,
+		   SLAVE_IMEM_CFG, SLAVE_IPA_CFG,
+		   SLAVE_LPASS, SLAVE_MAPSS,
+		   SLAVE_MESSAGE_RAM, SLAVE_PDM,
+		   SLAVE_PIMEM_CFG, SLAVE_PKA_CORE,
+		   SLAVE_PMIC_ARB, SLAVE_QDSS_CFG,
+		   SLAVE_QM_CFG, SLAVE_QM_MPU_CFG,
+		   SLAVE_QUP_0, SLAVE_QUP_1,
+		   SLAVE_RPM, SLAVE_SDCC_2,
+		   SLAVE_SECURITY, SLAVE_SNOC_CFG,
+		   SLAVE_TCSR, SLAVE_TLMM,
+		   SLAVE_UFS_MEM_CFG, SLAVE_USB3,
+		   SLAVE_VENUS_CFG, SLAVE_VENUS_THROTTLE_CFG,
+		   SLAVE_VSENSE_CTRL_CFG
+xm_qdss_dap|id=MASTER_QDSS_DAP|ch=1|bw=8|mas=-1|slv=-1|nl=43|qos=-|links=SLAVE_BIMC_CFG, SLAVE_APPSS,
+		   SLAVE_CAMERA_NRT_THROTTLE_CFG,
+		   SLAVE_CAMERA_RT_THROTTLE_CFG, SLAVE_CAMERA_CFG,
+		   SLAVE_CLK_CTL, SLAVE_DSP_CFG,
+		   SLAVE_RBCPR_CX_CFG, SLAVE_RBCPR_MX_CFG,
+		   SLAVE_CRYPTO_0_CFG, SLAVE_DCC_CFG,
+		   SLAVE_DDR_PHY_CFG, SLAVE_DDR_SS_CFG,
+		   SLAVE_DISPLAY_CFG, SLAVE_DISPLAY_THROTTLE_CFG,
+		   SLAVE_EMMC_CFG, SLAVE_GRAPHICS_3D_CFG, SLAVE_HWKM,
+		   SLAVE_IMEM_CFG, SLAVE_IPA_CFG,
+		   SLAVE_LPASS, SLAVE_MAPSS,
+		   SLAVE_MESSAGE_RAM, SLAVE_PDM,
+		   SLAVE_PIMEM_CFG, SLAVE_PKA_CORE,
+		   SLAVE_PMIC_ARB, SLAVE_QDSS_CFG,
+		   SLAVE_QM_CFG, SLAVE_QM_MPU_CFG,
+		   SLAVE_QUP_0, SLAVE_QUP_1,
+		   SLAVE_RPM, SLAVE_SDCC_2,
+		   SLAVE_SECURITY, SLAVE_SNOC_CFG,
+		   SLAVE_TCSR, SLAVE_TLMM,
+		   SLAVE_UFS_MEM_CFG, SLAVE_USB3,
+		   SLAVE_VENUS_CFG, SLAVE_VENUS_THROTTLE_CFG,
+		   SLAVE_VSENSE_CTRL_CFG
+qnm_camera_nrt|id=MASTER_CAMNOC_SF|ch=1|bw=32|mas=-1|slv=-1|nl=1|qos=-|links=SLAVE_CAMNOC_SF_SNOC
+qnm_camera_nrt_snoc|id=MASTER_CAMNOC_SF_SNOC|ch=1|bw=256|mas=-1|slv=-1|nl=1|qos=qnm_camera_nrt_snoc_qos|links=SLAVE_SNOC_NRT
+qnm_camera_rt|id=MASTER_CAMNOC_HF|ch=1|bw=32|mas=-1|slv=-1|nl=1|qos=-|links=SLAVE_CAMNOC_HF_SNOC
+qnm_camera_rt_snoc|id=MASTER_CAMNOC_HF_SNOC|ch=1|bw=256|mas=-1|slv=-1|nl=1|qos=qnm_camera_rt_snoc_qos|links=SLAVE_SNOC_RT
+qxm_mdp0|id=MASTER_MDP_PORT0|ch=1|bw=32|mas=-1|slv=-1|nl=1|qos=-|links=SLAVE_MDP_PORT0_SNOC
+qxm_mdp0_snoc|id=MASTER_MDP_PORT0_SNOC|ch=1|bw=256|mas=-1|slv=-1|nl=1|qos=qxm_mdp0_snoc_qos|links=SLAVE_SNOC_RT
+qxm_venus0|id=MASTER_VIDEO_P0|ch=1|bw=16|mas=-1|slv=-1|nl=1|qos=-|links=SLAVE_VIDEO_P0_SNOC
+qxm_venus0_snoc|id=MASTER_VIDEO_P0_SNOC|ch=1|bw=256|mas=-1|slv=-1|nl=1|qos=qxm_venus0_snoc_qos|links=SLAVE_SNOC_NRT
+qxm_venus_cpu|id=MASTER_VIDEO_PROC|ch=1|bw=8|mas=-1|slv=-1|nl=1|qos=-|links=SLAVE_VIDEO_PROC_SNOC
+qxm_venus_cpu_snoc|id=MASTER_VIDEO_PROC_SNOC|ch=1|bw=256|mas=-1|slv=-1|nl=1|qos=qxm_venus_cpu_snoc_qos|links=SLAVE_SNOC_NRT
+mas_snoc_cfg|id=MASTER_SNOC_CFG|ch=1|bw=4|mas=-1|slv=-1|nl=1|qos=-|links=SLAVE_SERVICE_SNOC
+qhm_tic|id=MASTER_TIC|ch=1|bw=4|mas=-1|slv=-1|nl=7|qos=-|links=SLAVE_APPSS, SNOC_CNOC_SLV,
+		   SLAVE_OCIMEM, SLAVE_PIMEM,
+		   SNOC_BIMC_SLV, SLAVE_QDSS_STM,
+		   SLAVE_TCU
+mas_a1noc_snoc|id=A1NOC_SNOC_MAS|ch=1|bw=8|mas=ICBID_MASTER_A1NOC_SNOC|slv=-1|nl=6|qos=-|links=SLAVE_APPSS, SNOC_CNOC_SLV,
+		   SLAVE_OCIMEM, SLAVE_PIMEM,
+		   SNOC_BIMC_SLV, SLAVE_QDSS_STM
+mas_a2noc_snoc|id=A2NOC_SNOC_MAS|ch=1|bw=16|mas=ICBID_MASTER_A2NOC_SNOC|slv=-1|nl=7|qos=-|links=SLAVE_APPSS, SNOC_CNOC_SLV,
+		   SLAVE_OCIMEM, SLAVE_PIMEM,
+		   SNOC_BIMC_SLV, SLAVE_QDSS_STM,
+		   SLAVE_TCU
+mas_bimc_snoc|id=BIMC_SNOC_MAS|ch=1|bw=8|mas=ICBID_MASTER_BIMC_SNOC|slv=-1|nl=6|qos=mas_bimc_snoc_qos|links=SLAVE_APPSS, SNOC_CNOC_SLV,
+		   SLAVE_OCIMEM, SLAVE_PIMEM,
+		   SLAVE_QDSS_STM, SLAVE_TCU
+qxm_pimem|id=MASTER_PIMEM|ch=1|bw=8|mas=-1|slv=-1|nl=2|qos=qxm_pimem_qos|links=SLAVE_OCIMEM, SNOC_BIMC_SLV
+qhm_qup0|id=MASTER_QUP_0|ch=1|bw=4|mas=ICBID_MASTER_QUP_0|slv=-1|nl=1|qos=xm_qhm_qup0|links=A1NOC_SNOC_SLV
+qhm_qup1|id=MASTER_QUP_1|ch=1|bw=4|mas=ICBID_MASTER_QUP_1|slv=-1|nl=1|qos=xm_qhm_qup1|links=A1NOC_SNOC_SLV
+xm_emmc|id=MASTER_EMMC|ch=1|bw=8|mas=-1|slv=-1|nl=1|qos=xm_emmc_qos|links=A1NOC_SNOC_SLV
+xm_sdc2|id=MASTER_SDCC_2|ch=1|bw=8|mas=ICBID_MASTER_SDCC_2|slv=-1|nl=1|qos=xm_sdc2_qos|links=A1NOC_SNOC_SLV
+xm_ufs_mem|id=MASTER_UFS_MEM|ch=1|bw=8|mas=-1|slv=-1|nl=1|qos=xm_ufs_mem_qos|links=A1NOC_SNOC_SLV
+xm_usb3_0|id=MASTER_USB3_0|ch=1|bw=8|mas=-1|slv=-1|nl=1|qos=xm_usb3_0_qos|links=A1NOC_SNOC_SLV
+mas_crypto_c0|id=MASTER_CRYPTO_CORE0|ch=1|bw=8|mas=ICBID_MASTER_CRYPTO_CORE0|slv=-1|nl=1|qos=mas_crypto_c0_qos|links=A2NOC_SNOC_SLV
+qhm_qdss_bam|id=MASTER_QDSS_BAM|ch=1|bw=4|mas=-1|slv=-1|nl=1|qos=qhm_qdss_bam_qos|links=A2NOC_SNOC_SLV
+qxm_ipa|id=MASTER_IPA|ch=1|bw=8|mas=ICBID_MASTER_IPA|slv=-1|nl=1|qos=qxm_ipa_qos|links=A2NOC_SNOC_SLV
+xm_qdss_etr|id=MASTER_QDSS_ETR|ch=1|bw=8|mas=-1|slv=-1|nl=1|qos=xm_qdss_etr_qos|links=A2NOC_SNOC_SLV
+ebi|id=SLAVE_EBI|ch=2|bw=4|mas=-1|slv=ICBID_SLAVE_EBI1|nl=0|qos=-|links=
+slv_bimc_snoc|id=BIMC_SNOC_SLV|ch=1|bw=16|mas=-1|slv=ICBID_SLAVE_BIMC_SNOC|nl=1|qos=-|links=BIMC_SNOC_MAS
+qup0_core_slave|id=SLAVE_QUP_CORE_0|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qup1_core_slave|id=SLAVE_QUP_CORE_1|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_bimc_cfg|id=SLAVE_BIMC_CFG|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_camera_nrt_throttle_cfg|id=SLAVE_CAMERA_NRT_THROTTLE_CFG|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_camera_rt_throttle_cfg|id=SLAVE_CAMERA_RT_THROTTLE_CFG|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_camera_ss_cfg|id=SLAVE_CAMERA_CFG|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_clk_ctl|id=SLAVE_CLK_CTL|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_compute_dsp_cfg|id=SLAVE_DSP_CFG|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_cpr_cx|id=SLAVE_RBCPR_CX_CFG|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_cpr_mx|id=SLAVE_RBCPR_MX_CFG|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_crypto0_cfg|id=SLAVE_CRYPTO_0_CFG|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_dcc_cfg|id=SLAVE_DCC_CFG|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_ddr_phy_cfg|id=SLAVE_DDR_PHY_CFG|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_ddr_ss_cfg|id=SLAVE_DDR_SS_CFG|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_disp_ss_cfg|id=SLAVE_DISPLAY_CFG|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_display_throttle_cfg|id=SLAVE_DISPLAY_THROTTLE_CFG|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_emmc_cfg|id=SLAVE_EMMC_CFG|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_gpuss_cfg|id=SLAVE_GRAPHICS_3D_CFG|ch=1|bw=8|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_hw_km|id=SLAVE_HWKM|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_imem_cfg|id=SLAVE_IMEM_CFG|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_ipa_cfg|id=SLAVE_IPA_CFG|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_lpass|id=SLAVE_LPASS|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_mapss|id=SLAVE_MAPSS|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_mesg_ram|id=SLAVE_MESSAGE_RAM|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_pdm|id=SLAVE_PDM|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_pimem_cfg|id=SLAVE_PIMEM_CFG|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_pka_wrapper|id=SLAVE_PKA_CORE|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_pmic_arb|id=SLAVE_PMIC_ARB|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_qdss_cfg|id=SLAVE_QDSS_CFG|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_qm_cfg|id=SLAVE_QM_CFG|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_qm_mpu_cfg|id=SLAVE_QM_MPU_CFG|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_qup0|id=SLAVE_QUP_0|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_qup1|id=SLAVE_QUP_1|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_rpm|id=SLAVE_RPM|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_sdc2|id=SLAVE_SDCC_2|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_security|id=SLAVE_SECURITY|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+slv_snoc_cfg|id=SLAVE_SNOC_CFG|ch=1|bw=4|mas=-1|slv=-1|nl=1|qos=-|links=MASTER_SNOC_CFG
+qhs_tcsr|id=SLAVE_TCSR|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_tlmm|id=SLAVE_TLMM|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_ufs_mem_cfg|id=SLAVE_UFS_MEM_CFG|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_usb3_0|id=SLAVE_USB3|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_venus_cfg|id=SLAVE_VENUS_CFG|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_venus_throttle_cfg|id=SLAVE_VENUS_THROTTLE_CFG|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+qhs_vsense_ctrl_cfg|id=SLAVE_VSENSE_CTRL_CFG|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+slv_camera_nrt_snoc|id=SLAVE_CAMNOC_SF_SNOC|ch=1|bw=32|mas=-1|slv=-1|nl=1|qos=-|links=MASTER_CAMNOC_SF_SNOC
+slv_venus0_snoc|id=SLAVE_VIDEO_P0_SNOC|ch=1|bw=16|mas=-1|slv=-1|nl=1|qos=-|links=MASTER_VIDEO_P0_SNOC
+slv_venus_cpu_snoc|id=SLAVE_VIDEO_PROC_SNOC|ch=1|bw=8|mas=-1|slv=-1|nl=1|qos=-|links=MASTER_VIDEO_PROC_SNOC
+slv_snoc_nrt|id=SLAVE_SNOC_NRT|ch=1|bw=256|mas=-1|slv=-1|nl=1|qos=-|links=MASTER_SNOC_NRT
+slv_snoc_bimc_nrt|id=SLAVE_SNOC_BIMC_NRT|ch=1|bw=32|mas=-1|slv=-1|nl=1|qos=-|links=MASTER_SNOC_BIMC_NRT
+slv_camera_rt_snoc|id=SLAVE_CAMNOC_HF_SNOC|ch=1|bw=32|mas=-1|slv=-1|nl=1|qos=-|links=MASTER_CAMNOC_HF_SNOC
+slv_mdp0_snoc|id=SLAVE_MDP_PORT0_SNOC|ch=1|bw=32|mas=-1|slv=-1|nl=1|qos=-|links=MASTER_MDP_PORT0_SNOC
+slv_snoc_rt|id=SLAVE_SNOC_RT|ch=1|bw=256|mas=-1|slv=-1|nl=1|qos=-|links=MASTER_SNOC_RT
+slv_snoc_bimc_rt|id=SLAVE_SNOC_BIMC_RT|ch=1|bw=32|mas=-1|slv=-1|nl=1|qos=-|links=MASTER_SNOC_BIMC_RT
+qhs_apss|id=SLAVE_APPSS|ch=1|bw=8|mas=-1|slv=-1|nl=0|qos=-|links=
+slv_snoc_cnoc|id=SNOC_CNOC_SLV|ch=1|bw=8|mas=-1|slv=ICBID_SLAVE_SNOC_CNOC|nl=1|qos=-|links=SNOC_CNOC_MAS
+qxs_imem|id=SLAVE_OCIMEM|ch=1|bw=8|mas=-1|slv=ICBID_SLAVE_IMEM|nl=0|qos=-|links=
+qxs_pimem|id=SLAVE_PIMEM|ch=1|bw=8|mas=-1|slv=-1|nl=0|qos=-|links=
+slv_snoc_bimc|id=SNOC_BIMC_SLV|ch=1|bw=16|mas=-1|slv=ICBID_SLAVE_SNOC_BIMC|nl=1|qos=-|links=SNOC_BIMC_MAS
+srvc_snoc|id=SLAVE_SERVICE_SNOC|ch=1|bw=4|mas=-1|slv=-1|nl=0|qos=-|links=
+xs_qdss_stm|id=SLAVE_QDSS_STM|ch=1|bw=4|mas=-1|slv=ICBID_SLAVE_QDSS_STM|nl=0|qos=-|links=
+xs_sys_tcu_cfg|id=SLAVE_TCU|ch=1|bw=8|mas=-1|slv=-1|nl=0|qos=-|links=
+slv_a1noc_snoc|id=A1NOC_SNOC_SLV|ch=1|bw=8|mas=-1|slv=ICBID_SLAVE_A1NOC_SNOC|nl=1|qos=-|links=A1NOC_SNOC_MAS
+slv_a2noc_snoc|id=A2NOC_SNOC_SLV|ch=1|bw=16|mas=-1|slv=ICBID_SLAVE_A2NOC_SNOC|nl=1|qos=-|links=A2NOC_SNOC_MAS

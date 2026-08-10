@@ -23,6 +23,8 @@ list; everything here is a from-scratch community port.
   `rtl8xxxu` — see `packages/rhodep-rtl8188eus-fix`.
 - **Docker**, and all NetHunter kernel features (WiFi USB injection drivers,
   BadUSB HID gadget, CAN, SDR, NFS)
+- **Phone apps** (dialer, SMS, Contacts, file manager) via `mobian-phosh-phone`
+  — installed by default in the rootfs build; usable once the modem is enabled
 
 ## Screenshots
 
@@ -233,6 +235,12 @@ sudo env PATH="$PATH" HOME=/root SYSTEMD_NSPAWN_UNIFIED_HIERARCHY=1 ./build.sh -
 sudo tar xJf rootfs-arm64-phosh-nonfree.tar.xz -C /tmp/rootfs
 # mount proc/sys/dev, fix DNS (echo 'nameserver 127.0.0.11' > etc/resolv.conf  # Docker's DNS)
 sudo chroot /tmp/rootfs apt-get install -y --no-install-recommends initramfs-tools qcom-support-common
+# Telephony/phone role: dialer (Calls), Chatty/SMS, MMS, ModemManager auto-config.
+# The generic Phosh rootfs ships callaudiod/feedbackd/gnome-contacts/modemmanager
+# but NOT the UI apps; mobian-phosh-phone adds the dialer + SMS + phone role so the
+# Phone/Contacts/Messages apps show up in the Phosh drawer by default. Verified on
+# rhodep: installing this made the apps appear. nautilus = file manager.
+sudo chroot /tmp/rootfs apt-get install -y mobian-phosh-phone nautilus
 sudo chroot /tmp/rootfs dpkg -i /srv/linux-image-*.deb /srv/firmware-*.deb \
       /srv/rhodep-modem-support*.deb /srv/rhodep-usb-otg*.deb /srv/rhodep-battery-jeita*.deb
 sudo chroot /tmp/rootfs systemctl enable qrtr-ns rmtfs pd-mapper tqftpserv
@@ -343,6 +351,20 @@ The `apt-mark hold` is essential: it stops apt from pulling a generic Debian
 kernel that would not boot this device. `apt full-upgrade` does NOT re-flash
 `boot_a` (the running initramfs lives in the flashed boot.img), so updates are
 safe for the boot path.
+
+## Phone apps (dialer / SMS / contacts / files)
+Images built after this note already include them (see the rootfs build step).
+On an older image the generic Phosh rootfs has the daemons (callaudiod,
+feedbackd, modemmanager, gnome-contacts) but NOT the UI apps, so the drawer
+shows no Phone/Messages. Add them once:
+```
+sudo apt install mobian-phosh-phone nautilus
+sudo update-desktop-database      # refresh the app drawer
+```
+`mobian-phosh-phone` pulls the dialer (Calls), Chatty/SMS, mmsd-tng and the phone
+role (ModemManager auto-config); `nautilus` is the file manager. The Phone app
+may stay limited until the modem works (mobile data is still blocked on the
+interconnect driver — see open work), but the apps install and appear now.
 
 ## USB WiFi adapter (monitor mode / injection)
 The single USB-C port defaults to **charging**. To power a USB adapter:

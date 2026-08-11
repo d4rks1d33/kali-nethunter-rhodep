@@ -1,23 +1,23 @@
 pkgname=firmware-motorola-rhodep
-pkgver=2
+pkgver=3
 pkgrel=0
 pkgdesc="Firmware for the Motorola Moto G82 5G (rhodep) extracted from the stock ROM"
 url="https://postmarketos.org"
 arch="aarch64"
 license="proprietary"
-# The generic ath10k firmware (board-2.bin + firmware-5.bin for the WCN3990)
-# comes from Alpine, so we only declare the dependency; here we ship the
-# device-specific bits (GPU, BT and wlanmdsp).
+# El firmware ath10k generico (board-2.bin + firmware-5.bin del WCN3990) viene
+# del paquete de Alpine, asi que solo declaramos la dependencia; aca metemos lo
+# especifico del device (GPU, BT y el wlanmdsp).
 options="!check !strip !archcheck !spdx !tracedeps pmb:cross-native"
 
-# Paths verified against the drivers:
+# Rutas verificadas contra los drivers:
 #
-#  GPU  - adreno_request_fw() tries "qcom/<fw>" first, so sqe and gmu go
-#         in /lib/firmware/qcom/. The zap has firmware-name in the DTS and is used
-#         as-is, with the .b0* segments in the same dir.
+#  GPU  - adreno_request_fw() prueba "qcom/<fw>" primero, asi que sqe y gmu van
+#         en /lib/firmware/qcom/. El zap tiene firmware-name en el DTS y se usa
+#         tal cual, con los segmentos .b0* en el mismo dir.
 #
-#  BT   - btqca builds "qca/crbtfw%02x.tlv" and "qca/crnv%02x.bin" from the chip
-#         version, so they go in /lib/firmware/qca/.
+#  BT   - btqca arma "qca/crbtfw%02x.tlv" y "qca/crnv%02x.bin" segun la version
+#         del chip, asi que van en /lib/firmware/qca/.
 #
 #  WLAN - ath10k_snoc con qcom,msa-fixed-perm usa el board-2.bin/firmware-5.bin
 #         genericos (de linux-firmware-ath10k). El wlanmdsp.mbn lo carga TZ; se
@@ -41,7 +41,7 @@ package() {
 	install -Dm644 "$startdir"/fw/qca/crbtfw21.tlv "$pkgdir"/lib/firmware/qca/crbtfw21.tlv
 	install -Dm644 "$startdir"/fw/qca/crnv21.bin   "$pkgdir"/lib/firmware/qca/crnv21.bin
 
-	# WLAN: generic WCN3990 ath10k firmware (board-2.bin carries the variant
+	# WLAN: firmware ath10k generico del WCN3990 (board-2.bin trae la variante
 	# de este device) + wlanmdsp que carga TZ.
 	install -Dm644 "$startdir"/fw/ath10k/WCN3990/hw1.0/board-2.bin \
 		"$pkgdir"/lib/firmware/ath10k/WCN3990/hw1.0/board-2.bin
@@ -49,12 +49,28 @@ package() {
 		"$pkgdir"/lib/firmware/ath10k/WCN3990/hw1.0/firmware-5.bin
 	install -Dm644 "$startdir"/fw/qcom/sm6375/motorola/rhodep/wlanmdsp.mbn "$zapdir"/wlanmdsp.mbn
 
+	# IPA (datos moviles): el GSI firmware lo carga el AP por Trust Zone
+	# (PAS id 15), no el modem, tal como lo describe el DTS del vendor:
+	#
+	#   qcom,ipa_fws { compatible = "qcom,pil-tz-generic";
+	#                  qcom,pas-id = <0xf>;
+	#                  qcom,firmware-name = "ipa_fws";
+	#                  memory-region = <&pil_ipa_fw_mem>; };
+	#
+	# El DTS de mainline apunta firmware-name a esta ruta y el driver le pasa
+	# el path a qcom_mdt_load(), que deriva los segmentos .b0* de ahi.
+	# La imagen firmada sale de la particion modem (NON-HLOS), en image/.
+	install -Dm644 "$startdir"/fw/qcom/sm6375/motorola/rhodep/ipa_fws.mdt "$zapdir"/ipa_fws.mdt
+	for _b in b00 b01 b02 b03 b04; do
+		install -m644 "$startdir"/fw/qcom/sm6375/motorola/rhodep/ipa_fws.$_b "$zapdir"/
+	done
+
 	# Mapas de protection domain para pd-mapper.
 	#
-	# pd-mapper does NOT look in /lib/firmware/: it enumerates /sys/class/remoteproc/*,
+	# pd-mapper NO los busca en /lib/firmware/: enumera /sys/class/remoteproc/*,
 	# lee el atributo "firmware" de cada uno (qcom/sm6375/motorola/rhodep/
-	# modem.mbn), applies dirname() and looks for the *.jsn there. That is why they
-	# same directory as the firmware. Without them you get "no pd maps available".
+	# modem.mbn), le aplica dirname() y busca los *.jsn ahi. Por eso van en el
+	# mismo directorio que el firmware. Sin ellos sale "no pd maps available".
 	#
 	# Y sin pd-mapper no arranca el protection domain del WLAN (wlan_pd, que
 	# vive dentro del modem), o sea que no hay servicio QMI 69 y no hay WiFi.

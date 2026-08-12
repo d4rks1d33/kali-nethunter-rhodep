@@ -35,9 +35,13 @@ has a data port. **No interconnect provider is involved**, see §1.
 ### What does not work
 
 1. **The modem never leaves offline state**, so no data and no calls. Separate
-   and pre-existing problem, full evidence and leads in §5. The test SIM is a
-   prepaid one with no service, so this could not be validated end to end
-   either.
+   and pre-existing problem, full evidence and leads in §5, including what was
+   checked and ruled out (rmtfs and the EFS are fine) and one thing that was
+   actually broken and is now fixed: ModemManager was racing the modem and never
+   saw it at all, so the phone never even asked for the SIM PIN.
+   Note a newer, known-good SIM is not detected on this modem at all
+   (no ATR) while the older one is; see §5, it looks like a consequence of the
+   modem not initialising rather than a separate problem.
 2. **Audio.** The device tree is complete and the card registers, but a stream
    takes the SoC down. See **AUDIO-SM6375.md**, which has the state, everything
    ruled out with its evidence, and the next step. The patches (0032-0036) are
@@ -235,6 +239,71 @@ This is independent of IPA and predates it. Evidence collected with qmicli
 - The modem itself boots fine (remoteproc0 up, 69 QRTR services registered
   including "IPA control service"), and rmtfs / pd-mapper / tqftpserv /
   qrtr-ns are all running (rmtfs with `-r -P -s`).
+
+### Session 4c: what was checked on the modem, and corrected
+
+**ModemManager was never seeing the modem at all.** It probes qrtr0 exactly once
+at startup and never retries, and the modem is a remoteproc that needs ~15 s to
+boot and register its QMI services, so ModemManager always lost the race:
+"No modems were found", no SIM, and therefore the phone never asked for the SIM
+PIN. Fixed in rhodep-modem-support >= 2 with a drop-in that waits for the QMI
+User Identity Module service (id 11) before starting, capped at 90 s. Verified
+at a cold boot: the modem now appears on its own and reports
+`lock: sim-pin / state: locked`.
+
+This also invalidates part of the diagnosis below: the
+"check-personalization-state" the USIM appeared stuck in was almost certainly a
+side effect of restarting ModemManager without restarting the modem, not a modem
+fault. With a clean boot the card reports `pin1-or-upin-pin-required` and
+`PIN1 state: enabled-not-verified`, which is exactly right.
+
+**rmtfs and the EFS are healthy.** Ruled out as a cause: with `-v` it opens both
+EFS files and serves reads with no errors, using the shared buffer at the
+rmtfs_mem region:
+
+	[RMTFS] alloc 0, 2621440 => 0xf3900000 (0:0)
+	[RMTFS] open /boot/modem_fs1 => 0 (0:0)
+	[RMTFS] open /boot/modem_fs2 => 1 (0:0)
+
+Note `/boot/modem_fs1` is the path the **modem** asks for, not a local file;
+rmtfs maps it to /dev/disk/by-partlabel/modemst1. A cold boot shows the modem
+only ever requesting those two, never modem_fsg or modem_fsc.
+
+**A partition alias that was missing anyway.** rmtfs resolves those requests
+under /dev/disk/by-partlabel with bare names, but on this device `fsg` is A/B
+suffixed (`fsg_a`) while modemst1/modemst2/fsc are not, so a request for the
+factory NV backup would have failed. rhodep-modem-support >= 3 ships a udev rule
+that creates the unsuffixed alias. Preventive, since the modem does not ask for
+it.
+
+**The modem cannot be restarted from the AP** to retry things: writing "stop" to
+/sys/class/remoteproc/remoteproc0/state returns success but the modem stays
+running, because the WLAN protection domain lives inside the modem and holds a
+reference (stopping it would also drop wifi).
+
+### A SIM that works elsewhere gets no ATR
+
+Testing with a SIM that is known good (daily driver in another phone, no PIN) it
+is not detected at all:
+
+	Card state: 'error: no-atr-received (3)'
+	Physical slot 1: Card status: absent, Slot status: active
+
+ATR is the card's very first answer after the slot is powered and reset, before
+any PIN, file or network activity, so this is electrical/protocol level and
+nothing the kernel or the device tree controls. It is **not** placement or a
+broken reader: putting the original (prepaid, older) SIM back makes it read
+again immediately, `Card state: 'present'`. Power cycling the slot with
+`qmicli --uim-sim-power-off/on` does not change it.
+
+So one card gets an ATR on this modem and another, newer one does not. The usual
+cause is the SIM voltage class (modern cards are often 1.8 V only, older ones
+tolerate 3 V) and which classes the modem's UIM tries. Since the same modem
+firmware and the same EFS work with any SIM under Android, the most likely
+explanation is that this is **downstream of the modem never initialising
+properly**: a modem stuck offline may not run the full voltage class retry
+sequence. Chasing it separately is probably wasted effort; get the modem online
+first.
 
 So: the card is readable and the PIN verifies, but the modem stays offline and
 the USIM application never reaches `ready`. Leads worth chasing, roughly in

@@ -312,28 +312,61 @@ which is how 0x1_fff80000 comes about.
   device tree (with a `linux,spdif-dit` dummy codec, plus `qcom,sd-lines = <0>`
   on the q6afedai child, which this session found was required).
 
-### Where to look next
+### Session 6b: four more concrete hypotheses, all tested, all negative
 
-1. **Force a 32-bit DMA mask on the q6asmdai device** so the IOVA lands in the
-   low 4 GB the way downstream constrains it. This is a one-line, module-only
-   experiment that has NOT been tried yet, and it is the obvious next step.
-2. Check the ASM API versions against what this DSP firmware expects:
-   `q6asm_open_write` (OPEN_WRITE_V3) and the PCM media format version.
-   Downstream negotiates the format version at runtime
-   (`q6asm_get_pcm_format_id`, V5/V4/V3/V2) while mainline picks one; a version
-   the firmware dislikes could make it accept the stream and never consume it.
-3. The DSP itself will not help: its SFR only ever says "wdog or kernel error
-   suspected", i.e. it hangs rather than faults, so there is no file and line to
-   be had.
+Each of these was a real, specific difference or suspicion, and each was tested
+on hardware. None changed the outcome: the DSP still never acknowledges a write.
 
-### Honest status
+- **32 bit DMA mask on q6asmdai.** Tried, no change, and the premise was wrong:
+  the address the DSP is given, 0x1_fff80000, is the IOVA 0xfff80000 (already
+  below 4 GB) or-ed with the stream id in bit 32, exactly as
+  `prtd->phys = dma_buffer.addr | (pdata->sid << 32)` intends. The addressing
+  scheme is coherent and matches sm8250.
+- **The APR router dropping the reply.** Instrumented `apr_callback()` to log
+  every packet the router receives. During a failing playback exactly **8**
+  packets arrive: three AFE responses, two ASM responses plus the memory map
+  response, and two ADM ones. None is a WRITE_DONE. So the DSP genuinely never
+  sends it and nothing is being dropped on the way in. The whole control path
+  (AFE, ASM and ADM) answers normally.
+- **The token layout.** mainline packs the transfer length into bits 16..31 of
+  the token, which is where downstream keeps `buf_index` (16..23) and a flags
+  byte (24..31, bit 24 = direction, bit 25 = no wait), so a 24960 byte period
+  sets the direction flag among others. Sending just the buffer index, leaving
+  the flags byte zero, changes nothing.
+- **The stream session mode.** Downstream pairs the null post-processing
+  topology (`ASM_STREAM_POSTPROCOPO_ID_NONE`, 0x00010C68, the same value as
+  mainline's `ASM_NULL_POPP_TOPOLOGY`) only with the **low latency** session
+  types; for a legacy session it uses a real topology id from the calibration
+  database. mainline always opens legacy + null topology, a combination
+  downstream never uses. Opening with `ASM_LOW_LATENCY_STREAM_SESSION` instead,
+  which is the combination downstream does use, also changes nothing.
 
-The audio hardware description is now verified correct and, as of this session,
-the entire codec path is proven innocent. What is left is a specific,
-well-defined question: why this DSP firmware accepts ASM write commands and never
-acknowledges them. That is a much better place to be than "the DSP hangs for
-unknown reasons", but it is still open, and the remaining leads are the two
-above.
+### Honest status and what is left
+
+The audio hardware description is verified correct, the entire codec path is
+proven innocent, and the question is now precise: **why does this DSP firmware
+accept ASM write commands and never acknowledge them?** Everything else works:
+the memory map succeeds and returns a handle, OPEN_WRITE, the media format, the
+ADM device open and RUN are all answered, and every `apr_send` returns success.
+
+What is genuinely left, none of it cheap:
+
+1. **The post-processing topology.** This is the one real difference still
+   standing: downstream opens legacy PCM sessions with a topology id taken from
+   the ACDB calibration database, and we have no ACDB. Feeding a real topology
+   id would mean extracting it from the vendor calibration blobs on the device.
+   Worth noting the DSP may simply refuse to run a stream whose topology it
+   cannot instantiate, which would fit the symptom exactly.
+2. **Compare the ADM (matrix routing) setup**, the one part of the control path
+   not yet compared line by line against downstream. The stream has to be
+   connected to a device through the matrix before the DSP will pull data.
+3. Capturing the actual APR byte stream of a working downstream boot and
+   diffing it against ours would settle it in minutes, but it needs the device
+   running the vendor kernel with tracing, which this port cannot do.
+
+The realistic summary: this needs either the vendor calibration data or someone
+who knows the ASM firmware protocol. It is not a device tree problem, and it is
+not in the parts of the audio path this port describes.
 
 --------------------------------------------------------------------------------
 ## 5. Speaker and earpiece: the Awinic amplifiers

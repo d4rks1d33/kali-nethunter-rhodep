@@ -61,7 +61,6 @@ source="
 	0035-arm64-dts-qcom-rhodep-enable-audio.patch
 	0036-ASoC-codecs-lpass-macro-add-codec-version-2-2.patch
 	0037-DIAG-ASoC-mark-pcm-prepare-stages.patch
-	0038-DIAG-ASoC-q6asm-dai-trace-write-handshake.patch
 "
 options="!check !strip !tracedeps pmb:cross-native"
 _carch="arm64"
@@ -147,5 +146,4 @@ ba2b7f05b1ab7414b88128aa9fca42ba052884ef3fa217586f4fdc3f7c13e506a95adde1a80cae92
 0a9249c9649f1bc467511c664d2d55ff5889bd5c5a0913a39bc230b9ce15feb7091ed1af7ea241a4864a6c74e2dcce158c8af9e053a635f9f2c06cb42bd350f7  0035-arm64-dts-qcom-rhodep-enable-audio.patch
 4aeb00ad2818a47fd52bbf6ae84e633f4e4d531f9cb9ed7b765da595fd71cc6305e3b5e4a5233272269818b034b63dc7d54293701e33ad439c20204e36ae50f2  0036-ASoC-codecs-lpass-macro-add-codec-version-2-2.patch
 0d9b745e7228671e4740307b19a73c50099d21b13f30acf2adc6a54f2fa3b5560a75c68fb5b803d6c9ceb0b0a26ede1588e5fe71006e2d82f08898ff207a27ff  0037-DIAG-ASoC-mark-pcm-prepare-stages.patch
-c1cd3dd1bf710db15fea9c580ae40ba3cb7dc14876b7d9f31fe163b6dedc1a282be9e138d4367318a44e88206d1b935ebba189e947046112628b84d0e7863dcc  0038-DIAG-ASoC-q6asm-dai-trace-write-handshake.patch
 "

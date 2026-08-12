@@ -6,6 +6,9 @@ triggered: with the default ~0.5 s buffer it survives ~460 ms, with a 21 ms
 buffer (1024 frames) only 27 ms. So the data path works and it dies exactly
 when the DSP has consumed the periods the AP queued.
 
+Also log every packet the APR router receives, to tell apart "the DSP never
+replies" from "the reply arrives and is dropped before the ASM service".
+
 Trace the handshake: how many periods .ack queues, every WRITE_DONE the DSP
 sends back, and every packet the ASM service receives at all, so the log shows
 whether the AP keeps feeding and whether the DSP ever answers.
@@ -57,7 +60,7 @@ whether the AP keeps feeding and whether the DSP ever answers.
  			if (ret < 0) {
  				dev_err(component->dev, "Error queuing playback buffer %d\n", ret);
 --- a/sound/soc/qcom/qdsp6/q6asm.c	2026-08-12 16:26:58.898104008 +0000
-+++ b/sound/soc/qcom/qdsp6/q6asm.c	2026-08-12 16:41:05.876461012 +0000
++++ b/sound/soc/qcom/qdsp6/q6asm.c	2026-08-12 18:36:05.491782010 +0000
 @@ -23,6 +23,10 @@
  #include "q6dsp-errno.h"
  #include "q6dsp-common.h"
@@ -69,7 +72,17 @@ whether the AP keeps feeding and whether the DSP ever answers.
  #define ASM_STREAM_CMD_CLOSE			0x00010BCD
  #define ASM_STREAM_CMD_FLUSH			0x00010BCE
  #define ASM_SESSION_CMD_PAUSE			0x00010BD3
-@@ -674,6 +678,7 @@
+@@ -58,6 +62,9 @@
+ 
+ 
+ #define ASM_LEGACY_STREAM_SESSION	0
++/* DIAG: downstream pairs the null post-processing topology with the low
++ * latency session, never with the legacy one. */
++#define ASM_LOW_LATENCY_STREAM_SESSION	0x10000000
+ /* Bit shift for the stream_perf_mode subfield. */
+ #define ASM_SHIFT_STREAM_PERF_MODE_FLAG_IN_OPEN_READ              29
+ #define ASM_END_POINT_DEVICE_MATRIX	0
+@@ -674,6 +681,7 @@
  		goto done;
  
  	case ASM_DATA_EVENT_WRITE_DONE_V2:
@@ -77,7 +90,7 @@ whether the AP keeps feeding and whether the DSP ever answers.
  		client_event = ASM_CLIENT_EVENT_DATA_WRITE_DONE;
  		if (ac->io_mode & ASM_SYNC_IO_MODE) {
  			phys_addr_t phys;
-@@ -755,6 +760,8 @@
+@@ -755,6 +763,8 @@
  	int session_id;
  
  	session_id = (hdr->dest_port >> 8) & 0xFF;
@@ -86,7 +99,33 @@ whether the AP keeps feeding and whether the DSP ever answers.
  	if (session_id)
  		return q6asm_stream_callback(adev, data, session_id);
  
-@@ -1551,7 +1558,11 @@
+@@ -939,7 +949,7 @@
+ 
+ 	pkt->hdr.opcode = ASM_STREAM_CMD_OPEN_WRITE_V3;
+ 	open->mode_flags = 0x00;
+-	open->mode_flags |= ASM_LEGACY_STREAM_SESSION;
++	open->mode_flags |= ASM_LOW_LATENCY_STREAM_SESSION;
+ 	if (is_gapless)
+ 		open->mode_flags |= BIT(ASM_SHIFT_GAPLESS_MODE_FLAG);
+ 
+@@ -1532,7 +1542,15 @@
+ 	q6asm_add_hdr(ac, &pkt->hdr, pkt_size, false, stream_id);
+ 
+ 	ab = &port->buf[port->dsp_buf];
+-	pkt->hdr.token = port->dsp_buf | (len << ASM_WRITE_TOKEN_LEN_SHIFT);
++	/*
++	 * DIAG: mainline packs the transfer length into bits 16..31 of the
++	 * token. Downstream uses those bits for something else entirely
++	 * (buf_index in 16..23 and a flags byte in 24..31, where bit 24 is the
++	 * direction and bit 25 is "no wait"), so a length of 24960 bytes ends
++	 * up setting the direction flag among others. Send just the buffer
++	 * index and see whether the DSP starts acknowledging writes.
++	 */
++	pkt->hdr.token = port->dsp_buf;
+ 	pkt->hdr.opcode = ASM_DATA_CMD_WRITE_V2;
+ 	write->buf_addr_lsw = lower_32_bits(ab->phys);
+ 	write->buf_addr_msw = upper_32_bits(ab->phys);
+@@ -1551,7 +1569,11 @@
  		port->dsp_buf = 0;
  
  	spin_unlock_irqrestore(&ac->lock, flags);
@@ -98,3 +137,30 @@ whether the AP keeps feeding and whether the DSP ever answers.
  	if (rc == pkt_size)
  		rc = 0;
  
+--- a/drivers/soc/qcom/apr.c	2026-08-12 18:13:54.139083005 +0000
++++ b/drivers/soc/qcom/apr.c	2026-08-12 18:13:54.150083005 +0000
+@@ -15,6 +15,9 @@
+ #include <linux/rpmsg.h>
+ #include <linux/of.h>
+ 
++/* DIAG (not for upstream): log every packet the router receives. */
++#define APR_DIAG(fmt, ...) printk(KERN_EMERG "APR-DIAG: " fmt "\n", ##__VA_ARGS__)
++
+ enum {
+ 	PR_TYPE_APR = 0,
+ 	PR_TYPE_GPR,
+@@ -178,6 +181,14 @@
+ 	abuf->len = len;
+ 	memcpy(abuf->buf, buf, len);
+ 
++	{
++		const struct apr_hdr *h = buf;
++
++		APR_DIAG("rx: opcode=0x%08x src_svc=%u dst_svc=%u src_port=0x%04x dst_port=0x%04x token=0x%08x len=%d",
++			 h->opcode, h->src_svc, h->dest_svc, h->src_port,
++			 h->dest_port, h->token, len);
++	}
++
+ 	spin_lock_irqsave(&apr->rx_lock, flags);
+ 	list_add_tail(&abuf->node, &apr->rx_list);
+ 	spin_unlock_irqrestore(&apr->rx_lock, flags);

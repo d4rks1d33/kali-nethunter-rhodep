@@ -6,8 +6,13 @@ still resets the SoC about half a second later: the ADSP faults and its watchdog
 bite takes the chip down. That is the open item (§4), and §7 says how to pick
 the work back up.
 
-The patches are NOT in the kernel build right now, so the shipped image
-(v80-STABLE) has no audio device tree.
+**State of the device right now:** the audio patches ARE back in `source=`
+(together with `CONFIG_SM_LPASSCC_6115=m`), and the phone was left on
+`kali-boot-v82-smmubypass.img`. That image is only for the SMMU experiment (it
+adds `arm-smmu.disable_bypass=0`, which lowers memory protection); for normal use
+flash **`kali-boot-v81-audio.img`** (same kernel, clean cmdline, audio device
+tree present but `apr.ko` held back in `/root/audio-hold/` so nothing loads) or
+**`kali-boot-v80-STABLE.img`** (no audio at all).
 
 	0 [MotorolaMotoG82]: sm6375 - Motorola-Moto-G82-5G
 	input: Motorola-Moto-G82-5G Headset Jack as .../card0/input5
@@ -141,36 +146,88 @@ is also why nothing is ever printed.
 | A CPU stalled on an unclocked register | No, see the heartbeat and the hardlockup detector above. |
 | The soundwire port counts | No. It reset the same way before and after correcting them. |
 | The soundwire CGCR reset offsets | Correct: the driver uses 0x98 and 0x100, which match the downstream hctl registers 0x0A6A9098 and 0x0A7EC100. |
+| The SMMU aborting the DSP's DMA | No. `arm-smmu.disable_bypass=0` changes nothing and no fault or "Blocked unknown Stream ID" message has ever appeared. |
+| A missing LPASS clock vote | No. Downstream votes the same DCODEC block the macros already request; the MACRO vote it uses is for a different clock. |
+| An ADSP software fault we could read | There is none to read: the SFR says "wdog or kernel error suspected", so the DSP hung rather than faulted. |
 
-### Where to look next
+### Session 5: the ADSP hangs, it does not fault
 
-The question is now well defined: **why does the vendor ADSP firmware fault when
-mainline drives a CDC DMA port?** In order of promise:
+The ADSP crash reason has been read, and it closes off a whole line of enquiry.
 
-1. **Read the ADSP crash reason.** SMEM survives a warm reset, and a Qualcomm
-   subsystem writes its fault string (file and line) there before dying.
-   mainline's qcom_q6v5 prints it as "fatal error received: ..." when it gets a
-   graceful fatal interrupt, which never happens here because the watchdog bite
-   is immediate. Reading that SMEM item on the following boot should name the
-   failing ADSP component directly. This is the single highest value next step.
-2. **Diff the AFE port configuration against downstream.** Compare what
-   mainline's `q6afe_cdc_dma_port_prepare()` sends (minor version, sample rate,
-   bit width, data format, channel count) against the downstream
-   `msm_dai_q6_cdc_dma` path for the same port, and check the port ids: the
-   downstream names encode them, `rx_cdc_dma_0_rx` is "msm-dai-cdc-dma-dev.45104"
-   (0xB030) and `va_cdc_dma_0_tx` is 45089 (0xB021), which do match mainline's
-   RX_CODEC_DMA_RX_0 / VA_CODEC_DMA_TX_0.
-3. **AP side LPASS clocks.** The ADSP refuses the LPASS core hw votes over AFE,
-   which suggests that on this SoC part of the LPASS clocking is expected to be
-   done by the AP (that is what sc7280 does with lpassaudiocc and the AP side
-   lpass-cdc-dma driver) rather than by the DSP. Check what `holi.dtsi` enables
-   around the LPASS in GCC, and whether a GCC LPASS clock has to be on before a
-   CDC DMA port can run.
-4. Worth knowing: the sm6115 DT half of the upstream series that this port is
-   modelled on (`qrb4210-rb2: add wsa audio playback and capture support`)
-   stalled at v3 and was **never merged**, so there is no in-tree DT using the
-   sm6115 LPASS macros. Only the driver compatibles landed. If that series has a
-   v4, or the author's tree exists, it is worth diffing against.
+`drivers/remoteproc/qcom_q6v5_pas.c` gives sm6375 the sm6350 data, whose
+`crash_reason_smem` is **423**. That SMEM item can be read after the reset,
+because SMEM is a nomap reserved region in DDR and survives a warm reset.
+`/dev/mem` is useless for it (CONFIG_STRICT_DEVMEM, the read returns 0 bytes),
+so `tools/smemdump/` in this repo is a small module that calls
+`qcom_smem_get()`; it is meant to be **built on the device** with the installed
+headers, so it costs no build and no reflash. It lives in `/root/smemdump/` on
+the phone.
+
+After a crash, item 423 contains:
+
+	smemdump: item 423 text: "SFR Init: wdog or kernel error suspected."
+
+That string is what the ADSP writes at its next init when it finds the previous
+shutdown was not clean. There is **no file and no line**, which means the ADSP
+never reached a fault handler: it **hung**, and its watchdog bit. So no software
+fault description is ever going to come out of the DSP, and the failure is the
+same class as the IPA bug, an access that never completes, only on the DSP side.
+
+Also consistent: the AP heartbeat survives ~460 ms past the trigger and then
+everything stops together, which is what a wedged bus looks like from the AP.
+
+Two more things ruled out this session:
+
+- **The LPASS clock description is right.** Downstream's `lpass_audio_hw_vote`
+  (the clock the bolero parent node votes) is
+  `afe_vote_lpass_core_hw(AFE_LPASS_CORE_HW_DCODEC_BLOCK, ...)` in
+  `techpack/audio/asoc/codecs/audio-ext-clk-up.c`, i.e. exactly mainline's
+  `LPASS_HW_DCODEC_VOTE`, which is what the macros already request. Downstream
+  uses the MACRO block vote for a *different* clock
+  (`lpass_core_hw_vote`), so its absence here is correct, not a gap.
+- **The SMMU is not aborting the DSP's DMA.** With
+  `CONFIG_ARM_SMMU_DISABLE_BYPASS_BY_DEFAULT=y` an unregistered stream id is
+  aborted, which was a good candidate for hanging a DMA master. Booting with
+  `arm-smmu.disable_bypass=0` (a cmdline change only, no rebuild) changes
+  nothing at all, and no log in any of the crashes has ever contained
+  "Blocked unknown Stream ID", a context fault or a global fault. Combined with
+  the earlier result that 0x1c1, 0x1801 and no `iommus` all behave identically,
+  the SMMU can be dropped as a suspect.
+
+### Where to look next: diff the AFE command sequence against downstream
+
+This is desk work, no device time, and it is the last systematic avenue before
+guessing again. The question is what mainline tells the ADSP that downstream does
+not, for the same port.
+
+Already done: the config **struct** is byte for byte identical, field order
+included. Vendor `afe_param_id_cdc_dma_cfg_t`
+(`techpack/audio/include/dsp/apr_audio-v2.h`) and mainline
+`afe_param_id_cdc_dma_cfg` (`sound/soc/qcom/qdsp6/q6afe.c`) are both:
+
+	u32 cdc_dma_cfg_minor_version; u32 sample_rate;
+	u16 bit_width; u16 data_format; u16 num_channels; u16 active_channels_mask;
+
+So it is not a layout mismatch. What has NOT been compared yet:
+
+1. **The values**: `cdc_dma_cfg_minor_version` (mainline uses
+   AFE_API_VERSION_CODEC_DMA_CONFIG == 1, confirm downstream agrees),
+   `data_format`, and how `active_channels_mask` is computed for 2 channels.
+2. **The command sequence around it.** Mainline does param-set then
+   `AFE_PORT_CMD_DEVICE_START`. Downstream `techpack/audio/dsp/q6afe.c`
+   (see `SIZEOF_CFG_CMD(afe_param_id_cdc_dma_cfg_t)` near line 1614 and work
+   outwards to `afe_port_start`) may send **extra params first**. Candidates
+   worth grepping for: island mode (the rhodep DT sets
+   `qcom,msm-dai-is-island-supported = <1>` on `va_cdc_dma_0_tx`), a topology
+   or `AFE_PARAM_ID_LPASS_CORE_SHARED_CLOCK_CONFIG`, and anything CDC-DMA
+   specific that mainline has no equivalent for. A missing prerequisite param
+   is a very plausible way to make the DSP walk into an unclocked block and
+   hang.
+3. If that comes up empty: check whether the **AP** is supposed to enable LPASS
+   clocks that mainline never touches. `lpasscc-sm6115.c` only provides
+   *resets*, while for example `lpassaudiocc-sc7280.c` provides real clocks. If
+   SM6375's LPASS AUDIO CC has gates the CDC DMA path needs, nobody is enabling
+   them.
 
 --------------------------------------------------------------------------------
 ## 5. Speaker and earpiece: the Awinic amplifiers

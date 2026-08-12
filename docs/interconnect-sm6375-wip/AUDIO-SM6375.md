@@ -458,7 +458,73 @@ With the route genuinely off, aplay refuses to open the device with
 "Invalid argument", because DPCM will not start a front end with no back
 end, so this particular bisection cannot be done through aplay at all.
 
+### Session 8: the Xperia lead is dead, and the write ordering is exonerated
+
+**The murray lead came to nothing, and that is worth knowing definitively.**
+The Sony Xperia 10 IV is upstream and shares this SoC, but its dts has no
+audio at all: no apr, no q6, no sound card. It was added by Konrad Dybcio
+(Linaro), whose public tree is frozen around v5.10 and has no sm6375 or
+audio branch, and SoMainline/linux has no sm6375 branch either. So nobody
+has attempted ADSP audio on this SoC. There is no reference to copy and no
+one further along to compare against.
+
+**The transmit side is now instrumented too**, in `apr_send_pkt()`, and it
+immediately showed something the receive trace could not: the order the
+commands actually leave in.
+
+	ASM_STREAM_CMD_OPEN_WRITE_V3   0x00010db3
+	ASM_DATA_CMD_MEDIA_FMT_UPDATE  0x00010d98
+	ASM_DATA_CMD_WRITE_V2 token 0  0x00010dab
+	ASM_DATA_CMD_WRITE_V2 token 1
+	ASM_DATA_CMD_WRITE_V2 token 2
+	ASM_DATA_CMD_WRITE_V2 token 3
+	ASM_SESSION_CMD_RUN_V2         0x00010daa   <- last
+
+Every send returns success. The writes go out before the session is ever
+told to run, which is what the current code does by design: prepare() sets
+the state to RUNNING, the application fills the buffer, `snd_pcm_ack()`
+hands the periods over, and only then does ALSA trigger the stream.
+
+**Experiment 0040 reversed that ordering and it changed nothing.** Queueing
+is now gated on RUN having been sent, and the periods the application had
+already written are queued from the trigger right after RUN, since it will
+not write again until a period completes. The trace confirms RUN now
+precedes all four writes. Still zero WRITE_DONE, zero RUN_DONE, and the same
+crash. **The ordering is exonerated**; keep the patch only as an experiment.
+
+**What the downstream comparison turned up.** Its playback prepare, in
+`techpack/audio/asoc/msm-pcm-q6-v2.c`, does two things mainline does not:
+
+- `q6asm_send_cal()` between `open_write` and the media format block. This is
+  the ACDB calibration push. It is a no-op downstream when no calibration is
+  loaded, so it is not obviously mandatory, but it is a real difference.
+- `q6asm_media_format_block_multi_ch_pcm_v5()` / `_v4()`, where mainline
+  sends the unversioned variant. The DSP does acknowledge mainline's version
+  with status 0, so it is accepted, but v4/v5 is what this generation's stack
+  actually uses.
+
+**A caution about the "RUN is never answered" observation.** The DSP answers
+every other ASM command and never answers RUN, which looked like the anomaly
+of the session. It may well be normal: downstream builds the RUN header with
+`q6asm_update_token()`, which encodes session, stream, buffer index,
+direction and an explicit **no_wait flag**, whereas mainline just sets
+`hdr->token = ac->session`. If the DSP decides whether to acknowledge from
+that flag, then a nowait RUN going unanswered is expected behaviour and not
+a fault. Do not build on this until it is checked.
+
+Next, in order of cost:
+
+1. Call `q6asm_run()` (the synchronous variant) instead of `q6asm_run_nowait()`
+   and see whether the DSP acknowledges. This answers, in one build, whether
+   RUN is reaching a session that is willing to start, or is being ignored.
+2. Decode `q6asm_update_token()` bit layout and match the token mainline
+   sends to what downstream sends.
+3. Try the v4/v5 media format block.
+
 ### State the tree was left in (read before rebuilding)
+
+Session 8 added `0040-EXPERIMENT-ASoC-q6asm-dai-run-before-queueing-writes.patch`
+to `source=` as well, and the DIAG in 0038 now traces the transmit side too.
 
 The aport at
 `/home/pmos/.local/var/pmbootstrap/cache_git/pmaports/device/testing/linux-motorola-rhodep/`

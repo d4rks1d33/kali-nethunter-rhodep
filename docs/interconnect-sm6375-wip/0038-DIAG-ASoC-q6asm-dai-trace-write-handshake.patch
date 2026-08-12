@@ -169,6 +169,18 @@ whether the AP keeps feeding and whether the DSP ever answers.
  enum {
  	PR_TYPE_APR = 0,
  	PR_TYPE_GPR,
+@@ -67,6 +70,11 @@
+ 	hdr->dest_svc = adev->svc.id;
+ 
+ 	ret = rpmsg_trysend(apr->ch, pkt, hdr->pkt_size);
++
++	APR_DIAG("tx: opcode=0x%08x dst_svc=%u dst_port=0x%04x token=0x%08x hdr_field=0x%04x size=%u ret=%d",
++		 hdr->opcode, hdr->dest_svc, hdr->dest_port, hdr->token,
++		 hdr->hdr_field, hdr->pkt_size, ret);
++
+ 	spin_unlock_irqrestore(&adev->svc.lock, flags);
+ 
+ 	return ret ? ret : hdr->pkt_size;
 @@ -178,6 +181,31 @@
  	abuf->len = len;
  	memcpy(abuf->buf, buf, len);

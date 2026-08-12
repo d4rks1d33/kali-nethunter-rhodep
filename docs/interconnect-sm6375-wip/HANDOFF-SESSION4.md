@@ -5,26 +5,60 @@ Kernel 7.2.0-rc5. Read this INSTEAD of HANDOFF-SESSION3.md; sessions 1-3 were
 chasing the wrong thing.
 
 --------------------------------------------------------------------------------
-## 0. RESULT
+## 0. CURRENT STATE (read this first)
 --------------------------------------------------------------------------------
-**The IPA now probes and sets up successfully.** dmesg:
+### The image to use
+
+**`kali-boot-v80-STABLE.img`** in /opt/postmarket/kali-nethunter/img/. This is
+the complete working port and the one flashed on the device: display, touch,
+GPU, wifi/BT, the three remoteprocs, battery, charger, USB/OTG, thermal
+throttling, ramoops in the region the bootloader really preserves, and the IPA
+with the mobile data path up. Kernel patches 0001-0026, no audio, no
+interconnect, no diagnostics.
+
+Rollback: `kali-boot-v47.img` (the pre-everything image). Everything in between
+(v48..v76) was diagnostic; do not ship any of it.
+
+### What works
+
+**IPA / mobile data path: yes.** It loads at boot and sets up:
 
 	ipa 5840000.ipa: IPA driver initialized
 	ipa 5840000.ipa: IPA driver setup completed successfully
 	ipa 5840000.ipa: received modem starting event
 	ipa 5840000.ipa: received modem running event
 
-`rmnet_ipa0` exists, and ModemManager now reports
-`drivers: qrtr, ipa` / `ports: qrtr0 (qmi), rmnet_ipa0 (net)`, i.e. it has a
-data port. The interconnect driver was never needed for any of this.
+`rmnet_ipa0` is created and ModemManager reports the modem with
+`drivers: qrtr, ipa` and `ports: qrtr0 (qmi), rmnet_ipa0 (net)`, i.e. it finally
+has a data port. **No interconnect provider is involved**, see §1.
 
-Stable image: **`kali-boot-v65.img`** (identical to v64 except v64 also carries
-the DIAG printks). Rollbacks: `kali-boot-v63.img` (same but IPA node has the
-wrong reg, still boots) and `kali-boot-v47.img` (pre-everything).
+### What does not work
 
-Still NOT working, and it is a *different, pre-existing* problem: the modem
-never goes online (see §5). Data could not be tested end to end anyway, the
-test SIM is a prepaid one with no service.
+1. **The modem never leaves offline state**, so no data and no calls. Separate
+   and pre-existing problem, full evidence and leads in §5. The test SIM is a
+   prepaid one with no service, so this could not be validated end to end
+   either.
+2. **Audio.** The device tree is complete and the card registers, but a stream
+   takes the SoC down. See **AUDIO-SM6375.md**, which has the state, everything
+   ruled out with its evidence, and the next step. The patches (0032-0036) are
+   in the kernel aport directory and in this directory but are deliberately
+   **out of `source=`**, so the shipped kernel has no audio nodes.
+3. Loudspeaker and earpiece are Awinic i2c smart amplifiers with a proprietary
+   ADSP topology; mainline has no driver for that family (AUDIO-SM6375.md §5).
+
+### On the device
+
+- ssh `kali` / `1234` at 192.168.1.53, sudo with the same password, no root
+  login.
+- The module tree matches the v80 kernel and `ipa.ko` autoloads by modalias.
+- `ipa_fws.mdt` + `.b0[0-4]`, extracted from the modem partition, are in
+  /lib/firmware/qcom/sm6375/motorola/rhodep/ and are also packaged in
+  firmware-motorola-rhodep (pkgver 3), which is NOT installed as a package yet.
+
+### Reading crash logs
+
+`/var/lib/systemd/pstore/`, **not** `/sys/fs/pstore/`, which systemd-pstore
+empties on boot. See §2.
 
 --------------------------------------------------------------------------------
 ## 1. ROOT CAUSE of the "IPA resets the SoC" bootloops (v48..v62)

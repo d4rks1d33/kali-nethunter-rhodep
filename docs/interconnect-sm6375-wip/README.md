@@ -1,6 +1,8 @@
-# Mobile data (IPA) on SM6375 — research, and how it was actually solved
+# SM6375 (rhodep) — mobile data and audio bring-up notes
 
-**Read `HANDOFF-SESSION4.md` first.** It has the answer. The rest of this
+**Read `HANDOFF-SESSION4.md` first**: §0 is the current state of the port (which
+image to flash, what works, what does not), and the rest is how mobile data was
+solved. For audio, read **`AUDIO-SM6375.md`**. The rest of this
 directory is the (long) road that led there, kept because the raw vendor data in
 it is useful and because the dead ends are worth knowing about.
 
@@ -56,13 +58,16 @@ flash cycle.
 
 | file | what it is |
 | --- | --- |
-| `HANDOFF-SESSION4.md` | **the solution**, the debug method, and the next task |
+| `HANDOFF-SESSION4.md` | **current state of the port**, how the IPA was fixed, the debug method, and the next task (the modem never goes online) |
+| `AUDIO-SM6375.md` | the audio bring-up: the card comes up, a stream kills the ADSP. State, what is ruled out with evidence, and where to look next |
 | `PROGRESS.md` | full chronological log, sessions 1-4, including the dead ends |
 | `0031-DIAG-net-ipa-trace-probe-steps.patch` | the instrumentation that found it (KERN_EMERG markers per probe step + a `diag_mode` parameter that probes the shared SRAM). Not in `source=`; re-add when debugging IPA |
 | `AUDIT.md`, `VENDOR-BIMC.md` | interconnect research (RPM ids, the bimc reset theory). Historical |
 | `DT-NODES.md`, `gen_sm6375.py`, `sm6375.c`, `qcom,sm6375.h` | the unused interconnect provider and its generator |
 | `holi_nodes_dump.txt`, `holi_qos_dump.txt`, `icbid_map.txt`, `qcm2290_ports.txt` | parsed vendor NoC/QoS tables |
 | `0027`-`0029` patches | the unused interconnect driver + DT nodes |
+| `0032`-`0036` patches | the audio bring-up (APR/q6dsp, LPASS macros and soundwire, the sound card, the WCD9370, LPASS codec version 2.2). Kept OUT of the kernel `source=` while a stream still kills the SoC |
+| `0037` patch | DIAG: marks the four stages of the ASoC PCM prepare |
 
 ## Where the vendor source comes from
 

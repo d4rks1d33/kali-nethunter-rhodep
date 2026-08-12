@@ -368,3 +368,40 @@ NOTE: read it from /var/lib/systemd/pstore/, systemd-pstore moves it out of
 ### Images
 kali-boot-v65.img = final (clean). v64 = same + DIAG printks. v63 = ramoops fix
 only (IPA node still wrong, boots fine). v47 = original rollback.
+
+## ==== SESSION 4b: audio bring-up (LPASS/WCD9370) ====
+
+See AUDIO-SM6375.md for the full write-up; this is the summary.
+
+sm6375.dtsi had no audio nodes at all, so the whole LPASS had to be described:
+APR/q6dsp services, the VA/RX/TX codec macros, both soundwire controllers, the
+LPI pin controller and the two LPASS clock controllers, plus the WCD9370 and the
+sound card on rhodep. Template: sm6115 (bengal), same LPASS generation, whose
+addresses are identical to holi's; every one verified against the downstream
+holi-audio.dtsi / holi-lpi.dtsi. The kernel config already had everything
+compiled except SM_LPASSCC_6115.
+
+RESULT: the card registers, the WCD9370 enumerates on both soundwire buses and
+the headset jack is detected.
+
+	0 [MotorolaMotoG82]: sm6375 - Motorola-Moto-G82-5G
+	input: Motorola-Moto-G82-5G Headset Jack as .../card0/input5
+
+Three deviations from sm6115 were needed, all reported by the hardware:
+soundwire port counts (VA/TX has 4 din, RX has 1 din + 6 dout), LPASS codec
+version 2.2 (added to the drivers, grouped with the pre-2.5 register layout),
+and NO LPASS_HW_MACRO_VOTE (this ADSP answers that vote with "unknown command"
+and the VA macro then fails to probe).
+
+STILL BROKEN: starting a stream, either direction, resets the SoC ~500 ms later.
+It is the ADSP dying and its watchdog bite taking the chip down, not the AP: a
+userspace heartbeat keeps ticking for ~460 ms past the trigger and the buddy
+hardlockup detector, which is enabled and active, never fires. Ruled out with
+evidence: the RX path specifically (capture dies too), analog PA current, the
+macro register stride, the ADSP SMMU stream id (0x1c1, 0x1801 and none all
+behave identically), a stalled CPU, the soundwire port counts and the soundwire
+CGCR offsets. Next step: read the ADSP crash reason out of SMEM, which survives
+a warm reset.
+
+Patches 0032-0036 are kept but are OUT of source=, so the shipped kernel has no
+audio nodes. 0037 is the ASoC prepare-stage DIAG patch.

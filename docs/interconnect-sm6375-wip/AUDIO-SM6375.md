@@ -1,8 +1,13 @@
 # Audio on SM6375 (rhodep) — bring-up notes
 
 Status: **the sound card exists**, headset jack detection works, the WCD9370
-enumerates on both soundwire buses. Playback still resets the SoC when the
-stream starts; that is the open item (§4).
+enumerates on both soundwire buses. Starting a stream, in either direction,
+still resets the SoC about half a second later: the ADSP faults and its watchdog
+bite takes the chip down. That is the open item (§4), and §7 says how to pick
+the work back up.
+
+The patches are NOT in the kernel build right now, so the shipped image
+(v80-STABLE) has no audio device tree.
 
 	0 [MotorolaMotoG82]: sm6375 - Motorola-Moto-G82-5G
 	input: Motorola-Moto-G82-5G Headset Jack as .../card0/input5
@@ -205,18 +210,50 @@ default ("no backend DAIs enabled for MultiMedia1"). For a headphone test:
 A UCM profile will be needed for PipeWire/Phosh to use the card at all.
 
 --------------------------------------------------------------------------------
-## 7. Method reminder
+## 7. How to pick this up again
 --------------------------------------------------------------------------------
-Same safety net as the IPA work, and it is what makes this iterable:
+The audio patches are **not** in the kernel `source=` right now, so the shipped
+kernel (v80-STABLE) has no audio device tree at all. To resume:
 
-- `apr.ko` is kept out of the module tree, in `/root/audio-hold/`, with
-  `depmod -a` run afterwards. Without APR there is no q6afe, so no clocks, so
-  no macro, soundwire or LPI pin controller ever touches a register: the device
-  boots normally with the whole audio device tree present. Load it by hand:
+1. Add 0032-0036 back to `source=` in the linux-motorola-rhodep APKBUILD, add
+   their sha512sums, and set `CONFIG_SM_LPASSCC_6115=m` in the config (the
+   soundwire controllers need it for their resets). Update the config's sha too.
+   0037 (the PCM prepare DIAG) is optional and useful.
+2. Rebuild, build a boot image, flash.
+3. Keep the safety net that made this iterable: move `apr.ko` out of the module
+   tree and run depmod, so the device boots with the whole audio device tree
+   present but nothing ever touches an LPASS register:
+
+	mkdir -p /root/audio-hold
+	mv /lib/modules/7.2.0-rc5/kernel/drivers/soc/qcom/apr.ko /root/audio-hold/
+	depmod -a 7.2.0-rc5
+
+   Then load it by hand when you want to experiment:
 
 	modprobe pdr_interface && insmod /root/audio-hold/apr.ko
 
-- Anything that is only a driver change (the codec version patch, for example)
-  needs **no reflash**: rebuild, extract the modules from the apk and scp them.
-  Only device tree changes need a new boot image.
+   Everything else cascades from there by modalias: q6afe, the clocks, the LPI
+   pin controller, the macros, the soundwire controllers, the WCD9370 and the
+   card.
+
+Other things worth knowing:
+
+- Anything that is only a driver change needs **no reflash**: rebuild, pull the
+  modules out of the apk and scp them. Only device tree changes need a new boot
+  image. That turns a ~10 minute cycle into a ~5 minute one.
+- Always decompile the DTB and check the property you just changed before
+  flashing. Two patches touch sm6375.dtsi in sequence, so editing only the first
+  one's base tree silently leaves the old value in place; this was caught that
+  way once.
 - Crash logs: `/var/lib/systemd/pstore/`, not `/sys/fs/pstore/`.
+- `CONFIG_DYNAMIC_DEBUG` is enabled in the shipped kernel, so the ASoC core,
+  macro, soundwire and codec debug messages can be turned on at runtime:
+
+	echo 'module snd_soc_core +p' > /sys/kernel/debug/dynamic_debug/control
+
+  Use `module <name> +p`; `file <glob> +p` patterns did not match anything here.
+- The buddy hardlockup detector is NOT enabled in the shipped kernel (it panics
+  on detection, which is not wanted in a daily image). Re-enable
+  `CONFIG_HARDLOCKUP_DETECTOR` + `CONFIG_HARDLOCKUP_DETECTOR_BUDDY` if needed;
+  note it never fired for this bug, which is itself what proved the AP was not
+  the one hanging.

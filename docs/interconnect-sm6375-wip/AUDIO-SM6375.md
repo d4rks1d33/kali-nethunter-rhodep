@@ -458,6 +458,32 @@ With the route genuinely off, aplay refuses to open the device with
 "Invalid argument", because DPCM will not start a front end with no back
 end, so this particular bisection cannot be done through aplay at all.
 
+### State the tree was left in (read before rebuilding)
+
+The aport at
+`/home/pmos/.local/var/pmbootstrap/cache_git/pmaports/device/testing/linux-motorola-rhodep/`
+currently has these diagnostics **active** in `source=`:
+
+- `0037-DIAG-ASoC-mark-pcm-prepare-stages.patch`
+- `0038-DIAG-ASoC-q6asm-dai-trace-write-handshake.patch`, in its raw-packet
+  dump form: it prints every APR packet received word by word, which is what
+  produced the status table above. It is verbose and prints at KERN_EMERG.
+
+`0039-ASoC-q6asm-dai-32bit-dma-mask.patch` exists but is **not** in `source=`
+(it was tested and was negative). Patch 0032 carries the corrected SMMU
+stream id and is a real fix that should stay.
+
+So a plain rebuild right now produces a diagnostic kernel, not a shippable
+one. Before shipping anything, drop 0037 and 0038 from `source=`, run
+`pmbootstrap checksum linux-motorola-rhodep`, and rebuild. The image on the
+device, `kali-boot-v88-smmu-a1.img`, is one of these diagnostic builds; daily
+use is still `kali-boot-v80-STABLE.img`.
+
+Two reminders that cost time this session: after editing any patch by hand
+run `pmbootstrap checksum` or the build fails on the sha512, and if lines are
+added to a hunk its `@@` counts must be recalculated or patch rejects the
+file as malformed.
+
 ### Honest status and what is left
 
 The audio hardware description is verified correct, the entire codec path is

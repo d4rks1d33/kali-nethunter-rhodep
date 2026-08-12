@@ -341,6 +341,24 @@ on hardware. None changed the outcome: the DSP still never acknowledges a write.
   downstream never uses. Opening with `ASM_LOW_LATENCY_STREAM_SESSION` instead,
   which is the combination downstream does use, also changes nothing.
 
+### Session 6c: the default topologies, also negative
+
+Downstream opens legacy PCM sessions with a topology id from the ACDB
+calibration database, and mainline uses the null ones on both sides, so the
+obvious cheap approximation was to use the vendor's **default** topologies
+instead of the null ones:
+
+- ASM (POPP): `DEFAULT_POPP_TOPOLOGY` 0x00010BE4 instead of
+  `ASM_NULL_POPP_TOPOLOGY` 0x00010C68, back on a legacy session, which is the
+  combination downstream uses.
+- ADM (COPP): `DEFAULT_COPP_TOPOLOGY` 0x00010314 instead of
+  `NULL_COPP_TOPOLOGY` 0x00010312 in q6routing.
+
+No change: four writes, zero WRITE_DONE. Worth recording that the APR trace of
+this run shows the control path completing in full, including the ADM answering
+`ADM_CMDRSP_DEVICE_OPEN_V5` (0x00010329) for AFE port 0x1002 and then the matrix
+map. Everything is set up correctly and the DSP simply does not consume.
+
 ### Honest status and what is left
 
 The audio hardware description is verified correct, the entire codec path is

@@ -60,8 +60,8 @@ whether the AP keeps feeding and whether the DSP ever answers.
  			if (ret < 0) {
  				dev_err(component->dev, "Error queuing playback buffer %d\n", ret);
 --- a/sound/soc/qcom/qdsp6/q6asm.c	2026-08-12 16:26:58.898104008 +0000
-+++ b/sound/soc/qcom/qdsp6/q6asm.c	2026-08-12 18:36:05.491782010 +0000
-@@ -23,6 +23,10 @@
++++ b/sound/soc/qcom/qdsp6/q6asm.c	2026-08-12 18:51:58.294706006 +0000
+@@ -23,12 +23,19 @@
  #include "q6dsp-errno.h"
  #include "q6dsp-common.h"
  
@@ -72,7 +72,16 @@ whether the AP keeps feeding and whether the DSP ever answers.
  #define ASM_STREAM_CMD_CLOSE			0x00010BCD
  #define ASM_STREAM_CMD_FLUSH			0x00010BCE
  #define ASM_SESSION_CMD_PAUSE			0x00010BD3
-@@ -58,6 +62,9 @@
+ #define ASM_DATA_CMD_EOS			0x00010BDB
+ #define ASM_DATA_EVENT_RENDERED_EOS		0x00010C1C
+ #define ASM_NULL_POPP_TOPOLOGY			0x00010C68
++/* DIAG: downstream DEFAULT_POPP_TOPOLOGY; the null one may not exist in this
++ * firmware's topology database. */
++#define ASM_DEFAULT_POPP_TOPOLOGY		0x00010BE4
+ #define ASM_STREAM_CMD_FLUSH_READBUFS		0x00010C09
+ #define ASM_STREAM_CMD_SET_ENCDEC_PARAM		0x00010C10
+ #define ASM_STREAM_POSTPROC_TOPO_ID_NONE	0x00010C68
+@@ -58,6 +65,9 @@
  
  
  #define ASM_LEGACY_STREAM_SESSION	0
@@ -82,7 +91,7 @@ whether the AP keeps feeding and whether the DSP ever answers.
  /* Bit shift for the stream_perf_mode subfield. */
  #define ASM_SHIFT_STREAM_PERF_MODE_FLAG_IN_OPEN_READ              29
  #define ASM_END_POINT_DEVICE_MATRIX	0
-@@ -674,6 +681,7 @@
+@@ -674,6 +684,7 @@
  		goto done;
  
  	case ASM_DATA_EVENT_WRITE_DONE_V2:
@@ -90,7 +99,7 @@ whether the AP keeps feeding and whether the DSP ever answers.
  		client_event = ASM_CLIENT_EVENT_DATA_WRITE_DONE;
  		if (ac->io_mode & ASM_SYNC_IO_MODE) {
  			phys_addr_t phys;
-@@ -755,6 +763,8 @@
+@@ -755,6 +766,8 @@
  	int session_id;
  
  	session_id = (hdr->dest_port >> 8) & 0xFF;
@@ -99,16 +108,16 @@ whether the AP keeps feeding and whether the DSP ever answers.
  	if (session_id)
  		return q6asm_stream_callback(adev, data, session_id);
  
-@@ -939,7 +949,7 @@
+@@ -946,7 +959,7 @@
+ 	/* source endpoint : matrix */
+ 	open->sink_endpointype = ASM_END_POINT_DEVICE_MATRIX;
+ 	open->bits_per_sample = bits_per_sample;
+-	open->postprocopo_id = ASM_NULL_POPP_TOPOLOGY;
++	open->postprocopo_id = ASM_DEFAULT_POPP_TOPOLOGY;
  
- 	pkt->hdr.opcode = ASM_STREAM_CMD_OPEN_WRITE_V3;
- 	open->mode_flags = 0x00;
--	open->mode_flags |= ASM_LEGACY_STREAM_SESSION;
-+	open->mode_flags |= ASM_LOW_LATENCY_STREAM_SESSION;
- 	if (is_gapless)
- 		open->mode_flags |= BIT(ASM_SHIFT_GAPLESS_MODE_FLAG);
- 
-@@ -1532,7 +1542,15 @@
+ 	switch (format) {
+ 	case SND_AUDIOCODEC_MP3:
+@@ -1532,7 +1545,15 @@
  	q6asm_add_hdr(ac, &pkt->hdr, pkt_size, false, stream_id);
  
  	ab = &port->buf[port->dsp_buf];
@@ -125,7 +134,7 @@ whether the AP keeps feeding and whether the DSP ever answers.
  	pkt->hdr.opcode = ASM_DATA_CMD_WRITE_V2;
  	write->buf_addr_lsw = lower_32_bits(ab->phys);
  	write->buf_addr_msw = upper_32_bits(ab->phys);
-@@ -1551,7 +1569,11 @@
+@@ -1551,7 +1572,11 @@
  		port->dsp_buf = 0;
  
  	spin_unlock_irqrestore(&ac->lock, flags);
@@ -137,6 +146,17 @@ whether the AP keeps feeding and whether the DSP ever answers.
  	if (rc == pkt_size)
  		rc = 0;
  
+--- a/sound/soc/qcom/qdsp6/q6routing.c	2026-08-12 18:51:58.269706006 +0000
++++ b/sound/soc/qcom/qdsp6/q6routing.c	2026-08-12 18:51:58.294706006 +0000
+@@ -390,7 +390,7 @@
+ 	session->bits_per_sample = pdata->bits_per_sample;
+ 
+ 	payload.num_copps = 0; /* only RX needs to use payload */
+-	topology = NULL_COPP_TOPOLOGY;
++	topology = 0x00010314; /* DIAG: downstream DEFAULT_COPP_TOPOLOGY */
+ 	copp = q6adm_open(routing_data->dev, session->port_id,
+ 			      session->path_type, session->sample_rate,
+ 			      session->channels, topology, perf_mode,
 --- a/drivers/soc/qcom/apr.c	2026-08-12 18:13:54.139083005 +0000
 +++ b/drivers/soc/qcom/apr.c	2026-08-12 18:13:54.150083005 +0000
 @@ -15,6 +15,9 @@

@@ -8,6 +8,14 @@ list; everything here is a from-scratch community port.
 > Built on top of a postmarketOS mainline kernel port. The kernel is shared with
 > the pmOS port; Kali only changes the kernel `.config` and the userspace.
 
+> **Picking this up, or handing it to someone else?** Start at
+> **[`docs/interconnect-sm6375-wip/HANDOFF-SESSION4.md`](docs/interconnect-sm6375-wip/HANDOFF-SESSION4.md)**:
+> §0 is the current state of the port (which image to flash, what works, what
+> does not), §5 is the one thing still blocking mobile data, and §6 is how to
+> build, flash and debug, including where every file lives and which of them are
+> in `/tmp` and therefore disposable. Audio has its own document,
+> [`AUDIO-SM6375.md`](docs/interconnect-sm6375-wip/AUDIO-SM6375.md).
+
 ## What works
 - Boots to **Phosh** (mobile GUI), user `kali` / password `1234`
 - **Display** (Novatek NT37701 AMOLED 1080x2400, DSI + DSC command mode)

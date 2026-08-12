@@ -318,3 +318,119 @@ order:
    we do not (diff `qrtr-lookup` against an Android boot).
 4. Try a different SIM with actual service before spending too long: some of
    this may just be the prepaid SIM without a plan.
+
+--------------------------------------------------------------------------------
+## 6. BUILD, FLASH AND WHERE EVERYTHING IS
+--------------------------------------------------------------------------------
+This replaces HANDOFF-SESSION3 §5, which is stale.
+
+### Persistent locations (safe)
+
+| what | where |
+| --- | --- |
+| kernel aport (the one that is built) | `~/.local/var/pmbootstrap/cache_git/pmaports/device/testing/linux-motorola-rhodep/` |
+| device and firmware aports | same directory, `device-motorola-rhodep/`, `firmware-motorola-rhodep/` |
+| project repo (commit here) | `/opt/postmarket/nethunter-rhodep-repo`, remote `github.com/d4rks1d33/kali-nethunter-rhodep` |
+| aport mirror inside the repo | `postmarketos/` (keep in sync when committing) |
+| these notes | `/opt/postmarket/_common/interconnect-sm6375-wip/`, mirrored in the repo under `docs/` |
+| boot images | `/opt/postmarket/kali-nethunter/img/` |
+| support .deb packages | `/opt/postmarket/kali-nethunter/img/` and `packages/` in the repo |
+| **ramdisk and cmdline needed to build any boot image** | `/opt/postmarket/_common/boot-artifacts/` |
+| backups | `/opt/postmarket/_common/backups-historicos/` |
+
+### Volatile locations (in /tmp, WILL be lost, all recreatable)
+
+- `/tmp/opencode/dl/moto` — vendor source, partial sparse clone. Recreate with:
+
+	git clone --filter=blob:none --sparse -b fifteen \
+	    https://github.com/Motorola-SM6375-Devs/android_kernel_motorola_sm6375 moto
+	cd moto && git sparse-checkout add arch/arm64/boot/dts/vendor/qcom \
+	    include/dt-bindings drivers/interconnect techpack/audio techpack/dataipa
+
+- `/tmp/opencode/kernel/linux-7.2-rc5` — pristine reference tree, used to write
+  patches against. Same tarball the APKBUILD fetches:
+  `https://git.kernel.org/torvalds/t/linux-7.2-rc5.tar.gz`
+- `/tmp/gpuwork/linux-7.2-rc5/scripts/dtc/dtc` — the dtc used to decompile DTBs.
+  Any dtc will do, or build it from the reference tree.
+- `/tmp/opencode/lore.py` — solves the Anubis proof-of-work so lore.kernel.org
+  can be queried from the shell. Copied to
+  `/opt/postmarket/_common/scripts/lore-fetch.py`. Use it to search upstream
+  patches (`https://lore.kernel.org/all/?q=s:sm6375&x=t`) and fetch whole threads
+  as `.../t.mbox.gz`, which is how the sm6115 audio series was found.
+
+### Build the kernel
+
+	cd /home/pmos
+	setsid nohup pmbootstrap build --force linux-motorola-rhodep > /tmp/b.log 2>&1 < /dev/null &
+
+**It must be detached**: a plain foreground run dies when the calling shell times
+out. Poll for the end instead of sleeping blindly:
+
+	tail -4 ~/.local/var/pmbootstrap/log.txt | grep -qE "DONE!|ERROR: Couldn't build"
+
+A patch-only change takes ~5 minutes; touching the `.config` forces a full
+rebuild, ~10 to 35 minutes. Output:
+`~/.local/var/pmbootstrap/packages/edge/aarch64/linux-motorola-rhodep-7.2_rc5-r0.apk`
+
+Whenever a patch or the config changes, refresh its sha512sum in the APKBUILD or
+the build fails with "computed checksums did NOT match".
+
+### Make a boot image
+
+	cd /tmp && rm -rf out && mkdir out && cd out
+	tar xzf ~/.local/var/pmbootstrap/packages/edge/aarch64/linux-motorola-rhodep-7.2_rc5-r0.apk
+
+	# ALWAYS verify the DTB before flashing
+	dtc -I dtb -O dts boot/dtbs/qcom/sm6375-motorola-rhodep.dtb | grep <the property you changed>
+
+	python3 /opt/postmarket/_common/scripts/mkbootv2b.py \
+	    boot/vmlinuz boot/dtbs/qcom/sm6375-motorola-rhodep.dtb \
+	    /opt/postmarket/_common/boot-artifacts/v47_ramdisk \
+	    "$(cat /opt/postmarket/_common/boot-artifacts/v47_cmdline.txt)" \
+	    /opt/postmarket/kali-nethunter/img/kali-boot-vNN.img
+
+The Motorola bootloader needs the **flat `Image`** (starts with `MZ`, which is
+why CONFIG_EFI_ZBOOT is off) with the **DTB appended**, which is what
+mkbootv2b.py does. An Image.gz-dtb resets the device.
+
+Verifying the DTB is not optional: two patches touch `sm6375.dtsi` in sequence,
+so editing only the first one's base tree silently leaves the old value in the
+final DTB. That happened once and was only caught by decompiling.
+
+### Flash
+
+	fastboot flash boot_a <img> && fastboot reboot
+
+Rollback is `kali-boot-v47.img`. `fastboot flash userdata` is always permission
+denied on this device (no fastbootd); userdata is written with dd from a running
+system.
+
+### The shortcut that saves most of the time
+
+If the change is **driver only** (no device tree), there is no need to reflash.
+Rebuild, take just the modules out of the apk and copy them over ssh:
+
+	tar xzf ...apk usr/lib/modules/7.2.0-rc5/kernel/<path>/<module>.ko
+	scp <module>.ko kali@192.168.1.53:/tmp/
+	ssh ... 'cp /tmp/<module>.ko /lib/modules/7.2.0-rc5/kernel/<path>/ && depmod -a 7.2.0-rc5'
+
+Only device tree changes need a new boot image. The kernel version string does
+not change, so modules stay loadable across these rebuilds.
+
+### Debugging technique that actually worked
+
+Both the IPA bug and the audio bug were found the same way, and it is worth
+reusing:
+
+1. Make sure the black box works: ramoops at 0xaf000000, read from
+   `/var/lib/systemd/pstore/` (see §2 for why not /sys/fs/pstore).
+2. If the driver is a module, keep it **out** of `/lib/modules` (move it aside
+   and run depmod) so the device boots with the new device tree but nothing
+   touches the hardware. Then load it by hand over ssh and watch.
+3. If it dies with no output, add `printk(KERN_EMERG ...)` markers around each
+   step and bisect. `CONFIG_DYNAMIC_DEBUG` is enabled in the shipped kernel, so
+   the drivers' own `dev_dbg` messages can be turned on at runtime with
+   `echo 'module <name> +p' > /sys/kernel/debug/dynamic_debug/control`
+   (module patterns work, file globs do not).
+4. Check `androidboot.bootreason` in /proc/cmdline after a reset: `watchdog`
+   means a hang, not a bus abort, which changes what to look for entirely.

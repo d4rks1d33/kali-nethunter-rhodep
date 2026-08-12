@@ -55,6 +55,11 @@ source="
 	0024-arm64-dts-qcom-rhodep-battery-thermal-zone.patch
 	0025-net-ipa-add-sm6375-without-interconnects.patch
 	0026-arm64-dts-qcom-rhodep-enable-ipa.patch
+	0032-arm64-dts-qcom-sm6375-add-apr-audio-services.patch
+	0033-arm64-dts-qcom-sm6375-add-lpass-macros-and-soundwire.patch
+	0034-ASoC-qcom-add-motorola-rhodep-sndcard.patch
+	0035-arm64-dts-qcom-rhodep-enable-audio.patch
+	0036-ASoC-codecs-lpass-macro-add-codec-version-2-2.patch
 "
 options="!check !strip !tracedeps pmb:cross-native"
 _carch="arm64"
@@ -107,7 +112,7 @@ package() {
 }
 sha512sums="
 f88a468a9b68ac28de925b092b4ce6fc0be558928f8a0e7474a90426e05793007e441740d494a4d504efe4ed216aec9627ee3a4982ab0da89d8a3a15448b227f  linux-motorola-rhodep-7.2_rc5.tar.gz
-98ffa70f2cc58b2f31f8cfea3cb9978ba1a19b66140f0e4c5acacc2a67d59f3442ab1a2dbffd1f29a7103984ac1aa36cd2c0ea28c6929cb0703d3ef610f49a03  config-motorola-rhodep.aarch64
+ac6330365bcd4ea977bf248908e8b479dfb35cc55b5b040679cb24332608453c7dda545c25cd3a9eca9e2459c07711a91d9b51a9eae7a0777b77be83d1933095  config-motorola-rhodep.aarch64
 50d91ef0efbd9c6279244d3041d43f76a9fa663bbe37c320fc0377d561c84ade61e8385eeb68a1805b26ba9c2cb5903c5c288e8df00599342d377ce27524b3d0  0001-arm64-dts-qcom-add-Motorola-Moto-G82-5G.patch
 476ade0233afb67abe1bcbc95829d732354ffbaa21fe43317d0a8bcc281fae0515a767a71764398dce11cd938d29ca0bd41ab13499468c86fc360ed141dd99ca  0002-drm-msm-dsi-fix-pclk-for-dsc-without-widebus.patch
 88c109343e5068fe81554c5b8fdac93a5848d8cd784b4d7cfafc35c8db1310a0091b5d10170fff0291e3e988b75ceb5892f6e35ea8fd09c44f09f720b87e7cc2  0003-drm-panel-add-novatek-nt37701.patch
@@ -134,4 +139,9 @@ a1739561addfce97f203fe6e5b6189d9e9367f5675cc7bf617b77e9c7de6dbaf26c1b7b431e47ed0
 19b10d7f16a21e8762d3c05100b75352d5fd107fcf7318ff94e3e5f9a3727d3b924aed2cda00a7e259223ed824cef00b1a867a94de6b8320f0245e2da88ef081  0024-arm64-dts-qcom-rhodep-battery-thermal-zone.patch
 a0d6f4922a879c6ffd8dc1340c2e115cb5850ea90114e544d086cb85219c5436b09d8993039de1db7edd4d369d2350f70f989a619e64555379135f1fcb9eed06  0025-net-ipa-add-sm6375-without-interconnects.patch
 1b80dce088c798c654adea8e7997fdd9559682dabc78bf40c05bbc95d9224c795ce6186e37eb50ac360dd177db08647d2d0eed32a934ebad5e41ae56da346335  0026-arm64-dts-qcom-rhodep-enable-ipa.patch
+93396d5ee7c0d97692952c59b8d2a6c46cd0956a6f053a551c3e13f098bf8d11ef3bcc76525057b84a49d39ddd3b744523045c9996cbbc2d6cf26249996873b7  0032-arm64-dts-qcom-sm6375-add-apr-audio-services.patch
+ba2b7f05b1ab7414b88128aa9fca42ba052884ef3fa217586f4fdc3f7c13e506a95adde1a80cae925132e8e3e69939f769daf14a5651ee610dd59549666a903a  0033-arm64-dts-qcom-sm6375-add-lpass-macros-and-soundwire.patch
+578250326fd6b613154028e44aad0253b24517b50cb4ff634721a6abba9e05b5e285546bce0bf5fd9c50389b2032bd265ddb4cdfded0596da56b3fe1c92a4eda  0034-ASoC-qcom-add-motorola-rhodep-sndcard.patch
+7a14a7ba5ddfbb96f5e6770ad603f6c407884638ea80dada10be0d3c5e38ca43cea3e83baaf1f4c9aaff0db4c9573b92a64323027a040e531210bb9e799d8e7c  0035-arm64-dts-qcom-rhodep-enable-audio.patch
+4aeb00ad2818a47fd52bbf6ae84e633f4e4d531f9cb9ed7b765da595fd71cc6305e3b5e4a5233272269818b034b63dc7d54293701e33ad439c20204e36ae50f2  0036-ASoC-codecs-lpass-macro-add-codec-version-2-2.patch
 "

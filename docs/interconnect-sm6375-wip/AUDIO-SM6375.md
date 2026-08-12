@@ -364,11 +364,28 @@ map. Everything is set up correctly and the DSP simply does not consume.
 Four things came out of this session, one of them a real fix.
 
 **1. Nobody has ADSP audio on sm6375 in mainline.** This should have been
-checked much earlier. Upstream `sm6375.dtsi` has no `apr` node at all, and
-neither sm6375 board (rhodep, sony-xperia-murray-pdx225) declares a sound
-card. The whole effort has been running on the unverified assumption that
-"it should work like sm6115". The real working reference of the same LPASS
-generation is sm6115 / qrb4210-rb2, which does have apr, q6asm and a card.
+checked much earlier. Upstream `sm6375.dtsi` has no `apr` node at all and no
+sm6375 board declares a sound card. The whole effort has been running on the
+unverified assumption that "it should work like sm6115". The real working
+reference of the same LPASS generation is sm6115 / qrb4210-rb2, which does
+have apr, q6asm and a card.
+
+To be precise about what is and is not upstream, because it matters for
+where to look for help: the SoC itself *is* in mainline. No patch here
+creates `sm6375.dtsi`, they only modify it, and it already carries the
+remoteprocs, the rpmpd domains and the LPI power domains. What is not
+upstream is this device, `sm6375-motorola-rhodep.dts` is created by patch
+0001, and the audio. There is a second sm6375 device upstream that is not
+ours, `sm6375-sony-xperia-murray-pdx225.dts`, the Sony Xperia 10 IV. That is
+the most promising unexplored lead: whoever maintains it (SoMainline) has
+the same LPASS and may well have tried ADSP audio already, working or not.
+Check their tree and their mailing list posts before writing more patches.
+
+Correction to the handoff, `/tmp/opencode/kernel/linux-7.2-rc5` is **not** a
+pristine tree, it has at least patch 0001 applied, since it contains
+`sm6375-motorola-rhodep.dts` and its Makefile entry. Do not use it to decide
+what upstream does or does not have; check whether a patch creates a file
+instead.
 
 **2. The SMMU stream id was taken from the wrong SoC (fixed).** The generic
 `msm-audio-lpass.dtsi` is overridden per target, and `holi-audio.dtsi` says:

@@ -30,7 +30,7 @@ so leaving it out and handing it physical addresses is what works here.
  #include <dt-bindings/thermal/thermal.h>
  
  / {
-@@ -1643,6 +1646,78 @@
+@@ -1643,6 +1646,79 @@
  
  				label = "lpass";
  				qcom,remote-pid = <2>;
@@ -79,6 +79,7 @@ so leaving it out and handing it physical addresses is what works here.
 +							#address-cells = <1>;
 +							#size-cells = <0>;
 +							#sound-dai-cells = <1>;
++							iommus = <&apps_smmu 0x1801 0x0>;
 +
 +							dai@0 {
 +								reg = <MSM_FRONTEND_DAI_MULTIMEDIA1>;

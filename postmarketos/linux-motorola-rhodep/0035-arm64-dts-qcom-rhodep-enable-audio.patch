@@ -19,7 +19,7 @@ mainline has no driver for that family yet.
 
 --- a/arch/arm64/boot/dts/qcom/sm6375-motorola-rhodep.dts
 +++ b/arch/arm64/boot/dts/qcom/sm6375-motorola-rhodep.dts
-@@ -247,6 +247,126 @@
+@@ -247,6 +247,162 @@
  		enable-gpios = <&tlmm 100 GPIO_ACTIVE_HIGH>;
  		vcc-supply = <&vph_pwr>;
  	};
@@ -53,6 +53,19 @@ mainline has no driver for that family yet.
 +		qcom,tx-device = <&wcd937x_tx>;
 +
 +		#sound-dai-cells = <1>;
++	};
++
++	/*
++	 * Dummy I2S sink, so that Secondary MI2S can be exercised as a backend
++	 * without an amplifier driver. The loudspeaker amplifiers hang off this
++	 * port (downstream aw-rx-port-id = <0x1002> is
++	 * AFE_PORT_ID_SECONDARY_MI2S_RX), and this path does NOT go through the
++	 * codec DMA, which is what makes it useful: it tells apart a CDC DMA
++	 * problem from a general ASM/AFE one.
++	 */
++	spdif_dummy: spdif-dummy {
++		compatible = "linux,spdif-dit";
++		#sound-dai-cells = <0>;
 +	};
 +
 +	sound {
@@ -95,11 +108,18 @@ mainline has no driver for that family yet.
 +			};
 +		};
 +
++		/*
++		 * RX_CODEC_DMA_RX_1 into the RX macro's AIF2, not RX_0 into AIF1.
++		 * This is the pairing the only tested description of this LPASS
++		 * generation uses (the qrb4210-rb2 series on sm6115: "RX1 from
++		 * DSP is connected to rxmacro"), and RX_0/AIF1 makes the ADSP
++		 * hang the SoC as soon as the stream is triggered.
++		 */
 +		wcd-playback-dai-link {
 +			link-name = "WCD Playback";
 +
 +			cpu {
-+				sound-dai = <&q6afedai RX_CODEC_DMA_RX_0>;
++				sound-dai = <&q6afedai RX_CODEC_DMA_RX_1>;
 +			};
 +
 +			platform {
@@ -107,7 +127,7 @@ mainline has no driver for that family yet.
 +			};
 +
 +			codec {
-+				sound-dai = <&wcd9370 0>, <&swr1 0>, <&rxmacro 0>;
++				sound-dai = <&wcd9370 0>, <&swr1 0>, <&rxmacro 1>;
 +			};
 +		};
 +
@@ -124,6 +144,22 @@ mainline has no driver for that family yet.
 +
 +			codec {
 +				sound-dai = <&wcd9370 1>, <&swr0 0>, <&txmacro 0>;
++			};
++		};
++
++		mi2s-playback-dai-link {
++			link-name = "Secondary MI2S Playback";
++
++			cpu {
++				sound-dai = <&q6afedai SECONDARY_MI2S_RX>;
++			};
++
++			platform {
++				sound-dai = <&q6routing>;
++			};
++
++			codec {
++				sound-dai = <&spdif_dummy>;
 +			};
 +		};
 +
@@ -146,7 +182,7 @@ mainline has no driver for that family yet.
  };
  
  &gpi_dma0 {
-@@ -703,6 +823,14 @@
+@@ -703,6 +859,14 @@
  &tlmm {
  	gpio-reserved-ranges = <13 4>;
  
@@ -161,7 +197,7 @@ mainline has no driver for that family yet.
  	panel_vci_default: panel-vci-default-state {
  		pins = "gpio46";
  		function = "gpio";
-@@ -1199,3 +1327,44 @@
+@@ -1199,3 +1363,66 @@
  		qcom,gsi-loader = "self";
  	};
  };
@@ -204,5 +240,27 @@ mainline has no driver for that family yet.
 +		compatible = "sdw20217010a00";
 +		reg = <0 4>;
 +		qcom,rx-port-mapping = <1 2 3 4 5>;
++	};
++};
++
++/*
++ * The two Awinic smart amplifiers live here (downstream qupv3_se10_i2c, 0x34
++ * loudspeaker and 0x35 earpiece). Enabled without any codec node so the chip id
++ * can be read from userspace with i2cget and the right mainline driver picked.
++ */
++&i2c10 {
++	status = "okay";
++};
++
++/*
++ * Secondary MI2S carries the loudspeaker amplifiers. Downstream sets
++ * "qcom,msm-mi2s-lines = <1>" on dai_mi2s1_rx, which is a bitmask, so it means
++ * SD line 0; mainline takes line indices instead, hence <0>. Without this the
++ * port has no data line and q6afe rejects the prepare with -EINVAL.
++ */
++&q6afedai {
++	dai@18 {
++		reg = <SECONDARY_MI2S_RX>;
++		qcom,sd-lines = <0>;
 +	};
 +};

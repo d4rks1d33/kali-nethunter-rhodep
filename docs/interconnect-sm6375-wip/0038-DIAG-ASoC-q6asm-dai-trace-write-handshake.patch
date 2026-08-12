@@ -1,0 +1,100 @@
+From: postmarketOS rhodep port
+Subject: [PATCH] DIAG: ASoC: q6asm-dai: trace the playback write handshake
+
+Not for upstream. The SoC dies a fixed amount of audio after the stream is
+triggered: with the default ~0.5 s buffer it survives ~460 ms, with a 21 ms
+buffer (1024 frames) only 27 ms. So the data path works and it dies exactly
+when the DSP has consumed the periods the AP queued.
+
+Trace the handshake: how many periods .ack queues, every WRITE_DONE the DSP
+sends back, and every packet the ASM service receives at all, so the log shows
+whether the AP keeps feeding and whether the DSP ever answers.
+
+--- a/sound/soc/qcom/qdsp6/q6asm-dai.c	2026-08-12 16:14:46.644364003 +0000
++++ b/sound/soc/qcom/qdsp6/q6asm-dai.c	2026-08-12 16:14:46.660364003 +0000
+@@ -19,6 +19,11 @@
+ #include <linux/dma-mapping.h>
+ #include <sound/pcm_params.h>
+ #include "q6asm.h"
++
++/* DIAG (not for upstream): the SoC dies exactly when the DSP has consumed the
++ * periods the AP queued, so trace the write/WRITE_DONE handshake. */
++#define ASM_DIAG(fmt, ...) \
++	printk(KERN_EMERG "ASM-DIAG: " fmt "\n", ##__VA_ARGS__)
+ #include "q6routing.h"
+ #include "q6dsp-errno.h"
+ 
+@@ -184,11 +189,14 @@
+ 
+ 	switch (opcode) {
+ 	case ASM_CLIENT_EVENT_CMD_RUN_DONE:
++		ASM_DIAG("RUN_DONE");
+ 		break;
+ 	case ASM_CLIENT_EVENT_CMD_EOS_DONE:
+ 		break;
+ 	case ASM_CLIENT_EVENT_DATA_WRITE_DONE:
++		ASM_DIAG("WRITE_DONE token=%u", token);
+ 		snd_pcm_period_elapsed(substream);
++		ASM_DIAG("WRITE_DONE token=%u handled", token);
+ 		break;
+ 	case ASM_CLIENT_EVENT_DATA_READ_DONE:
+ 		snd_pcm_period_elapsed(substream);
+@@ -317,9 +325,16 @@
+ 
+ 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK && prtd->state == Q6ASM_STREAM_RUNNING) {
+ 		avail_periods = (runtime->control->appl_ptr - prtd->queue_ptr)/runtime->period_size;
++		ASM_DIAG("ack: appl=%lu queue=%lu period=%lu avail=%d pcm_count=%u",
++			 (unsigned long)runtime->control->appl_ptr,
++			 (unsigned long)prtd->queue_ptr,
++			 (unsigned long)runtime->period_size, avail_periods,
++			 prtd->pcm_count);
+ 		for (i = 0; i < avail_periods; i++) {
++			ASM_DIAG("ack: write_async #%d", i);
+ 			ret = q6asm_write_async(prtd->audio_client, prtd->stream_id,
+ 					   prtd->pcm_count, 0, 0, 0);
++			ASM_DIAG("ack: write_async #%d ret=%d", i, ret);
+ 
+ 			if (ret < 0) {
+ 				dev_err(component->dev, "Error queuing playback buffer %d\n", ret);
+--- a/sound/soc/qcom/qdsp6/q6asm.c	2026-08-12 16:26:58.898104008 +0000
++++ b/sound/soc/qcom/qdsp6/q6asm.c	2026-08-12 16:41:05.876461012 +0000
+@@ -23,6 +23,10 @@
+ #include "q6dsp-errno.h"
+ #include "q6dsp-common.h"
+ 
++/* DIAG (not for upstream): trace every packet the ASM service receives, to see
++ * whether the DSP ever acknowledges a playback write. */
++#define ASM_RX(fmt, ...) printk(KERN_EMERG "ASM-RX: " fmt "\n", ##__VA_ARGS__)
++
+ #define ASM_STREAM_CMD_CLOSE			0x00010BCD
+ #define ASM_STREAM_CMD_FLUSH			0x00010BCE
+ #define ASM_SESSION_CMD_PAUSE			0x00010BD3
+@@ -674,6 +678,7 @@
+ 		goto done;
+ 
+ 	case ASM_DATA_EVENT_WRITE_DONE_V2:
++		ASM_RX("stream: WRITE_DONE token=0x%08x io_mode=0x%x", hdr->token, ac->io_mode);
+ 		client_event = ASM_CLIENT_EVENT_DATA_WRITE_DONE;
+ 		if (ac->io_mode & ASM_SYNC_IO_MODE) {
+ 			phys_addr_t phys;
+@@ -755,6 +760,8 @@
+ 	int session_id;
+ 
+ 	session_id = (hdr->dest_port >> 8) & 0xFF;
++	ASM_RX("srvc: opcode=0x%08x token=0x%08x src=0x%04x dst=0x%04x sid=%d",
++	       hdr->opcode, hdr->token, hdr->src_port, hdr->dest_port, session_id);
+ 	if (session_id)
+ 		return q6asm_stream_callback(adev, data, session_id);
+ 
+@@ -1551,7 +1558,11 @@
+ 		port->dsp_buf = 0;
+ 
+ 	spin_unlock_irqrestore(&ac->lock, flags);
++	ASM_RX("write: buf=%u addr=%08x%08x len=%u handle=0x%x token=0x%08x -> apr_send",
++	       write->seq_id, write->buf_addr_msw, write->buf_addr_lsw,
++	       write->buf_size, write->mem_map_handle, pkt->hdr.token);
+ 	rc = apr_send_pkt(ac->adev, pkt);
++	ASM_RX("write: apr_send returned %d", rc);
+ 	if (rc == pkt_size)
+ 		rc = 0;
+ 

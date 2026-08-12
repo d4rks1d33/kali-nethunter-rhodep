@@ -2,8 +2,10 @@
 
 Status: **the sound card exists**, headset jack detection works, the WCD9370
 enumerates on both soundwire buses. Starting a stream, in either direction,
-still resets the SoC about half a second later: the ADSP faults and its watchdog
-bite takes the chip down. That is the open item (§4), and §7 says how to pick
+still resets the SoC. The DSP accepts every ASM write command and never
+acknowledges one, so it starves and hangs, and the watchdog takes the chip down.
+The whole codec path (codec DMA, macros, soundwire, WCD9370) is proven innocent:
+Secondary MI2S fails identically. That is the open item (§4), and §7 says how to pick
 the work back up.
 
 **Do not expect a quick win here.** Everything on the AP side is verified
@@ -157,6 +159,10 @@ is also why nothing is ever printed.
 | RX_0/AIF1 being the wrong CDC DMA channel | No. RX_1/AIF2, the pairing the tested sm6115 series uses, hangs identically. |
 | The codec version 2.2 / register stride classification | Verified right: both default tables hold the same registers and values, only the stride differs, and 0x80 matches downstream. |
 | A missing AP side LPASS clock | There is none: the vendor kernel has no lpass clock controller for holi/blair at all. |
+| The codec DMA, the macros, the soundwire bus, the WCD9370 | All exonerated: playback over Secondary MI2S, which touches none of them, fails identically. |
+| The buffer address or the SMMU | Understood: the address is IOVA or-ed with (sid << 32), exactly as sm8250 does it, and no SMMU fault has ever appeared. |
+| The codec DMA, the macros, the soundwire bus, the WCD9370 | All exonerated: playback over Secondary MI2S, which touches none of them, fails identically. |
+| The AFE/ASM buffer address or the SMMU | Understood and exonerated so far: the address is IOVA \| (sid << 32) exactly as sm8250 does it, and no SMMU fault has ever appeared. |
 
 ### Session 5: the ADSP hangs, it does not fault
 
@@ -242,32 +248,92 @@ Two more things closed off:
   already done, and the swr CGCR registers mainline drives via lpasscc-sm6115
   are the same ones downstream pokes directly through `qcom,swrm-hctl-reg`.
 
-### Honest status and what is actually left
+### Session 6: the failure is in the ASM data path, not in the audio hardware
 
-Everything on the AP side has now been verified against the vendor sources,
-address by address and field by field, and every mechanism that could plausibly
-hang a DMA has been tested. The DSP hangs without faulting, so it will not tell
-us anything. Static analysis has run out.
+This session narrowed the problem enormously and eliminated the entire audio
+hardware block from suspicion.
 
-What remains is not a quick fix:
+**The exact failure, at last.** Instrumenting the playback data handshake
+(`0038-DIAG-ASoC-q6asm-dai-trace-write-handshake.patch`, which traces
+`q6asm_dai_ack`, `q6asm_write_async` and every packet the ASM service receives)
+gives the same picture every time:
 
-1. **Ask upstream.** This is now a good bug report, with unusually specific
-   data: SM6375/holi, LPASS described after sm6115, card registers, WCD9370
-   enumerates on both soundwire buses, headset detection works, and any CDC DMA
-   stream in either direction makes the ADSP hang (SFR "wdog or kernel error
-   suspected", no fault) about 500 ms in, with the AP demonstrably alive until
-   the whole bus wedges. Plus the list of things ruled out. The people to ask are
-   the author of the sm6115 series (Alexey Klimov, Linaro) and the qdsp6
-   maintainer (Srinivas Kandagatla), on linux-sound / linux-arm-msm. Costs no
-   device time and someone who knows the LPASS may recognise it immediately.
-2. **Compare the bolero driver's behaviour with mainline's macro drivers.**
-   Downstream has a clock resource manager (`bolero-clk-rsc.c`) and a
-   `qcom,default-clk-id = <TX_CORE_CLK>` on the VA macro, i.e. a different model
-   for who owns the macro clocks than mainline's macros (written for sm8250)
-   assume. Finding a divergence there is plausible but it is a full
-   driver-behaviour comparison, not an afternoon.
-3. Tracing what the DSP does would need the vendor DIAG/QDSS path over QMI,
-   which is a project in itself.
+	ASM-DIAG: ack: appl=6240 queue=0 period=6240 avail=1 pcm_count=24960
+	ASM-RX: write: buf=0 addr=00000001fff80000 len=24960 handle=0xb08eb9b8 -> apr_send
+	ASM-RX: write: apr_send returned 52
+	... (one per period, all of them fine) ...
+	ASM-DIAG: RUN_DONE
+	                       <- and then nothing, ever
+
+The AP queues the periods correctly, every `apr_send` succeeds, the DSP answers
+the memory map, the command responses and RUN_DONE, and then **never sends a
+single WRITE_DONE**. Without the acknowledgement the AP cannot queue more, the
+DSP runs out of data, and the SoC dies. That is exactly why the survival time
+tracks the amount of audio queued: two periods die in 27 ms, a half second
+buffer survives ~460 ms.
+
+**It is NOT the codec DMA, the macros, the soundwire bus or the WCD9370.**
+Playback over **Secondary MI2S**, which is where the loudspeaker amplifiers hang
+and which does not touch the codec DMA path at all, fails **identically**: same
+writes, same zero WRITE_DONE, same hang. Capture fails the same way. So
+everything specific to the codec path is exonerated and the problem lives in the
+ASM/AFE data path that both share.
+
+**The buffer address convention is understood.** q6asm-dai takes the low four
+bits of the SMMU stream id and puts them in bits 32+ of the address handed to
+the DSP:
+
+	pdata->sid = args.args[0] & SID_MASK_DEFAULT;      /* 0x1801 & 0xF = 1 */
+	prtd->phys = substream->dma_buffer.addr | (pdata->sid << 32);
+
+which is why the address is 0x1_fff80000 with `iommus` present and a raw physical
+0xfdc00000 without it. sm8250 uses the same stream id and the same code, so this
+is not obviously wrong, both variants fail identically, and no SMMU fault,
+context fault or "Blocked unknown Stream ID" has ever appeared in any log.
+
+Note for whoever continues: downstream confines the audio IOVAs to a low window
+(`qcom,iommu-dma-addr-pool = <0x10000000 0x10000000>` on qcom,msm-audio-ion)
+while mainline lets the DMA framework allocate from the top of a 64-bit space,
+which is how 0x1_fff80000 comes about.
+
+### Two useful things that came out of it anyway
+
+- **USB audio works.** A USB headset over OTG registers as its own card and plays
+  a test tone, confirmed by ear. That is real, usable audio output on this phone
+  today, completely independent of the LPASS. Anyone who needs sound now should
+  use USB.
+- **The loudspeaker amplifiers are identified.** Enabling i2c10 (the downstream
+  `qupv3_se10_i2c`, which is **/dev/i2c-1** at runtime, Linux numbers buses
+  dynamically) shows both amplifiers answering, 0x34 loudspeaker and 0x35
+  earpiece, both reporting chip id **0x2113**, which is exactly
+  `AW88261_CHIP_ID`. `CONFIG_SND_SOC_AW88261=m` is already enabled, so the
+  speaker is reachable as soon as the ASM path works: it needs the amplifier
+  nodes on i2c and a Secondary MI2S dai-link, and that link is already in the
+  device tree (with a `linux,spdif-dit` dummy codec, plus `qcom,sd-lines = <0>`
+  on the q6afedai child, which this session found was required).
+
+### Where to look next
+
+1. **Force a 32-bit DMA mask on the q6asmdai device** so the IOVA lands in the
+   low 4 GB the way downstream constrains it. This is a one-line, module-only
+   experiment that has NOT been tried yet, and it is the obvious next step.
+2. Check the ASM API versions against what this DSP firmware expects:
+   `q6asm_open_write` (OPEN_WRITE_V3) and the PCM media format version.
+   Downstream negotiates the format version at runtime
+   (`q6asm_get_pcm_format_id`, V5/V4/V3/V2) while mainline picks one; a version
+   the firmware dislikes could make it accept the stream and never consume it.
+3. The DSP itself will not help: its SFR only ever says "wdog or kernel error
+   suspected", i.e. it hangs rather than faults, so there is no file and line to
+   be had.
+
+### Honest status
+
+The audio hardware description is now verified correct and, as of this session,
+the entire codec path is proven innocent. What is left is a specific,
+well-defined question: why this DSP firmware accepts ASM write commands and never
+acknowledges them. That is a much better place to be than "the DSP hangs for
+unknown reasons", but it is still open, and the remaining leads are the two
+above.
 
 --------------------------------------------------------------------------------
 ## 5. Speaker and earpiece: the Awinic amplifiers

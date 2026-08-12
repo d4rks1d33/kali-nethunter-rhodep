@@ -521,6 +521,56 @@ Next, in order of cost:
    sends to what downstream sends.
 3. Try the v4/v5 media format block.
 
+### Session 9: RUN is fine, and capture works
+
+Two results, and the second one changes the shape of the problem.
+
+**RUN is not the anomaly.** The DSP never answers the RUN sent from the PCM
+trigger, but that trigger runs in atomic context so RUN has to go out
+through `q6asm_run_nowait()`, and an absent reply there proves nothing.
+Patch 0041 sends one synchronous RUN from `prepare()`, where sleeping is
+allowed. It returns **rc=0 and RUN_DONE fires**, and in that same trace the
+nowait RUN from the trigger gets acknowledged too. The DSP receives RUN,
+accepts it and starts the session. This line of enquiry is closed.
+
+Worth recording so it is not misread again: in that trace a response arrives
+interleaved between the writes and looks at first like a write finally being
+answered. It carries `token=0x00000001`, which is the session id used by
+RUN, not a write token. It is the RUN acknowledgement arriving late.
+
+**Capture works, and that exonerates most of the stack.** Routing
+MultiMedia1 from `TX_CODEC_DMA_TX_3` and running arecord produces
+**18 READ_DONE events** and does not crash the machine. READ_DONE means the
+DSP wrote into the buffer the AP mapped for it. So the shared memory
+mapping, the mem map handle, the SMMU stream id and its mask, the IOVA and
+the sid in bits 32 and up, the DMA mask, and the APR data plane all work.
+The DSP can reach our memory. It also means the TX macro, soundwire and the
+codec DMA hardware work.
+
+The failure is therefore **specific to the playback direction**, and it is
+common to both RX backends already tried, Secondary MI2S and the codec DMA
+RX path. What playback has that capture does not is
+`ASM_STREAM_CMD_OPEN_WRITE_V3` instead of OPEN_READ, the playback direction
+of the ADM matrix, and an AFE **RX** port. The most likely remaining
+explanation is that the ASM session is never connected to anything that
+drains it, either because the RX port does not really run despite
+`AFE_PORT_CMD_DEVICE_START` returning status 0, or because the matrix maps
+the COPP to a session that is not ours.
+
+Two more differences against downstream were checked and are **not** it:
+
+- The write flags. Downstream passes NO_TIMESTAMP (0xFF00) and then computes
+  `flags & 0x800000FF`, which is 0. Mainline passes 0 straight through. Both
+  send flags = 0.
+- `msm_audio_populate_upper_32_bits()` is `upper_32_bits()` on 64 bit, and
+  mainline already ORs the sid into the address, so the addresses match.
+
+Next step, and it is a cheap one: extend the transmit dump to print packet
+payloads for the non-write commands, and read the session id, COPP id and
+direction that `ADM_CMD_MATRIX_MAP_ROUTINGS_V5` actually carries, checking
+them against the ASM session the stream is using. If they disagree, the
+playback session is being wired to nothing, which fits every observation.
+
 ### State the tree was left in (read before rebuilding)
 
 Session 8 added `0040-EXPERIMENT-ASoC-q6asm-dai-run-before-queueing-writes.patch`

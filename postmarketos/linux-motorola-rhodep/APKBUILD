@@ -63,6 +63,7 @@ source="
 	0037-DIAG-ASoC-mark-pcm-prepare-stages.patch
 	0038-DIAG-ASoC-q6asm-dai-trace-write-handshake.patch
 	0040-EXPERIMENT-ASoC-q6asm-dai-run-before-queueing-writes.patch
+	0041-DIAG-ASoC-q6asm-dai-probe-synchronous-run.patch
 "
 options="!check !strip !tracedeps pmb:cross-native"
 _carch="arm64"
@@ -150,4 +151,5 @@ ba2b7f05b1ab7414b88128aa9fca42ba052884ef3fa217586f4fdc3f7c13e506a95adde1a80cae92
 0d9b745e7228671e4740307b19a73c50099d21b13f30acf2adc6a54f2fa3b5560a75c68fb5b803d6c9ceb0b0a26ede1588e5fe71006e2d82f08898ff207a27ff  0037-DIAG-ASoC-mark-pcm-prepare-stages.patch
 c0f3d99a832a7a44e9e6e609c8ae295b34b94ca38e98f69f17b03d34f8e9fe41baf760195183c3ee7af91c59195c5c303178b34aea3b150e8a35f10ea08a4114  0038-DIAG-ASoC-q6asm-dai-trace-write-handshake.patch
 9331de3e53cc6dde194a632c42cc9e1c978bc80aced075877ae02301d66c662bee2b456403c441a6f12aad68e47b2f96d8e662d1be14e1b03174e57bbabed1ee  0040-EXPERIMENT-ASoC-q6asm-dai-run-before-queueing-writes.patch
+5fb005759d0f56e87180522f60e22c1c38f3d06613d07bb9b614bda9cfdab7529f0cbd4251a5640e4d12e03bc89265250698778ec7e74137e3ea250ee892e27d  0041-DIAG-ASoC-q6asm-dai-probe-synchronous-run.patch
 "

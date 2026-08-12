@@ -343,14 +343,46 @@ sudo dpkg -i rhodep-usb-otg_*.deb rhodep-battery-jeita_*.deb rhodep-modem-suppor
 sudo apt-mark hold linux-image-7.2.0-rc5 linux-headers-7.2.0-rc5 \
      realtek-rtl8188eus-dkms firmware-motorola-rhodep \
      rhodep-modem-support rhodep-usb-otg rhodep-battery-jeita
+sudo apt-mark hold firmware-atheros \
+     rmtfs tqftpserv protection-domain-mapper qrtr-tools libqrtr1 \
+     modemmanager libmm-glib0 libqmi-utils libqmi-glib5 libqmi-proxy
 sudo apt update && sudo apt full-upgrade -y
 sudo apt install -y kali-linux-default python3-requests hcxdumptool hcxtools
 sudo systemctl mask droid-juicer.service systemd-repart.service
 ```
-The `apt-mark hold` is essential: it stops apt from pulling a generic Debian
-kernel that would not boot this device. `apt full-upgrade` does NOT re-flash
-`boot_a` (the running initramfs lives in the flashed boot.img), so updates are
-safe for the boot path.
+(The second `apt-mark hold` is applied automatically by
+`rhodep-modem-support` >= 2, it is repeated here for a from-scratch install.)
+
+The holds are essential, and not only for the kernel:
+
+- **linux-image / linux-headers**: stops apt from pulling a generic Debian
+  kernel that would not boot this device.
+- **firmware-atheros**: this is the easy one to miss. It ships the very same
+  paths as `firmware-motorola-rhodep`,
+  `/usr/lib/firmware/ath10k/WCN3990/hw1.0/board-2.bin` and `firmware-5.bin`
+  plus the `qca/` bluetooth files, so upgrading it silently replaces the board
+  file this device needs with the generic one and the **internal WiFi and
+  bluetooth stop working**. Verify who owns them with
+  `dpkg -S /usr/lib/firmware/ath10k/WCN3990/hw1.0/board-2.bin`: it must say
+  `firmware-motorola-rhodep`.
+- **rmtfs, tqftpserv, protection-domain-mapper, qrtr-tools, libqrtr1**: the
+  modem transport. Without exactly this set working the modem, and therefore
+  the internal WiFi (its protection domain lives inside the modem), do not come
+  up.
+- **modemmanager, libmm-glib0, libqmi-utils, libqmi-glib5, libqmi-proxy**: the
+  modem and SIM handling that the port is validated against.
+
+To update any of them on purpose: `sudo apt-mark unhold <package>`. Note that if
+the "modem never goes online" problem (see
+`docs/interconnect-sm6375-wip/HANDOFF-SESSION4.md` §5) is ever attacked, a newer
+ModemManager is one of the things worth trying, so that particular hold is meant
+to be lifted deliberately rather than kept forever.
+
+`apt full-upgrade` does NOT re-flash `boot_a` (the running initramfs lives in
+the flashed boot.img), so updates are safe for the boot path.
+
+Check what is protected at any time with `apt-mark showhold`; it should list 18
+packages.
 
 ## Phone apps (dialer / SMS / contacts / files)
 Images built after this note already include them (see the rootfs build step).

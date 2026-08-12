@@ -1,0 +1,297 @@
+[    6.190200] systemd-journald[561]: Received client request to flush runtime journal.
+[    8.738669] zram0: detected capacity change from 0 to 5525504
+[    8.954552] Adding 2762748k swap on /dev/zram0.  Priority:100 extents:1 across:2762748k SSDsc
+[    9.510456] qcomtee: QTEE version 0.0.0
+[    9.553299] /soc@0/display-subsystem@5e00000/dsi@5e94000: Fixed dependency cycle(s) with /soc@0/display-subsystem@5e00000/dsi@5e94000/panel@0
+[    9.556522] /soc@0/display-subsystem@5e00000/dsi@5e94000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@5e00000/dsi@5e94000
+[    9.563203] qcom-spmi-adc5 1c40000.spmi:pmic@6:adc@3100: error -EINVAL: no channels defined
+[    9.563222] qcom-spmi-adc5 1c40000.spmi:pmic@6:adc@3100: probe with driver qcom-spmi-adc5 failed with error -22
+[    9.563466] msm_dpu 5e01000.display-controller: bound 5e94000.dsi (ops dsi_ops)
+[    9.564063] adreno 5900000.gpu: supply vdd not found, using dummy regulator
+[    9.565009] adreno 5900000.gpu: supply vddcx not found, using dummy regulator
+[    9.566979] msm_dpu 5e01000.display-controller: bound 5900000.gpu (ops a3xx_ops)
+[    9.567761] [drm:dpu_kms_hw_init:1168] dpu hardware revision:0x60090000
+[    9.596931] [drm] Initialized msm 1.13.0 for 5e01000.display-controller on minor 0
+[    9.598216] msm_dpu 5e01000.display-controller: [drm:adreno_request_fw] loaded qcom/a630_sqe.fw from new location
+[    9.636546] qcom-spmi-adc-tm5 1c40000.spmi:pmic@6:adc-tm@3400: error -EINVAL: get dt data failed
+[    9.636567] qcom-spmi-adc-tm5 1c40000.spmi:pmic@6:adc-tm@3400: probe with driver qcom-spmi-adc-tm5 failed with error -22
+[    9.653596] devfreq 5900000.gpu: Couldn't update frequency transition information.
+[    9.716490] sm6375-tlmm 500000.pinctrl: invalid group "gpio4" for function "qup10"
+[    9.716500] sm6375-tlmm 500000.pinctrl: invalid group "gpio5" for function "qup10"
+[    9.721051] wcd937x_codec audio-codec: missing qcom,mbhc-buttons-vthreshold-microvolt entry
+[    9.768274] input: gpio-vibrator as /devices/platform/vibrator/input/input3
+[    9.774491] ipa 5840000.ipa: IPA driver initialized
+[    9.785607] NET: Registered PF_QIPCRTR protocol family
+[    9.786621] remoteproc remoteproc0: modem is available
+[    9.786692] mc: Linux media interface: v0.10
+[    9.788644] remoteproc remoteproc1: adsp is available
+[    9.789752] remoteproc remoteproc2: cdsp is available
+[    9.791608] remoteproc remoteproc1: Direct firmware load for qcom/sm6375/motorola/rhodep/adsp.mbn failed with error -2
+[    9.791617] remoteproc remoteproc1: powering up adsp
+[    9.791634] remoteproc remoteproc1: Direct firmware load for qcom/sm6375/motorola/rhodep/adsp.mbn failed with error -2
+[    9.791636] remoteproc remoteproc1: request_firmware failed: -2
+[    9.791648] remoteproc remoteproc2: Direct firmware load for qcom/sm6375/motorola/rhodep/cdsp.mbn failed with error -2
+[    9.791660] remoteproc remoteproc2: powering up cdsp
+[    9.791713] remoteproc remoteproc2: Direct firmware load for qcom/sm6375/motorola/rhodep/cdsp.mbn failed with error -2
+[    9.791718] remoteproc remoteproc2: request_firmware failed: -2
+[    9.803883] ipa 5840000.ipa: IPA driver setup completed successfully
+[    9.822010] usbcore: registered new interface driver snd-usb-audio
+[    9.839078] Bluetooth: Core ver 2.22
+[    9.839111] NET: Registered PF_BLUETOOTH protocol family
+[    9.839112] Bluetooth: HCI device and connection manager initialized
+[    9.839119] Bluetooth: HCI socket layer initialized
+[    9.839122] Bluetooth: L2CAP socket layer initialized
+[    9.839127] Bluetooth: SCO socket layer initialized
+[    9.893377] Console: switching to colour frame buffer device 135x150
+[    9.893404] fb0: sys_imageblit: framebuffer is not in virtual address space.
+[    9.925380] msm_dpu 5e01000.display-controller: [drm] fb0: msmdrmfb frame buffer device
+[    9.962734] Bluetooth: HCI UART driver ver 2.3
+[    9.962746] Bluetooth: HCI UART protocol H4 registered
+[    9.962842] Bluetooth: HCI UART protocol LL registered
+[    9.963348] Bluetooth: HCI UART protocol Broadcom registered
+[    9.963402] Bluetooth: HCI UART protocol QCA registered
+[    9.969315] Bluetooth: HCI UART protocol Marvell registered
+[    9.977923] Bluetooth: hci0: setting up wcn399x
+[   10.065251] irq: IRQ159: trimming hierarchy from :soc@0:interrupt-controller@f200000-1
+[   10.088586] cw2217 0-0064: CellWise fuel gauge, version 0xa0
+[   10.101715] Bluetooth: hci0: QCA Product ID   :0x0000000a
+[   10.101727] Bluetooth: hci0: QCA SOC Version  :0x40020150
+[   10.101730] Bluetooth: hci0: QCA ROM Version  :0x00000201
+[   10.101733] Bluetooth: hci0: QCA Patch Version:0x00000001
+[   10.106028] bq256xx-charger 0-003b: using zero-initialized flat cache, this may cause unexpected behavior
+[   10.113363] Bluetooth: hci0: QCA controller version 0x01500201
+[   10.113376] Bluetooth: hci0: QCA Downloading qca/crbtfw21.tlv
+[   10.209545] input: Goodix Berlin Capacitive TouchScreen as /devices/platform/soc@0/4ac0000.geniqup/4a80000.spi/spi_master/spi0/spi0.0/input/input4
+[   10.403958] EXT4-fs (sdd14): mounted filesystem 0559ea3e-9e1b-4c66-b609-ce8cb3912596 ro without journal. Quota mode: none.
+[   10.671692] fb0: sys_fillrect: framebuffer is not in virtual address space.
+[   10.899074] remoteproc remoteproc1: powering up adsp
+[   10.900620] remoteproc remoteproc1: Booting fw image qcom/sm6375/motorola/rhodep/adsp.mbn, size 9500
+[   10.909827] PDM: no support for the platform, userspace daemon might be required.
+[   11.100911] Bluetooth: hci0: QCA Downloading qca/crnv21.bin
+[   11.134537] remoteproc remoteproc1: remote processor adsp is now up
+[   11.162441] qcom_q6v5_pas a400000.remoteproc: Handover signaled, but it already happened
+[   11.239812] Bluetooth: hci0: QCA setup on UART is completed
+[   11.434586] RPC: Registered named UNIX socket transport module.
+[   11.436359] RPC: Registered udp transport module.
+[   11.438134] RPC: Registered tcp transport module.
+[   11.439400] RPC: Registered tcp-with-tls transport module.
+[   11.440642] RPC: Registered tcp NFSv4.1 backchannel transport module.
+[   11.803783] Bluetooth: MGMT ver 1.23
+[   11.806898] Bluetooth: hci0: setting up wcn399x
+[   11.926061] Bluetooth: hci0: QCA Product ID   :0x0000000a
+[   11.938259] Bluetooth: hci0: QCA SOC Version  :0x40020150
+[   11.950476] Bluetooth: hci0: QCA ROM Version  :0x00000201
+[   11.956708] Bluetooth: hci0: QCA Patch Version:0x00000001
+[   11.977190] Bluetooth: hci0: QCA controller version 0x01500201
+[   11.985516] Bluetooth: hci0: QCA Downloading qca/crbtfw21.tlv
+[   12.972986] Bluetooth: hci0: QCA Downloading qca/crnv21.bin
+[   13.114385] Bluetooth: hci0: QCA setup on UART is completed
+[   14.151401] remoteproc remoteproc0: powering up modem
+[   14.154455] remoteproc remoteproc0: Booting fw image qcom/sm6375/motorola/rhodep/modem.mbn, size 9500
+[   14.156272] PDM: no support for the platform, userspace daemon might be required.
+[   14.158274] ipa 5840000.ipa: received modem starting event
+[   15.916787] qcom_q6v5_pas 6080000.remoteproc: Handover signaled, but it already happened
+[   15.917225] ipa 5840000.ipa: received modem running event
+[   15.920935] remoteproc remoteproc0: remote processor modem is now up
+[   18.942956] remoteproc remoteproc2: powering up cdsp
+[   18.947646] remoteproc remoteproc2: Booting fw image qcom/sm6375/motorola/rhodep/cdsp.mbn, size 7660
+[   18.952153] PDM: no support for the platform, userspace daemon might be required.
+[   19.109556] remoteproc remoteproc2: remote processor cdsp is now up
+[   21.265215] platform a600000.codec: deferred probe pending: platform: wait for supplier /soc@0/pinctrl@a7c0000/rx-swr-active-state
+[   21.266967] platform a620000.codec: deferred probe pending: platform: wait for supplier /soc@0/pinctrl@a7c0000/tx-swr-active-state
+[   21.268624] platform a730000.codec: deferred probe pending: platform: wait for supplier /soc@0/pinctrl@a7c0000/dmic23-active-state
+[   21.270323] platform a610000.soundwire: deferred probe pending: platform: supplier a600000.codec not ready
+[   21.271982] platform a740000.soundwire: deferred probe pending: platform: supplier a620000.codec not ready
+[   21.271986] platform a7c0000.pinctrl: deferred probe pending: (reason unknown)
+[   21.271990] platform sound: deferred probe pending: snd-sm8250: MultiMedia1: error getting cpu dai name
+[   21.271998] gcc-sm6375 1400000.clock-controller: sync_state() pending due to 85200000.framebuffer
+[   21.272012] gpucc-sm6375 5990000.clock-controller: sync_state() pending due to 596a000.gmu
+[   23.174990] qcom_q6v5_pas 6080000.remoteproc: Handover signaled, but it already happened
+[   23.964196] qcom_q6v5_pas 6080000.remoteproc: Handover signaled, but it already happened
+[   24.489878] ath10k_snoc c800000.wifi: qmi chip_id 0x150 chip_family 0x4002 board_id 0xff soc_id 0x400e0000
+[   24.492070] ath10k_snoc c800000.wifi: qmi fw_version 0x332581d8 fw_build_timestamp 2024-07-11 05:18 fw_build_id QC_IMAGE_VERSION_STRING=WLAN.HL.3.3.2-00472-QCAHLSWMTPLZ-1.24092.12
+[   28.303121] ath10k_snoc c800000.wifi: wcn3990 hw1.0 target 0x00000008 chip_id 0x00000000 sub 0000:0000
+[   28.303146] ath10k_snoc c800000.wifi: kconfig debug 0 debugfs 0 tracing 0 dfs 0 testmode 0
+[   28.303158] ath10k_snoc c800000.wifi: firmware ver  api 5 features wowlan,mgmt-tx-by-reference,non-bmi crc32 b3d4b790
+[   28.322440] ath10k_snoc c800000.wifi: htt-ver 3.104 wmi-op 4 htt-op 3 cal file max-sta 32 raw 0 hwcrypto 1
+[   28.402339] ath10k_snoc c800000.wifi: invalid MAC address; choosing random
+[   28.402418] ath: EEPROM regdomain: 0x406c
+[   28.402424] ath: EEPROM indicates we should expect a direct regpair map
+[   28.402430] ath: Country alpha2 being used: 00
+[   28.402433] ath: Regpair used: 0x6c
+[   29.401525] devfreq 5900000.gpu: Couldn't update frequency transition information.
+[   30.186371] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+[   32.812586] devfreq 5900000.gpu: Couldn't update frequency transition information.
+[   33.060690] rfkill: input handler disabled
+[   34.063481] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+[   34.387739] wlan0: authenticate with 8a:c2:27:a1:19:d0 (local address=02:00:a1:3e:b2:47)
+[   34.387765] wlan0: send auth to 8a:c2:27:a1:19:d0 (try 1/3)
+[   34.389964] wlan0: authenticated
+[   34.396914] wlan0: associate with 8a:c2:27:a1:19:d0 (try 1/3)
+[   34.399333] wlan0: RX AssocResp from 8a:c2:27:a1:19:d0 (capab=0x1531 status=0 aid=7)
+[   34.469324] wlan0: associated
+[   34.503133] wlan0: Limiting TX power to 30 (30 - 0) dBm as advertised by 8a:c2:27:a1:19:d0
+[   36.864361] rfkill: input handler enabled
+[   45.644069] rfkill: input handler disabled
+[   65.513401] qcom,apr a400000.remoteproc:glink-edge.apr_audio_svc.-1.-1: Adding APR/GPR dev: aprsvc:service:4:3
+[   65.513674] qcom,apr a400000.remoteproc:glink-edge.apr_audio_svc.-1.-1: Adding APR/GPR dev: aprsvc:service:4:4
+[   65.513910] qcom,apr a400000.remoteproc:glink-edge.apr_audio_svc.-1.-1: Adding APR/GPR dev: aprsvc:service:4:7
+[   65.514094] qcom,apr a400000.remoteproc:glink-edge.apr_audio_svc.-1.-1: Adding APR/GPR dev: aprsvc:service:4:8
+[   65.532714] APR-DIAG: rx: opcode=0x0001292d src_svc=3 dst_svc=3 src_port=0x0000 dst_port=0x0000 token=0x00000000 len=148
+[   65.532742] APR-DIAG:     hdr_field=0x0181 pkt_size=148
+[   65.532750] APR-DIAG:     w00: 00940181 00000403 00000503 00000000
+[   65.532758] APR-DIAG:     w04: 0001292d 04000102 04c943d2 00000000
+[   65.532765] APR-DIAG:     w08: 00000002 00000009 00000000 00000000
+[   65.532773] APR-DIAG:     w12: 00000008 00000003 00000005 00000000
+[   65.532781] APR-DIAG:     w16: 00000004 0000000a 00000000 00000007
+[   65.532788] APR-DIAG:     w20: 00000002 00000000 00000008 00000004
+[   65.532796] APR-DIAG:     w24: 00000000 0000000d 00000003 00000000
+[   65.532803] APR-DIAG:     w28: 00000009 00000002 00000000 0000000a
+[   65.532810] APR-DIAG:     w32: 00000001 00000000 0000000b 00000002
+[   65.532817] APR-DIAG:     w36: 00000000
+[   65.533153] platform a400000.remoteproc:glink-edge:apr:service@7:dais: Adding to iommu group 11
+[   65.584900] APR-DIAG: rx: opcode=0x000100f5 src_svc=4 dst_svc=4 src_port=0x0000 dst_port=0x0000 token=0x00000004 len=36
+[   65.584926] APR-DIAG:     hdr_field=0x0181 pkt_size=36
+[   65.584933] APR-DIAG:     w00: 00240181 00000404 00000504 00000004
+[   65.584941] APR-DIAG:     w04: 000100f5 04000202 04ca0f9a 00000000
+[   65.584949] APR-DIAG:     w08: 00000017
+[   65.594212] APR-DIAG: rx: opcode=0x000110e8 src_svc=4 dst_svc=4 src_port=0x0000 dst_port=0x0000 token=0x00000400 len=40
+[   65.594238] APR-DIAG:     hdr_field=0x0181 pkt_size=40
+[   65.594245] APR-DIAG:     w00: 00280181 00000404 00000504 00000400
+[   65.594253] APR-DIAG:     w04: 000110e8 04000302 04ca340d 00000000
+[   65.594261] APR-DIAG:     w08: 000100f3
+[   65.594268] APR-DIAG:     w09: 00000000
+[   65.594414] APR-DIAG: rx: opcode=0x000110e8 src_svc=4 dst_svc=4 src_port=0x0000 dst_port=0x0000 token=0x00000400 len=40
+[   65.594428] APR-DIAG:     hdr_field=0x0181 pkt_size=40
+[   65.594435] APR-DIAG:     w00: 00280181 00000404 00000504 00000400
+[   65.594443] APR-DIAG:     w04: 000110e8 04000402 04ca34dd 00000000
+[   65.594450] APR-DIAG:     w08: 000100f3
+[   65.594457] APR-DIAG:     w09: 00000000
+[   65.596488] APR-DIAG: rx: opcode=0x000110e8 src_svc=4 dst_svc=4 src_port=0x0000 dst_port=0x0000 token=0x00000400 len=40
+[   65.596514] APR-DIAG:     hdr_field=0x0181 pkt_size=40
+[   65.596521] APR-DIAG:     w00: 00280181 00000404 00000504 00000400
+[   65.596540] APR-DIAG:     w04: 000110e8 04000502 04ca3cf4 00000000
+[   65.596548] APR-DIAG:     w08: 000100f3
+[   65.596554] APR-DIAG:     w09: 00000000
+[   65.596698] APR-DIAG: rx: opcode=0x000110e8 src_svc=4 dst_svc=4 src_port=0x0000 dst_port=0x0000 token=0x00000400 len=40
+[   65.596714] APR-DIAG:     hdr_field=0x0181 pkt_size=40
+[   65.596721] APR-DIAG:     w00: 00280181 00000404 00000504 00000400
+[   65.596729] APR-DIAG:     w04: 000110e8 04000602 04ca3dca 00000000
+[   65.596736] APR-DIAG:     w08: 000100f3
+[   65.596743] APR-DIAG:     w09: 00000000
+[   65.599055] wcd9370-codec sdw:2:0:0217:010a:00:4: Static channel mapping not specified using device channel maps
+[   65.602365] wcd9370-codec sdw:3:0:0217:010a:00:3: Static channel mapping not specified using device channel maps
+[   65.607466] wcd937x_codec audio-codec: bound sdw:2:0:0217:010a:00:4 (ops wcd_sdw_component_ops [snd_soc_wcd_common])
+[   65.607486] wcd937x_codec audio-codec: bound sdw:3:0:0217:010a:00:3 (ops wcd_sdw_component_ops [snd_soc_wcd_common])
+[   65.655595] va_macro a730000.codec: supply vdd-micb not found, using dummy regulator
+[   65.693713] input: Motorola-Moto-G82-5G Headset Jack as /devices/platform/sound/sound/card0/input5
+[   65.910141]  MultiMedia1: ASoC: no backend DAIs enabled for MultiMedia1, possibly missing ALSA mixer-based routing or UCM profile
+[   66.193120] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+[   69.098366] APR-DIAG: rx: opcode=0x000110e8 src_svc=4 dst_svc=4 src_port=0x0000 dst_port=0x0000 token=0x00000400 len=40
+[   69.098391] APR-DIAG:     hdr_field=0x0181 pkt_size=40
+[   69.098399] APR-DIAG:     w00: 00280181 00000404 00000504 00000400
+[   69.098407] APR-DIAG:     w04: 000110e8 04000702 04ffac29 00000000
+[   69.098415] APR-DIAG:     w08: 000100f3
+[   69.098422] APR-DIAG:     w09: 00000000
+[   69.098552] APR-DIAG: rx: opcode=0x000110e8 src_svc=4 dst_svc=4 src_port=0x0000 dst_port=0x0000 token=0x00000400 len=40
+[   69.098562] APR-DIAG:     hdr_field=0x0181 pkt_size=40
+[   69.098569] APR-DIAG:     w00: 00280181 00000404 00000504 00000400
+[   69.098577] APR-DIAG:     w04: 000110e8 04000802 04fface7 00000000
+[   69.098585] APR-DIAG:     w08: 000100f3
+[   69.098592] APR-DIAG:     w09: 00000000
+[   69.098726] APR-DIAG: rx: opcode=0x000110e8 src_svc=4 dst_svc=4 src_port=0x0000 dst_port=0x0000 token=0x00000400 len=40
+[   69.098737] APR-DIAG:     hdr_field=0x0181 pkt_size=40
+[   69.098744] APR-DIAG:     w00: 00280181 00000404 00000504 00000400
+[   69.098752] APR-DIAG:     w04: 000110e8 04000902 04ffad97 00000000
+[   69.098760] APR-DIAG:     w08: 000100f3
+[   69.098766] APR-DIAG:     w09: 00000000
+[   69.098942] APR-DIAG: rx: opcode=0x000110e8 src_svc=4 dst_svc=4 src_port=0x0000 dst_port=0x0000 token=0x00000400 len=40
+[   69.098953] APR-DIAG:     hdr_field=0x0181 pkt_size=40
+[   69.098961] APR-DIAG:     w00: 00280181 00000404 00000504 00000400
+[   69.098969] APR-DIAG:     w04: 000110e8 04000a02 04ffae6e 00000000
+[   69.098977] APR-DIAG:     w08: 000100f3
+[   69.098984] APR-DIAG:     w09: 00000000
+[   71.525705] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+[   80.540228] === TEST-RAW ===
+[   80.548993] APR-DIAG: rx: opcode=0x000110e8 src_svc=4 dst_svc=4 src_port=0x0000 dst_port=0x0000 token=0x00000012 len=40
+[   80.549028] APR-DIAG:     hdr_field=0x0181 pkt_size=40
+[   80.549039] APR-DIAG:     w00: 00280181 00000404 00000504 00000012
+[   80.549054] APR-DIAG:     w04: 000110e8 04000b02 05ae652c 00000000
+[   80.549066] APR-DIAG:     w08: 000100f3
+[   80.549076] APR-DIAG:     w09: 00000000
+[   80.549394] PCM-DIAG: Secondary MI2S Playback: link_prepare
+[   80.549406] PCM-DIAG: Secondary MI2S Playback: component_prepare
+[   80.549411] PCM-DIAG: Secondary MI2S Playback: dai_prepare
+[   80.549539] APR-DIAG: rx: opcode=0x000110e8 src_svc=4 dst_svc=4 src_port=0x0000 dst_port=0x0000 token=0x00000012 len=40
+[   80.549560] APR-DIAG:     hdr_field=0x0181 pkt_size=40
+[   80.549570] APR-DIAG:     w00: 00280181 00000404 00000504 00000012
+[   80.549582] APR-DIAG:     w04: 000110e8 04000c02 05ae674d 00000000
+[   80.549593] APR-DIAG:     w08: 000100ef
+[   80.549602] APR-DIAG:     w09: 00000000
+[   80.551913] APR-DIAG: rx: opcode=0x000110e8 src_svc=4 dst_svc=4 src_port=0x0000 dst_port=0x0000 token=0x00000012 len=40
+[   80.551935] APR-DIAG:     hdr_field=0x0181 pkt_size=40
+[   80.551946] APR-DIAG:     w00: 00280181 00000404 00000504 00000012
+[   80.551958] APR-DIAG:     w04: 000110e8 04000d02 05ae7080 00000000
+[   80.551970] APR-DIAG:     w08: 000100e5
+[   80.551980] APR-DIAG:     w09: 00000000
+[   80.552008] PCM-DIAG: Secondary MI2S Playback: dapm_stream_event
+[   80.552128] PCM-DIAG: Secondary MI2S Playback: unmute
+[   80.552134] PCM-DIAG: Secondary MI2S Playback: prepare done
+[   80.552138] PCM-DIAG: MultiMedia1: link_prepare
+[   80.552142] PCM-DIAG: MultiMedia1: component_prepare
+[   80.552368] APR-DIAG: rx: opcode=0x00010d93 src_svc=7 dst_svc=7 src_port=0x0000 dst_port=0x0000 token=0x00000100 len=36
+[   80.552384] APR-DIAG:     hdr_field=0x0181 pkt_size=36
+[   80.552391] APR-DIAG:     w00: 00240181 00000407 00000507 00000100
+[   80.552399] APR-DIAG:     w04: 00010d93 04000e02 05ae725e 00000000
+[   80.552407] APR-DIAG:     w08: b08eb9b8
+[   80.552421] ASM-RX: srvc: opcode=0x00010d93 token=0x00000100 src=0x0000 dst=0x0000 sid=0
+[   80.554380] APR-DIAG: rx: opcode=0x000110e8 src_svc=7 dst_svc=7 src_port=0x0101 dst_port=0x0101 token=0x00000001 len=40
+[   80.554408] APR-DIAG:     hdr_field=0x0181 pkt_size=40
+[   80.554418] APR-DIAG:     w00: 00280181 01010407 01010507 00000001
+[   80.554431] APR-DIAG:     w04: 000110e8 04000f02 05ae7a1f 00000000
+[   80.554442] APR-DIAG:     w08: 00010db3
+[   80.554452] APR-DIAG:     w09: 00000000
+[   80.554484] ASM-RX: srvc: opcode=0x000110e8 token=0x00000001 src=0x0101 dst=0x0101 sid=1
+[   80.557776] APR-DIAG: rx: opcode=0x00010329 src_svc=8 dst_svc=8 src_port=0x1002 dst_port=0x1002 token=0x00120000 len=40
+[   80.557807] APR-DIAG:     hdr_field=0x0181 pkt_size=40
+[   80.557818] APR-DIAG:     w00: 00280181 10020408 10020508 00120000
+[   80.557830] APR-DIAG:     w04: 00010329 04001002 05ae8760 00000000
+[   80.557842] APR-DIAG:     w08: 00000000
+[   80.557851] APR-DIAG:     w09: b0890000
+[   80.562170] APR-DIAG: rx: opcode=0x000110e8 src_svc=8 dst_svc=8 src_port=0x0000 dst_port=0x0000 token=0x00000000 len=40
+[   80.562202] APR-DIAG:     hdr_field=0x0181 pkt_size=40
+[   80.562213] APR-DIAG:     w00: 00280181 00000408 00000508 00000000
+[   80.562225] APR-DIAG:     w04: 000110e8 04001102 05ae988b 00000000
+[   80.562237] APR-DIAG:     w08: 00010325
+[   80.562247] APR-DIAG:     w09: 00000000
+[   80.563355] APR-DIAG: rx: opcode=0x000110e8 src_svc=7 dst_svc=7 src_port=0x0101 dst_port=0x0101 token=0x00000001 len=40
+[   80.563382] APR-DIAG:     hdr_field=0x0181 pkt_size=40
+[   80.563394] APR-DIAG:     w00: 00280181 01010407 01010507 00000001
+[   80.563408] APR-DIAG:     w04: 000110e8 04001202 05ae9d43 00000000
+[   80.563421] APR-DIAG:     w08: 00010d98
+[   80.563433] APR-DIAG:     w09: 00000000
+[   80.563469] ASM-RX: srvc: opcode=0x000110e8 token=0x00000001 src=0x0101 dst=0x0101 sid=1
+[   80.563536] PCM-DIAG: MultiMedia1: dai_prepare
+[   80.563575] PCM-DIAG: MultiMedia1: dapm_stream_event
+[   80.563872] PCM-DIAG: MultiMedia1: unmute
+[   80.563891] PCM-DIAG: MultiMedia1: prepare done
+[   80.564030] ASM-DIAG: ack: appl=6240 queue=0 period=6240 avail=1 pcm_count=24960
+[   80.564049] ASM-DIAG: ack: write_async #0
+[   80.564062] ASM-RX: write: buf=0 addr=00000001fff80000 len=24960 handle=0xb08eb9b8 token=0x00000000 -> apr_send
+[   80.564132] ASM-RX: write: apr_send returned 52
+[   80.564146] ASM-DIAG: ack: write_async #0 ret=0
+[   80.564194] ASM-DIAG: ack: appl=12480 queue=6240 period=6240 avail=1 pcm_count=24960
+[   80.564207] ASM-DIAG: ack: write_async #0
+[   80.564218] ASM-RX: write: buf=1 addr=00000001fff86180 len=24960 handle=0xb08eb9b8 token=0x00000001 -> apr_send
+[   80.564251] ASM-RX: write: apr_send returned 52
+[   80.564261] ASM-DIAG: ack: write_async #0 ret=0
+[   80.564295] ASM-DIAG: ack: appl=18720 queue=12480 period=6240 avail=1 pcm_count=24960
+[   80.564309] ASM-DIAG: ack: write_async #0
+[   80.564318] ASM-RX: write: buf=2 addr=00000001fff8c300 len=24960 handle=0xb08eb9b8 token=0x00000002 -> apr_send
+[   80.564349] ASM-RX: write: apr_send returned 52
+[   80.564359] ASM-DIAG: ack: write_async #0 ret=0
+[   80.564392] ASM-DIAG: ack: appl=24960 queue=18720 period=6240 avail=1 pcm_count=24960
+[   80.564406] ASM-DIAG: ack: write_async #0
+[   80.564415] ASM-RX: write: buf=3 addr=00000001fff92480 len=24960 handle=0xb08eb9b8 token=0x00000003 -> apr_send
+[   80.564446] ASM-RX: write: apr_send returned 52
+[   80.564456] ASM-DIAG: ack: write_async #0 ret=0

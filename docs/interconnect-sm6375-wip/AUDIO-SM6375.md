@@ -359,6 +359,88 @@ this run shows the control path completing in full, including the ADM answering
 `ADM_CMDRSP_DEVICE_OPEN_V5` (0x00010329) for AFE port 0x1002 and then the matrix
 map. Everything is set up correctly and the DSP simply does not consume.
 
+### Session 7: the SMMU stream id was wrong, and the DSP still says yes to everything
+
+Four things came out of this session, one of them a real fix.
+
+**1. Nobody has ADSP audio on sm6375 in mainline.** This should have been
+checked much earlier. Upstream `sm6375.dtsi` has no `apr` node at all, and
+neither sm6375 board (rhodep, sony-xperia-murray-pdx225) declares a sound
+card. The whole effort has been running on the unverified assumption that
+"it should work like sm6115". The real working reference of the same LPASS
+generation is sm6115 / qrb4210-rb2, which does have apr, q6asm and a card.
+
+**2. The SMMU stream id was taken from the wrong SoC (fixed).** The generic
+`msm-audio-lpass.dtsi` is overridden per target, and `holi-audio.dtsi` says:
+
+	&msm_audio_ion {
+		iommus = <&apps_smmu 0x00A1 0x0>;
+		qcom,smmu-sid-mask = /bits/ 64 <0xf>;
+	};
+
+so the correct value here is 0xa1 with a mask of 0xf, covering 0xa0-0xaf.
+Nothing else in sm6375.dtsi uses a stream id in that range. What was in the
+DT was 0x1801, which is sm8250's. This is now `iommus = <&apps_smmu 0xa1
+0xf>` in patch 0032 and the dais device does get an iommu group, but it did
+not change the symptom, and no SMMU fault is logged either way.
+
+**3. The APR header is 8 words, not 5, and every command succeeds.** The
+diagnostic hook was only printing the packet header, so all eight received
+packets were being read as "fine" without ever looking at the status word.
+Dumping the raw packet shows `hdr_field = 0x0181`, i.e. a header length of 8
+words (32 bytes), so the payload starts at w08 and not at w05 as a naive
+`sizeof(struct apr_hdr)` would suggest. Mainline's apr.c gets this right; the
+first attempt at reading the status by hand did not, and produced garbage
+(timestamps read as status codes) that could easily have been mistaken for
+an error. Decoded properly, `APR_BASIC_RSP_RESULT` gives:
+
+	responded-to opcode                    status
+	0x000100f3 AFE_SVC_CMD_SET_PARAM       0
+	0x000100ef AFE_PORT_CMD_SET_PARAM      0
+	0x000100e5 AFE_PORT_CMD_DEVICE_START   0
+	0x00010db3 ASM_STREAM_CMD_OPEN_WRITE   0
+	0x00010325 ADM_CMD_MATRIX_MAP_ROUTINGS 0
+	0x00010d98 ASM_DATA_CMD_MEDIA_FMT_UPD  0
+
+Everything the DSP acknowledges, it acknowledges as successful, including
+the AFE port actually starting. `ASM_CMDRSP_SHARED_MEM_MAP_REGIONS` returns
+a handle (0xb08eb9b8) and mainline reads it from the right offset. So the
+"a command is failing silently" theory is dead. Raw and decoded traces are
+kept in `evidence-session7/`.
+
+**4. The one command with no acknowledgement is RUN.** There is no response
+to `ASM_SESSION_CMD_RUN` anywhere in the trace, because mainline sends it
+through `q6asm_run_nowait()`. That leaves the most plausible remaining
+explanation, and it fits the one measurement that has never been explained:
+survival time scales with the amount of audio queued. If RUN never takes
+effect, the DSP stays open-but-stopped, accepts writes into its queue
+without consuming them, never returns WRITE_DONE, and eventually watchdogs
+when the queue fills. The next step is to instrument the transmit side in
+`apr_send_pkt()` (drivers/soc/qcom/apr.c:55) and confirm whether RUN is
+actually sent, with which dest_port and token, and whether the DSP answers
+it with an error that is currently being discarded.
+
+Also ruled out this session, all negative:
+
+- The default DSP topologies (see session 6c).
+- `qcom,protection-domain` missing on the apr node: it is not missing, it is
+  correctly declared per service on `service@7`, which is where mainline
+  wants it. pd-mapper does log "Cannot open firmware path" but the services
+  probe, so PDR reports the audio PD up.
+- LPI power domains: upstream sm6375.dtsi already has `SM6375_VDD_LPI_CX`
+  and `SM6375_VDD_LPI_MX` with the "lcx"/"lmx" names, same as sm6115.
+- The MI2S bit clock: `sm8250.c` does configure `SEC_MI2S_IBIT` at 1536000,
+  in `sm8250_snd_startup()`, which is in the be_ops that this card uses.
+
+One invalid experiment is worth recording so it is not repeated: playing
+with no route enabled, to see whether the DSP consumes without a backend.
+The first attempt looked like it ran but the trace still showed the ADM
+opening a COPP, because alsa-restore reinstates the saved mixer state on
+every boot and the clearing loop had not actually matched the control name.
+With the route genuinely off, aplay refuses to open the device with
+"Invalid argument", because DPCM will not start a front end with no back
+end, so this particular bisection cannot be done through aplay at all.
+
 ### Honest status and what is left
 
 The audio hardware description is verified correct, the entire codec path is

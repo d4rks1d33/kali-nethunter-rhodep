@@ -19,6 +19,16 @@ interconnect, no diagnostics.
 Rollback: `kali-boot-v47.img` (the pre-everything image). Everything in between
 (v48..v76) was diagnostic; do not ship any of it.
 
+The device is currently left flashed with **`kali-boot-v88-smmu-a1.img`**, an
+audio experiment (see AUDIO-SM6375.md, session 7) whose kernel also carries the
+APR/ASM diagnostic patches. It is fine for testing but it is not the image to
+ship: go back to v80 for daily use.
+
+**Flashing is done by the user.** From now on the fastboot commands
+(`fastboot flash boot_a ...`, `--set-active`, `reboot`) are run by hand on the
+user's side; do not try to drive fastboot over USB from the build host. Build
+the image, hand over the filename, and wait to be told it booted.
+
 ### What works
 
 **IPA / mobile data path: yes.** It loads at boot and sets up:

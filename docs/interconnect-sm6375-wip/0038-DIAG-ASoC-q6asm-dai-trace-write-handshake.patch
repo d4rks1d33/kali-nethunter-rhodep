@@ -169,7 +169,7 @@ whether the AP keeps feeding and whether the DSP ever answers.
  enum {
  	PR_TYPE_APR = 0,
  	PR_TYPE_GPR,
-@@ -178,6 +181,14 @@
+@@ -178,6 +181,31 @@
  	abuf->len = len;
  	memcpy(abuf->buf, buf, len);
  
@@ -179,6 +179,23 @@ whether the AP keeps feeding and whether the DSP ever answers.
 +		APR_DIAG("rx: opcode=0x%08x src_svc=%u dst_svc=%u src_port=0x%04x dst_port=0x%04x token=0x%08x len=%d",
 +			 h->opcode, h->src_svc, h->dest_svc, h->src_port,
 +			 h->dest_port, h->token, len);
++
++		/* Dump the raw packet: guessing the payload offset is how the
++		 * status of a failed command gets mistaken for a good one.
++		 */
++		{
++			const __le32 *w = buf;
++			int n = len / 4, k;
++
++			APR_DIAG("    hdr_field=0x%04x pkt_size=%u",
++				 h->hdr_field, h->pkt_size);
++			for (k = 0; k + 3 < n; k += 4)
++				APR_DIAG("    w%02d: %08x %08x %08x %08x", k,
++					 le32_to_cpu(w[k]), le32_to_cpu(w[k + 1]),
++					 le32_to_cpu(w[k + 2]), le32_to_cpu(w[k + 3]));
++			for (; k < n; k++)
++				APR_DIAG("    w%02d: %08x", k, le32_to_cpu(w[k]));
++		}
 +	}
 +
  	spin_lock_irqsave(&apr->rx_lock, flags);

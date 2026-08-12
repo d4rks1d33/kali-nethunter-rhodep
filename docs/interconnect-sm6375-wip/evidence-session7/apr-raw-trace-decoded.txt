@@ -1,0 +1,48 @@
+TEST-RAW ===
+APR-DIAG: rx: opcode=0x000110e8 src_svc=4 dst_svc=4 src_port=0x0000 dst_port=0x0000 token=0x00000012 len=40
+APR-DIAG:     hdr_field=0x0181 pkt_size=40
+APR-DIAG:     w00: 00280181 00000404 00000504 00000012
+APR-DIAG:     w04: 000110e8 04000b02 05ae652c 00000000
+APR-DIAG:     w08: 000100f3
+APR-DIAG:     w09: 00000000
+APR-DIAG: rx: opcode=0x000110e8 src_svc=4 dst_svc=4 src_port=0x0000 dst_port=0x0000 token=0x00000012 len=40
+APR-DIAG:     hdr_field=0x0181 pkt_size=40
+APR-DIAG:     w00: 00280181 00000404 00000504 00000012
+APR-DIAG:     w04: 000110e8 04000c02 05ae674d 00000000
+APR-DIAG:     w08: 000100ef
+APR-DIAG:     w09: 00000000
+APR-DIAG: rx: opcode=0x000110e8 src_svc=4 dst_svc=4 src_port=0x0000 dst_port=0x0000 token=0x00000012 len=40
+APR-DIAG:     hdr_field=0x0181 pkt_size=40
+APR-DIAG:     w00: 00280181 00000404 00000504 00000012
+APR-DIAG:     w04: 000110e8 04000d02 05ae7080 00000000
+APR-DIAG:     w08: 000100e5
+APR-DIAG:     w09: 00000000
+APR-DIAG: rx: opcode=0x00010d93 src_svc=7 dst_svc=7 src_port=0x0000 dst_port=0x0000 token=0x00000100 len=36
+APR-DIAG:     hdr_field=0x0181 pkt_size=36
+APR-DIAG:     w00: 00240181 00000407 00000507 00000100
+APR-DIAG:     w04: 00010d93 04000e02 05ae725e 00000000
+APR-DIAG:     w08: b08eb9b8
+APR-DIAG: rx: opcode=0x000110e8 src_svc=7 dst_svc=7 src_port=0x0101 dst_port=0x0101 token=0x00000001 len=40
+APR-DIAG:     hdr_field=0x0181 pkt_size=40
+APR-DIAG:     w00: 00280181 01010407 01010507 00000001
+APR-DIAG:     w04: 000110e8 04000f02 05ae7a1f 00000000
+APR-DIAG:     w08: 00010db3
+APR-DIAG:     w09: 00000000
+APR-DIAG: rx: opcode=0x00010329 src_svc=8 dst_svc=8 src_port=0x1002 dst_port=0x1002 token=0x00120000 len=40
+APR-DIAG:     hdr_field=0x0181 pkt_size=40
+APR-DIAG:     w00: 00280181 10020408 10020508 00120000
+APR-DIAG:     w04: 00010329 04001002 05ae8760 00000000
+APR-DIAG:     w08: 00000000
+APR-DIAG:     w09: b0890000
+APR-DIAG: rx: opcode=0x000110e8 src_svc=8 dst_svc=8 src_port=0x0000 dst_port=0x0000 token=0x00000000 len=40
+APR-DIAG:     hdr_field=0x0181 pkt_size=40
+APR-DIAG:     w00: 00280181 00000408 00000508 00000000
+APR-DIAG:     w04: 000110e8 04001102 05ae988b 00000000
+APR-DIAG:     w08: 00010325
+APR-DIAG:     w09: 00000000
+APR-DIAG: rx: opcode=0x000110e8 src_svc=7 dst_svc=7 src_port=0x0101 dst_port=0x0101 token=0x00000001 len=40
+APR-DIAG:     hdr_field=0x0181 pkt_size=40
+APR-DIAG:     w00: 00280181 01010407 01010507 00000001
+APR-DIAG:     w04: 000110e8 04001202 05ae9d43 00000000
+APR-DIAG:     w08: 00010d98
+APR-DIAG:     w09: 00000000

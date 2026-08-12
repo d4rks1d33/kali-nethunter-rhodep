@@ -6,6 +6,10 @@ still resets the SoC about half a second later: the ADSP faults and its watchdog
 bite takes the chip down. That is the open item (§4), and §7 says how to pick
 the work back up.
 
+**Do not expect a quick win here.** Everything on the AP side is verified
+correct against the vendor sources; see "Honest status" at the end of §4 for the
+three things that are actually left, the cheapest of which is asking upstream.
+
 **State of the device right now:** the audio patches ARE back in `source=`
 (together with `CONFIG_SM_LPASSCC_6115=m`), and the phone was left on
 `kali-boot-v82-smmubypass.img`. That image is only for the SMMU experiment (it
@@ -149,6 +153,10 @@ is also why nothing is ever printed.
 | The SMMU aborting the DSP's DMA | No. `arm-smmu.disable_bypass=0` changes nothing and no fault or "Blocked unknown Stream ID" message has ever appeared. |
 | A missing LPASS clock vote | No. Downstream votes the same DCODEC block the macros already request; the MACRO vote it uses is for a different clock. |
 | An ADSP software fault we could read | There is none to read: the SFR says "wdog or kernel error suspected", so the DSP hung rather than faulted. |
+| The AFE port configuration differing from downstream | No. Struct, values and command sequence all verified equivalent. |
+| RX_0/AIF1 being the wrong CDC DMA channel | No. RX_1/AIF2, the pairing the tested sm6115 series uses, hangs identically. |
+| The codec version 2.2 / register stride classification | Verified right: both default tables hold the same registers and values, only the stride differs, and 0x80 matches downstream. |
+| A missing AP side LPASS clock | There is none: the vendor kernel has no lpass clock controller for holi/blair at all. |
 
 ### Session 5: the ADSP hangs, it does not fault
 
@@ -194,40 +202,72 @@ Two more things ruled out this session:
   the earlier result that 0x1c1, 0x1801 and no `iommus` all behave identically,
   the SMMU can be dropped as a suspect.
 
-### Where to look next: diff the AFE command sequence against downstream
+### Session 5b: the AFE sequence is equivalent, and RX_1 does not help either
 
-This is desk work, no device time, and it is the last systematic avenue before
-guessing again. The question is what mainline tells the ADSP that downstream does
-not, for the same port.
+The AFE comparison against downstream is **done, and it found nothing**:
 
-Already done: the config **struct** is byte for byte identical, field order
-included. Vendor `afe_param_id_cdc_dma_cfg_t`
-(`techpack/audio/include/dsp/apr_audio-v2.h`) and mainline
-`afe_param_id_cdc_dma_cfg` (`sound/soc/qcom/qdsp6/q6afe.c`) are both:
+- The config struct is byte for byte identical, field order included (vendor
+  `afe_param_id_cdc_dma_cfg_t` in `techpack/audio/include/dsp/apr_audio-v2.h`
+  vs mainline `afe_param_id_cdc_dma_cfg`).
+- `data_format` is a mixer control with default 0 on both sides, not a DT value.
+- mainline computes `active_channels_mask = (1 << num_channels) - 1` = 0x3 for
+  stereo, which is right.
+- Downstream's CDC DMA DAI `prepare` (`msm_dai_q6_cdc_dma_prepare`) does nothing
+  but an optional data-alignment param and `afe_port_start`; no clock calls, no
+  extra setup. The params downstream sends before the config (custom topology,
+  port topology id, cal, hw delay, cps) are all gated on calibration mode and
+  are not prerequisites.
+- The only CDC DMA DT property rhodep sets is
+  `qcom,msm-dai-is-island-supported` on `va_cdc_dma_0_tx`, which is a low power
+  capture mode, irrelevant to playback.
 
-	u32 cdc_dma_cfg_minor_version; u32 sample_rate;
-	u16 bit_width; u16 data_format; u16 num_channels; u16 active_channels_mask;
+**RX_CODEC_DMA_RX_1 with the RX macro's AIF2 was tested and hangs identically.**
+That pairing is the one the only tested description of this LPASS generation
+uses (the qrb4210-rb2 sm6115 series: "RX1 from DSP is connected to rxmacro"), so
+it was the best remaining lead, and it makes no difference. Both RX_0/AIF1 and
+RX_1/AIF2 hang at exactly the same point.
 
-So it is not a layout mismatch. What has NOT been compared yet:
+Two more things closed off:
 
-1. **The values**: `cdc_dma_cfg_minor_version` (mainline uses
-   AFE_API_VERSION_CODEC_DMA_CONFIG == 1, confirm downstream agrees),
-   `data_format`, and how `active_channels_mask` is computed for 2 channels.
-2. **The command sequence around it.** Mainline does param-set then
-   `AFE_PORT_CMD_DEVICE_START`. Downstream `techpack/audio/dsp/q6afe.c`
-   (see `SIZEOF_CFG_CMD(afe_param_id_cdc_dma_cfg_t)` near line 1614 and work
-   outwards to `afe_port_start`) may send **extra params first**. Candidates
-   worth grepping for: island mode (the rhodep DT sets
-   `qcom,msm-dai-is-island-supported = <1>` on `va_cdc_dma_0_tx`), a topology
-   or `AFE_PARAM_ID_LPASS_CORE_SHARED_CLOCK_CONFIG`, and anything CDC-DMA
-   specific that mainline has no equivalent for. A missing prerequisite param
-   is a very plausible way to make the DSP walk into an unclocked block and
-   hang.
-3. If that comes up empty: check whether the **AP** is supposed to enable LPASS
-   clocks that mainline never touches. `lpasscc-sm6115.c` only provides
-   *resets*, while for example `lpassaudiocc-sc7280.c` provides real clocks. If
-   SM6375's LPASS AUDIO CC has gates the CDC DMA path needs, nobody is enabling
-   them.
+- **The codec version 2.2 classification is definitely right.** The two register
+  default tables in the RX macro (`rx_pre_2_5_defaults` and `rx_2_5_defaults`)
+  contain the *same registers with the same values*; the only difference is the
+  address stride they are named for. The stride was already verified against
+  downstream `bolero-cdc-registers.h` (RX0 0x400, RX1 0x480, RX2 0x500 = 0x80,
+  the pre-2.5 layout).
+- **There is no AP side LPASS clock controller to be missing.** The vendor kernel
+  has gcc, dispcc, gpucc and debugcc for holi/blair but the only lpass clock
+  driver in its tree is `lpasscc-sdm845.c`, for a different SoC. So LPASS
+  clocking really is the ADSP's job through the AFE votes, which is what is
+  already done, and the swr CGCR registers mainline drives via lpasscc-sm6115
+  are the same ones downstream pokes directly through `qcom,swrm-hctl-reg`.
+
+### Honest status and what is actually left
+
+Everything on the AP side has now been verified against the vendor sources,
+address by address and field by field, and every mechanism that could plausibly
+hang a DMA has been tested. The DSP hangs without faulting, so it will not tell
+us anything. Static analysis has run out.
+
+What remains is not a quick fix:
+
+1. **Ask upstream.** This is now a good bug report, with unusually specific
+   data: SM6375/holi, LPASS described after sm6115, card registers, WCD9370
+   enumerates on both soundwire buses, headset detection works, and any CDC DMA
+   stream in either direction makes the ADSP hang (SFR "wdog or kernel error
+   suspected", no fault) about 500 ms in, with the AP demonstrably alive until
+   the whole bus wedges. Plus the list of things ruled out. The people to ask are
+   the author of the sm6115 series (Alexey Klimov, Linaro) and the qdsp6
+   maintainer (Srinivas Kandagatla), on linux-sound / linux-arm-msm. Costs no
+   device time and someone who knows the LPASS may recognise it immediately.
+2. **Compare the bolero driver's behaviour with mainline's macro drivers.**
+   Downstream has a clock resource manager (`bolero-clk-rsc.c`) and a
+   `qcom,default-clk-id = <TX_CORE_CLK>` on the VA macro, i.e. a different model
+   for who owns the macro clocks than mainline's macros (written for sm8250)
+   assume. Finding a divergence there is plausible but it is a full
+   driver-behaviour comparison, not an afternoon.
+3. Tracing what the DSP does would need the vendor DIAG/QDSS path over QMI,
+   which is a project in itself.
 
 --------------------------------------------------------------------------------
 ## 5. Speaker and earpiece: the Awinic amplifiers

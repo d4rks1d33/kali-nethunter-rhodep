@@ -8,6 +8,10 @@
 #
 set -e
 
+# Resolve this script's own directory so mkbootv2b.py is found in any clone,
+# not at a hard-coded absolute path.
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
 OLD="${1:?missing old boot.img (source of the initramfs)}"
 NEW="${2:?missing new boot.img name}"
 
@@ -71,7 +75,7 @@ case "$CMDLINE" in
 	   echo "cmdline:    (added clk_scale=100)" ;;
 esac
 
-python3 /opt/postmarket/repo/scripts/mkbootv2b.py \
+python3 "$SCRIPT_DIR/mkbootv2b.py" \
 	"$KERNEL" "$DTB" "$WORK/ramdisk" "$CMDLINE" "$NEW"
 
 echo

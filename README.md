@@ -11,6 +11,11 @@ list; everything here is a from-scratch community port.
 > **Current image: `kali-boot-v92-STABLE-audio.img`** — the first one with
 > working sound. It replaces the older v80 for daily use.
 
+> **Building from a clean clone?** Read
+> **[`docs/BUILD.md`](docs/BUILD.md)** first: it is the end-to-end checklist,
+> including the external material (firmware, `ipa_fws`, the audio blob, the pmOS
+> initramfs, the debos recipe) that a clone does not and cannot contain.
+
 > **Picking this up, or handing it to someone else?** Start at
 > **[`docs/interconnect-sm6375-wip/HANDOFF-SESSION4.md`](docs/interconnect-sm6375-wip/HANDOFF-SESSION4.md)**:
 > §0 is the current state of the port (which image to flash, what works, what
@@ -79,13 +84,13 @@ list; everything here is a from-scratch community port.
 # Repository layout
 ```
 kernel/
-  patches/            26 kernel patches (DTS + shared-driver fixes), applied in order
+  patches/            31 kernel patches (DTS + shared-driver fixes), applied in order
   config/
-    config-motorola-rhodep.aarch64   full kernel .config (Kali variant, BTF fix + NetHunter)
-    nethunter-config.fragment        the ~58 NetHunter symbols merged onto the pmOS config
+    config-motorola-rhodep.aarch64   full kernel .config (Kali variant = pmOS config + NetHunter + BTF fix)
+    nethunter-config.fragment        the NetHunter symbols merged onto the pmOS config
   APKBUILD            pmaports APKBUILD used by pmbootstrap to build the kernel
 postmarketos/         FULL postmarketOS port source (the base this Kali port builds on)
-  linux-motorola-rhodep/     kernel aport (26 patches + APKBUILD + pmOS config, no NetHunter)
+  linux-motorola-rhodep/     kernel aport (31 patches + APKBUILD + pmOS config, no NetHunter)
   device-motorola-rhodep/    device package (deviceinfo, systemd units, JEITA, modem glue)
   firmware-motorola-rhodep/  firmware aport (APKBUILD; blobs not included)
   README.md                  how to build the kernel/rootfs with pmbootstrap
@@ -229,14 +234,25 @@ pmbootstrap build --force linux-motorola-rhodep
 ```
 Verify after build: no empty `.ko`, **no `.ko.zst`** in the apk.
 
+**The 31 patches under `kernel/patches/` and `postmarketos/linux-motorola-rhodep/`
+are identical** — the only difference between the two trees is the `.config`.
+`postmarketos/` is the build engine (pmbootstrap builds the kernel and produces
+the boot.img/initramfs from it); `kernel/` carries the Kali variant of the
+config on top. If you change a patch, change it in both places, or copy the set
+across so they stay in sync.
+
 - For the **pmOS** kernel: use `postmarketos/linux-motorola-rhodep/` as-is (its
   config has no NetHunter symbols).
 - For the **Kali** kernel: use the same aport but swap in
-  `kernel/config/config-motorola-rhodep.aarch64` (already includes the ~58
-  NetHunter symbols + `CONFIG_MODULE_ALLOW_BTF_MISMATCH=y`), or merge
+  `kernel/config/config-motorola-rhodep.aarch64`. It is the pmOS config plus the
+  NetHunter symbols and `CONFIG_MODULE_ALLOW_BTF_MISMATCH=y`, already merged and
+  verified to build. To regenerate it from scratch: merge
   `kernel/config/nethunter-config.fragment` onto the pmOS config with
-  `scripts/kconfig/merge_config.sh` + `make olddefconfig`, then re-add the
-  BTF-mismatch line.
+  `scripts/kconfig/merge_config.sh` + `make olddefconfig`, then confirm the
+  BTF-mismatch line is present.
+
+Both configs keep audio working: they carry `CONFIG_SM_LPASSCC_6115=m` (required
+for the soundwire/LPASS clocks) and the AW88261/WCD937x/LPASS-macro symbols.
 
 ## Turning the kernel apk into a Debian `linux-image` .deb
 NetHunter/mobile expects a Debian kernel package. Extract the apk and repackage:

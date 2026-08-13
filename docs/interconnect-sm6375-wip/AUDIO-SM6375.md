@@ -628,6 +628,51 @@ The speaker path, from the vendor overlay, is:
 with the two amplifiers on I2C at 0x34 (`sound-channel = 0`) and 0x35 (the
 receiver), controlled over I2C only, audio arriving over the I2S bus.
 
+### Session 11: the speaker works
+
+Both AW88261 amplifiers probe, load their tuning blob and produce sound. A
+tone plays out of the phone for the first time in this port.
+
+	aw88261 1-0034: chip id = 2113
+	aw88261 1-0035: chip id = 2113
+	aw88261 1-0034: loaded aw88261_acf.bin - size: 1504
+	aw88261 1-0035: loaded aw88261_acf.bin - size: 1504
+
+**Which amplifier is which.** 0x34 is the main loudspeaker at the bottom and
+0x35 is the earpiece at the top, which matches the vendor overlay, where 0x34
+carries `sound-channel = <0>` and 0x35 is the `_recv` node. This was confirmed
+by muting one and playing through the other. The DT uses `sound-name-prefix`
+of "Speaker" and "Earpiece" accordingly; without a prefix the two instances
+register identical control and widget names and the card will not probe.
+
+**The tuning blob has to come off the stock ROM.** The mainline driver calls
+`request_firmware()` for `aw88261_acf.bin` and fails probe without it. The
+vendor file is `/vendor/firmware/aw882xx_pid_2113_acf.bin`, named after the
+chip id, 1504 bytes, and its header id is 0x0a15f908, which is exactly
+mainline's `ACF_FILE_ID`, so the container is understood as is.
+
+Getting at it takes a detour, because vendor is a logical partition inside
+`super`. The liblp metadata sits at offset 4096*3, after the primary and
+backup geometry blocks, and gives `vendor_a` as a single extent of 1235440
+sectors starting at sector 6789120. Mapping that with dmsetup and mounting it
+read only is enough; there is no need to copy 600MB.
+`scripts/extract-aw88261-acf.sh` does this on the phone.
+
+**The volume control is fine.** It was reported here as inverted, on the
+strength of a test where a value above the maximum was rejected by ALSA and
+left the previous setting in place, so a channel that was believed muted was
+in fact still playing. Reading the driver settles it: `set` computes
+`720 - value * 2` into an attenuation register and `get` reverses it, so 360
+is loudest and 0 is mute, which is the right way round. Verified by ear at
+120 and at 340.
+
+Two profiles come out of the ACF, "Music" and "Receiver". Both amplifiers are
+left on "Music"; the earpiece will want "Receiver" for calls.
+
+Still to do for a phone that behaves normally: pick the profile per use case,
+add a UCM configuration so PulseAudio or PipeWire finds the routes without
+hand-run amixer commands, and package the ACF blob so it survives a reflash.
+
 ### State the tree was left in (read before rebuilding)
 
 Session 8 added `0040-EXPERIMENT-ASoC-q6asm-dai-run-before-queueing-writes.patch`

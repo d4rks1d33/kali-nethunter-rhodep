@@ -161,7 +161,7 @@ mainline has no driver for that family yet.
 +			};
 +
 +			codec {
-+				sound-dai = <&spdif_dummy>;
++				sound-dai = <&speaker_amp>, <&earpiece_amp>;
 +			};
 +		};
 +
@@ -199,7 +199,7 @@ mainline has no driver for that family yet.
  	panel_vci_default: panel-vci-default-state {
  		pins = "gpio46";
  		function = "gpio";
-@@ -1199,3 +1363,66 @@
+@@ -1199,3 +1363,89 @@
  		qcom,gsi-loader = "self";
  	};
  };
@@ -252,6 +252,29 @@ mainline has no driver for that family yet.
 + */
 +&i2c10 {
 +	status = "okay";
++
++	/*
++	 * The two AW88261 amplifiers, loudspeaker at 0x34 and earpiece at 0x35,
++	 * matching "sound-channel" 0 and 1 downstream. They are controlled over
++	 * I2C only; the audio reaches them over Secondary MI2S, which is why
++	 * downstream sets "aw-rx-port-id = <0x1002>" on both.
++	 *
++	 * Both need a name prefix, otherwise the two instances register
++	 * identical control and widget names and the card fails to probe.
++	 */
++	speaker_amp: audio-codec@34 {
++		compatible = "awinic,aw88261";
++		reg = <0x34>;
++		#sound-dai-cells = <0>;
++		sound-name-prefix = "Speaker";
++	};
++
++	earpiece_amp: audio-codec@35 {
++		compatible = "awinic,aw88261";
++		reg = <0x35>;
++		#sound-dai-cells = <0>;
++		sound-name-prefix = "Earpiece";
++	};
 +};
 +
 +/*

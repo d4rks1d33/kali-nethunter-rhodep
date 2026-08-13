@@ -425,6 +425,11 @@ sudo apt-mark hold linux-image-7.2.0-rc5 linux-headers-7.2.0-rc5 \
 sudo apt-mark hold firmware-atheros \
      rmtfs tqftpserv protection-domain-mapper qrtr-tools libqrtr1 \
      modemmanager libmm-glib0 libqmi-utils libqmi-glib5 libqmi-proxy
+sudo apt-mark hold alsa-ucm-conf alsa-utils alsa-topology-conf \
+     libasound2-data libasound2t64 \
+     pipewire pipewire-alsa pipewire-audio pipewire-bin pipewire-pulse \
+     libpipewire-0.3-0t64 libpipewire-0.3-common libpipewire-0.3-modules \
+     libspa-0.2-modules wireplumber libwireplumber-0.5-0
 sudo apt update && sudo apt full-upgrade -y
 sudo apt install -y kali-linux-default python3-requests hcxdumptool hcxtools
 sudo systemctl mask droid-juicer.service systemd-repart.service
@@ -450,6 +455,25 @@ The holds are essential, and not only for the kernel:
   up.
 - **modemmanager, libmm-glib0, libqmi-utils, libqmi-glib5, libqmi-proxy**: the
   modem and SIM handling that the port is validated against.
+- **The audio set**: `alsa-ucm-conf`, `alsa-utils`, `alsa-topology-conf`,
+  `libasound2-data`, `libasound2t64`, `pipewire`, `pipewire-alsa`,
+  `pipewire-audio`, `pipewire-bin`, `pipewire-pulse`, `libpipewire-0.3-0t64`,
+  `libpipewire-0.3-common`, `libpipewire-0.3-modules`, `libspa-0.2-modules`,
+  `wireplumber`, `libwireplumber-0.5-0`.
+
+  These do not protect against deletion. Every file this port installs, the
+  UCM, the PipeWire and WirePlumber rules, the AW88261 blob, the systemd unit,
+  belongs to no package at all, and dpkg only removes what is in its own
+  manifest; that was checked file by file with `dpkg -S`. What they protect
+  against is a change in behaviour. Our WirePlumber rule is what disables ACP
+  for this card, and ACP has to stay off: it profiles a card by opening its
+  PCMs, and this card's PCMs cannot be opened until a mixer route exists, so
+  ACP finds nothing, creates no sink, and resets the mixer while probing. If an
+  upgrade changed the `conf.d` rule format and our rule stopped applying, ACP
+  would come back and PipeWire would fail to start altogether, so the result is
+  no audio at all rather than degraded audio. `alsa-ucm-conf` is held for the
+  UCM lookup path our config depends on, and `alsa-utils` for `alsa-restore`,
+  the fallback that puts the route back at boot.
 
 To update any of them on purpose: `sudo apt-mark unhold <package>`. Note that if
 the "modem never goes online" problem (see
@@ -460,8 +484,33 @@ to be lifted deliberately rather than kept forever.
 `apt full-upgrade` does NOT re-flash `boot_a` (the running initramfs lives in
 the flashed boot.img), so updates are safe for the boot path.
 
-Check what is protected at any time with `apt-mark showhold`; it should list 18
-packages.
+**Do not unhold these casually.** Each one is load-bearing: the kernel holds
+stop a generic Debian kernel from replacing one that boots, `firmware-atheros`
+silently overwrites the WiFi board file, the modem transport set is what brings
+up both the modem and the internal WiFi, and the audio set keeps PipeWire
+starting at all. Unholding one to chase a bug is fine; doing it by reflex
+during an upgrade is how this port breaks.
+
+Check what is protected at any time with `apt-mark showhold`; it should list 34
+packages. The full list lives in `userspace/apt/apt-holds.txt` and
+`userspace/apt/apply-holds.sh` puts it back after a rootfs reinstall.
+
+<details>
+<summary>The 34 held packages, by purpose</summary>
+
+| Purpose | Packages |
+|---|---|
+| Custom kernel | `linux-image-7.2.0-rc5`, `linux-headers-7.2.0-rc5` |
+| Device firmware | `firmware-motorola-rhodep`, `firmware-atheros` |
+| Port packages | `rhodep-modem-support`, `rhodep-usb-otg`, `rhodep-battery-jeita` |
+| USB WiFi injection | `realtek-rtl8188eus-dkms` |
+| Modem transport | `rmtfs`, `tqftpserv`, `protection-domain-mapper`, `qrtr-tools`, `libqrtr1` |
+| Modem and SIM | `modemmanager`, `libmm-glib0`, `libqmi-utils`, `libqmi-glib5`, `libqmi-proxy` |
+| ALSA | `alsa-ucm-conf`, `alsa-utils`, `alsa-topology-conf`, `libasound2-data`, `libasound2t64` |
+| PipeWire | `pipewire`, `pipewire-alsa`, `pipewire-audio`, `pipewire-bin`, `pipewire-pulse`, `libpipewire-0.3-0t64`, `libpipewire-0.3-common`, `libpipewire-0.3-modules`, `libspa-0.2-modules` |
+| WirePlumber | `wireplumber`, `libwireplumber-0.5-0` |
+
+</details>
 
 ## Phone apps (dialer / SMS / contacts / files)
 Images built after this note already include them (see the rootfs build step).

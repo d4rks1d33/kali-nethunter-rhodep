@@ -183,6 +183,20 @@ If you ever reinstall the rootfs, steps 2 and 3 have to be done again, along
 with the modules under `/lib/modules/7.2.0-rc5`, none of which live in the
 boot image.
 
+### Keeping apt from breaking it
+
+`userspace/apt/apply-holds.sh` reapplies every hold this port depends on, and
+`apt-holds.txt` is the list as it stands.
+
+None of the files this port installs belong to a package, so apt cannot delete
+them; dpkg only removes what is in its own manifest. The holds are there for a
+different reason. If a PipeWire or WirePlumber upgrade changes the `conf.d`
+rule format and our rule stops applying, ACP comes back, and since the PCMs
+cannot be opened without a route, PipeWire will not start and the machine ends
+up with no audio at all rather than degraded audio. `alsa-ucm-conf` is held for
+the UCM lookup path, and `alsa-utils` for `alsa-restore`, which is the fallback
+that puts the route back at boot.
+
 ## Kernel config notes (CRITICAL)
 The config in `kernel/config/config-motorola-rhodep.aarch64` is the **Kali
 variant**. Key differences from a plain pmOS config:

@@ -566,22 +566,37 @@ installed, `8188eu` autoloads at boot and `aireplay-ng --test wlan1mon` passes.
 - Back to pmOS → dd the pmOS disk image to userdata and flash the pmOS boot.img.
 
 # How to continue the port (open work)
-1. **Mobile data**: an SM6375 **interconnect** driver was written and packaged
-   (`docs/interconnect-sm6375-wip/`, driver + DTS + binding, compiles clean and
-   the DTB phandles resolve). On real HW it still resets the SoC very early with
-   no ramoops. Bisection so far: IPA disabled still hangs (not the IPA), and
-   disabling all QoS register writes still hangs (not a wrong qos_port) — so the
-   fault is at the **bus level** (a wrong RPM bus clock / reg-regmap / mas-slv
-   RPM id). Next: register the buses one at a time (virtual → bimc → sys_noc →
-   config_noc) and cross-check every `mas_rpm_id`/`slv_rpm_id` against a
-   known-good SM6375/holi list. See `docs/interconnect-sm6375-wip/PROGRESS.md`.
-   Benefits both ports.
-2. **Audio**: LPASS LPI pinctrl + LPASS clock controller for SM6375 (models:
-   sm6115 / sm6350). Amps (AW88261) and the ADSP side already work downstream.
-3. Sensors (SSC/ADSP), GPS (QMI/QRTR), NFC (Samsung `sec-nfc` — no mainline
-   driver), camera (CAMSS).
-4. Unify the kernel config so pmOS and Kali share one image (add the BTF-mismatch
-   line to pmOS; it's harmless there).
+
+The two highest-value items are the modem (blocks data and calls) and the audio
+userspace (everything but the speaker). The rest is either not started or a
+research dead-end kept for reference.
+
+1. **Modem registration**: the modem enumerates but never registers
+   (`DeviceNotReady`, SIM gets no ATR). This is the main blocker for mobile
+   data *and* calls. Full evidence and a prioritised next-step list (EFS access
+   to modemst1/2, `memshare`/`qcom,mss`/`fsg`, diffing the QMI/QRTR services
+   against an Android boot, trying a SIM with real service) are in
+   `docs/interconnect-sm6375-wip/HANDOFF-SESSION4.md` §5.
+2. **Audio, remaining paths**: speaker works; headphones, microphone/capture,
+   the earpiece "Receiver" profile and call audio do not yet. All of these are
+   now **userspace/UCM work** on a kernel that already carries the paths — see
+   `docs/interconnect-sm6375-wip/AUDIO-SM6375.md` §6 (a full manual `amixer`
+   headphone-routing recipe to base the UCM on) and the "Still to do" notes at
+   the end. **Call audio** additionally needs the modem to register (item 1)
+   and the earpiece on the Receiver profile before there is anything to route.
+3. **Sensors, GPS, NFC, camera** — not started. The detailed technical notes
+   (I2C addresses, GPIOs, which subsystem each goes through, feasibility) live
+   in `docs/KERNEL-TECHNICAL.md` §7 (that doc is otherwise historical, but §7
+   is still valid for these unstarted areas): §7.2 sensors (SSC/ADSP),
+   §7.4 GPS (QMI/QRTR GNSS), §7.5 NFC (Samsung `sec-nfc`, no mainline driver —
+   would need writing), §7.8 camera (CAMSS, effectively infeasible).
+4. **Interconnect driver** (`docs/interconnect-sm6375-wip/`): not needed for
+   mobile data (that was solved via the IPA register layout instead), but a
+   real SM6375 interconnect driver would still benefit both ports. It was
+   written and compiles, but resets the SoC at bus bind; next step is to
+   register the buses one at a time and cross-check every `mas_rpm_id`/
+   `slv_rpm_id` against a known-good SM6375/holi list. See
+   `docs/interconnect-sm6375-wip/PROGRESS.md`.
 
 # License
 Kernel patches: GPL-2.0. Packaging/glue: MIT. Vendor firmware blobs: proprietary,

@@ -9,20 +9,22 @@ chasing the wrong thing.
 --------------------------------------------------------------------------------
 ### The image to use
 
-**`kali-boot-v80-STABLE.img`** in /opt/postmarket/kali-nethunter/img/. This is
-the complete working port and the one flashed on the device: display, touch,
-GPU, wifi/BT, the three remoteprocs, battery, charger, USB/OTG, thermal
-throttling, ramoops in the region the bootloader really preserves, and the IPA
-with the mobile data path up. Kernel patches 0001-0026, no audio, no
-interconnect, no diagnostics.
+> **UPDATE (post-audio).** This §0 was written at session 4, before audio was
+> solved. The current image is **`kali-boot-v92-STABLE-audio.img`** — the same
+> working port plus working speaker audio (kernel patches 0001-0026 **and**
+> 0032-0036, the q6asm stream-id fix `iommus = <&apps_smmu 0xa1 0x0>`). It
+> supersedes v80 for daily use. See the root `README.md` ("Current image") and
+> `AUDIO-SM6375.md` sessions 10-12. The rest of this §0 remains accurate for
+> everything other than audio.
 
-Rollback: `kali-boot-v47.img` (the pre-everything image). Everything in between
-(v48..v76) was diagnostic; do not ship any of it.
+**`kali-boot-v92-STABLE-audio.img`** is the complete working port and the one to
+flash: display, touch, GPU, wifi/BT, the three remoteprocs, battery, charger,
+USB/OTG, thermal throttling, ramoops in the region the bootloader really
+preserves, the IPA with the mobile data path up, **and speaker audio**.
 
-The device is currently left flashed with **`kali-boot-v88-smmu-a1.img`**, an
-audio experiment (see AUDIO-SM6375.md, session 7) whose kernel also carries the
-APR/ASM diagnostic patches. It is fine for testing but it is not the image to
-ship: go back to v80 for daily use.
+Rollback: `kali-boot-v80-STABLE.img` (working port without audio), or
+`kali-boot-v47.img` (the pre-everything image). The intermediate images
+(v48..v91) were diagnostic or audio experiments; do not ship any of them.
 
 **Flashing is done by the user.** From now on the fastboot commands
 (`fastboot flash boot_a ...`, `--set-active`, `reboot`) are run by hand on the

@@ -8,8 +8,10 @@ set -e
 
 CARD="Motorola-Moto-G82-5G"
 
+# The card only appears once the ADSP is up and apr has probed, which takes
+# appreciably longer than this unit's own start, so wait properly.
 i=0
-while [ $i -lt 50 ]; do
+while [ $i -lt 450 ]; do
 	if [ -e /proc/asound/card0/id ] && alsaucm -c "$CARD" list _verbs >/dev/null 2>&1; then
 		alsaucm -c "$CARD" set _verb HiFi set _enadev Speaker
 		exit 0

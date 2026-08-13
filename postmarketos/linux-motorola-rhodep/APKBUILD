@@ -60,7 +60,6 @@ source="
 	0034-ASoC-qcom-add-motorola-rhodep-sndcard.patch
 	0035-arm64-dts-qcom-rhodep-enable-audio.patch
 	0036-ASoC-codecs-lpass-macro-add-codec-version-2-2.patch
-	0040-EXPERIMENT-ASoC-q6asm-dai-run-before-queueing-writes.patch
 "
 options="!check !strip !tracedeps pmb:cross-native"
 _carch="arm64"
@@ -145,5 +144,4 @@ de3fcedf703b1768f840775e2ee74213d2b1181ac2fbf84f722740b9a9f12b9e22337d61e85179af
 578250326fd6b613154028e44aad0253b24517b50cb4ff634721a6abba9e05b5e285546bce0bf5fd9c50389b2032bd265ddb4cdfded0596da56b3fe1c92a4eda  0034-ASoC-qcom-add-motorola-rhodep-sndcard.patch
 3d739d01465c029fa7185b918c4319b4196a1e8a4e68043b7b9c11708763a8ec17bdfe35d7df2bfa6a6c7ea32eae6384229b0c1cd0661a473b8135f18a58f634  0035-arm64-dts-qcom-rhodep-enable-audio.patch
 4aeb00ad2818a47fd52bbf6ae84e633f4e4d531f9cb9ed7b765da595fd71cc6305e3b5e4a5233272269818b034b63dc7d54293701e33ad439c20204e36ae50f2  0036-ASoC-codecs-lpass-macro-add-codec-version-2-2.patch
-9331de3e53cc6dde194a632c42cc9e1c978bc80aced075877ae02301d66c662bee2b456403c441a6f12aad68e47b2f96d8e662d1be14e1b03174e57bbabed1ee  0040-EXPERIMENT-ASoC-q6asm-dai-run-before-queueing-writes.patch
 "

@@ -718,6 +718,30 @@ Not yet done: the ACF profiles are still "Music" on both amplifiers, and
 device in the UCM yet, so only the speaker is described; and a reboot has not
 yet been used to confirm the ordering unit does its job.
 
+### The shipping image
+
+`kali-boot-v92-STABLE-audio.img` is the first image with working sound and it
+supersedes v80 for daily use. All diagnostics are out of `source=`, and so is
+the 0040 ordering experiment, which was never the fix and only ever applied
+with fuzz. Verified in the built DTB: `iommus = <0x3a 0xa1 0x00>`, both
+awinic,aw88261 nodes, the i2s2 pin group and the pinctrl reference on the
+sound card node.
+
+Two things live in the rootfs rather than the image and have to be put back
+if it is ever reinstalled: the modules under `/lib/modules/7.2.0-rc5`, and the
+userspace configuration from `userspace/audio/install.sh`. The AW88261 tuning
+blob is a third, via `scripts/extract-aw88261-acf.sh`.
+
+The `audio-hold` hack, which kept apr.ko out of the module tree so the audio
+stack would not autoload during debugging, has been removed. Everything loads
+on its own now.
+
+One ordering detail was found by rebooting: the route unit first ran ten
+seconds into boot, well before the ADSP was up and apr had probed, and failed.
+It now waits up to ninety seconds and retries, and a clean boot brings the
+card up, enables the route, starts PipeWire with the Speaker sink as default
+and plays.
+
 ### State the tree was left in (read before rebuilding)
 
 Session 8 added `0040-EXPERIMENT-ASoC-q6asm-dai-run-before-queueing-writes.patch`

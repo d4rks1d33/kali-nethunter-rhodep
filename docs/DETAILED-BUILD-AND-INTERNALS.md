@@ -1,5 +1,13 @@
 # Port Kali NetHunter Pro — motorola-rhodep (FUNCIONA)
 
+> **OUTDATED — HISTORICAL.** This document (in Spanish) describes an earlier
+> state of the port: the v47 image, IPA disabled, audio still pending. It is
+> kept for its detailed walkthrough of the build and install internals, but it
+> does **not** reflect the current state, and some paths it references
+> (`build/`, `img/`, `../_common/...`) do not exist in a clean clone. For the
+> current, verified build process see [`docs/BUILD.md`](BUILD.md); for what
+> works today see the root [`README.md`](../README.md).
+
 Kali Linux Rolling 2026.3 (NetHunter Pro / Phosh) sobre kernel mainline
 **7.2.0-rc5**, en el Motorola Moto G82 5G (**motorola-rhodep**, SoC **SM6375**).
 Instalado en la particion `userdata` con el MISMO esquema que pmOS (un disco con

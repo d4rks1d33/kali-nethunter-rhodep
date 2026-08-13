@@ -1,5 +1,13 @@
 # postmarketOS port: Motorola Moto G82 5G (motorola-rhodep)
 
+> **OUTDATED — HISTORICAL.** This document (in Spanish) describes an earlier
+> state of the port: the v45/v47 images, IPA disabled, audio not yet working,
+> and the old patch numbering. It is kept for its technical detail on the build
+> internals, but it does **not** reflect the current state. For the current
+> build process see [`docs/BUILD.md`](BUILD.md); for what works today see the
+> root [`README.md`](../README.md); for the deep history see
+> [`docs/interconnect-sm6375-wip/`](interconnect-sm6375-wip/).
+
 Guía de continuación. Escrita para que otra IA o persona retome el port sin el
 contexto de las sesiones previas. Todo lo que está acá se verificó en hardware
 salvo lo que diga explícitamente "sin probar".

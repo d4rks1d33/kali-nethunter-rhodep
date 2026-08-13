@@ -8,6 +8,9 @@ list; everything here is a from-scratch community port.
 > Built on top of a postmarketOS mainline kernel port. The kernel is shared with
 > the pmOS port; Kali only changes the kernel `.config` and the userspace.
 
+> **Current image: `kali-boot-v92-STABLE-audio.img`** — the first one with
+> working sound. It replaces the older v80 for daily use.
+
 > **Picking this up, or handing it to someone else?** Start at
 > **[`docs/interconnect-sm6375-wip/HANDOFF-SESSION4.md`](docs/interconnect-sm6375-wip/HANDOFF-SESSION4.md)**:
 > §0 is the current state of the port (which image to flash, what works, what
@@ -33,6 +36,12 @@ list; everything here is a from-scratch community port.
   BadUSB HID gadget, CAN, SDR, NFS)
 - **Phone apps** (dialer, SMS, Contacts, file manager) via `mobian-phosh-phone`
   — installed by default in the rootfs build; usable once the modem is enabled
+- **Audio out through the internal speakers**: both AW88261 amplifiers on
+  Secondary MI2S, the bottom loudspeaker and the earpiece together, driven by
+  the ADSP. Works from the browser and anything else that goes through
+  PipeWire, with no commands to run by hand. **USB audio** works too.
+- **IPA** (the data path for mobile data) is up: the register layout the driver
+  needed is in the DTS and the microcode loads from the stock `modem_a`
 
 ## Screenshots
 
@@ -49,12 +58,18 @@ list; everything here is a from-scratch community port.
 - **Right**: `wifite` scanning nearby APs through the USB adapter.
 
 ## Known limitations
-- **Mobile data**: IPA node/driver are in place but `status=disabled`. Blocked by
-  the missing SM6375 **interconnect** driver in mainline (enabling IPA hangs the
-  SoC). Same blocker as the pmOS port.
+- **Mobile data**: the IPA blocker described in older revisions of this file is
+  solved and the modem now enumerates on its own, but it does not get as far as
+  registering on the network: ModemManager reports `DeviceNotReady`, and a
+  known-good SIM gets no ATR while an older prepaid SIM reads fine. That is a
+  SIM/UIM problem downstream of everything else and is still being looked at.
 - **Internal WiFi monitor/injection**: impossible in mainline — the WCN3990
   firmware reports `raw 0` (no raw mode). Use an external USB adapter instead.
-- Audio, sensors (SSC/ADSP), GPS, NFC (Samsung `sec-nfc`, no mainline driver),
+- **Audio**: speakers work. Headphones, the microphones and call audio are not
+  configured yet; the UCM only describes the speaker, and both amplifiers are
+  left on the ACF "Music" profile where the earpiece will want "Receiver" for
+  calls. Capture does not work yet.
+- Sensors (SSC/ADSP), GPS, NFC (Samsung `sec-nfc`, no mainline driver),
   camera: not done.
 - Single USB-C port + no mainline Type-C driver → charge vs OTG is not automatic
   (manual `otg on|off`, defaults to charging). See `packages/rhodep-usb-otg`.
@@ -96,7 +111,7 @@ docs/                       extra notes
 
 # The kernel (shared with the pmOS port)
 
-## The 26 patches (`kernel/patches/`, applied in this order)
+## The 31 patches (`kernel/patches/`, applied in this order)
 ```
 0001 add-Motorola-Moto-G82-5G            device DTS base (+ gpio-vibrator node)
 0002 dsi-fix-pclk-for-dsc-without-widebus  [upstream candidate] DSI pclk
@@ -123,8 +138,50 @@ docs/                       extra notes
 0023 bq256xx-report-device-scope          [upstream] scope=DEVICE (UI fix)
 0024 rhodep-battery-thermal-zone          DTS battery thermal zone
 0025 net-ipa-add-sm6375-without-interconnects  IPA driver: qcom,sm6375-ipa (icc_count=0)
-0026 rhodep-enable-ipa                    DTS ipa@5840000 (status=disabled, needs interconnect)
+0026 rhodep-enable-ipa                    DTS ipa@5840000
+0032 sm6375-add-apr-audio-services        DTS apr/q6 services, q6asm iommus = <&apps_smmu 0xa1 0x0>
+0033 sm6375-add-lpass-macros-and-soundwire DTS lpass macros, soundwire, LPI pinctrl (i2s2 pins)
+0034 ASoC-add-motorola-rhodep-sndcard     machine driver compatible
+0035 rhodep-enable-audio                  DTS sound card, WCD9370, both AW88261 amplifiers
+0036 lpass-macro-add-codec-version-2-2    LPASS codec version 2.2
 ```
+
+Patches 0027-0031 and 0037-0041 were interconnect and audio diagnostics and are
+not part of the build; the ones worth keeping are described in
+[`AUDIO-SM6375.md`](docs/interconnect-sm6375-wip/AUDIO-SM6375.md).
+
+## Audio
+
+Sound needs three things, and only the first is in the boot image:
+
+1. **Kernel** — patches 0032-0036. The one that mattered most is the q6asm
+   stream id, `iommus = <&apps_smmu 0xa1 0x0>`. Getting that wrong does not
+   merely break audio: a DSP write to DDR is posted and fails quietly, but a
+   DSP read needs a response, so a bad translation hangs the bus and resets the
+   SoC with nothing in the logs.
+2. **The AW88261 tuning blob**, which the driver refuses to probe without. It
+   is not redistributable here, so pull it off the stock ROM with
+   `scripts/extract-aw88261-acf.sh`, run on the phone as root. Vendor is a
+   logical partition inside `super`, so the script reads the liblp metadata,
+   maps the extents with dmsetup and mounts read only rather than copying
+   600MB.
+3. **Userspace**, `userspace/audio/install.sh`, also on the phone as root.
+
+That last one is not optional, and it is worth understanding why. The card's
+PCMs are DPCM front ends: `hw:0,0` cannot be opened until a mixer route is
+enabled. ACP, which PipeWire uses to profile cards, probes by opening PCMs, so
+it finds nothing, creates no sink, and its probing resets the mixer. So ACP is
+disabled for this card, the sink is declared outright, and because PipeWire
+opens that sink while starting and exits if it cannot, a systemd unit enables
+the route first, waiting for the ADSP to come up rather than assuming it.
+
+Both amplifiers play together, the bottom loudspeaker and the earpiece, which
+is how the phone is meant to sound. The amplifier volume control is
+attenuation in 0.25dB steps from 0 to 360, so 360 is full scale.
+
+If you ever reinstall the rootfs, steps 2 and 3 have to be done again, along
+with the modules under `/lib/modules/7.2.0-rc5`, none of which live in the
+boot image.
 
 ## Kernel config notes (CRITICAL)
 The config in `kernel/config/config-motorola-rhodep.aarch64` is the **Kali

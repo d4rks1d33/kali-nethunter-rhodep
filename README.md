@@ -103,6 +103,8 @@ packages/
   rhodep-battery-jeita/    .deb source: cold-side (<0C) battery protection
   rhodep-rtl8188eus-fix/   TP-Link RTL8188EUS (wlan1) monitor+inject: patch the
                            realtek-rtl8188eus-dkms driver so it builds on 7.2
+  rhodep-phosh-wifi-guard/ .deb source: keep Phosh alive across WiFi-auditing
+                           network churn (airmon-ng check kill) + airmon-safe
   firmware-motorola-rhodep/ .deb template (blobs NOT included, see its README)
 scripts/
   mkbootv2b.py             build an Android boot.img v2 (flat Image + appended DTB)
@@ -557,6 +559,42 @@ driver. It needs kernel headers and a small patch to build on 7.2 — the full
 workflow (headers .deb, `apply-rtl8188eus-fix.sh`, DKMS build, autoload,
 `apt-mark hold`) is in **`packages/rhodep-rtl8188eus-fix/README.md`**. Once
 installed, `8188eu` autoloads at boot and `aireplay-ng --test wlan1mon` passes.
+
+### GOTCHA: `airmon-ng check kill` takes Phosh down (black screen)
+`airmon-ng check kill` stops `NetworkManager`/`wpa_supplicant` and kills network
+processes. On this Phosh phone port that churn ends up stopping `phosh.service`,
+and `phoc` (the Wayland compositor) takes >90s to tear down, so systemd SIGKILLs
+it and triggers `OnFailure=getty@tty1` → **black screen with no auto-recovery**.
+(The `ath10k ... chan info: invalid frequency 0 (idx 41 out of bounds)` kernel
+message that shows up at the same time is a cosmetic WCN3990 firmware quirk and
+is NOT related.)
+
+Shipped by the `rhodep-phosh-wifi-guard` package (two reversible layers):
+
+1. **`/etc/systemd/system/phosh.service.d/10-protect.conf`** — drop-in:
+   `Restart=always`, `RestartSec=3s`, `TimeoutStopSec=15s`,
+   `StartLimitIntervalSec=0`, empty `OnFailure=`. If anything kills or stops
+   Phosh, systemd brings it back in ~3s instead of falling to getty. Verified
+   with `systemctl kill --signal=SIGKILL phosh.service` → it comes back on its
+   own.
+
+2. **`/usr/local/sbin/airmon-safe`** — wrapper that does the "check kill" while
+   explicitly shielding the `phoc`/phosh tree and restoring the network on exit:
+   ```
+   sudo otg on
+   sudo airmon-safe start wlan1   # kill interference WITHOUT touching phosh + monitor
+   sudo wifite
+   sudo airmon-safe stop  wlan1   # managed + restore NetworkManager/wpa_supplicant
+   sudo otg off
+   ```
+   Standalone subcommands: `airmon-safe kill` (the protected check-kill only) and
+   `airmon-safe restore` (bring the network back).
+
+**Rule:** for WiFi auditing use `airmon-safe` instead of `airmon-ng check kill`.
+With layer 1 in place even a raw `airmon-ng check kill` no longer leaves a
+permanent black screen (Phosh returns on its own), but `airmon-safe` avoids the
+flicker entirely. Monitor mode is **USB-only** (wlan1); the internal WCN3990
+`wlan0` has no raw mode.
 
 ---
 

@@ -673,6 +673,51 @@ Still to do for a phone that behaves normally: pick the profile per use case,
 add a UCM configuration so PulseAudio or PipeWire finds the routes without
 hand-run amixer commands, and package the ACF blob so it survives a reflash.
 
+### Session 12: sound from the browser, without running commands by hand
+
+YouTube plays through both speakers. What was needed on top of the kernel
+work was a userspace configuration, and one non-obvious property of this card
+drives all of it.
+
+**The PCMs cannot be opened until a route is enabled.** They are DPCM front
+ends, so `hw:0,0` returns EINVAL with no mixer route set. Three consequences,
+each of which cost a detour:
+
+- ACP, the profile system PipeWire uses by default, probes a card by opening
+  its PCMs. Every open fails, so it builds no profile beyond "off" and
+  "pro-audio" and no sink is ever created. Worse, its probing **resets the
+  mixer**, which is what kept switching the route back off between tests.
+  It is disabled for this card in `51-rhodep-no-acp.conf`.
+- With ACP off, WirePlumber still created no nodes, so the sink is declared
+  outright in `51-rhodep-sink.conf` against `hw:0,0`.
+- PipeWire opens that sink while starting. If the route is not already on,
+  PipeWire **fails to start at all** and the machine has no audio of any
+  kind. `rhodep-audio-route.service` runs `alsaucm` before user sessions to
+  prevent that, waiting for the card to appear rather than assuming it.
+
+The UCM itself lives in `conf.d/sm6375/`, matching the documented lookup path
+`conf.d/${CardDriver}/${CardLongName}.conf`; the driver is "sm6375" and the
+long name "Motorola-Moto-G82-5G". Note that UCM resolves by long name and not
+by card id, so `alsaucm -c MotorolaMotoG82` fails while
+`alsaucm -c Motorola-Moto-G82-5G` works. Adding a file named after the id
+does not help, the lookup is not by filename.
+
+**Volume.** The amplifier control is 0 to 360 in units of 0.25dB of
+attenuation, so 360 is full scale. The first UCM left it at 240, which is 30dB
+down, and the speaker was audible but weak; it is now set to 360 on both
+amplifiers by the device's EnableSequence.
+
+Both amplifiers play together, giving stereo across the bottom loudspeaker and
+the earpiece, which is how the phone is meant to sound.
+
+Everything is in `userspace/audio/` in the repository, with an `install.sh`
+that puts each piece where it belongs and enables the unit.
+
+Not yet done: the ACF profiles are still "Music" on both amplifiers, and
+`Receiver` will be wanted for calls; there is no headphone or microphone
+device in the UCM yet, so only the speaker is described; and a reboot has not
+yet been used to confirm the ordering unit does its job.
+
 ### State the tree was left in (read before rebuilding)
 
 Session 8 added `0040-EXPERIMENT-ASoC-q6asm-dai-run-before-queueing-writes.patch`

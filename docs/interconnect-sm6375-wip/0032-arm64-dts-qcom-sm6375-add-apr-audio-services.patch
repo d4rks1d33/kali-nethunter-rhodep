@@ -18,8 +18,13 @@ this SoC:
 		qcom,smmu-sid-mask = /bits/ 64 <0xf>;
 	};
 
-so 0xa1 with a mask of 0xf, covering 0xa0-0xaf. Nothing else in sm6375.dtsi
-uses a stream id in that range. The values carried over from other SoCs
+so the stream id is 0xa1 and the mask in the iommus cell is 0. The 0xf in
+"qcom,smmu-sid-mask" is not an SMMU stream-matching mask: downstream uses it
+only to compute the sid it places in bits 32 and up of the address handed to
+the DSP ("smmu_sid = iommuspec.args[0] & smmu_sid_mask" in msm_audio_ion.c),
+which comes out as 0x1 there and matches what SID_MASK_DEFAULT produces here.
+Putting it in the iommus cell instead would program the stream matching
+register to cover 0xa0-0xaf, which is not what the vendor asks for. The values carried over from other SoCs
 (0x1c1 on sm6115, 0x1001 on sm6350, 0x1801 on sm8250) are wrong here: the
 ADSP acknowledges the memory map command either way, because mapping is
 just bookkeeping on its side, but it then stalls on the first read of a
@@ -86,7 +91,7 @@ buffer it cannot translate and never returns WRITE_DONE.
 +							#address-cells = <1>;
 +							#size-cells = <0>;
 +							#sound-dai-cells = <1>;
-+							iommus = <&apps_smmu 0xa1 0xf>;
++							iommus = <&apps_smmu 0xa1 0x0>;
 +
 +							dai@0 {
 +								reg = <MSM_FRONTEND_DAI_MULTIMEDIA1>;

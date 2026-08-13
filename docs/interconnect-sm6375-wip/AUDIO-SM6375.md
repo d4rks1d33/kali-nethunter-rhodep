@@ -571,6 +571,63 @@ direction that `ADM_CMD_MATRIX_MAP_ROUTINGS_V5` actually carries, checking
 them against the ASM session the stream is using. If they disagree, the
 playback session is being wired to nothing, which fits every observation.
 
+### Session 10: SOLVED. The stream id mask was the bug
+
+Playback works. A three second file plays in 3.7 seconds and aplay exits on
+its own, so the DSP is consuming buffers in real time and returning
+WRITE_DONE. The machine no longer resets.
+
+The cause was a mistake introduced in session 7 while reading the vendor DT.
+`holi-audio.dtsi` says:
+
+	&msm_audio_ion {
+		iommus = <&apps_smmu 0x00A1 0x0>;
+		qcom,smmu-sid-mask = /bits/ 64 <0xf>;
+	};
+
+and `qcom,smmu-sid-mask` was taken to be an SMMU stream-matching mask and put
+into the second cell of `iommus`. It is not. Downstream uses it only to
+compute the sid it places in bits 32 and up of the address handed to the DSP,
+`smmu_sid = iommuspec.args[0] & smmu_sid_mask` in msm_audio_ion.c, which
+yields 0x1 and matches what mainline's SID_MASK_DEFAULT already produces. The
+mask in the `iommus` cell is 0. Writing 0xf there programmed the stream
+matching register to cover 0xa0-0xaf, and the DSP's transactions were not
+translated correctly.
+
+The failure mode is worth remembering, because it explains every earlier
+observation. A DSP write to DDR is posted, so it fails silently, while a DSP
+read needs a response, so a bad translation hangs the bus and the SoC resets
+with no log at all. That is why playback killed the machine within
+milliseconds of the first buffer and capture appeared to work.
+
+**Capture never worked either.** It reported 18 READ_DONE events, which was
+read as proof that the DSP could reach our memory, and the conclusion in
+session 9 that the mapping was exonerated was wrong. arecord produced a
+zero byte file. The events were being delivered for writes that never landed.
+
+Fixed in patch 0032, `iommus = <&apps_smmu 0xa1 0x0>`.
+
+Two other things were also missing and are now in place:
+
+- The LPI pins for Secondary MI2S, `lpi_i2s2_active` covering gpio10 (clk),
+  gpio11 (ws) and gpio12/13 (data), attached to the sound card node. This is
+  exactly what qrb4210-rb2 does upstream, and its `lpi_i2s2_active` goes with
+  SECONDARY_MI2S_RX too. Without it nothing reaches the amplifiers.
+- Confirmation that this device has its own vendor overlay,
+  `rhodep-audio-wcd9370-aw882xx-acf-dual-overlay.dtsi`, which is identical to
+  the blair one apart from `skt-prof-mode`, so the speaker path documented
+  from blair is valid here.
+
+The instrumentation was also cleared of suspicion: the same crash happens
+with every DIAG patch removed from `source=`.
+
+The speaker path, from the vendor overlay, is:
+
+	SEC_MI2S_RX -> LPI i2s2 pins (sd0 and sd1) -> 2x AW88261
+
+with the two amplifiers on I2C at 0x34 (`sound-channel = 0`) and 0x35 (the
+receiver), controlled over I2C only, audio arriving over the I2S bus.
+
 ### State the tree was left in (read before rebuilding)
 
 Session 8 added `0040-EXPERIMENT-ASoC-q6asm-dai-run-before-queueing-writes.patch`

@@ -106,6 +106,10 @@ packages/
   rhodep-phosh-wifi-guard/ .deb source: keep Phosh alive across WiFi-auditing
                            network churn (airmon-ng check kill) + airmon-safe
   firmware-motorola-rhodep/ .deb template (blobs NOT included, see its README)
+userspace/
+  audio/              UCM, PipeWire/WirePlumber rules and the route unit (install.sh)
+  apt/                the 34 apt holds this port depends on (apply-holds.sh)
+  login/              GDM login screen instead of the phosh.service autologin (install.sh)
 scripts/
   mkbootv2b.py             build an Android boot.img v2 (flat Image + appended DTB)
   make-boot-from-apk.sh    build a boot.img reusing an initramfs from a base image
@@ -342,6 +346,11 @@ sudo chroot /tmp/rootfs dpkg -i /srv/linux-image-*.deb /srv/firmware-*.deb \
       /srv/rhodep-modem-support*.deb /srv/rhodep-usb-otg*.deb /srv/rhodep-battery-jeita*.deb
 sudo chroot /tmp/rootfs systemctl enable qrtr-ns rmtfs pd-mapper tqftpserv
 sudo chroot /tmp/rootfs systemctl mask droid-juicer systemd-repart
+# Login screen instead of the phosh.service autologin. Mandatory if the image
+# ends up with gdm3 (kali-linux-default and friends pull it in): otherwise both
+# claim the display at boot. See "Login screen (GDM)" above.
+sudo cp -r userspace/login /tmp/rootfs/srv/login
+sudo chroot /tmp/rootfs sh /srv/login/install.sh kali
 # package the dir into an ext4, then wrap it in a sector-4096 GPT disk (see below).
 ```
 
@@ -529,6 +538,77 @@ packages. The full list lives in `userspace/apt/apt-holds.txt` and
 | WirePlumber | `wireplumber`, `libwireplumber-0.5-0` |
 
 </details>
+
+## Login screen (GDM) instead of the phosh.service autologin
+
+Out of the box the shell is started by `phosh.service`: a systemd unit with
+`User=1000` and `PAMName=login` that opens a session for the `kali` user on tty7
+and then does `chvt 7`. That is an autologin, so the first thing you see after
+boot is Phosh's **lock** screen (the PIN keypad), never a chooser.
+
+That is fine until something installs `gdm3` — and several Kali metapackages do
+(`kali-linux-default` / `kali-themes-mobile` pulled it in here). gdm3's postinst
+creates `/etc/systemd/system/display-manager.service`, which systemd's
+`graphical.target` wants, so from then on **both** start at every boot: GDM puts
+its greeter on tty1, `phosh.service` takes the display back with `chvt 7`. The
+symptoms are exactly that: the keypad instead of a login screen, the user
+chooser showing up only when it happens to win the VT, and then
+*"a session is already open, force close?"* when you log in from it — because
+the session on tty7 was opened by phosh.service's own PAM stack and GDM knows
+nothing about it.
+
+There must be one owner of the display. `userspace/login/install.sh` makes it
+GDM:
+
+```
+sudo userspace/login/install.sh          # defaults to the 'kali' user
+sudo reboot
+```
+
+- `phosh.service` disabled **and masked** — masking matters, a phosh package
+  upgrade re-enables the unit otherwise.
+- `display-manager.service` pointed at `gdm3.service`, and any DM that arrives
+  later (`lomiri` and `xfce4` recommend lightdm, some plasma sets recommend
+  sddm) is masked and pre-answered in debconf, so it cannot take the seat.
+- `/var/lib/AccountsService/users/kali` gets `Session=phosh`, so GDM starts the
+  same Phosh session after you pick the account, not GNOME.
+- A **Switch user** launcher (`/usr/local/bin/switch-user`) calls GDM's
+  `CreateTransientDisplay`, which opens a greeter on another VT and leaves the
+  running session alone. Ordinary users are allowed to call it:
+  `/usr/share/dbus-1/system.d/gdm.conf` permits that one method in the default
+  policy context.
+
+Requires **rhodep-phosh-wifi-guard >= 2**. v1's `airmon-safe` restarts
+`phosh.service` when it cannot find Phosh, which under a display manager would
+recreate the second, DM-unaware session on tty7 that this change exists to
+remove; v2 looks for the `phoc` process and restarts `display-manager.service`
+instead.
+
+Two things this does **not** change, because they are not what a display manager
+does: the screen lock still asks for the current user's password (session
+locking is per session on any OS — the chooser belongs to login; use *Log out*
+in the power menu, or the Switch user launcher), and Phosh's lock screen keeps
+its numeric keypad. The keypad is not configurable — `sm.puri.phosh.lockscreen`
+only has `require-unlock` and `shuffle-keypad` — but its bottom-left keyboard
+button (`btn_keyboard` in `lockscreen.ui`) opens the full OSK for alphanumeric
+passwords.
+
+## Extra sessions (Plasma Mobile, Lomiri, Xfce)
+
+With GDM in charge, other desktops are just packages; GDM lists everything in
+`/usr/share/wayland-sessions` and `/usr/share/xsessions` and you pick one before
+logging in (the gear/session menu). All three are in the Kali arm64 repos:
+
+```
+sudo apt install plasma-mobile      # Wayland, phone UI
+sudo apt install lomiri             # Wayland (Mir), phone UI; recommends lightdm
+sudo apt install xfce4              # X11, needs xserver-xorg; recommends lightdm
+```
+
+Install them **after** `userspace/login/install.sh`, or run that script again
+afterwards: lomiri and xfce4 pull `lightdm` in as a Recommends and its postinst
+will happily make itself the display manager. The script's `keep_gdm` step
+(debconf preseed + masking) is what stops that.
 
 ## Phone apps (dialer / SMS / contacts / files)
 Images built after this note already include them (see the rootfs build step).

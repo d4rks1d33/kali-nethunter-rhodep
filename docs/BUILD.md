@@ -134,6 +134,10 @@ These are not in the image (see README "Audio" and userspace/):
 - Apply the apt holds: `userspace/apt/apply-holds.sh` (34 packages; keeps an
   upgrade from replacing the kernel, the WiFi firmware, the modem stack or the
   audio stack).
+- Swap the autologin for a real login screen: `userspace/login/install.sh`.
+  Required as soon as anything pulls in `gdm3` (several Kali metapackages do),
+  because `phosh.service` and a display manager both claim the display at boot.
+  See README "Login screen (GDM) instead of the phosh.service autologin".
 
 ---
 

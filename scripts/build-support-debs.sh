@@ -1,9 +1,10 @@
 #!/bin/sh
-# Build the four support .deb packages from the sources in packages/.
+# Build the support .deb packages from the sources in packages/.
 # Requires: fakeroot, dpkg-deb. Run from the repo root.
 set -e
 cd "$(dirname "$0")/../packages"
-for pkg in rhodep-modem-support rhodep-usb-otg rhodep-battery-jeita; do
+for pkg in rhodep-modem-support rhodep-usb-otg rhodep-battery-jeita \
+           rhodep-phosh-wifi-guard; do
     ver=$(grep '^Version:' "$pkg/DEBIAN/control" | awk '{print $2}')
     out="../${pkg}_${ver}_arm64.deb"
     echo "Building $out"

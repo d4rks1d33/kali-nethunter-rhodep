@@ -1,5 +1,5 @@
 Package: rhodep-phosh-wifi-guard
-Version: 1
+Version: 2
 Architecture: arm64
 Maintainer: rhodep port
 Description: Keep Phosh alive across WiFi-auditing network churn on Motorola rhodep
@@ -17,5 +17,11 @@ Description: Keep Phosh alive across WiFi-auditing network churn on Motorola rho
  .
  Use `airmon-safe start wlanN` instead of `airmon-ng check kill`. Even the raw
  command no longer leaves a permanent black screen once the drop-in is in place.
+ .
+ Version 2 also works when Phosh is started by a display manager instead of
+ phosh.service (see userspace/login/): it checks for the phoc process rather
+ than the unit, and restarts display-manager.service when phosh.service is
+ masked. Restarting phosh.service in that setup would create a second,
+ DM-unaware session on tty7 and break the login screen.
  Note: the unrelated `ath10k ... chan info: invalid frequency 0 (idx 41 out of
  bounds)` kernel message is a cosmetic WCN3990 firmware quirk, not this issue.

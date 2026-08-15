@@ -18,3 +18,4 @@ debos/rootfs*.tar.xz
 !docs/screenshots/
 !docs/screenshots/*.png
 !docs/screenshots/*.jpg
+__pycache__/

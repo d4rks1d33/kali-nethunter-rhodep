@@ -8,8 +8,16 @@ list; everything here is a from-scratch community port.
 > Built on top of a postmarketOS mainline kernel port. The kernel is shared with
 > the pmOS port; Kali only changes the kernel `.config` and the userspace.
 
-> **Current image: `kali-boot-v92-STABLE-audio.img`** — the first one with
-> working sound. It replaces the older v80 for daily use.
+> **Current image: `kali-boot-v94-STABLE.img`.** Everything below that works,
+> works on it: speaker, earpiece, headphones with jack detection, and the
+> microphone. It is `v92-STABLE-audio` plus one device tree node reserving 8 MB
+> for the modem's memshare region, and nothing else: kernel, ramdisk and cmdline
+> are byte for byte identical to v92, so falling back is just reflashing the
+> older file.
+>
+> The image only carries the kernel, the device tree and the initramfs. Audio,
+> SSH over USB and the memshare responder live in the rootfs and are installed
+> by the scripts under `userspace/`; see [`docs/BUILD.md`](docs/BUILD.md).
 
 > **Building from a clean clone?** Read
 > **[`docs/BUILD.md`](docs/BUILD.md)** first: it is the end-to-end checklist,
@@ -45,6 +53,11 @@ list; everything here is a from-scratch community port.
   Secondary MI2S, the bottom loudspeaker and the earpiece together, driven by
   the ADSP. Works from the browser and anything else that goes through
   PipeWire, with no commands to run by hand. **USB audio** works too.
+- **Headphones** on the 3.5 mm jack, through the WCD9370 over soundwire, with
+  **jack detection**: plugging in switches to the headphones and unplugging
+  switches back to the speaker, automatically.
+- **Microphone** (AMIC3), exposed as a PipeWire source, so recording works from
+  any application, through the PulseAudio compatibility layer as well.
 - **IPA** (the data path for mobile data) is up: the register layout the driver
   needed is in the DTS and the microcode loads from the stock `modem_a`
 
@@ -70,10 +83,21 @@ list; everything here is a from-scratch community port.
   SIM/UIM problem downstream of everything else and is still being looked at.
 - **Internal WiFi monitor/injection**: impossible in mainline — the WCN3990
   firmware reports `raw 0` (no raw mode). Use an external USB adapter instead.
-- **Audio**: speakers work. Headphones, the microphones and call audio are not
-  configured yet; the UCM only describes the speaker, and both amplifiers are
-  left on the ACF "Music" profile where the earpiece will want "Receiver" for
-  calls. Capture does not work yet.
+- **Audio**: speaker, earpiece, headphones and both microphones work. What is
+  left is call audio, which needs the modem first, and one rough edge: changing
+  output **while a stream is already playing** works towards the headphones but
+  leaves the speaker silent until that stream is reopened. The cause is an ASoC
+  ordering problem, not a configuration one — the amplifiers are powered up
+  ~300 ms before the I2S clock they need to lock onto — and it is written up in
+  [`AUDIO-SM6375.md`](docs/interconnect-sm6375-wip/AUDIO-SM6375.md) §6.
+  Jack detection needs the codec kept awake (a udev rule), because a suspended
+  soundwire slave reports nothing.
+- **Only one microphone is real.** AMIC3 works. AMIC1, AMIC2, the four VA-macro
+  DMICs and the TX-macro DMICs all return digital silence, so the device tree
+  describes inputs this board does not have and those nodes can be dropped.
+  Note when testing: enabling a capture path emits a settling DC transient, a
+  one-sided ramp, before going quiet, so peak and RMS look like signal on a dead
+  input. Count sign changes instead.
 - Sensors (SSC/ADSP), GPS, NFC (Samsung `sec-nfc`, no mainline driver),
   camera: not done.
 - Single USB-C port + no mainline Type-C driver → charge vs OTG is not automatic
@@ -107,8 +131,18 @@ packages/
                            network churn (airmon-ng check kill) + airmon-safe
   firmware-motorola-rhodep/ .deb template (blobs NOT included, see its README)
 userspace/
-  audio/              UCM, PipeWire/WirePlumber rules and the route unit (install.sh)
-  apt/                the 34 apt holds this port depends on (apply-holds.sh)
+  usb-net/            SSH over the USB cable (172.16.42.1), the only link that
+                      survives a modem restart (install.sh)
+  modem/              memshare responder: answers the QMI service 52 requests
+                      the modem makes at boot and mainline ignores (install.sh)
+  plasma-apps/        makes the Kali menu launchers work under Plasma Mobile:
+                      installs kali-menu and points KDE's terminal at kgx
+                      (install.sh)
+  audio/              UCM (speaker/earpiece/headphones/mics), PipeWire and
+                      WirePlumber rules, the boot route unit, the udev rule that
+                      keeps the codec awake for jack detection, and the jack
+                      watcher that switches output (install.sh)
+  apt/                the 39 apt holds this port depends on (apply-holds.sh)
   login/              GDM login screen instead of the phosh.service autologin (install.sh)
 scripts/
   mkbootv2b.py             build an Android boot.img v2 (flat Image + appended DTB)
@@ -186,6 +220,15 @@ disabled for this card, the sink is declared outright, and because PipeWire
 opens that sink while starting and exits if it cannot, a systemd unit enables
 the route first, waiting for the ADSP to come up rather than assuming it.
 
+That last consequence deserves spelling out, because it bit this port: **if
+PipeWire loses that race it does not merely start late, it gives up for good.**
+Five failures in a couple of seconds trip systemd's default start limit, and
+after that nothing retries. The phone then has no audio at all until someone
+logs in over the network and restarts the service by hand, which looks like the
+card being broken. A drop-in on the user's `pipewire.service` therefore waits
+for the card and a route before starting it, and clears the start limit so a
+failure is a delay rather than a permanent one.
+
 Both amplifiers play together, the bottom loudspeaker and the earpiece, which
 is how the phone is meant to sound. The amplifier volume control is
 attenuation in 0.25dB steps from 0 to 360, so 360 is full scale.
@@ -193,6 +236,37 @@ attenuation in 0.25dB steps from 0 to 360, so 360 is full scale.
 If you ever reinstall the rootfs, steps 2 and 3 have to be done again, along
 with the modules under `/lib/modules/7.2.0-rc5`, none of which live in the
 boot image.
+
+### Headphones, microphones and the jack
+
+The same `install.sh` sets these up. Two things about them are not obvious and
+cost real time to work out, so they are worth stating here:
+
+- The headphone link is bound to `RX_CODEC_DMA_RX_1`, and that port feeds the
+  RX macro's **RX2/RX3**, not RX0/RX1. Route the interpolators from the wrong
+  pair and the stream starts, runs, and then dies with EIO a second later,
+  which looks exactly like the old DSP write bug. `RX INT0/INT1 DEM MUX` must
+  also be `CLSH_DSM_OUT` or the path never reaches the headphone amplifier.
+- **Jack detection only works while the codec is kept awake.** A suspended
+  soundwire slave raises no MBHC interrupt at all, even though the block is
+  enabled and its interrupt unmasked, so plugging something in does nothing.
+  `userspace/audio/udev/90-rhodep-wcd937x-jack.rules` pins the TX slave on;
+  `rhodep-jack-watch` then follows the resulting input events and switches the
+  output. `rhodep-audio-out speaker|earpiece|headphones|status` overrides it.
+
+Only **AMIC3** exists on this board, reached through `ADC2 MUX` set to `INP3`
+and decimator input `SWR_MIC0`. AMIC1, AMIC2 and every DMIC in the device tree
+capture digital silence.
+
+Beware when testing capture: enabling a path produces a settling DC transient,
+a one-sided ramp a few thousand samples long, and then silence. Peak and RMS
+therefore look like a working microphone on a dead input, which is exactly the
+trap this port fell into. Real audio is symmetric around zero and crosses it
+constantly; the transient never crosses at all.
+
+Full detail, including the one remaining limitation when switching output
+mid-stream, is in
+[`AUDIO-SM6375.md`](docs/interconnect-sm6375-wip/AUDIO-SM6375.md) §6.
 
 ### Keeping apt from breaking it
 
@@ -351,6 +425,20 @@ sudo chroot /tmp/rootfs systemctl mask droid-juicer systemd-repart
 # claim the display at boot. See "Login screen (GDM)" above.
 sudo cp -r userspace/login /tmp/rootfs/srv/login
 sudo chroot /tmp/rootfs sh /srv/login/install.sh kali
+# Audio: UCM, the PipeWire and WirePlumber rules, the boot route unit, the udev
+# rule that keeps the codec awake for jack detection and the jack watcher.
+# install.sh notices there is no running systemd and only lays the files down,
+# so the image boots with sound already working. The one thing it cannot do is
+# ship the AW88261 blob, which is not redistributable and has to be extracted on
+# the device; until it is, the amplifiers do not probe and there is no sound.
+sudo cp -r userspace/audio /tmp/rootfs/srv/audio
+sudo chroot /tmp/rootfs sh /srv/audio/install.sh
+# Kali menu launchers: install kali-menu and point KDE's terminal at kgx.
+sudo cp -r userspace/plasma-apps /tmp/rootfs/srv/plasma-apps
+sudo chroot /tmp/rootfs sh /srv/plasma-apps/install.sh
+# The apt holds, so the first upgrade cannot undo any of the above.
+sudo cp -r userspace/apt /tmp/rootfs/srv/apt
+sudo chroot /tmp/rootfs sh /srv/apt/apply-holds.sh
 # package the dir into an ext4, then wrap it in a sector-4096 GPT disk (see below).
 ```
 
@@ -502,6 +590,28 @@ The holds are essential, and not only for the kernel:
   UCM lookup path our config depends on, and `alsa-utils` for `alsa-restore`,
   the fallback that puts the route back at boot.
 
+### A hold does not stop `apt purge`
+
+This is worth knowing because it is not obvious and it is the one way an upgrade
+session can still destroy the port. `apt-mark hold` stops upgrades, stops
+autoremove and stops a package being dragged out as a dependency, but
+
+	sudo apt purge alsa-ucm-conf
+
+goes through, and takes half of mobian-phosh with it. Verified, not assumed.
+
+`userspace/apt/apply-holds.sh` therefore also installs a `DPkg::Pre-Install-Pkgs`
+hook, `rhodep-apt-guard`, which apt runs **before** handing anything to dpkg and
+which aborts the whole transaction if any held package is being removed. Nothing
+has been removed at the point it refuses, so it is safe. It fails open: any
+error in the guard itself lets the transaction proceed, because a bug in it must
+never be able to wedge package management on a phone.
+
+It is a guard rail, not a lock. To remove something deliberately, unhold it
+first and the guard steps aside:
+
+	sudo apt-mark unhold <package>
+
 To update any of them on purpose: `sudo apt-mark unhold <package>`. Note that if
 the "modem never goes online" problem (see
 `docs/interconnect-sm6375-wip/HANDOFF-SESSION4.md` §5) is ever attacked, a newer
@@ -518,12 +628,12 @@ up both the modem and the internal WiFi, and the audio set keeps PipeWire
 starting at all. Unholding one to chase a bug is fine; doing it by reflex
 during an upgrade is how this port breaks.
 
-Check what is protected at any time with `apt-mark showhold`; it should list 34
+Check what is protected at any time with `apt-mark showhold`; it should list 39
 packages. The full list lives in `userspace/apt/apt-holds.txt` and
 `userspace/apt/apply-holds.sh` puts it back after a rootfs reinstall.
 
 <details>
-<summary>The 34 held packages, by purpose</summary>
+<summary>The 39 held packages, by purpose</summary>
 
 | Purpose | Packages |
 |---|---|
@@ -536,8 +646,26 @@ packages. The full list lives in `userspace/apt/apt-holds.txt` and
 | ALSA | `alsa-ucm-conf`, `alsa-utils`, `alsa-topology-conf`, `libasound2-data`, `libasound2t64` |
 | PipeWire | `pipewire`, `pipewire-alsa`, `pipewire-audio`, `pipewire-bin`, `pipewire-pulse`, `libpipewire-0.3-0t64`, `libpipewire-0.3-common`, `libpipewire-0.3-modules`, `libspa-0.2-modules` |
 | WirePlumber | `wireplumber`, `libwireplumber-0.5-0` |
+| GStreamer bridge | `gstreamer1.0-pipewire` |
+| On screen keyboard | `squeekboard`, `plasma-keyboard` |
+| Modem tooling | `libqrtr-dev` |
+| Kali menu launchers | `kali-menu` |
 
 </details>
+
+`gstreamer1.0-pipewire` is worth calling out because its absence fails in a
+confusing way: the microphone is fine at every level this port controls, ALSA
+and PipeWire both capture correctly, and every ordinary application still
+records silence, because most of them (the GNOME sound recorder included) go
+through GStreamer and that plugin is the only bridge from GStreamer to
+PipeWire.
+
+`squeekboard` is held because it is the keyboard once KWin is pointed at it, and
+losing text input on a phone is not a recoverable-by-touch situation;
+`plasma-keyboard` is held so the fallback stays installed. `python3` is
+deliberately **not** held even though `rhodep-jack-watch` needs it: pinning the
+interpreter of a rolling distribution to protect one small script would block
+security updates and hold back much of the system.
 
 ## Login screen (GDM) instead of the phosh.service autologin
 
@@ -609,6 +737,80 @@ Install them **after** `userspace/login/install.sh`, or run that script again
 afterwards: lomiri and xfce4 pull `lightdm` in as a Recommends and its postinst
 will happily make itself the display manager. The script's `keep_gdm` step
 (debconf preseed + masking) is what stops that.
+
+### On-screen keyboard under Plasma Mobile
+
+Plasma Mobile uses `plasma-keyboard`, which is Qt Virtual Keyboard: its layouts
+are `main`, `symbols`, `numbers`, `digits` and `dialpad`, and there is **no
+terminal layout**, so no Esc, Ctrl, Tab or arrow keys. That is painful in a
+terminal, which on this device is most of the point.
+
+Squeekboard, the Phosh keyboard, does have terminal layouts (`terminal/us`,
+`terminal/latam`, ...) and KWin can be pointed at any input method with
+
+	kwriteconfig6 --file kwinrc --group Wayland --key InputMethod <desktop file>
+
+but **do not bother: squeekboard crashes in a loop under KWin.** It was tried
+here, leaves a trail of coredumps, and the result is a phone with no on-screen
+keyboard at all until the setting is reverted and the session restarted, which
+needs SSH. It expects protocols Phosh provides and KWin does not. Note also that
+KWin only reads that setting when it starts, so the change needs a full session
+restart either way. `squeekboard` and `plasma-keyboard` are both held so that
+neither disappears in an upgrade, leaving no way back.
+
+## SSH over the USB cable
+
+```
+sudo userspace/usb-net/install.sh     # on the phone, once
+ssh kali@172.16.42.1                  # from the machine at the other end
+```
+
+This is not just convenience. **The modem cannot be restarted without dropping
+WiFi**, because the WLAN protection domain lives inside it, so any modem work
+done over WiFi loses the connection at the exact moment something interesting
+happens. The USB gadget is the only link that does not depend on the modem.
+
+The gadget is already there and is `ncm.usb0`, which Linux, macOS and Windows
+10+ support natively. What is missing on a stock Kali rootfs is an address:
+NetworkManager treats `usb0` as an ordinary wired interface and waits forever
+for DHCP from a machine that is not serving any, so the interface sits up with
+no IPv4 and nothing answers on 172.16.42.1.
+
+The one non-obvious part is that the profile is `ipv4.method shared`, which runs
+a DHCP server, **plus** a dnsmasq drop-in that sends DHCP options 3 and 6 empty.
+Without that the phone also advertises itself as router and DNS, and the machine
+on the other end can silently make a phone that routes nothing its default
+route, losing internet. macOS reorders its network services exactly like that.
+
+Note for containers: Docker Desktop on macOS runs containers in a VM, and the
+host's USB network is not routed into it, so a container cannot reach
+172.16.42.1. Forward a port on the host instead:
+
+```
+ssh -N -o GatewayPorts=yes -L 0.0.0.0:2222:127.0.0.1:22 kali@172.16.42.1
+```
+
+## Kali menu launchers under Plasma Mobile
+
+```
+sudo userspace/plasma-apps/install.sh
+```
+
+Out of the box most of the Kali menu is broken on this image, in two ways that
+both hit tools which open in a terminal:
+
+- Hundreds of launchers (Caido, bettercap, wfuzz, ...) call
+  `/usr/share/kali-menu/exec-in-shell`, which belongs to `kali-menu`, and
+  `kali-menu` is not installed. They fail with *"could not find the program
+  /usr/share/kali-menu/exec-in-shell"*. 446 launchers were affected here.
+  `kali-menu` is a single package that pulls in nothing else, so installing it
+  is a clean fix, and it is held so it stays.
+- The ones marked `Terminal=true` need a terminal KDE can drive with `-e`.
+  Plasma Mobile ships gnome-terminal, whose wrapper dropped `-e`, so KDE cannot
+  launch into it and reports *"terminal Konsole not found"*. Installing Konsole
+  drags a partial KF6 upgrade onto a rolling system and is not worth the risk;
+  gnome-console (`kgx`) is already present and does support `-e`, so KDE's
+  terminal is pointed at it in `/etc/xdg/kdeglobals`.
 
 ## Phone apps (dialer / SMS / contacts / files)
 Images built after this note already include them (see the rootfs build step).
@@ -689,19 +891,55 @@ The two highest-value items are the modem (blocks data and calls) and the audio
 userspace (everything but the speaker). The rest is either not started or a
 research dead-end kept for reference.
 
-1. **Modem registration**: the modem enumerates but never registers
-   (`DeviceNotReady`, SIM gets no ATR). This is the main blocker for mobile
-   data *and* calls. Full evidence and a prioritised next-step list (EFS access
-   to modemst1/2, `memshare`/`qcom,mss`/`fsg`, diffing the QMI/QRTR services
-   against an Android boot, trying a SIM with real service) are in
-   `docs/interconnect-sm6375-wip/HANDOFF-SESSION4.md` §5.
-2. **Audio, remaining paths**: speaker works; headphones, microphone/capture,
-   the earpiece "Receiver" profile and call audio do not yet. All of these are
-   now **userspace/UCM work** on a kernel that already carries the paths — see
-   `docs/interconnect-sm6375-wip/AUDIO-SM6375.md` §6 (a full manual `amixer`
-   headphone-routing recipe to base the UCM on) and the "Still to do" notes at
-   the end. **Call audio** additionally needs the modem to register (item 1)
-   and the earpiece on the Receiver profile before there is anything to route.
+1. **Modem registration**: the modem boots, answers QMI and reports its IMEI,
+   but its state machine never finishes initialising, so it blocks mobile data
+   *and* calls. The sharpest evidence is that it rejects **every** mode
+   transition, not just going online (`online` → `DeviceNotReady`, `low-power` →
+   `InvalidTransition`), and the SIM PIN verifying changes nothing.
+
+   **memshare was genuinely missing, is now implemented, and is not the
+   cause.** The modem really does ask the application processor for memory
+   during bring-up, which mainline never answered; `userspace/modem/` does now,
+   and `kali-boot-v93-memshare.img` reserves the region it hands over. With the
+   allocation fully satisfied the modem is unchanged.
+
+   **The SIM is not the cause either**, which is worth stating because it is the
+   natural suspicion when the card is an old prepaid one with no service. Power
+   the card off so the modem sees no SIM at all and it *still* refuses to go
+   online, and a modem with no SIM must be able to power its radio. The APN
+   warning Plasma Mobile shows is downstream of all this and equally irrelevant
+   until the radio comes on.
+
+   **It is not a missing QMI service either**, and that was settled by sweeping
+   rather than guessing: since the modem connects to whatever the name service
+   announces, every service id from 1 to 235 that nobody provides was offered
+   across cold boots. The modem reaches out to exactly two, LOWI (location) and
+   an unnamed service 60 carrying `"msm_mpss"` and a 5 s timeout, and answering
+   both with success changes nothing.
+
+   Ruled out, with reasons, so nobody repeats them: the SIM (including with the
+   card powered off entirely), the SIM lock, the carrier configuration (PDC has
+   the right one active), rmtfs read-only mode, memshare, and any missing QMI
+   service. What is left is below QMI, and the honest next step is asking
+   upstream rather than another reflash. See
+   `docs/interconnect-sm6375-wip/HANDOFF-SESSION4.md` §5, sessions 13 to 13d.
+2. **Audio**: speaker, earpiece, headphones, both microphones and jack detection
+   all work; see `docs/interconnect-sm6375-wip/AUDIO-SM6375.md` §6. Three things
+   are left, in order of how cheap they are:
+   - **Switching to the speaker mid-stream** leaves it silent until the stream
+     is reopened, because ASoC powers the amplifiers ~300 ms before the I2S
+     clock they lock onto exists. Needs an ordering fix in ASoC or the machine
+     driver; retrying in the codec driver provably cannot work, since the retry
+     loop is what delays the backend start.
+   - **Drop the dead device tree nodes**: the four VA-macro DMICs and AMIC2 are
+     not populated on this board. Cosmetic, so batch it with the next reflash.
+   - **Keeping the codec awake should not be necessary.** Jack detection relies
+     on a udev rule pinning the soundwire slave on, because MBHC detects nothing
+     while it is suspended. The real fix is for the codec to keep that block
+     alive across runtime suspend, which is a kernel change and would also stop
+     the port from burning power to hold the slave up.
+
+   **Call audio** is blocked on the modem (item 1), not on audio.
 3. **Sensors, GPS, NFC, camera** — not started. The detailed technical notes
    (I2C addresses, GPIOs, which subsystem each goes through, feasibility) live
    in `docs/KERNEL-TECHNICAL.md` §7 (that doc is otherwise historical, but §7

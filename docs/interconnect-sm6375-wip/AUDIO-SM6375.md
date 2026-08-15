@@ -1,16 +1,16 @@
 # Audio on SM6375 (rhodep) — bring-up notes
 
-Status: **the sound card exists**, headset jack detection works, the WCD9370
-enumerates on both soundwire buses. Starting a stream, in either direction,
-still resets the SoC. The DSP accepts every ASM write command and never
-acknowledges one, so it starves and hangs, and the watchdog takes the chip down.
-The whole codec path (codec DMA, macros, soundwire, WCD9370) is proven innocent:
-Secondary MI2S fails identically. That is the open item (§4), and §7 says how to pick
-the work back up.
+Status: **working.** Speaker, earpiece, headphones, both built-in microphones
+and headset jack detection all work, through PipeWire, with no commands to run
+by hand. §6 has the routing, the two mistakes that made headphones look broken
+for a long time, and the one remaining limitation (switching to the speaker
+while a stream is already playing).
 
-**Do not expect a quick win here.** Everything on the AP side is verified
-correct against the vendor sources; see "Honest status" at the end of §4 for the
-three things that are actually left, the cheapest of which is asking upstream.
+Sections 4 and 5 below are **historical**. They describe the period when
+starting any stream reset the SoC, which was solved in session 10: the SMMU
+stream id mask was wrong. They are kept because the reasoning and the ruled-out
+hypotheses are still useful, but do not read §4's "Honest status" as current, it
+is not.
 
 **State of the device right now:** the audio patches ARE back in `source=`
 (together with `CONFIG_SM_LPASSCC_6115=m`), and the phone was left on
@@ -815,25 +815,127 @@ which mainline cannot reproduce; a plain i2s amplifier driver without the
 vendor DSP algorithms is the realistic target.
 
 --------------------------------------------------------------------------------
-## 6. Manual routing used for testing (no UCM yet)
+## 6. Headphones, microphones and the jack
 --------------------------------------------------------------------------------
-There is no UCM profile, so `MultiMedia1` is not routed to any backend by
-default ("no backend DAIs enabled for MultiMedia1"). For a headphone test:
+All of this works now and lives in `userspace/audio/`. The recipe that used to be
+in this section was **wrong in two ways**, and both are worth recording because
+each one produced a different, confusing failure.
 
-	amixer -c 0 cset name='RX_CODEC_DMA_RX_0 Audio Mixer MultiMedia1' 1
-	amixer -c 0 cset name='RX_MACRO RX0 MUX' AIF1_PB
-	amixer -c 0 cset name='RX INT0_1 MIX1 INP0' RX0
-	amixer -c 0 cset name='RX_MACRO RX1 MUX' AIF1_PB
-	amixer -c 0 cset name='RX INT1_1 MIX1 INP0' RX1
+### The two mistakes in the old recipe
+
+It used `RX_CODEC_DMA_RX_0` feeding `RX0`/`RX1` through `AIF1_PB`. The device
+tree binds this link to `RX_CODEC_DMA_RX_1`, and `lpass-rx-macro.c` says:
+
+	CDC_DMA_RX_0 port drives RX0/RX1
+	CDC_DMA_RX_1 port drives RX2/RX3
+	CDC_DMA_RX_2 port drives RX4
+	CDC_DMA_RX_3 port drives RX5
+
+so the interpolators have to take their input from **RX2/RX3**. Feeding them
+from RX0/RX1 leaves the DSP writing into a port nothing reads: the DPCM path
+connects, hw_params and trigger both succeed, and then playback dies with EIO
+about a second later. It looks exactly like the old "DSP never acknowledges a
+write" bug, which is a good way to waste a day.
+
+It also never set the demodulator muxes. `HPHL_OUT` and `HPHR_OUT` hang off
+`RX INT0/INT1 DEM MUX`, so with the default `NORMAL_DSM_OUT` the DAPM path never
+reaches the headphone amplifier and nothing comes out even when the stream runs.
+
+Corrected, for reference (the UCM does all of this):
+
+	amixer -c 0 cset name='RX_CODEC_DMA_RX_1 Audio Mixer MultiMedia1' 1
+	amixer -c 0 cset name='RX_MACRO RX2 MUX' AIF2_PB
+	amixer -c 0 cset name='RX_MACRO RX3 MUX' AIF2_PB
+	amixer -c 0 cset name='RX INT0_1 MIX1 INP0' RX2
+	amixer -c 0 cset name='RX INT1_1 MIX1 INP0' RX3
+	amixer -c 0 cset name='RX INT0 DEM MUX' CLSH_DSM_OUT
+	amixer -c 0 cset name='RX INT1 DEM MUX' CLSH_DSM_OUT
 	amixer -c 0 cset name='HPHL_RDAC Switch' 1
 	amixer -c 0 cset name='HPHR_RDAC Switch' 1
 	amixer -c 0 cset name='HPHL Switch' 1
 	amixer -c 0 cset name='HPHR Switch' 1
-	amixer -c 0 cset name='RX_RX0 Digital Volume' 100
-	amixer -c 0 cset name='RX_RX1 Digital Volume' 100
-	speaker-test -D hw:0,0 -c 2 -t sine -f 440 -l 1
+	amixer -c 0 cset name='RX_RX0 Digital Volume' 74
+	amixer -c 0 cset name='RX_RX1 Digital Volume' 74
 
-A UCM profile will be needed for PipeWire/Phosh to use the card at all.
+`RX_RX0`/`RX_RX1` are the HPHL/HPHR **interpolators**, not the input ports;
+there is no `RX_RX3 Digital Volume`.
+
+### The microphone
+
+**Only AMIC3 is populated.** It is reached with `ADC2 MUX` set to `INP3` and the
+decimator taking `SWR_MIC0`, because lpass-tx-macro.c maps SWR_MIC0 to
+`TX SWR_INPUT0`, which the device tree routes to `ADC2_OUTPUT`.
+
+Everything else in the device tree is fiction on this board. Tested with sound
+playing into them, all of these return digital silence: **AMIC1** (via ADC1 /
+SWR_MIC1), **AMIC2** (`ADC2 MUX` = INP2), the four **VA-macro DMICs**, and the
+**TX-macro DMICs** (`TX DEC0 MUX` = MSM_DMIC, DMIC0-5). Those nodes can be
+dropped from patch 0035.
+
+**How not to be fooled here**, because this port was, and it cost a full round
+of wrong conclusions. Enabling any capture path produces a settling DC
+transient: a one-sided ramp, in this case from -1774 up to 0 over about 15000
+samples, followed by silence. Peak and RMS on that look exactly like a working
+microphone, and worse, they are *identical on every run*, which is the tell.
+
+Measure sign changes instead. Real audio is symmetric around zero and crosses it
+thousands of times a second; the transient never crosses at all:
+
+	AMIC1 (ADC1)        min=-15     max=0      zero crossings=1        dead
+	AMIC3 (ADC2/INP3)   min=-2675   max=2840   zero crossings=13790    real
+
+The other thing worth knowing: micbias is not the problem, and it is easy to
+suspect. `ANA_MICB1` (0x3022) reads 0x24 idle and 0x64 while capturing, which is
+the enable bit set with VOUT_CTL 0x24, that is 1.0 V + 36 * 50 mV = 2.8 V,
+exactly what `qcom,micbias1-microvolt` asks for. It works, and AMIC1 is silent
+anyway.
+
+### Jack detection, and why it looked broken
+
+The MBHC block detects insertion and removal correctly. It reports through the
+`Headphone Jack` and `Mic Jack` controls and the "Headset Jack" input device.
+
+It does **not** work with the codec's runtime PM left alone, and the way it
+fails is misleading: the block is configured correctly and its interrupt is
+unmasked, verified by reading the codec's own registers,
+
+	ANA_MBHC_MECH (0x3014) = 0x9d   L_DET_EN set, plug types as configured
+	INTR_MASK_0   (0x346b) = 0x4c   MBHC_SW_DET unmasked
+
+and yet plugging something in produces no interrupt at all. The reason is that
+the soundwire slave suspends a moment after boot, and a suspended slave detects
+nothing. Forcing it to stay powered makes detection work immediately and
+reliably; that is what `udev/90-rhodep-wcd937x-jack.rules` does. Only the TX
+slave needs it, since that is the one carrying the MBHC registers and the
+interrupt.
+
+This is worth knowing before spending time on the device tree: none of the
+`qcom,mbhc-*` properties are the problem, and the stock Android device tree
+(recoverable from `vendor_boot_b`) does not set them either, because the
+downstream machine driver hardcodes that configuration in C.
+
+### Known limitation: switching to the speaker mid-stream
+
+Switching output while a stream is **already playing** works towards the
+headphones but not towards the speaker, which stays silent until the stream is
+closed and reopened. Anything started afterwards is fine.
+
+The cause is an ordering one, and it is not in this port's code. On a DPCM
+runtime update ASoC powers the DAPM widgets synchronously *before* it connects
+and triggers the new backend:
+
+	228.805  amplifier powers up, starts retrying
+	229.130  gives up, "start failure (-1)"
+	229.132  Secondary MI2S backend connected
+	229.134  backend triggered, and only now is there an I2S clock
+
+The Awinic amplifiers lock their PLL to the incoming I2S clock, so they cannot
+start that early. Making them retry for longer does not help and actively makes
+it worse: the retry loop runs inside the DAPM callback, so it delays the very
+backend start it is waiting for. Forcing the PipeWire sink to reopen with
+`pactl suspend-sink` does not help either, because a statically declared node
+does not close its PCM on suspend. A real fix belongs either in ASoC's ordering
+or in the machine driver.
 
 --------------------------------------------------------------------------------
 ## 7. How to pick this up again

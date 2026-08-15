@@ -125,19 +125,55 @@ device": build a rescue image with `scripts/build-rescue-boot.sh`, flash it,
 
 ---
 
-## Phase 6 — on-device, after first boot
+## Phase 6 — bake into the image, or do on-device after first boot
 
-These are not in the image (see README "Audio" and userspace/):
+All three of these run fine inside the build chroot, and doing them there is
+preferable: the image then boots with audio working and protected, instead of
+needing a session over the network to finish the job. `install.sh` detects that
+systemd is not running and installs files only; `systemctl enable` is just
+symlinking, so the units still come up on first boot.
 
-- Extract the AW88261 blob: `scripts/extract-aw88261-acf.sh` (item 3).
-- Install the audio userspace: `userspace/audio/install.sh`.
-- Apply the apt holds: `userspace/apt/apply-holds.sh` (34 packages; keeps an
-  upgrade from replacing the kernel, the WiFi firmware, the modem stack or the
-  audio stack).
-- Swap the autologin for a real login screen: `userspace/login/install.sh`.
-  Required as soon as anything pulls in `gdm3` (several Kali metapackages do),
-  because `phosh.service` and a display manager both claim the display at boot.
-  See README "Login screen (GDM) instead of the phosh.service autologin".
+```
+sudo cp -r userspace/audio       /tmp/rootfs/srv/audio
+sudo chroot /tmp/rootfs sh /srv/audio/install.sh
+sudo cp -r userspace/plasma-apps /tmp/rootfs/srv/plasma-apps
+sudo chroot /tmp/rootfs sh /srv/plasma-apps/install.sh
+sudo cp -r userspace/usb-net     /tmp/rootfs/srv/usb-net
+sudo chroot /tmp/rootfs sh /srv/usb-net/install.sh
+sudo cp -r userspace/apt     /tmp/rootfs/srv/apt
+sudo chroot /tmp/rootfs sh /srv/apt/apply-holds.sh
+sudo cp -r userspace/login   /tmp/rootfs/srv/login
+sudo chroot /tmp/rootfs sh /srv/login/install.sh kali
+```
+
+- **Audio userspace** (`userspace/audio/install.sh`): UCM for speaker, earpiece,
+  headphones and the microphone, the PipeWire and WirePlumber rules, the boot
+  route unit, the udev rule that keeps the codec awake so the headset jack can
+  be detected at all, and the jack watcher that switches output on insertion.
+- **SSH over USB** (`userspace/usb-net/install.sh`): gives `usb0` the address
+  172.16.42.1 and a DHCP server, without advertising itself as router or DNS.
+  Worth baking in: it is the only link that survives a modem restart, since the
+  WLAN protection domain lives inside the modem, so it is what makes modem
+  debugging possible at all.
+- **apt holds** (`userspace/apt/apply-holds.sh`, 39 packages): keeps an upgrade
+  from replacing the kernel, the WiFi firmware, the modem stack, the audio stack
+  or the on-screen keyboard. It also installs `rhodep-apt-guard`, an apt hook
+  that refuses to remove a held package, because a hold does **not** stop
+  `apt purge`.
+- **memshare responder** (`userspace/modem/install.sh`): answers the QMI service
+  52 requests the modem makes at boot and mainline ignores. Needs `libqrtr-dev`
+  and a compiler, so it is the one piece that does not belong in a chroot; run
+  it on the device.
+- **Login screen** (`userspace/login/install.sh`): required as soon as anything
+  pulls in `gdm3` (several Kali metapackages do), because `phosh.service` and a
+  display manager both claim the display at boot. See README "Login screen
+  (GDM)".
+
+The one step that **cannot** be baked in, and still has to happen on the device:
+
+- Extract the AW88261 blob: `scripts/extract-aw88261-acf.sh` (item 3). It is not
+  redistributable, it lives in the `vendor` logical partition inside `super`,
+  and without it the amplifiers do not probe and there is no sound at all.
 
 ---
 
@@ -151,6 +187,9 @@ and `docs/interconnect-sm6375-wip/` for the deep history:
   build/flash/where-everything-lives reference.
 
 Short version: display, GPU, touch, WiFi/BT, battery/charging, USB/OTG, the
-three remoteprocs, IPA (data path up), and **speaker audio** all work. The
-modem enumerates but does not register (SIM/UIM issue). Headphones, mic, capture
-and call audio are not configured yet.
+three remoteprocs, IPA (data path up), and **audio** all work. Audio means
+speaker, earpiece, headphones with working jack detection, and the microphone,
+through PipeWire. The modem enumerates but does not register (SIM/UIM issue), so
+**call audio** is blocked on that rather than on audio. One rough edge remains:
+changing output while a stream is already playing works towards the headphones
+but leaves the speaker silent until that stream is reopened (AUDIO-SM6375.md §6).

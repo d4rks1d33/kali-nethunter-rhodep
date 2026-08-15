@@ -331,6 +331,324 @@ order:
 4. Try a different SIM with actual service before spending too long: some of
    this may just be the prepaid SIM without a plan.
 
+### Session 13: the PIN is a red herring, and memshare is the strongest lead
+
+Re-tested end to end on a clean boot. Correcting two things this document got
+wrong, and adding one concrete finding.
+
+**The SIM PIN verifies, and it changes nothing.** ModemManager now finds the
+modem on its own (the >= 2 drop-in works), reports `lock: sim-pin`, and the PIN
+is accepted: `PIN1 state: 'enabled-verified'` with all 3 retries intact. The
+USIM application still sits at `check-personalization-state` /
+`Personalization state: 'unknown'` afterwards, and the modem still refuses to go
+online. So the lock was never the blocker.
+
+**The carrier configuration is fine, contrary to what a partial listing
+suggests.** `--pdc-list-configs=software` lists 25 configs and the *tail* of that
+list is all `Inactive`, which is easy to misread as "nothing is active".
+Configuration 1, `PERSONAL_ARG`, is `Active`, and it matches the card in the
+device (ICCID 8954 34..., Personal Argentina). PDC is not the problem, and
+activating a config would only have reset the modem for nothing.
+
+**rmtfs read-only is not the problem either.** `-r` really does mean read-only,
+confirmed in rmtfs.c, but storage.c shows what that means in practice: writes go
+to a per-open shadow buffer in RAM and are answered *successfully*. The modem
+never sees a write error, so it cannot be stalling on one. Worth knowing before
+spending a reflash on it, as nearly happened here. (`-s` is also not what it
+looks like: it is not write-sync, it ties rmtfs to the mss remoteproc lifecycle.)
+
+**The new evidence: the modem refuses every mode transition, not just online.**
+
+	--dms-set-operating-mode=online     -> QMI error 52 DeviceNotReady
+	--dms-set-operating-mode=low-power  -> QMI error 60 InvalidTransition
+
+That second one reframes the problem. This is not "the modem declines to come
+up"; the modem's own state machine never finishes initialising, so *no* mode
+change is legal. It answers DMS, NAS and UIM queries, reports its IMEI and
+firmware (MPSS.HI.4.3.4-00494-MANNAR_GEN_PACK-1.24452.133), and registers 48 QMI
+services, while never becoming ready.
+
+**What the AP does not provide.** The application processor publishes exactly
+four QMI services:
+
+	 14  Remote file system service        (rmtfs)
+	 49  IPA control service
+	4096 TFTP                              (tqftpserv)
+	 64  Service registry locator service  (pd-mapper)
+
+The stock device tree, recovered from `vendor_boot_b`, asks for one more thing
+that mainline has no implementation of at all:
+
+	qcom,memshare
+	  qcom,client_1  client-id 0, label "modem", qcom,allocate-boot-time
+	  qcom,client_2  client-id 2, label "modem"
+	  qcom,client_3  client-id 1, 5 MB, qcom,allocate-on-request
+	memshare_region  shared-dma-pool, no-map, 8 MB, 1 MB aligned
+
+`qcom,allocate-boot-time` is the interesting part: the modem asks the AP for
+memory *during* its bring-up. Downstream answers that over QMI service 0x34
+(52). Nothing on this system does, and 52 is absent from the AP's service list.
+A modem waiting for a boot-time allocation that never arrives fits every symptom
+observed: services up, queries answered, state machine frozen short of ready.
+
+This is a lead, not a proven cause, and the obvious way to settle it has been
+attempted and **does not work yet**. `scripts/modem/memshare-probe.py` publishes
+QMI service 52 over a raw AF_QIPCRTR socket and logs anything the modem sends to
+it. Run across a cold boot, the modem stayed silent, but that result is
+worthless: service 52 never actually appears in `qrtr-lookup` while the probe is
+running, while rmtfs (14) does, so the announcement is being dropped and the
+modem was never offered anything.
+
+One cause of that was found and fixed, and is worth knowing about because it
+fails silently in a very convincing way: the kernel fills in the node and port
+of a NEW_SERVER control message from the sending socket's own address, so
+publishing from a socket that has not been bound registers a server on port 0.
+Everything appears to succeed. Binding to a fixed port first is necessary but
+was not sufficient here.
+
+Next move: stop hand rolling the control protocol and call libqrtr's
+`qrtr_publish()` from a small C program. That path demonstrably works on this
+device, since rmtfs, tqftpserv and pd-mapper all register through it. Once the
+service really is visible in `qrtr-lookup` during boot, repeat the cold boot
+test. If the modem then talks, the work is to answer it properly: either a
+userspace daemon handing out memory from a reserved region, or a kernel driver
+equivalent to downstream's msm_memshare.
+
+### Session 13b: memshare confirmed, answered, and still not the whole story
+
+The probe works now and the answer is unambiguous. **The modem does ask the
+application processor for memory**, once, during bring-up:
+
+	from node=0 port=7, MEM_QUERY_SIZE (0x0024) txn=1
+	00 0100 2400 0e00 | 01 0400 01000000 | 10 0400 00000000
+
+Publishing the service by hand over a raw socket never worked; using libqrtr's
+`qrtr_publish()` does, and the service then shows up properly:
+
+	52  1  0  1  16389  Dynamic Heap Memory Sharing
+
+`userspace/modem/memshare-daemon.c` answers it, and is installed by
+`userspace/modem/install.sh`. Results, in order:
+
+1. **Answer MEM_QUERY_SIZE with size 0.** The modem accepts it, does not retry,
+   and does not ask for an allocation. It also stays exactly as broken: still
+   `offline`, the USIM still stops at `check-personalization-state` after the
+   PIN, `--dms-set-operating-mode=online` still returns DeviceNotReady.
+2. **Answer MEM_QUERY_SIZE with 5 MB.** The modem immediately follows up with an
+   allocation request, which is the useful part, because it proves it genuinely
+   wants the memory rather than merely a reply:
+
+		from node=0 port=7, MEM_ALLOC_GENERIC (0x0022) txn=2
+		00 0200 2200 2000
+		  TLV 01 len 4: 00005000  num_bytes   = 0x500000, 5 MB
+		  TLV 02 len 4: 01000000  client_id   = 1
+		  TLV 03 len 4: 00000000  proc_id     = 0
+		  TLV 04 len 4: 00000000  sequence_id = 0
+		  TLV 10 len 1: 01        alloc_contiguous
+
+   Answering that with a failure, which is all the daemon can do today, leaves
+   the modem in the same state as before.
+
+So memshare is real, it is now answered, and **answering it is not sufficient**.
+Whether actually satisfying the allocation is sufficient is the open question,
+and it is the obvious next thing to try, since it is the only part of this
+exchange still missing.
+
+**What satisfying it requires.** A physical address for 5 MB that nothing else
+owns, which means a reserved region, which means a device tree change and a new
+boot image. The stock tree reserves exactly that:
+
+	memshare_region: shared-dma-pool, no-map, 8 MB, 1 MB aligned
+
+Give the region a fixed address in `reserved-memory` so userspace can simply
+hand out the number, then reply to MEM_ALLOC_GENERIC with, per downstream's
+`mem_alloc_generic_resp_msg_v01`:
+
+	TLV 0x02  result   uint16 result, uint16 error   (0,0 for success)
+	TLV 0x10  sequence_id                            uint32, echo the request
+	TLV 0x11  addr info array: uint8 count, then per entry
+	            uint64 phy_addr, uint32 num_bytes
+
+The daemon already builds the result TLV and has the request decoded, so this is
+a contained piece of work once the region exists.
+
+### The image that adds the region: kali-boot-v93-memshare.img
+
+Built from `kali-boot-v92-STABLE-audio.img` by changing **only** the device
+tree, so it carries no other risk: the kernel Image, the ramdisk and the cmdline
+are byte for byte identical to v92, verified after repacking. The single
+difference is one added node:
+
+	memshare@8ab00000 {
+		reg = <0x00 0x8ab00000 0x00 0x800000>;
+		no-map;
+	};
+
+How the address was chosen: this tree has no dynamically placed reserved regions
+at all, every one has a fixed address, so the free holes are stable. 0x8ab00000
+sits in the 13 MB hole between `pil-gpu-ucode` (ends 0x8aa1c000) and
+`pil-mpss-wlan` (starts 0x8b800000), is 1 MB aligned, and ends at 0x8b300000,
+well clear of the next region.
+
+Rebuild recipe, for the next time the device tree needs a small change without a
+full kernel build: split the boot image (header at page 0, then kernel with the
+DTB appended, then ramdisk, then the DTB again), `dtc -I dtb -O dts`, edit,
+`dtc -I dts -O dtb`, then repack with `scripts/mkbootv2b.py`. Diff the decompiled
+old and new trees before repacking; the only difference should be the change
+intended.
+
+**Do not advertise a size on an image whose device tree lacks the region.** The
+daemon would hand out 0x8ab00000 to the modem while Linux is still using it as
+ordinary RAM, and the modem would corrupt whatever is living there. The default
+of zero exists for exactly this reason.
+
+**Do not leave the daemon advertising a size it cannot deliver.** The shipped
+unit reports zero deliberately: promising memory and then failing the allocation
+is worse than saying up front there is none. Pass a size only for experiments.
+
+Two things that made this session possible and should be done first by anyone
+continuing: bring up **SSH over USB** (`userspace/usb-net/install.sh`), because
+it is the only link that survives a modem restart, and remember that the SIM PIN
+dialog timing out on the phone ("Error unlocking modem: Did not receive a
+reply") is a *symptom* of this same bug, not a separate problem: the PIN is
+accepted at the QMI level and the reply never comes because the USIM never
+leaves check-personalization.
+
+Two smaller notes for whoever picks this up:
+
+- **The modem cannot be restarted from the AP**, so every experiment costs a
+  reboot. Worse, do not try it over WiFi: the WLAN protection domain lives
+  inside the modem, so stopping it drops the network connection you are working
+  over.
+- The ADSP (node 5) publishes **Snapdragon Sensor Core service** (400). Sensors
+  are behind the SSC as expected, but the service is at least alive and
+  reachable, which is more than the sensor section of KERNEL-TECHNICAL.md
+  assumes.
+
+### Session 13c: memshare satisfied in full, and it is not the blocker
+
+`kali-boot-v93-memshare.img` was flashed, the region is real:
+
+	8ab00000-8b2fffff : reserved        <- the 8 MB
+	8b300000-8b7fffff : System RAM
+
+and the daemon handed it over on a cold boot:
+
+	MEM_QUERY_SIZE  -> reporting size 5242880
+	MEM_ALLOC_GENERIC -> handing out 0x8ab00000 (5242880 bytes)
+
+**The modem is completely unchanged by this.** Still `offline`, still
+`DeviceNotReady`, USIM still stops at `check-personalization-state` after the
+PIN. So memshare is now correctly implemented, was genuinely missing, and is
+**not the cause**. Answering it is still the right thing to do, and the daemon
+is kept for that reason, but it should not be expected to fix anything.
+
+### The SIM is not the cause either, and this is worth being definite about
+
+The obvious suspicion, that the years-old prepaid SIM with no service is to
+blame, is wrong, and there is a one command proof. Power the card down so the
+modem sees no SIM at all:
+
+	--uim-sim-power-off=1   -> Card state: 'error: power-down (1)'
+	--dms-set-operating-mode=online -> QMI error 52 DeviceNotReady
+
+A modem with no SIM must still be able to power its radio; that is how any phone
+shows "no service" or emergency calls. Refusing with no card present shows the
+refusal has nothing to do with the card, its subscription, or its personalisation
+state. The `check-personalization-state` the USIM sits in is a *consequence* of
+the modem never finishing initialisation, not the cause.
+
+**APN is a red herring at this stage too.** Plasma Mobile's "APN needs to be
+configured" in the quick settings is just its UI noticing there is no data
+profile; an APN only matters once the modem registers on a network, and this one
+never enables its radio (`power state: off`).
+
+### How service discovery actually works here, which invalidates one plan
+
+There is no point trying to log "what the modem asks for". The name service is
+the **kernel's** (`net/qrtr/ns.c` inside qrtr.ko); the userspace `qrtr-ns` starts
+and immediately goes dormant with "nameserver already running", so stracing it
+shows nothing. More importantly, `ctrl_cmd_new_lookup()` accepts lookups only
+from the local node:
+
+	/* Accept only local observers */
+	if (from->sq_node != qrtr_ns.local_node)
+		return -EINVAL;
+
+The modem does not look services up. It is *told* about them as they are
+announced, which is exactly why it started talking to memshare the instant the
+service was published.
+
+That suggests the systematic next experiment: rather than guessing which service
+is missing, publish a range of plausible QMI service ids at boot and log which
+ones the modem engages with. Anything it talks to is something it wants. The
+tooling for this already exists in `scripts/modem/memshare-probe.c`; it needs to
+publish a list rather than one id.
+
+Current AP side services, for reference:
+
+	 14  Remote file system service        (rmtfs)
+	 49  IPA control service
+	 52  Dynamic Heap Memory Sharing       (this port's daemon)
+	 64  Service registry locator service  (pd-mapper)
+	4096 TFTP                              (tqftpserv)
+
+### Session 13d: the missing service theory is dead, systematically
+
+Since the modem connects to whatever is announced, the way to find a missing
+service is to offer everything and watch. `userspace/modem/service-probe.c`
+publishes a list of ids and logs what the modem talks to, optionally answering
+with a bare success.
+
+Every id from 1 to 235 that nobody already provides was offered across two cold
+boots, plus 256, 271, 312, 770, 771, 4097 and 4098. **The modem reaches out to
+exactly two**, both immediately after it boots:
+
+	service 60, msg_id 0x0020
+	  TLV 0x10 (8 bytes): "msm_mpss"   the subsystem name, in ASCII
+	  TLV 0x11 (4 bytes): 5000         a timeout, in ms
+
+	service 56, msg_id 0x0024          "LOWI (Location) service"
+	  TLV 0x01 (8): 1   TLV 0x02: 1   TLV 0x03: 1   TLV 0x04: 5
+
+56 is LOWI, WiFi assisted location, which cannot plausibly gate bring-up. 60 is
+not in qrtr's name table; its payload is a subsystem name and a timeout, so it
+is something in the subsystem control or restart family.
+
+**Answering both with a generic QMI success changes nothing.** Still `offline`,
+still DeviceNotReady. Combined with the memshare result, that is the important
+conclusion:
+
+> The blocker is **not** a missing QMI service on the application processor
+> side. That whole class of cause is eliminated, not by argument but by
+> offering every id in the range and watching what happens.
+
+### Where that leaves it
+
+Everything reachable from the AP over QMI has now been ruled out with evidence:
+
+- the SIM, including with the card powered off entirely
+- the SIM PIN, which verifies
+- the carrier configuration, PERSONAL_ARG is active and matches the card
+- rmtfs and the EFS, which work, and whose read-only mode never errors
+- memshare, genuinely missing, now implemented, and not the cause
+- any other missing QMI service, by exhaustive sweep
+
+What is left is below or beside QMI: the modem's own NV or calibration state,
+something in the glink/smem or power sequencing it expects, or something the
+secure world provides downstream. None of those are reachable with the tools
+used so far, and none can be guessed at cheaply, since each attempt costs a
+reflash.
+
+The realistic next move is **not** another experiment but asking upstream. The
+evidence is now specific enough to be worth someone's attention on
+linux-arm-msm: a modem that boots, registers 48 QMI services, answers DMS, NAS
+and UIM, reports its IMEI and firmware version, and yet rejects *every*
+operating mode transition, with `InvalidTransition` even towards low-power,
+which says its internal state machine never completes rather than that it
+declines to come up. That last detail is the useful one and was not in this
+document before.
+
 --------------------------------------------------------------------------------
 ## 6. BUILD, FLASH AND WHERE EVERYTHING IS
 --------------------------------------------------------------------------------

@@ -3,6 +3,8 @@ alsa-ucm-conf
 alsa-utils
 firmware-atheros
 firmware-motorola-rhodep
+gstreamer1.0-pipewire
+kali-menu
 libasound2-data
 libasound2t64
 libmm-glib0
@@ -12,6 +14,7 @@ libpipewire-0.3-modules
 libqmi-glib5
 libqmi-proxy
 libqmi-utils
+libqrtr-dev
 libqrtr1
 libspa-0.2-modules
 libwireplumber-0.5-0
@@ -23,6 +26,7 @@ pipewire-alsa
 pipewire-audio
 pipewire-bin
 pipewire-pulse
+plasma-keyboard
 protection-domain-mapper
 qrtr-tools
 realtek-rtl8188eus-dkms
@@ -30,5 +34,6 @@ rhodep-battery-jeita
 rhodep-modem-support
 rhodep-usb-otg
 rmtfs
+squeekboard
 tqftpserv
 wireplumber

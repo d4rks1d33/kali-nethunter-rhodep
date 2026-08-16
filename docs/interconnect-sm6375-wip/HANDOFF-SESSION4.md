@@ -1125,6 +1125,56 @@ specifically. Neither needs a device tree change, so neither needs a reflash.
 If that fails too, the second lead from session 14 is untouched: the IPA local
 SRAM layout in `ipa_mem_local_data`, inherited from qcm2290.
 
+#### Session 15, the rest: three hypotheses tested, three negatives
+
+All three were tested on the device, with the SIM that attaches, and all three
+failed to stop the reset. They are kept because each is a correction verified
+against the vendor and wrong to leave as it was, but **none of them is the
+cause** and nobody should re-test them.
+
+1. **The unvoted path to IMEM** (patches 0044/0045 + the interconnect driver).
+   The provider works, the IPA probes, the three paths appear in
+   `interconnect_summary`. Still resets.
+2. **The vote being demand-driven** (patch 0047). mainline only asks for
+   bandwidth while the IPA is runtime-resumed, and the modem reads IMEM on its
+   own schedule, so the path sat at 0 most of the time. With the vote held
+   permanently the summary shows real numbers - memory 150000/600000, imem
+   0/350000, config 0/74000 - and it still resets.
+3. **The IPA SRAM layout** (patch 0048). This one looked like the answer.
+   `ipa_data_v4_11_sm6375` used qcm2290's `ipa_mem_local_data`, and this SoC's
+   is genuinely different from `modem_hdr_proc_ctx` onwards - the modem's
+   processing context is 0xac0 here and 0x200 there, there is a whole
+   `stats_fnr` region qcm2290 does not have, and the modem's own region is at
+   0x27d8/0x800 instead of 0x1f18/0x100c. `ipa_qmi.c:323` and `:336` hand
+   IPA_MEM_MODEM and IPA_MEM_MODEM_PROC_CTX to the modem over QMI, so those
+   numbers are not bookkeeping. Transcribed from the vendor's
+   `ipa_4_11_mem_part`. Still resets.
+
+#### What is actually known, after all of it
+
+	ipa.ko loaded + modem ATTACHED to LTE      -> reset in 3-10 min, silent
+	ipa.ko loaded + radio on, NOT attached     -> 22 min, no reset
+	ipa.ko not loaded + modem registered       -> 16.5 min, no reset
+
+The middle line is the sharpest tool available and it is worth restating: the
+trigger is the modem **attaching**, not the radio being powered. Swapping to a
+dead prepaid SIM that never gets past `not-registered-searching` turns the bug
+off completely, which makes it switchable at will.
+
+**The experiment that has never been run**, and the one to run first next time,
+is the third line with LTE specifically: *modem attached to LTE with ipa.ko
+never loaded*. If it still resets, the IPA is innocent and three sessions of
+looking at it were misdirected. It could not be done this session because
+ModemManager is what drives LTE attach and MM refuses a QMI modem with no net
+port, which is the IPA's. The way around it is qmicli:
+`--nas-set-system-selection-preference=lte` persists in NV now that rmtfs is
+read/write, so set it, reboot with the IPA still blacklisted, then
+`rhodep-uim-provision` + `--dms-set-operating-mode=online` and watch.
+
+If that comes back "resets without the IPA", the next place to look is the
+modem's own view of the world - the mpss memory regions, or what the vendor's
+`qcom,ipa_smmu_*` context banks do that mainline's two `iommus` entries do not.
+
 #### A module that autoloads by device tree is not "held out of the boot"
 
 Worth writing down because it cost a reflash and the reasoning looked sound at

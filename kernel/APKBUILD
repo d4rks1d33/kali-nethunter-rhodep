@@ -67,6 +67,8 @@ source="
 	0044-net-ipa-sm6375-vote-the-three-noc-paths.patch
 	0045-arm64-dts-qcom-rhodep-wire-ipa-interconnects.patch
 	0046-interconnect-sm6375-do-not-program-qos.patch
+	0047-net-ipa-sm6375-keep-noc-paths-voted.patch
+	0048-net-ipa-sm6375-own-sram-layout.patch
 "
 options="!check !strip !tracedeps pmb:cross-native"
 _carch="arm64"
@@ -158,4 +160,6 @@ ecd800a2f836ffa2d3e9037fdb511fd93b18593a0f7a44e1214a616706cd5a0b04774cdebdee5f41
 24b6eb6c9cdac85cbab6159d46d72ee424f1f6ac9d693f934b320d5109910094d3c61c9740c44f1094451f2e551e5735b9555836a355fbcaaafc1593db2e7f2b  0044-net-ipa-sm6375-vote-the-three-noc-paths.patch
 2f4969ef497f643076c3e21728df36ae45992df417fa67182ed776b603a234368a86795c55f401d61aff7f73cab80c182f79de263fe36d75e52df8e90d55baf3  0045-arm64-dts-qcom-rhodep-wire-ipa-interconnects.patch
 aa06b1c744c3c9857b7b1877f8b716f240dd1d3296faf0bb598b156a04dbcdef1016ba1db7f55f3c9e22ab3bcbba089ad897e641c18dfa108a0553908e72fd95  0046-interconnect-sm6375-do-not-program-qos.patch
+1d6537e32ee7be4ebf9f0a8b21910bc8867f3e10caa9e8791ad6e2d7dbb58568fdf23cba5d6ffab0dbfd395e51a0155e9844d892099472659efdb1f7a8d4a470  0047-net-ipa-sm6375-keep-noc-paths-voted.patch
+f964d0e558033e1ba0c22284c167911adaec0868b0cce0597a7359f70f3c1d21f46e7b0d3ff37039aa24b1679d45f4482d20853e9b85873fa984dfa074d63ee9  0048-net-ipa-sm6375-own-sram-layout.patch
 "

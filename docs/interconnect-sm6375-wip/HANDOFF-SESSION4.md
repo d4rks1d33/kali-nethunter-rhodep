@@ -53,8 +53,9 @@ has a data port. **No interconnect provider is involved**, see §1.
    requests was being answered "file not found". `userspace/modem/README.md` is
    the short version; §5 session 14 is the full log. Sessions 4c-13d below are
    kept because everything they ruled out stayed ruled out.
-   **Voice still hangs the SoC** on the first call attempt; that is the one
-   thing left, see the end of session 14.
+   Voice calls connect and SMS arrives; **in-call audio does not exist yet**
+   because mainline has no q6voice (MVM/CVS/CVP), which is a separate project
+   scoped at the end of session 14.
 2. **Audio.** The device tree is complete and the card registers, but a stream
    takes the SoC down. See **AUDIO-SM6375.md**, which has the state, everything
    ruled out with its evidence, and the next step. The patches (0032-0036) are
@@ -860,16 +861,63 @@ The bearer comes up multiplexed as `qmapmux0.0` over `rmnet_ipa0`. The gsm
 connection is given `route-metric 700` so WiFi (600) stays the default route
 and an ssh session over WLAN is not stolen by the modem.
 
-#### Still open: voice
+#### Voice and SMS: calls connect, SMS arrives, in-call audio does not exist
 
-Signalling looks right — registered with `CS: attached`, `Domain: 'cs-ps'`,
-ModemManager `Voice | emergency only: no` — but the first attempt to place a
-call from the UI ended in a **hard hang, watchdog, no output at all in ramoops**
-(the console log simply stops). Not yet reproduced or bisected. The obvious
-suspect is the voice audio path: mainline has no q6voice/VoiceMMode, and the
-modem opens an `apr_voice_svc` glink channel that nothing on the AP answers.
-Investigate over USB, and separate call *signalling* (`mmcli --voice-create-call`,
-no UI, no audio) from the audio profile switch that the dialer triggers.
+Tested on the live network, not inferred:
+
+	mmcli -m any --voice-create-call=number=111 -> call0 dialing
+	[modem0/call0] call state changed: unknown -> dialing (outgoing-started)
+	[modem0/call0] call state changed: dialing -> active
+	[modem0/call0] call state changed: active -> held -> terminated
+
+	mmcli -m any --3gpp-ussd-initiate="*111#"
+	  -> "USSD terminated by network"   (a real answer, the SS path works)
+
+A call to Personal's `*2447` was placed from the phone's dialer, **answered by
+the network, and the SMS it sends back arrived** (from 811). So CS signalling,
+call setup, call answer and SMS delivery all work.
+
+**There is no audio in the call, and there cannot be yet.** The audio of a
+Qualcomm voice call never touches the application processor: it goes
+modem <-> ADSP <-> codec, and the AP's job is to set up the MVM/CVS/CVP sessions
+over APR. Mainline has `q6afe`, `q6asm`, `q6adm`, `q6routing` and **no q6voice
+at all**. It is visible in one line of this port's own boot log:
+
+	qcom,apr ...apr_audio_svc: Adding APR/GPR dev: aprsvc:service:4:3   CORE
+	qcom,apr ...apr_audio_svc: Adding APR/GPR dev: aprsvc:service:4:4   AFE
+	qcom,apr ...apr_audio_svc: Adding APR/GPR dev: aprsvc:service:4:7   ASM
+	qcom,apr ...apr_audio_svc: Adding APR/GPR dev: aprsvc:service:4:8   ADM
+
+Services 3, 4, 7, 8. The voice ones are missing:
+
+	moto techpack/audio/include/ipc/apr.h
+		#define APR_SVC_ADSP_MVM  0x09
+		#define APR_SVC_ADSP_CVS  0x0A
+		#define APR_SVC_ADSP_CVP  0x0B
+
+	moto techpack/audio/dsp/q6voice.c   10565 lines
+		common.apr_q6_mvm = apr_register("ADSP", "MVM", ...);
+		common.apr_q6_cvs = apr_register("ADSP", "CVS", ...);
+		common.apr_q6_cvp = apr_register("ADSP", "CVP", ...);
+
+So in-call audio is its own project, roughly: apr service nodes 9/10/11 in the
+device tree (patch 0032 declares only 3/4/7/8), a q6voice driver speaking
+MVM/CVS/CVP, VoiceMMode1/2 back-end DAIs, the routing entries in q6routing, and
+the machine-driver wiring. Do not treat it as a modem bug; the modem side is
+done. The `apr_voice_svc` glink channel the modem opens on its own edge is the
+modem-domain half of the same thing.
+
+#### One unexplained hang, not reproduced
+
+Between the LTE fix and the voice tests the device once hung and reset with
+`androidboot.bootreason=watchdog` and **no output at all** at the end of the
+ramoops console — it simply stops, unlike the IPA fault which printed its SMMU
+error first. It has not recurred: the calls, the USSD, the SMS and several cold
+boots since have all been clean, and the last journal line before it was an
+ordinary ssh logout while `drkonqi-coredump-processor` was chewing through 60
+old coredumps. Recorded here so it is not forgotten, but there is nothing to
+bisect yet. If it comes back, the console tail plus what was on screen at the
+time is the evidence to collect.
 
 #### Two things not to repeat
 

@@ -18,6 +18,8 @@ libqrtr-dev
 libqrtr1
 libspa-0.2-modules
 libwireplumber-0.5-0
+libzstd-dev
+libzstd1
 linux-headers-7.2.0-rc5
 linux-image-7.2.0-rc5
 modemmanager

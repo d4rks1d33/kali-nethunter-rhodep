@@ -163,3 +163,23 @@ If it is not registered, in order: `journalctl -u rhodep-rfs-populate -b`,
 `journalctl -u tqftpserv -b | grep -E "reject|invalid"` (there should be nothing
 but `datablock/id_01`, which is the second SIM slot, and `ota_firewall/ruleset`,
 which the modem creates), then `journalctl -u rhodep-uim-provision -b`.
+
+## Voice and SMS
+
+Calls connect and SMS works. Verified on the network, not inferred:
+
+	mmcli -m any --voice-create-call=number=111
+	  call state changed: unknown -> dialing -> active -> terminated
+	mmcli -m any --3gpp-ussd-initiate="*111#"
+	  -> "USSD terminated by network"          (a real answer)
+
+A call to `*2447` was answered by Personal and the SMS it replies with arrived.
+
+**There is no audio during a call, and that is not a modem problem.** On
+Qualcomm the voice audio never reaches the application processor: it goes
+modem <-> ADSP <-> codec, and the AP only sets up the MVM/CVS/CVP sessions over
+APR. Mainline has q6afe/q6asm/q6adm/q6routing and no q6voice, which shows up in
+this port's boot log as APR services 3, 4, 7, 8 and nothing else — the voice
+services are 0x09/0x0A/0x0B (`techpack/audio/include/ipc/apr.h`), driven by
+`techpack/audio/dsp/q6voice.c`, 10565 lines. See HANDOFF-SESSION4.md session 14
+for what implementing it would take.

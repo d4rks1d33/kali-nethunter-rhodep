@@ -46,14 +46,15 @@ has a data port. **No interconnect provider is involved**, see §1.
 
 ### What does not work
 
-1. **The modem never leaves offline state**, so no data and no calls. Separate
-   and pre-existing problem, full evidence and leads in §5, including what was
-   checked and ruled out (rmtfs and the EFS are fine) and one thing that was
-   actually broken and is now fixed: ModemManager was racing the modem and never
-   saw it at all, so the phone never even asked for the SIM PIN.
-   Note a newer, known-good SIM is not detected on this modem at all
-   (no ATR) while the older one is; see §5, it looks like a consequence of the
-   modem not initialising rather than a separate problem.
+1. ~~**The modem never leaves offline state**~~ — **SOLVED in session 14**, see
+   the end of §5. The modem registers on LTE and mobile data works at ~24 Mbit/s.
+   It was not a QMI service, a regulator or a memory region: the modem fetches
+   run-time files from the AP over TFTP (QMI 4096) and every one of those
+   requests was being answered "file not found". `userspace/modem/README.md` is
+   the short version; §5 session 14 is the full log. Sessions 4c-13d below are
+   kept because everything they ruled out stayed ruled out.
+   **Voice still hangs the SoC** on the first call attempt; that is the one
+   thing left, see the end of session 14.
 2. **Audio.** The device tree is complete and the card registers, but a stream
    takes the SoC down. See **AUDIO-SM6375.md**, which has the state, everything
    ruled out with its evidence, and the next step. The patches (0032-0036) are
@@ -233,7 +234,13 @@ How the answer fell out:
   upstream MM bug report.
 
 --------------------------------------------------------------------------------
-## 5. NEXT TASK: the modem never goes online (blocks data AND voice)
+## 5. THE MODEM: from "never goes online" to registered (SOLVED, session 14)
+
+> **Read the last subsection first** ("Session 14"). It has the answer. The
+> sessions before it are the investigation that led there and, more usefully,
+> the list of things that were eliminated with evidence and stayed eliminated:
+> the SIM, the SIM PIN, the carrier configuration, rmtfs/EFS as the blocker,
+> memshare, and any missing AP-side QMI service.
 --------------------------------------------------------------------------------
 This is independent of IPA and predates it. Evidence collected with qmicli
 (`qmicli -d qrtr://0 ...`, stop ModemManager first):
@@ -648,6 +655,235 @@ operating mode transition, with `InvalidTransition` even towards low-power,
 which says its internal state machine never completes rather than that it
 declines to come up. That last detail is the useful one and was not in this
 document before.
+
+
+### Session 14: SOLVED. The modem was waiting for a file, not for a service
+
+Everything §5 ruled out really was innocent. The blocker was neither below nor
+beside QMI: it was **on top of it**. `modem.mbn` is not the whole modem. At run
+time the modem fetches more files from the application processor over QMI
+service 4096 (TFTP), which `tqftpserv` answers, and on this port **every single
+one of those requests was answered "file not found"** — silently, because
+nothing was logging them.
+
+`tqftpserv` has a `-d` flag. One boot with it, and two sessions of hunting were
+over:
+
+	 12  /readonly/firmware/image/modem_pr/so/205_0_0.mbn
+	  2  /readonly/vendor/fsg/mcfg_sw/mbn_sw.dig    "invalid path, rejecting"
+	  2  /readonly/vendor/fsg/mcfg_hw/mbn_hw.dig    "invalid path, rejecting"
+	  4  /readwrite/datablock/id_00
+	  2  /readwrite/shob.bin
+	  2  /readwrite/dhob.bin
+	  2  /readwrite/datablock/slid_00
+	  2  /readwrite/ota_firewall/ruleset
+	  1  /readwrite/mot_rfs/imei_sv
+
+**Twelve retries for one file.** `205_0_0.mbn` is a Motorola-signed Hexagon ELF
+(`e_machine` 0x00a4, 764 KiB, OEM_ID 02E8, HW_ID 02E80000) that the modem loads
+into itself at run time, and it was on the device the whole time:
+
+	mount -o ro /dev/disk/by-partlabel/modem_a /mnt
+	ls /mnt/image/modem_pr/so/     # 25 signed Hexagon objects
+
+`tqftpserv`'s `translate_readonly()` strips `/readonly/firmware/image/` and
+looks under the remoteproc firmware directory, so the fix was one copy:
+
+	cp -r /mnt/image/modem_pr /lib/firmware/qcom/sm6375/motorola/rhodep/
+
+and a reboot. Immediately afterwards, with nothing else changed:
+
+	--dms-get-operating-mode        -> Mode: 'shutting-down'   (was 'offline')
+	--dms-set-operating-mode=online -> Operating mode set successfully
+	--nas-get-system-info           -> GSM 'limited', MCC 722 MNC 34,
+	                                   LAC 420, Cell ID 60858, -94 dBm
+
+The radio was on and scanning. `DeviceNotReady` for **every** transition,
+including `low-power`, was exactly what it looked like — a state machine that
+never finished init — and what it was waiting for was a file.
+
+#### Why nobody found this before
+
+Because the three things that would have shown it were each invisible for a
+different reason. `tqftpserv` logs nothing without `-d`. The one failure it
+*does* print by default, `invalid path /readonly/vendor/fsg/..., rejecting`,
+goes to the journal of a service nobody was reading. And the modem does not
+complain: it retries, gives up, and carries on answering QMI queries perfectly,
+which is what made it look half-alive rather than blocked.
+
+The lesson worth keeping: **the modem's own file requests are a log**. Before
+theorising about regulators, glink or the secure world, read what it is asking
+for.
+
+#### The rest of the vendor RFS tree
+
+`modem_pr` alone got the radio up; two more sources were needed to get from
+"radio on" to "registered". On Android the RFS tree under
+`/mnt/vendor/persist/rfs/msm/mpss` and `/vendor/rfs/msm/mpss` is assembled from
+three places, and all three are still on this device:
+
+| partition | what it holds | where it has to go |
+| --- | --- | --- |
+| `modem_a` | `image/modem_pr/so/*.mbn`, run-time Hexagon objects | `/lib/firmware/qcom/sm6375/motorola/rhodep/modem_pr/` |
+| `fsg_a` | ext4, 281 entries: carrier MCFG `.mbn`s, `mcfg_summary.xml`, `mcfg_sw/mbn_sw.dig` | `.../rhodep/fsg/` |
+| `persist` | `rfs/msm/mpss/`: `cal_rfs/rf000*.bin` (RF calibration), `datablock/id_00` + `slid_00` (Motorola SIM-lock records), `shob.bin`, `dhob.bin`, `mot_rfs/imei_sv`, `ticf.bin` | `/var/lib/tqftpserv/` |
+
+`userspace/modem/rhodep-rfs-populate` does this at first boot and is a no-op
+afterwards. The persist tree is **copied, not bind mounted**: the modem writes
+into it and the stock partition should stay untouched.
+
+`/readonly/vendor/fsg/` needed a three-line patch to `tqftpserv`'s
+`translate.c`, because upstream rejects that prefix before it ever touches the
+filesystem. On Android the path is a symlink into the fsg partition, created by
+the AOSP target package `rfs_msm_mpss_readonly_vendor_fsg_symlink`, which is
+referenced from `sm6375-common/common.mk:285`. Upstream tqftpserv is vendored
+under `userspace/modem/tqftpserv/` with the patch; it is built as
+`tqftpserv-rhodep` in `/usr/local/bin` and selected with a drop-in so the apt
+hold on the distro package stays valid.
+
+#### A free modem-side log, which no earlier session knew existed
+
+Two of the files the modem *writes* through RFS are its own diagnostics, plain
+text, with source file and line number:
+
+	simlock_report.txt   mot_simlock_mirror.c, 292: HMAC missmatch
+	                     mot_simlock_mirror.c, 608: ERROR: failed reading data from NV
+	datablock_report.txt mot_datablock.c, 148: Datablock path to validate:
+	                     /readwrite/datablock/id_00
+	                     mot_datablock.c, 165: ERR: Primary datablk doesn't exist
+	hob_report.txt       mot_s_hob_stg.c, 229: HOB not yet created at the factory
+
+This is the closest thing to a modem console this port has. **Caveat, learned
+the hard way:** the copies taken from `persist` already contain years of history
+written under Android, tagged with the firmware version of the day. The HMAC
+mismatch above looks alarming and is not ours — the file is byte-identical to
+the one on the persist partition, mtime 26 March. Always `diff` against persist
+and check the mtime before believing an entry.
+
+#### `rmtfs -r` really is harmful, just not where session 13 looked for it
+
+Session 13 was right that reads and writes are consistent within one boot (the
+shadow buffer), and therefore right that `-r` was not what kept the modem
+offline. It is still wrong to ship it: `-r` means read-only, writes are lost at
+reboot, and **the modem keeps its UIM provisioning session in NV**. The packaged
+drop-in even documented `-r` as "read/write the modem's EFS partitions", which
+is the opposite of what `rmtfs.c:525` does.
+
+`install.sh` now overrides it to `-P -s`. `modemst1`, `modemst2` and `fsc` are
+backed up to `_common/backups-historicos/modem-efs-20260816/` first.
+
+#### The last blocker: nobody opened a provisioning session
+
+With the RFS tree served and the radio on, the SIM still did not come up:
+
+	Provisioning applications:
+		Primary GW:   session doesn't exist
+	Application [1]:
+		Application state: 'detected'
+		Personalization state: 'unknown'
+
+and ModemManager reported `failed: sim-missing`. **This is the same symptom the
+whole port read as a SIM fault for two sessions**, and it is not one. One QMI
+call:
+
+	qmicli -d qrtr://0 --uim-change-provisioning-session=\
+	  "activate=yes,session-type=primary-gw-provisioning,slot=1,aid=A0000000871002FF47F00189000001FF"
+
+	-> Application state: 'ready'
+	   Personalization state: 'ready'
+
+and 20 seconds later:
+
+	Registration state: 'registered'   CS: 'attached'   PS: 'attached'
+	MCC 722 MNC 34 'PERSONAL'          Roaming status: 'off'
+
+This is not a workaround. On Android qcrild issues
+`QMI_UIM_CHANGE_PROVISIONING_SESSION` during UIM bring-up; ModemManager 1.24
+does not, because most QMI modems auto-provision the first card and this one
+does not. `userspace/modem/rhodep-uim-provision` runs it before ModemManager so
+MM's single probe sees a ready card. With a read/write EFS the session then
+survives reboots (verified: second boot logs "already exists"), but it is still
+needed for every new SIM.
+
+The old prepaid card, for the record, behaved *better* than the daily one here,
+because the modem still had an Android-era session for it in NV. That is why it
+looked like a card-specific problem.
+
+#### One real kernel bug, found by the SoC dying at the moment it worked
+
+Setting `--set-allowed-modes="2g|3g|4g|5g"` reset the device. ramoops caught it:
+
+	arm-smmu c600000.iommu: Unhandled context fault: fsr=0x402,
+		iova=0x0c123080, fsynr=0x370002, cbfrsynra=0x4a0, cb=7
+	arm-smmu c600000.iommu: FSR = 00000402 [Format=2 TF], SID=0x4a0
+	androidboot.bootreason=watchdog
+
+SID 0x4a0 is the IPA AP context bank. `ipa_data_v4_11_sm6375` reuses the
+`ipa_mem_data` of the other IPA v4.11 SoCs (qcm2290/sm6115), which puts the
+modem's route and filter tables in IMEM at **0x146a8000** — an address that does
+not exist here. `ipa_imem_init()` therefore mapped a region the hardware never
+touches and left unmapped the one it does. The correct value is in the vendor
+tree, spelled out with a comment:
+
+	blair.dtsi:3243, ipa_smmu_ap {
+		iommus = <&apps_smmu 0x04A0 0x0>;
+		qcom,additional-mapping =
+		/* modem tables in IMEM */
+		<0x0C123000 0x0C123000 0x2000>;
+		qcom,ipa-q6-smem-size = <36864>;   /* 0x9000 == mainline smem_size */
+	};
+
+consistent with mainline's own `sram@c125000` ("qcom,sm6375-imem") 8 KiB above.
+Fixed by `kernel/patches/0042-net-ipa-sm6375-fix-imem-address.patch`. Nothing
+notices this bug until the modem actually registers, which is why it had never
+been hit before. **`ipa.ko` is a module, so this needed no reflash**: rebuild,
+scp the module, `depmod -a 7.2.0-rc5`, reboot.
+
+#### Result
+
+Cold boot, nothing typed by hand:
+
+	mmcli -m any
+	  state: registered      registration: home
+	  operator name: PERSONAL   access tech: lte
+	  packet service state: attached
+
+	nmcli con add type gsm con-name personal apn datos.personal.com \
+	    gsm.username datos gsm.password datos ipv4.route-metric 700
+
+	IPv4: 100.79.53.217/30 gw 100.79.53.218 dns 181.8.8.8 mtu 1430
+	IPv6: 2800:2504:6a:7643:... /64
+	curl --interface qmapmux0.0 https://speed.cloudflare.com/__down?bytes=5000000
+	  -> 5000000 B at 2957804 B/s (~24 Mbit/s), ping 8.8.8.8 22-63 ms
+
+The bearer comes up multiplexed as `qmapmux0.0` over `rmnet_ipa0`. The gsm
+connection is given `route-metric 700` so WiFi (600) stays the default route
+and an ssh session over WLAN is not stolen by the modem.
+
+#### Still open: voice
+
+Signalling looks right — registered with `CS: attached`, `Domain: 'cs-ps'`,
+ModemManager `Voice | emergency only: no` — but the first attempt to place a
+call from the UI ended in a **hard hang, watchdog, no output at all in ramoops**
+(the console log simply stops). Not yet reproduced or bisected. The obvious
+suspect is the voice audio path: mainline has no q6voice/VoiceMMode, and the
+modem opens an `apr_voice_svc` glink channel that nothing on the AP answers.
+Investigate over USB, and separate call *signalling* (`mmcli --voice-create-call`,
+no UI, no audio) from the audio profile switch that the dialer triggers.
+
+#### Two things not to repeat
+
+- **Do not read the smem region through /dev/mem.** `/dev/mem` on a nomap
+  reserved region wedges the SoC on arm64: a 4 KiB read of 0x80900000 hung the
+  process and then the whole device, needing a hard reboot. `dd` returns
+  `EFAULT` first, which is a warning, not permission trouble.
+- The modem's DIAG glink channels (`DIAG_DATA`, `DIAG_CMD`, ...) are **not**
+  present on this edge; only `DATA1-4`, `DATA11`, `DS`, `IPCRTR`,
+  `LOOPBACK_CTL_MPSS`, `SSM_RTR_MODEM_APPS`, `apr_voice_svc` and `glink_ssr`
+  are. `/dev/rpmsg_ctrl2` is the modem edge and `RPMSG_CREATE_EPT_IOCTL` does
+  work there (`DS` opens), so the mechanism is fine — the channels are simply
+  not offered. `SSM_RTR_MODEM_APPS` has no responder in the vendor kernel
+  either, so it is not a missing piece.
 
 --------------------------------------------------------------------------------
 ## 6. BUILD, FLASH AND WHERE EVERYTHING IS

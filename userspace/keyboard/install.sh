@@ -3,72 +3,138 @@
 #
 # Adds a third page to the symbols layout with Esc, Tab, the arrows and real
 # Ctrl combinations, so the terminal is usable without an external keyboard.
+# Reach it with the &123 key, then 1/3 twice.
 #
-# Why not an existing on-screen keyboard: KWin advertises zwlr_layer_shell_v1
-# and zwp_input_method_v1 but NOT zwp_virtual_keyboard_manager_v1, so wvkbd can
-# draw itself and cannot inject a keystroke, and squeekboard speaks
-# input_method_v2 which KWin does not have either - which is what its crashes
-# here were always about. Extending the keyboard that is already integrated is
-# both shorter and safer.
+# Two things about this are not obvious, and both cost an attempt each:
 #
-# The one non-obvious part: plasma-keyboard does NOT read
-# /usr/share/plasma/keyboard/layouts. That directory belongs to
-# qml6-module-qtquick-virtualkeyboard and plasma-keyboard prefers the layouts
-# compiled into its own qrc, ":/qt/qml/org/kde/plasma/keyboard/". The only way
-# in is QT_VIRTUALKEYBOARD_LAYOUT_PATH, and pointing that at a directory
-# replaces the whole set - so this copies the stock tree first and changes one
-# file in it.
+#  1. plasma-keyboard does NOT read /usr/share/plasma/keyboard/layouts. That
+#     directory belongs to qml6-module-qtquick-virtualkeyboard, while
+#     plasma-keyboard prefers the layouts compiled into its own qrc - see
+#     "prefer :/qt/qml/org/kde/plasma/keyboard/" in the binary. A symbols.qml
+#     dropped there does nothing at all. The way in is
+#     QT_VIRTUALKEYBOARD_LAYOUT_PATH, and that replaces the whole layout set,
+#     so the stock tree is copied first and one file in it is changed.
+#
+#  2. The variable has to reach the process KWin starts, and editing
+#     Exec= in Plasma's own .desktop file is not enough - KWin keeps launching
+#     the binary it already knows. It needs a .desktop file of our own that
+#     kwinrc points at, and KWin reads that setting ONLY at startup, so the
+#     change takes effect on the next login.
+#
+# Usage:  sudo ./install.sh          then log out and back in
+#         sudo ./install.sh --revert
 set -e
 
 here=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 DEST=/usr/local/share/rhodep-keyboard/layouts
-STOCK=/usr/share/plasma/keyboard/layouts
-
-[ -d "$STOCK/fallback" ] || { echo "no stock layouts at $STOCK; is qml6-module-qtquick-virtualkeyboard installed?" >&2; exit 1; }
-
+STOCK_LAYOUTS=/usr/share/plasma/keyboard/layouts
+WRAPPER=/usr/local/bin/rhodep-plasma-keyboard
+STOCK_DESKTOP=/usr/share/applications/org.kde.plasma.keyboard.desktop
+OUR_DESKTOP=/usr/share/applications/rhodep-terminal-keyboard.desktop
 PROTECT=/usr/local/sbin/rhodep-protect-files
-if [ -x "$PROTECT" ]; then
-	"$PROTECT" release "$DEST/en_US/symbols.qml" \
-		/usr/local/bin/rhodep-plasma-keyboard \
-		/usr/share/applications/org.kde.plasma.keyboard.desktop 2>/dev/null || true
+
+[ "$(id -u)" = 0 ] || { echo "run me as root" >&2; exit 1; }
+
+# The config belongs to the desktop user, not to root.
+user=${SUDO_USER:-kali}
+id "$user" >/dev/null 2>&1 || { echo "no such user: $user" >&2; exit 1; }
+
+# HOME is set explicitly: under sudo it would otherwise be root's, and the
+# setting would land in a kwinrc that KWin never reads.
+home=$(getent passwd "$user" | cut -d: -f6)
+kwin_set() {
+	su "$user" -c "HOME='$home' kwriteconfig6 --file kwinrc --group Wayland --key InputMethod '$1'" 2>/dev/null
+	got=$(su "$user" -c "HOME='$home' kreadconfig6 --file kwinrc --group Wayland --key InputMethod" 2>/dev/null)
+	[ "$got" = "$1" ] || { echo "could not set kwinrc InputMethod (got '$got')" >&2; return 1; }
+}
+
+if [ "$1" = "--revert" ]; then
+	[ -x "$PROTECT" ] && "$PROTECT" release "$WRAPPER" "$OUR_DESKTOP" \
+		"$DEST/en_US/symbols.qml" 2>/dev/null || true
+	[ -d "$DEST" ] && chattr -R -i "$DEST" 2>/dev/null || true
+	kwin_set "$STOCK_DESKTOP"
+	rm -f "$OUR_DESKTOP" "$WRAPPER"
+	rm -rf /usr/local/share/rhodep-keyboard
+	# The first attempt wrote here; make sure nothing is left behind.
+	rm -f "$STOCK_LAYOUTS/en_US/symbols.qml"
+	[ -e "$STOCK_LAYOUTS/en_US/symbols.fallback.orig" ] && \
+		mv -f "$STOCK_LAYOUTS/en_US/symbols.fallback.orig" "$STOCK_LAYOUTS/en_US/symbols.fallback"
+	[ -e "$STOCK_DESKTOP.rhodep-orig" ] && mv -f "$STOCK_DESKTOP.rhodep-orig" "$STOCK_DESKTOP"
+	echo "reverted; log out and back in to get the stock keyboard."
+	exit 0
 fi
 
+[ -d "$STOCK_LAYOUTS/fallback" ] || {
+	echo "no stock layouts in $STOCK_LAYOUTS" >&2
+	echo "install qml6-module-qtquick-virtualkeyboard first." >&2; exit 1; }
+[ -x /usr/bin/plasma-keyboard ] || { echo "/usr/bin/plasma-keyboard is missing" >&2; exit 1; }
+
+# A previous run registers these with rhodep-protect-files, which sets the
+# immutable bit; without lifting it first the tree cannot be replaced.
+[ -x "$PROTECT" ] && "$PROTECT" release "$WRAPPER" "$OUR_DESKTOP" \
+	"$DEST/en_US/symbols.qml" "$STOCK_DESKTOP" 2>/dev/null || true
+[ -d "$DEST" ] && chattr -R -i "$DEST" 2>/dev/null || true
+
+# An earlier version of this script edited Plasma's own .desktop file instead of
+# shipping one. Undo that if it is still there, or the stock launcher keeps
+# pointing at our wrapper for good - and if it was registered for protection it
+# is immutable, which is why the release above lists it too.
+if [ -e "$STOCK_DESKTOP.rhodep-orig" ]; then
+	cp -a "$STOCK_DESKTOP.rhodep-orig" "$STOCK_DESKTOP" && rm -f "$STOCK_DESKTOP.rhodep-orig"
+	L=/usr/local/share/rhodep/protect.d/keyboard-conf.list
+	if [ -e "$L" ]; then
+		grep -v "[[:space:]]$STOCK_DESKTOP\$" "$L" > "$L.tmp" 2>/dev/null && mv "$L.tmp" "$L"
+	fi
+	rm -f "/usr/local/share/rhodep/files/$(printf '%s' "$STOCK_DESKTOP" | tr '/' '%')"
+fi
+# Same for the first attempt's stray layout file, which plasma-keyboard never
+# read anyway.
+rm -f "$STOCK_LAYOUTS/en_US/symbols.qml"
+[ -e "$STOCK_LAYOUTS/en_US/symbols.fallback.orig" ] && \
+	mv -f "$STOCK_LAYOUTS/en_US/symbols.fallback.orig" "$STOCK_LAYOUTS/en_US/symbols.fallback"
+: 
+
+# Whole tree, because QT_VIRTUALKEYBOARD_LAYOUT_PATH replaces the set entirely
+# and every other locale still has to resolve through fallback/.
 rm -rf "$DEST"
 install -d "$(dirname "$DEST")"
-cp -a "$STOCK" "$DEST"
+cp -a "$STOCK_LAYOUTS" "$DEST"
 
-# en_US ships .fallback markers; a real symbols.qml takes precedence over them.
+# en_US ships a symbols.fallback marker; a real file wins over it.
 install -D -m 0644 "$here/symbols.qml" "$DEST/en_US/symbols.qml"
 rm -f "$DEST/en_US/symbols.fallback"
 
-# plasma-keyboard is started by KWin from this .desktop file, so the wrapper is
-# where the environment has to be set.
-install -D -m 0755 /dev/stdin /usr/local/bin/rhodep-plasma-keyboard <<'WRAP'
+install -D -m 0755 /dev/stdin "$WRAPPER" <<'WRAP'
 #!/bin/sh
 # Point Qt Virtual Keyboard at the layout tree that carries the terminal page.
-# Without this plasma-keyboard uses the layouts baked into its own qrc.
+# Without this plasma-keyboard uses the layouts baked into its own qrc and the
+# extra page simply does not exist.
 export QT_VIRTUALKEYBOARD_LAYOUT_PATH=/usr/local/share/rhodep-keyboard/layouts
 exec /usr/bin/plasma-keyboard "$@"
 WRAP
 
-# Keep KWin's own .desktop file, only change what it runs. A copy is left as
-# .orig the first time, so this is reversible.
-D=/usr/share/applications/org.kde.plasma.keyboard.desktop
-[ -e "$D.rhodep-orig" ] || cp -a "$D" "$D.rhodep-orig"
-sed -i 's|^Exec=plasma-keyboard$|Exec=/usr/local/bin/rhodep-plasma-keyboard|' "$D"
-grep -q '^Exec=/usr/local/bin/rhodep-plasma-keyboard$' "$D" || {
-	echo "could not point the desktop file at the wrapper; restoring" >&2
-	cp -a "$D.rhodep-orig" "$D"; exit 1; }
+# Our own launcher, so Plasma's file stays untouched and upgrades cannot fight
+# us over it.
+sed -e "s|^Exec=.*|Exec=$WRAPPER|" \
+    -e "s|^Name=.*|Name=Plasma Keyboard (terminal keys)|" \
+    "$STOCK_DESKTOP" > "$OUR_DESKTOP"
+chmod 0644 "$OUR_DESKTOP"
+grep -q "^Exec=$WRAPPER\$" "$OUR_DESKTOP" || { echo "failed to write $OUR_DESKTOP" >&2; exit 1; }
 
-if [ -d /run/systemd/system ]; then
-	pkill -f '/usr/bin/plasma-keyboard' 2>/dev/null || true
-	echo "installed; the keyboard restarts on its own."
-	echo "Reach it with the &123 key, then 1/3 twice."
-fi
+su "$user" -c "XDG_RUNTIME_DIR=/run/user/\$(id -u) kbuildsycoca6 --noincremental" >/dev/null 2>&1 || true
+kwin_set "$OUR_DESKTOP"
 
 if [ -x "$PROTECT" ]; then
-	"$PROTECT" register keyboard 0755 /usr/local/bin/rhodep-plasma-keyboard 2>/dev/null || true
-	"$PROTECT" register keyboard-conf 0644 \
-		"$DEST/en_US/symbols.qml" \
-		/usr/share/applications/org.kde.plasma.keyboard.desktop 2>/dev/null || true
+	"$PROTECT" register keyboard 0755 "$WRAPPER" 2>/dev/null || true
+	"$PROTECT" register keyboard-conf 0644 "$OUR_DESKTOP" "$DEST/en_US/symbols.qml" 2>/dev/null || true
 fi
+
+cat <<'MSG'
+installed.
+
+Log out and back in - KWin reads the input method setting only at startup.
+Then: &123, and 1/3 twice.
+
+If the keyboard does not come back, over SSH:
+  sudo ./install.sh --revert
+MSG

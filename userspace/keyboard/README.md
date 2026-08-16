@@ -48,10 +48,16 @@ exactly what happened on the first attempt. The only way in is
 set — so `install.sh` copies the stock tree to
 `/usr/local/share/rhodep-keyboard/layouts` and changes one file in it.
 
-The variable has to reach the process KWin starts, so there is a wrapper
-(`/usr/local/bin/rhodep-plasma-keyboard`) and a `.desktop` file of our own that
-KWin is pointed at with `kwinrc [Wayland] InputMethod`. **KWin reads that
-setting only at startup**, so the change needs a logout or a reboot.
+The variable has to reach the process KWin starts, and that is its own small
+trap: editing `Exec=` in Plasma's `.desktop` file is not enough, KWin goes on
+launching the binary it already knows. It takes a `.desktop` file of our own
+that KWin is pointed at with `kwinrc [Wayland] InputMethod` — and **KWin reads
+that setting only at startup**, so the change needs a logout or a reboot.
+Plasma's own file is left untouched, so an upgrade cannot fight us over it.
+
+The layout was checked with `qmllint` from `qt6-declarative-dev-tools` before
+asking for that reboot. It reports only *unqualified access* style warnings —
+the same ones Qt's own stock `symbols.qml` produces.
 
 ## The Ctrl keys are real key events
 

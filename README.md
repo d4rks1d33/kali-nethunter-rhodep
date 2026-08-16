@@ -647,6 +647,29 @@ first and the guard steps aside:
 
 	sudo apt-mark unhold <package>
 
+**Verified end to end on the device**, and there are two layers, which is worth
+knowing when testing it:
+
+- `apt purge -y <held>` never reaches the guard at all. Modern apt refuses it
+  by itself: `E: Held packages were changed and -y was used without
+  --allow-change-held-packages`.
+- `apt purge -y --allow-change-held-packages <held>` gets past that, reaches
+  dpkg, and *then* the guard fires:
+
+	*** refusing to remove packages this port depends on ***
+	E: Sub-process /usr/local/sbin/rhodep-apt-guard returned an error code (1)
+
+  and the package is still installed afterwards.
+
+Two traps when checking this by hand. `apt -s` does **not** run dpkg hooks, so a
+simulated purge proves nothing about the guard. And a held package shows as
+`hi`, not `ii`, in `dpkg -l`, with dpkg status `hold ok installed` rather than
+`install ok installed` — so a survival check written as `grep '^ii'` or
+`grep 'install ok installed'` reports the package as gone when it is fine. Both
+of those produced convincing false negatives here. Use:
+
+	dpkg-query -W -f='${Status}' <package> | grep -q 'ok installed'
+
 To update any of them on purpose: `sudo apt-mark unhold <package>`. Note that if
 the "modem never goes online" problem (see
 `docs/interconnect-sm6375-wip/HANDOFF-SESSION4.md` §5) is ever attacked, a newer

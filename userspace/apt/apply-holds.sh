@@ -39,10 +39,60 @@ set -e
 here=$(dirname "$0")
 xargs -r apt-mark hold < "$here/apt-holds.txt"
 
+# Anything below may be replacing files that were made immutable by a previous
+# run, so clear that first. Harmless if they are not.
+for f in /usr/local/sbin/rhodep-apt-guard \
+	 /etc/apt/apt.conf.d/50rhodep-protect-holds \
+	 /usr/local/share/rhodep/apt-holds.txt; do
+	[ -e "$f" ] && chattr -i "$f" 2>/dev/null
+done
+
 # A hold does not stop `apt purge`. Install the hook that does; see
 # rhodep-apt-guard for the reasoning and how to override it deliberately.
 install -D -m 0755 "$here/rhodep-apt-guard" /usr/local/sbin/rhodep-apt-guard
 install -D -m 0644 "$here/50rhodep-protect-holds" \
 	/etc/apt/apt.conf.d/50rhodep-protect-holds
 
-echo "held: $(apt-mark showhold | wc -l) packages, purge protection installed"
+# Nothing protects the holds themselves: one apt-mark unhold and the port is
+# defenceless, with no record. rhodep-holds-enforce puts back any hold, and any
+# of the guard's own files, that goes missing, and says so in the journal. The
+# canonical copies live where the enforcer can find them.
+install -D -m 0644 "$here/apt-holds.txt"          /usr/local/share/rhodep/apt-holds.txt
+install -D -m 0644 "$here/rhodep-apt-guard"       /usr/local/share/rhodep/rhodep-apt-guard
+install -D -m 0644 "$here/50rhodep-protect-holds" /usr/local/share/rhodep/50rhodep-protect-holds
+install -D -m 0755 "$here/rhodep-holds-enforce"   /usr/local/sbin/rhodep-holds-enforce
+install -D -m 0755 "$here/rhodep-hold-override"   /usr/local/sbin/rhodep-hold-override
+install -D -m 0644 "$here/60rhodep-enforce-holds" /etc/apt/apt.conf.d/60rhodep-enforce-holds
+install -D -m 0644 "$here/systemd/rhodep-holds-enforce.service" \
+	/etc/systemd/system/rhodep-holds-enforce.service
+install -D -m 0644 "$here/systemd/rhodep-holds-enforce.timer" \
+	/etc/systemd/system/rhodep-holds-enforce.timer
+install -d -m 0755 /etc/rhodep
+[ -e /etc/rhodep/apt-holds-exceptions ] || : > /etc/rhodep/apt-holds-exceptions
+install -D -m 0644 "$here/apply-holds.sh" /usr/share/doc/rhodep-apt/apply-holds.sh
+
+# Make the guard's own files immutable. Root can still take them out, but only
+# by deciding to: `chattr -i <file>` first. That is the difference between a
+# deliberate change and a script or an agent removing them in passing.
+for f in /usr/local/sbin/rhodep-apt-guard \
+	 /etc/apt/apt.conf.d/50rhodep-protect-holds \
+	 /usr/local/share/rhodep/apt-holds.txt; do
+	chattr +i "$f" 2>/dev/null || true
+done
+
+if [ -d /run/systemd/system ]; then
+	systemctl daemon-reload
+	systemctl enable --now rhodep-holds-enforce.timer >/dev/null 2>&1
+	systemctl enable rhodep-holds-enforce.service >/dev/null 2>&1
+else
+	install -d /etc/systemd/system/multi-user.target.wants /etc/systemd/system/timers.target.wants
+	ln -sf /etc/systemd/system/rhodep-holds-enforce.service \
+		/etc/systemd/system/multi-user.target.wants/rhodep-holds-enforce.service
+	ln -sf /etc/systemd/system/rhodep-holds-enforce.timer \
+		/etc/systemd/system/timers.target.wants/rhodep-holds-enforce.timer
+fi
+
+echo "held: $(apt-mark showhold | wc -l) packages"
+echo "purge protection installed and made immutable"
+echo "hold enforcement installed; release one deliberately with:"
+echo "  sudo rhodep-hold-override release <package> \"<reason>\""

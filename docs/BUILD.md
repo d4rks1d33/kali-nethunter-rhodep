@@ -155,11 +155,15 @@ sudo chroot /tmp/rootfs sh /srv/login/install.sh kali
   Worth baking in: it is the only link that survives a modem restart, since the
   WLAN protection domain lives inside the modem, so it is what makes modem
   debugging possible at all.
-- **apt holds** (`userspace/apt/apply-holds.sh`, 39 packages): keeps an upgrade
+- **apt holds** (`userspace/apt/apply-holds.sh`, 41 packages): keeps an upgrade
   from replacing the kernel, the WiFi firmware, the modem stack, the audio stack
   or the on-screen keyboard. It also installs `rhodep-apt-guard`, an apt hook
   that refuses to remove a held package, because a hold does **not** stop
-  `apt purge`.
+  `apt purge`; and `rhodep-holds-enforce`, which puts back any hold or guard
+  file that goes missing, because nothing protected the holds themselves. The
+  guard's files are made immutable, and releasing a hold on purpose goes
+  through `rhodep-hold-override`, which wants a reason and refuses to run
+  unattended. See README "A hold does not stop `apt purge`".
 - **Modem** (`userspace/modem/install.sh`): the whole reason the radio works.
   Populates the modem's remote file system from the stock `modem`/`fsg`/
   `persist` partitions at first boot (without the Hexagon objects under

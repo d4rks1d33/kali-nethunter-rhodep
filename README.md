@@ -166,7 +166,9 @@ userspace/
                       WirePlumber rules, the boot route unit, the udev rule that
                       keeps the codec awake for jack detection, and the jack
                       watcher that switches output (install.sh)
-  apt/                the 39 apt holds this port depends on (apply-holds.sh)
+  apt/                the 41 apt holds this port depends on, the hook that
+                      refuses to purge them, and the enforcer that puts a hold
+                      back if anything removes it (apply-holds.sh)
   login/              GDM login screen instead of the phosh.service autologin (install.sh)
 scripts/
   mkbootv2b.py             build an Android boot.img v2 (flat Image + appended DTB)
@@ -641,6 +643,60 @@ which aborts the whole transaction if any held package is being removed. Nothing
 has been removed at the point it refuses, so it is safe. It fails open: any
 error in the guard itself lets the transaction proceed, because a bug in it must
 never be able to wedge package management on a phone.
+
+### And nothing protected the holds themselves
+
+The guard above protects packages. Until it was pointed out, **nothing
+protected the holds**. One `apt-mark unhold`, by a script, an upgrade helper or
+an agent doing something else, and every defence above is gone silently — and
+the next upgrade replaces the kernel, the WiFi firmware or the audio stack.
+
+`apply-holds.sh` now installs three more things:
+
+- **`rhodep-holds-enforce`** puts back any hold, and any of the guard's own
+  files, that goes missing, and logs it as an ALERT with the package names. It
+  runs at boot, **after every apt transaction** (`60rhodep-enforce-holds`, a
+  `DPkg::Post-Invoke` hook) and on a 30-minute timer as a backstop. It fails
+  open at every step: a phone whose package management is wedged by its own
+  guard rail is worse off than one with a missing hold.
+- **immutability** (`chattr +i`) on `rhodep-apt-guard`, the `50` hook and the
+  canonical hold list. Root can still take them out, but only by deciding to —
+  `chattr -i` first. That is the whole point: it separates a deliberate change
+  from something removing them in passing.
+- **`rhodep-hold-override`**, the authorised way out. A plain `apt-mark unhold`
+  no longer sticks, so releasing a hold on purpose goes through:
+
+	sudo rhodep-hold-override release <package> "<reason>"
+	sudo rhodep-hold-override restore <package>
+	sudo rhodep-hold-override status
+
+  It requires a reason, records it with a timestamp in
+  `/etc/rhodep/apt-holds-exceptions.log`, and **refuses to run
+  non-interactively without `--yes`**, so an unattended script cannot release a
+  hold as a side effect. The exceptions file is what makes the enforcer leave
+  that package alone.
+
+Verified by attacking it on the device, not by reading it:
+
+| attack | result |
+| --- | --- |
+| `apt-mark unhold rmtfs` | ALERT logged, hold back on the next enforce |
+| `apt-mark unhold $(apt-mark showhold)` — all 41 | all 41 back |
+| `rm` the guard and the `50` hook | `Operation not permitted`, immutable |
+| `chattr -i` then `rm` both | ALERT logged, both restored, immutability reapplied |
+| unhold, then any ordinary `apt install` | hold back automatically via `Post-Invoke` |
+| `rhodep-hold-override` with no tty, no reason, or a package not on the list | refused |
+| authorised release, then enforce | stays released, and is in `status` |
+
+**What it does not protect against, stated plainly:** a raw `dpkg -r` or
+`dpkg -P`. dpkg has no pre-removal hook, so nothing can abort it. The enforcer
+detects the aftermath and says so —
+
+	ALERT: held package 'X' is NOT INSTALLED. Something removed it, most
+	likely a raw dpkg -r/-P, which bypasses apt and therefore the guard.
+	Reinstall it: apt-get install --reinstall X
+
+— but by then the package is gone. Use `apt`, not `dpkg`, to remove things.
 
 It is a guard rail, not a lock. To remove something deliberately, unhold it
 first and the guard steps aside:

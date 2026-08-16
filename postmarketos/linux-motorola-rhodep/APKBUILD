@@ -61,6 +61,7 @@ source="
 	0035-arm64-dts-qcom-rhodep-enable-audio.patch
 	0036-ASoC-codecs-lpass-macro-add-codec-version-2-2.patch
 	0042-net-ipa-sm6375-fix-imem-address.patch
+	0043-net-ipa-map-imem-as-device-memory.patch
 "
 options="!check !strip !tracedeps pmb:cross-native"
 _carch="arm64"
@@ -146,4 +147,5 @@ de3fcedf703b1768f840775e2ee74213d2b1181ac2fbf84f722740b9a9f12b9e22337d61e85179af
 3d739d01465c029fa7185b918c4319b4196a1e8a4e68043b7b9c11708763a8ec17bdfe35d7df2bfa6a6c7ea32eae6384229b0c1cd0661a473b8135f18a58f634  0035-arm64-dts-qcom-rhodep-enable-audio.patch
 4aeb00ad2818a47fd52bbf6ae84e633f4e4d531f9cb9ed7b765da595fd71cc6305e3b5e4a5233272269818b034b63dc7d54293701e33ad439c20204e36ae50f2  0036-ASoC-codecs-lpass-macro-add-codec-version-2-2.patch
 5a0b94e08355640a93f743aa30991e915bf12d9a1ce22682eeb6acb256a8d4f679261d9acc2ffd591d37acc35c35a20eb0ebfdf60fdbb05d186cd0c4d54a26b9  0042-net-ipa-sm6375-fix-imem-address.patch
+f62af2230993107e34d2bd45be5e69ab184670d4857c6c5337035c25e69ecb3124ab4cf16be30905c8655d153b221badd7812520a268ec8cb235087cb4869c16  0043-net-ipa-map-imem-as-device-memory.patch
 "

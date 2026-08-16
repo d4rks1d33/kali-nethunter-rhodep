@@ -56,6 +56,11 @@ has a data port. **No interconnect provider is involved**, see §1.
    Voice calls connect and SMS arrives; **in-call audio does not exist yet**
    because mainline has no q6voice (MVM/CVS/CVP), which is a separate project
    scoped at the end of session 14.
+2. **OPEN AND IMPORTANT: with ipa.ko loaded AND the modem registered the SoC
+   watchdog-resets every 3-10 minutes.** Either one alone is stable for as long
+   as it was watched. Nothing could hit this before, because the modem was
+   never on a network. Full bisection and leads at the end of §5. Until it is
+   fixed the phone is not daily-usable with the modem enabled.
 2. **Audio.** The device tree is complete and the card registers, but a stream
    takes the SoC down. See **AUDIO-SM6375.md**, which has the state, everything
    ruled out with its evidence, and the next step. The patches (0032-0036) are
@@ -906,6 +911,79 @@ MVM/CVS/CVP, VoiceMMode1/2 back-end DAIs, the routing entries in q6routing, and
 the machine-driver wiring. Do not treat it as a modem bug; the modem side is
 done. The `apr_voice_svc` glink channel the modem opens on its own edge is the
 modem-domain half of the same thing.
+
+#### OPEN BUG: IPA + a registered modem watchdog-resets the SoC
+
+This is the one thing left and it is important, because it makes the phone
+unusable with the modem on. It is **new only in the sense that nothing could
+ever hit it before**: it needs the modem to actually be on a network, which
+until session 14 it never was.
+
+Characterised by bisection, each configuration held for as long as stated:
+
+| ipa.ko | modem radio | result |
+| --- | --- | --- |
+| loaded | off (`shutting-down`) | stable, 23 min, no reset |
+| **not loaded** (blacklisted) | **registered on LTE** | stable, 16.5 min, no reset |
+| loaded | registered on LTE | **watchdog reset after 3-10 min**, repeatedly |
+
+A data bearer is *not* required: it resets with the modem merely registered and
+no connection up. The reset is silent — `androidboot.bootreason=watchdog` and
+the ramoops console simply stops mid-line, with no fault, no panic and no stack
+trace. That is the signature this port already documented in §1 for an access
+to an address the SoC does not decode.
+
+Ruled out, each with evidence:
+
+- **System suspend.** Masking `sleep.target suspend.target hibernate.target
+  hybrid-sleep.target` and confirming `/sys/power/suspend_stats` stayed at
+  `success=0 fail=0` did not stop it. (It is still worth knowing that the
+  device *does* suspend on screen lock, and that console output is dead during
+  suspend, which is why an early theory looked so convincing.)
+- **Thermal / battery.** No thermal zone above 45 C at the time, battery
+  `Full` at 28 C. Resets are 185 s / 332 s / 618 s apart, not periodic.
+- **The IMEM address** from patch 0042. The *original* ipa.ko, with the wrong
+  address, also ends in a watchdog — it just prints an SMMU fault first. So
+  0042 fixes a genuine bug and is not the cause of this one.
+- **IMEM cacheability.** Patch 0043 maps IMEM with `IOMMU_MMIO`, matching
+  downstream `ipa3_iommu_map(..., IOMMU_READ | IOMMU_WRITE | IOMMU_MMIO)`.
+  Correct, kept, and it does not stop the resets either.
+
+Leads, in the order they deserve:
+
+1. **Interconnect.** Patch 0025 gives SM6375 `interconnect_count = 0`, on the
+   reasoning that the RPM holds bimc/cnoc/snoc at INT_MAX so Linux never needs
+   to vote. That reasoning was verified for *probe* and never for *operation*,
+   and the IPA has its own paths that are not those three:
+
+	blair.dtsi:3201, ipa node:
+		interconnect-names = "ipa_to_ebi1", "ipa_to_imem", "appss_to_ipa";
+
+   `ipa_to_imem` in particular is the path this port now knows the IPA uses.
+   An unvoted, ungated NoC path is exactly how a silent bus hang happens. The
+   half-written SM6375 interconnect driver in this directory (patches
+   0027-0030, `sm6375.c`, `VENDOR-BIMC.md`) was shelved as unnecessary; this is
+   the reason to take it back out.
+2. **The IPA local SRAM layout.** `ipa_data_v4_11`'s `ipa_mem_local_data` was
+   written for qcm2290/sm6115. If SM6375 partitions its IPA SRAM differently,
+   the AP and the modem disagree about offsets and the modem writes outside
+   the region as soon as it installs real tables. Diff it against the
+   downstream `IPA_MEM_PART` table for IPA v4.11.
+3. At load time the driver reports interrupts firing that it has disabled:
+   `clearing disabled IPA interrupts 0x01810080` = bits 7, 19, 20, 24 =
+   `UC_RX_CMD_Q_NOT_FULL`, `PIPE_YELLOW_ABOVE`, `PIPE_RED_ABOVE`,
+   `GSI_IPA_IF_TLV_RCVD`. The two PIPE_*_ABOVE ones are fill-level thresholds.
+
+The debug loop that made this tractable, and that the next session should
+reuse: `ipa.ko` is a module, so the two halves can be combined at will without
+a reflash. Blacklist it with `/etc/modprobe.d`, boot, bring the radio up by
+hand with `qmicli --dms-set-operating-mode=online` plus
+`/usr/local/sbin/rhodep-uim-provision`, confirm `registered`, and only then
+`insmod ipa.ko dyndbg==p`. And log uptime to a file from a systemd unit
+(`rhodep-uplog`): ssh dropping is **not** proof of a reset — the screen locking
+takes WiFi down and looks identical. Check
+`journalctl -b -N -k | grep -m1 "Kernel command line"` for the real
+`bootreason` of each past boot.
 
 #### One unexplained hang, not reproduced
 

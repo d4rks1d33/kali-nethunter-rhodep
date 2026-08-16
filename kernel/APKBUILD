@@ -62,6 +62,10 @@ source="
 	0036-ASoC-codecs-lpass-macro-add-codec-version-2-2.patch
 	0042-net-ipa-sm6375-fix-imem-address.patch
 	0043-net-ipa-map-imem-as-device-memory.patch
+	0027-interconnect-qcom-add-sm6375-provider.patch
+	0028-arm64-dts-qcom-sm6375-add-interconnect-nodes.patch
+	0044-net-ipa-sm6375-vote-the-three-noc-paths.patch
+	0045-arm64-dts-qcom-rhodep-wire-ipa-interconnects.patch
 "
 options="!check !strip !tracedeps pmb:cross-native"
 _carch="arm64"
@@ -114,7 +118,7 @@ package() {
 }
 sha512sums="
 f88a468a9b68ac28de925b092b4ce6fc0be558928f8a0e7474a90426e05793007e441740d494a4d504efe4ed216aec9627ee3a4982ab0da89d8a3a15448b227f  linux-motorola-rhodep-7.2_rc5.tar.gz
-3b8303f0d90abbd7dced0c4c37aaccf3440682394309f90bdc99d9f4a371ae8ab6a4048790831a93e66b15c9b021d039e0d9883c358902d8a1e45071e34e73c8  config-motorola-rhodep.aarch64
+d9deee73d34776b17004720a5b7f652981894ce3d24dae10d3a9e122f4c3e09c1fb2f51b4cb6e0fc0477240861f232a2f70eb5bedf7996a9a27a0c7583c0e65f  config-motorola-rhodep.aarch64
 50d91ef0efbd9c6279244d3041d43f76a9fa663bbe37c320fc0377d561c84ade61e8385eeb68a1805b26ba9c2cb5903c5c288e8df00599342d377ce27524b3d0  0001-arm64-dts-qcom-add-Motorola-Moto-G82-5G.patch
 476ade0233afb67abe1bcbc95829d732354ffbaa21fe43317d0a8bcc281fae0515a767a71764398dce11cd938d29ca0bd41ab13499468c86fc360ed141dd99ca  0002-drm-msm-dsi-fix-pclk-for-dsc-without-widebus.patch
 88c109343e5068fe81554c5b8fdac93a5848d8cd784b4d7cfafc35c8db1310a0091b5d10170fff0291e3e988b75ceb5892f6e35ea8fd09c44f09f720b87e7cc2  0003-drm-panel-add-novatek-nt37701.patch
@@ -148,4 +152,8 @@ de3fcedf703b1768f840775e2ee74213d2b1181ac2fbf84f722740b9a9f12b9e22337d61e85179af
 4aeb00ad2818a47fd52bbf6ae84e633f4e4d531f9cb9ed7b765da595fd71cc6305e3b5e4a5233272269818b034b63dc7d54293701e33ad439c20204e36ae50f2  0036-ASoC-codecs-lpass-macro-add-codec-version-2-2.patch
 5a0b94e08355640a93f743aa30991e915bf12d9a1ce22682eeb6acb256a8d4f679261d9acc2ffd591d37acc35c35a20eb0ebfdf60fdbb05d186cd0c4d54a26b9  0042-net-ipa-sm6375-fix-imem-address.patch
 f62af2230993107e34d2bd45be5e69ab184670d4857c6c5337035c25e69ecb3124ab4cf16be30905c8655d153b221badd7812520a268ec8cb235087cb4869c16  0043-net-ipa-map-imem-as-device-memory.patch
+cfeae8bc257acd624d89cd3d371d617956dd98cecadc43ecd963e0054fd21b8589b669fc4a5ccb21122c673a79c4e1e8e56731342ccde857f94f6698ffa547c9  0027-interconnect-qcom-add-sm6375-provider.patch
+ecd800a2f836ffa2d3e9037fdb511fd93b18593a0f7a44e1214a616706cd5a0b04774cdebdee5f41441866693c4d45544eb862cd466291c2c3b6642b1adb87ed  0028-arm64-dts-qcom-sm6375-add-interconnect-nodes.patch
+24b6eb6c9cdac85cbab6159d46d72ee424f1f6ac9d693f934b320d5109910094d3c61c9740c44f1094451f2e551e5735b9555836a355fbcaaafc1593db2e7f2b  0044-net-ipa-sm6375-vote-the-three-noc-paths.patch
+0daf3451253d6aa66345a03cd204e685eee28454f32ca4938337e8c3eca33f60292718027d84607a450162cbb540d3c756162598046bc3d725fe5d9e779cc955  0045-arm64-dts-qcom-rhodep-wire-ipa-interconnects.patch
 "

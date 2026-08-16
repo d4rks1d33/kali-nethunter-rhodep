@@ -997,19 +997,92 @@ Ruled out, each with evidence:
 
 Leads, in the order they deserve:
 
-1. **Interconnect.** Patch 0025 gives SM6375 `interconnect_count = 0`, on the
-   reasoning that the RPM holds bimc/cnoc/snoc at INT_MAX so Linux never needs
-   to vote. That reasoning was verified for *probe* and never for *operation*,
-   and the IPA has its own paths that are not those three:
+1. **The IPA's interconnect path to IMEM. This is now the strong one**, and
+   session 15 built the case for it out of three independent pieces:
 
-	blair.dtsi:3201, ipa node:
+   a. The reset is silent — no fault, no panic, console stops mid-line. §1 of
+      this document already established that this SoC does exactly that when
+      something touches an address it does not decode. It is a bus hang, not a
+      software bug.
+
+   b. The IPA demonstrably reaches into IMEM here. That is not a guess: before
+      patch 0042 the SMMU caught it red-handed at `iova=0x0c123080`,
+      `cbfrsynra=0x4a0` (the IPA AP context bank). And mainline only ever *maps*
+      IMEM (`ipa_imem_init()`); it never tells the modem about it, so the modem
+      firmware already knows the tables live there and the AP's only job is to
+      make the path work.
+
+   c. **Mainline never votes for that path on this IPA version, and the vendor
+      does.** The vendor asks for three:
+
+	blair.dtsi:3196, ipa node:
+		interconnects = <&system_noc MASTER_IPA &bimc SLAVE_EBI>,
+				<&system_noc MASTER_IPA &system_noc SLAVE_OCIMEM>,
+				<&bimc MASTER_AMPSS_M0 &config_noc SLAVE_IPA_CFG>;
 		interconnect-names = "ipa_to_ebi1", "ipa_to_imem", "appss_to_ipa";
 
-   `ipa_to_imem` in particular is the path this port now knows the IPA uses.
-   An unvoted, ungated NoC path is exactly how a silent bus hang happens. The
-   half-written SM6375 interconnect driver in this directory (patches
-   0027-0030, `sm6375.c`, `VENDOR-BIMC.md`) was shelved as unnecessary; this is
-   the reason to take it back out.
+      while `ipa_data-v4.11.c`, which SM6375 borrows from qcm2290/sm6115,
+      defines only two:
+
+	.name = "memory"   600000 / 150000
+	.name = "config"    74000 /      0
+
+      There is no "imem" entry at all. sdm845 (`ipa_data-v3.5.1.c`) has one, so
+      the driver supports the path — this IPA version's data simply does not
+      declare it, presumably because qcm2290 does not need it. SM6375 does.
+
+   So: an on-chip SRAM slave that nobody has voted a path to, touched by a DMA
+   master, on a SoC that resets without a word when a slave does not answer.
+
+   The work is bounded and the pieces exist. `sm6375.c` in this directory is
+   **1675 lines and complete enough**: all six providers (bimc, clk_virt,
+   config_noc, mmrt_virt, mmnrt_virt, sys_noc) and it already has the nodes
+   involved — `MASTER_IPA` is `qxm_ipa` at line 672, and `SLAVE_OCIMEM`,
+   `SLAVE_EBI` and `SLAVE_IPA_CFG` are all present. Patches 0027 (driver), 0028
+   (DT nodes) and 0029 (wire the IPA) are on disk. **0029 as written wires only
+   `memory` and `config` and would have to grow the `imem` path**, and
+   `ipa_data_v4_11_sm6375` needs its own `ipa_interconnect_data` with the third
+   entry plus `interconnect_count = 3` instead of the current 0.
+
+   Cost: the device tree changes need a new boot image and a flash by the user,
+   unlike everything else in session 14.
+
+   **Session 15 acted on this. Everything is built and waiting to be tested:**
+
+   - patch 0044 gives `ipa_data_v4_11_sm6375` its own `ipa_interconnect_data`
+     with three entries including "imem" (350 MBps, sdm845's figure, the only
+     one mainline offers for this path) and `interconnect_count = 3`
+   - patch 0045 wires the three paths into the rhodep IPA node, copied from the
+     vendor and renamed to memory/imem/config. It supersedes the old 0029,
+     which was written while the IPA node was still disabled and wired only two
+     of the three, missing the one that matters
+   - patches 0027 and 0028 (the provider and its DT nodes) moved from this
+     directory into `kernel/patches/` and into `source=`
+   - `CONFIG_INTERCONNECT_QCOM_SM6375=m`
+   - **`kali-boot-v95-ipa-interconnect.img`**, with `README-v95.txt` next to it
+
+   The image is built so that a wrong guess costs a reboot rather than a
+   reflash: both drivers are modules and neither loads at boot (`ipa.ko` is
+   held out by `rhodep-ipa-hold.conf`, `qnoc-sm6375.ko` is new and nothing
+   autoloads it), and the device tree changes are inert without them. If it
+   boots at all it boots exactly like v94.
+
+   **Testing it needs the SIM that actually registers.** The dead prepaid card
+   never attaches, and attaching is the trigger — see the measurement below.
+
+#### Session 15: the trigger needs the modem to ATTACH, not just to be on
+
+Measured before touching anything, on the boot that was already up: `ipa.ko`
+loaded by hand, radio on via `--dms-set-operating-mode=online`, prepaid SIM
+that never gets past `not-registered-searching`.
+
+	22 minutes, no reset
+
+against 185 s, 332 s and 618 s when the modem was registered. So the earlier
+bisection line "modem registered" was the right one and can be sharpened: it is
+not the radio being powered, it is the modem actually attaching to a network —
+which is exactly when it installs its filter and route tables in IMEM and gives
+the IPA something to read there. That is one more brick in the same wall.
 2. **The IPA local SRAM layout.** `ipa_data_v4_11`'s `ipa_mem_local_data` was
    written for qcm2290/sm6115. If SM6375 partitions its IPA SRAM differently,
    the AP and the modem disagree about offsets and the modem writes outside

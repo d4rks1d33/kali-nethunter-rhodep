@@ -36,6 +36,9 @@ list; everything here is a from-scratch community port.
 > work — `ipa.ko` is a module and the two IPA patches (0042, 0043) ship in it —
 > so `kali-boot-v94-STABLE.img` is still the image to flash.
 
+> **Bluetooth** was found with its service masked and a random controller
+> address; `userspace/bluetooth/install.sh` fixes both. See that directory.
+
 > In-call audio does not exist yet, and is not a modem problem: Qualcomm voice
 > audio goes modem <-> ADSP <-> codec and mainline has no q6voice (MVM/CVS/CVP)
 > at all. Scoped in HANDOFF-SESSION4.md session 14.
@@ -154,6 +157,9 @@ packages/
 userspace/
   usb-net/            SSH over the USB cable (172.16.42.1), the only link that
                       survives a modem restart (install.sh)
+  bluetooth/          unmasks bluetooth.service and programs the real
+                      controller address from androidboot.btmacaddr, instead
+                      of the random one the stack invents (install.sh)
   modem/              everything that makes the radio work: populates the
                       modem's remote file system from the stock modem/fsg/
                       persist partitions, opens the UIM provisioning session,
@@ -474,6 +480,11 @@ sudo chroot /tmp/rootfs sh /srv/modem/install.sh
 sudo cp -r userspace/plasma-apps /tmp/rootfs/srv/plasma-apps
 sudo chroot /tmp/rootfs sh /srv/plasma-apps/install.sh
 # The apt holds, so the first upgrade cannot undo any of the above.
+# Bluetooth: unmask the service and program the real controller address.
+sudo cp -r userspace/bluetooth /tmp/rootfs/srv/bluetooth
+sudo chroot /tmp/rootfs sh /srv/bluetooth/install.sh
+# The apt holds, so the first upgrade cannot undo any of the above. Run this
+# LAST: it also protects every file the installers above just laid down.
 sudo cp -r userspace/apt /tmp/rootfs/srv/apt
 sudo chroot /tmp/rootfs sh /srv/apt/apply-holds.sh
 # package the dir into an ext4, then wrap it in a sector-4096 GPT disk (see below).

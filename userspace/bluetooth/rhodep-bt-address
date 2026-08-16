@@ -1,0 +1,38 @@
+#!/bin/sh
+# Give the Bluetooth controller its real address before bluetoothd starts.
+#
+# The QCA WCN3990 does not hold its own address: the bootloader passes it on
+# the kernel command line and something has to program it. Mainline's
+# hci_qca serdev driver reads it from `local-bd-address` in the device tree,
+# and this port's device tree does not describe the controller at all, so the
+# stack falls back to a random locally-administered address:
+#
+#	BD Address: 02:00:60:3B:D3:94        <- random, 02: = locally administered
+#
+# A new one is generated on every boot, which means every device the phone has
+# ever paired with sees a different phone after a reboot and the pairing is
+# dead. `androidboot.btmacaddr` on the command line has the real one:
+#
+#	BD Address: E4:26:D5:01:11:0F
+#
+# Doing it here rather than in the device tree keeps this a rootfs change, so
+# it needs no new boot image. Adding `local-bd-address` to the DT would be the
+# tidier fix and is worth doing next time the boot image is rebuilt anyway.
+set -u
+
+MAC=$(tr ' ' '\n' < /proc/cmdline | sed -n 's/^androidboot\.btmacaddr=//p' | head -1)
+
+case "$MAC" in
+	[0-9A-Fa-f][0-9A-Fa-f]:*:[0-9A-Fa-f][0-9A-Fa-f]) ;;
+	*) echo "rhodep-bt-address: no usable androidboot.btmacaddr on the command line"; exit 0 ;;
+esac
+
+# The controller only accepts a public address while it is powered down.
+btmgmt --index 0 power off >/dev/null 2>&1 || exit 0
+if btmgmt --index 0 public-addr "$MAC" >/dev/null 2>&1; then
+	echo "rhodep-bt-address: set $MAC"
+else
+	echo "rhodep-bt-address: controller refused $MAC, leaving the random one"
+fi
+btmgmt --index 0 power on >/dev/null 2>&1
+exit 0

@@ -26,15 +26,31 @@ list; everything here is a from-scratch community port.
 > "file not found". Install with `userspace/modem/install.sh` and read
 > [`userspace/modem/README.md`](userspace/modem/README.md).
 >
-> **But it is shipped switched off**, because of a separate, newly exposed bug:
-> with `ipa.ko` loaded *and* the modem registered, the SoC watchdog-resets every
-> few minutes. So `install.sh` also drops
-> `/etc/modprobe.d/rhodep-ipa-hold.conf`, which costs mobile data and
-> ModemManager but keeps the phone stable. Deleting that one file and rebooting
-> gives the whole modem back. Bisection and leads: HANDOFF-SESSION4.md session
-> 14, "OPEN BUG". No kernel or device tree change is needed for any of the modem
-> work — `ipa.ko` is a module and the two IPA patches (0042, 0043) ship in it —
-> so `kali-boot-v94-STABLE.img` is still the image to flash.
+> **But it is shipped switched off**, because of a separate bug that only
+> became reachable once the modem worked: with `ipa.ko` loaded *and the modem
+> attached to LTE*, the SoC watchdog-resets every 3 to 10 minutes, silently.
+> With the radio on but not attached it runs for 22 minutes; with `ipa.ko` out,
+> the same. So `install.sh` drops `/etc/modprobe.d/rhodep-ipa-hold.conf` (and
+> `rhodep-icc-hold.conf` for the interconnect provider), which costs mobile data
+> and ModemManager but keeps the phone stable. Delete them and reboot to get the
+> whole modem back, resets included.
+>
+> **Three hypotheses have been tested on the device and buried**: the unvoted
+> NoC path to IMEM, that vote being demand-driven instead of a floor, and the
+> IPA SRAM layout inherited from qcm2290. Patches 0044-0048 are all kept, every
+> one of them a correction checked against the vendor tree, and none of them is
+> the cause. Do not re-test them; §5 session 15 of HANDOFF-SESSION4.md says what
+> was measured. **The experiment that would settle it has never run**: attach to
+> LTE with `ipa.ko` never loaded. It needs the LTE attach APN set by hand over
+> `qmicli`, because ModemManager is what normally configures it and MM will not
+> touch a QMI modem with no net port.
+>
+> None of the modem work needs a new boot image — the IPA patches live in
+> `ipa.ko`, a module — so **`kali-boot-v94-STABLE.img` is still the image to
+> flash**. `kali-boot-v97-ipa-interconnect.img` exists for working on the reset:
+> it adds the interconnect provider nodes and the IPA's three NoC paths to the
+> device tree, boots identically to v94 because both drivers are held out, and
+> has `README-v97.txt` next to it.
 
 > **Bluetooth** was found with its service masked and a random controller
 > address; `userspace/bluetooth/install.sh` fixes both. See that directory.
@@ -82,8 +98,34 @@ list; everything here is a from-scratch community port.
   switches back to the speaker, automatically.
 - **Microphone** (AMIC3), exposed as a PipeWire source, so recording works from
   any application, through the PulseAudio compatibility layer as well.
-- **IPA** (the data path for mobile data) is up: the register layout the driver
-  needed is in the DTS and the microcode loads from the stock `modem_a`
+- **Modem**: registers on LTE, mobile data measured at ~24 Mbit/s, voice calls
+  connect and SMS arrives. Shipped switched off, see the note at the top and
+  `userspace/modem/README.md`.
+- **Bluetooth audio** (A2DP), with the controller's real address so pairings
+  survive a reboot — `userspace/bluetooth/`.
+
+## What does not work
+
+| | |
+| --- | --- |
+| **Mobile data, day to day** | It works, and then the SoC watchdog-resets 3 to 10 minutes after the modem attaches to LTE. `ipa.ko` is therefore held out of the boot. This is the one thing standing between this port and a finished phone. HANDOFF-SESSION4.md §5, sessions 14-15. |
+| **In-call audio** | Calls connect but there is no sound. Not a modem problem: Qualcomm voice audio goes modem ↔ ADSP ↔ codec and mainline has no q6voice (MVM/CVS/CVP) at all. A new driver, not a bug. |
+| **Sensors** (accelerometer, gyroscope, proximity, light) | Behind the SSC sensor hub inside the ADSP — LineageOS uses `sensors.ssc.so`. Mainline has no support for it. A research project. |
+| **Fingerprint** | Focaltech with a proprietary HAL (`fingerprint.focaltech.default.so`). No mainline driver. |
+| **NFC** | Samsung `sec-nfc` on i2c7. No mainline driver. |
+| **GPS** | Closer than the docs used to say: the modem publishes the location service and `qmicli --loc-start` works. It has never emitted NMEA, but it has only been tried indoors. **Testing it outdoors is free and is the next thing to try.** |
+| **Camera** | CAMSS plus sensor drivers. Large. |
+| **Monitor mode on the internal WiFi** | Infeasible: the WCN3990 firmware reports `raw 0`. Use the external adapter, which does work. |
+
+## Where to pick this up
+
+1. **GPS outdoors.** Five minutes, no risk, and it decides whether GPS is nearly
+   free or a real project.
+2. **The IPA reset.** Read §5 session 15 of HANDOFF-SESSION4.md first: three
+   hypotheses are already buried with evidence and should not be retried. The
+   experiment to run is attaching to LTE with `ipa.ko` never loaded, which needs
+   the attach APN set by hand over `qmicli`.
+3. Everything else in the table above is a project rather than a task.
 
 ## Screenshots
 
@@ -818,11 +860,12 @@ of those produced convincing false negatives here. Use:
 
 	dpkg-query -W -f='${Status}' <package> | grep -q 'ok installed'
 
-To update any of them on purpose: `sudo apt-mark unhold <package>`. Note that if
-the "modem never goes online" problem (see
-`docs/interconnect-sm6375-wip/HANDOFF-SESSION4.md` §5) is ever attacked, a newer
-ModemManager is one of the things worth trying, so that particular hold is meant
-to be lifted deliberately rather than kept forever.
+To release one on purpose, use `rhodep-hold-override` rather than `apt-mark`,
+so that the enforcer does not simply put it back — see above. The
+ModemManager hold was originally kept loose because "the modem never goes
+online" was the open problem and a newer MM was worth trying; that problem is
+solved (HANDOFF-SESSION4.md §5 session 14) and the hold is now just protecting
+a validated version.
 
 `apt full-upgrade` does NOT re-flash `boot_a` (the running initramfs lives in
 the flashed boot.img), so updates are safe for the boot path.

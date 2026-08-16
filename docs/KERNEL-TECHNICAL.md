@@ -43,7 +43,8 @@ comandos exactos para copiar/pegar y `.img` listos.
 | Táctil Goodix GT9916S | FUNCIONA |
 | GPU Adreno 619 (Phosh acelerado) | FUNCIONA |
 | WiFi + Bluetooth (WCN3990) | FUNCIONA |
-| Módem + ADSP + CDSP (remoteprocs) | FUNCIONAN (running solos, ~50 QMI) |
+| Módem + ADSP + CDSP (remoteprocs) | FUNCIONAN |
+| **Módem: registro, llamadas, SMS** | FUNCIONA (LTE, home; ver HANDOFF-SESSION4 §5 sesión 14) |
 | Batería CW2217 + carga SGM41542 (100%, UI ok) | FUNCIONA |
 | Throttling térmico (CPU/GPU/carga) por kernel | FUNCIONA |
 | USB host / OTG | FUNCIONA |
@@ -51,11 +52,13 @@ comandos exactos para copiar/pegar y `.img` listos.
 | Botones power/volumen | FUNCIONA |
 | **Vibrador** (gpio-vibrator, tlmm 100) | FUNCIONA (§7.3) |
 | **Docker** (netfilter/nftables + veth/bridge/overlayfs) | FUNCIONA (§7.9) |
-| **Audio** | cadena armada, falta pinctrl LPI (ver §7.1) |
+| **Audio** (parlante, auricular, jack, micrófono) | FUNCIONA |
+| **Audio Bluetooth** (A2DP) | FUNCIONA (userspace/bluetooth) |
 | **Sensor proximidad/luz** | no hecho, va por SSC/ADSP (ver §7.2) |
-| **GPS** | no hecho (ver §7.4) |
+| **GPS** | el módem publica el servicio de ubicación y acepta sesión; nunca emitió NMEA, sin probar al aire libre (ver §7.4) |
 | **NFC** | chip Samsung sec-nfc, sin driver mainline (ver §7.5) |
-| **Datos móviles** | nodo+driver listos pero disabled; bloqueado por interconnect (ver §7.6) |
+| **Datos móviles** | FUNCIONAN (~24 Mbit/s) **pero el SoC se reinicia a los 3-10 min con el módem enganchado a LTE**; por eso ipa.ko se envía bloqueado del arranque (ver §7.6) |
+| **Audio en llamada** | NO existe: mainline no tiene q6voice (MVM/CVS/CVP) |
 | **Monitor mode WiFi** | INVIABLE en mainline: firmware raw 0 (ver §7.7) |
 | **Cámara** | inviable en mainline (ver §7.8) |
 
@@ -284,11 +287,23 @@ puntero en `ff_periodic_effect.custom_data`), NO 32. El EVIOCSFF hay que
 armarlo con size 48 o da EFAULT (Bad address). El id es `__s16` (usar -1
 signed, no 0xFFFF).
 
-### 7.4 GPS
-El GNSS de Qualcomm va por el módem/ADSP vía QMI. Mainline tiene
-`drivers/gnss/` pero el path de SM6375 requiere el servicio de ubicación del
-módem por QRTR. El módem ya corre (§ WiFi/BT). Investigar `qrtr` + un cliente
-GNSS. Complejidad media-alta.
+### 7.4 GPS — más cerca de lo que decía esta sección
+
+El módem **ya publica el servicio de ubicación** por QRTR y `qmicli` lo habla
+sin necesidad del IPA ni de ModemManager:
+
+	qrtr-lookup            ->  16  2  0  0  107  Location service (~ PDS v2)
+	qmicli --loc-start     ->  Successfully started location tracking
+	qmicli --loc-set-nmea-types=all
+	                       ->  gga, rmc, gsv, gsa, vtg, pqxfi, pstis
+
+O sea que la sesión GNSS arranca y acepta configuración. Lo que no se consiguió
+es que emita: ni NMEA ni información de satélites, ni con la radio apagada ni
+encendida, en unos 3 minutos de escucha. **La prueba que falta es al aire
+libre**, que es gratis: adentro y en arranque en frío sin almanaque, no emitir
+es esperable. Si al aire libre salen sentencias NMEA, GPS es cuestión de un
+puente a Geoclue y queda andando.
+
 
 ### 7.5 NFC — DIFÍCIL (chip Samsung sin driver mainline)
 Chip identificado: **`sec-nfc`** (Samsung NFC controller, S3NRN) en I2C
@@ -300,34 +315,33 @@ crudo a un HAL propietario. Portarlo = escribir driver nuevo. En el mismo bus
 SE7 hay también un SAR sensor `Semtech,sx937x` @0x2c (tampoco tiene driver
 mainline útil). NO es "fácil" como se pensaba.
 
-### 7.6 Datos móviles — nodo+driver LISTOS pero disabled (bloqueo real HW)
-Estado tras esta sesión: patches 0025 (driver) + 0026 (DT) agregados. El nodo
-`ipa@5840000` está bajo `soc@0` con reg correcto (ipa-reg 0x7000, ipa-shared
-**0x3000**, gsi 0x2c000), IRQs GIC_SPI 257/259, `clocks=<&rpmcc
-RPM_SMD_IPA_CLK>`, `qcom,gsi-loader="modem"`, smp2p ipa in/out (ya existen en
-sm6375.dtsi). Compatible nuevo `qcom,sm6375-ipa` → tabla `ipa_data_v4_11_sm6375`
-(copia de v4.11 con **interconnect_count = 0**) para saltear `of_icc_bulk_get`.
+### 7.6 Datos móviles — FUNCIONAN, pero el SoC se reinicia en LTE
 
-Lo que se APRENDIÓ (importante): saltear el interconnect con count=0 NO
-alcanza. El driver **prueba** OK, pero al **configurar el hardware GSI** toca
-registros del IPA que, sin el NoC votado, **RESETEAN el SoC** (bootloop).
-Mismo patrón que el audio (§7.1). Por eso el nodo quedó `status = "disabled"`.
-Confirma que el interconnect es bloqueante de HARDWARE, no solo de API.
+Esta sección decía "bloqueado por interconnect" y estaba equivocada en las dos
+mitades. Los datos móviles funcionan: ~24 Mbit/s medidos, IP pública, IPv6.
+Lo que falta es estabilidad.
 
-Bugs ya resueltos en el camino (para no repetirlos):
-- El nodo IPA hay que insertarlo en el `&soc` FINAL del .dts; un anchor mal
-  elegido lo metió dentro de `serial@4a84000` y el driver no lo veía. Verificar
-  siempre con `dtc -I dtb ... | grep -A1 ipa@5840000` que la indentación sea de
-  hijo de soc (2 tabs).
-- `ipa-shared` DEBE ser 0x3000 (no 0x2000 de agatti/qcm2290 que usan v4.2). Con
-  0x2000 el driver aborta: "region 14 (IPA_MEM_MODEM) ends beyond memory limit".
+**Con `ipa.ko` cargado y el módem enganchado a LTE el SoC se reinicia cada 3 a
+10 minutos**, en silencio, sin fallo ni panic ni una línea de consola. Con la
+radio encendida pero sin enganchar aguanta 22 minutos sin problemas, y con
+`ipa.ko` descargado también. El disparador es que el módem **se enganche**, que
+es cuando instala sus tablas de filtrado y ruteo.
 
-Para activar de verdad: escribir el **driver de interconnect SM6375**
-(`drivers/interconnect/qcom/sm6375.c` + bindings + nodos NoC en sm6375.dtsi:
-system_noc, config_noc, bimc). Moldes: qcm2290.c, sm6115.c (~1400 líneas c/u,
-ya en config `=y`). Sacar las tablas NoC/BCM del vendor holi.dtsi. Luego poner
-`interconnects=<...>` en el nodo IPA, volver `interconnect_count` real, y
-flip status a "okay". Es EL trabajo grande pendiente.
+Por eso las imágenes envían `/etc/modprobe.d/rhodep-ipa-hold.conf`, que
+mantiene el IPA fuera del arranque. Borrar ese archivo y reiniciar devuelve los
+datos móviles y ModemManager, al precio de los reinicios.
+
+Tres hipótesis probadas y descartadas con evidencia (HANDOFF-SESSION4 §5,
+sesión 15): el camino a IMEM sin votar en el interconnect, el voto por demanda
+en vez de un piso permanente, y el mapa de SRAM del IPA heredado de qcm2290.
+Los tres patches se conservan porque son correcciones verificadas contra el
+árbol del fabricante, pero ninguno es la causa.
+
+El experimento que decide y que todavía no se pudo correr: enganchar a LTE con
+`ipa.ko` **nunca cargado**. Requiere configurar a mano el APN de attach por
+`qmicli --wds-set-lte-attach-pdn-list`, porque sin ModemManager el módem no
+engancha y MM necesita el puerto de red del IPA para existir.
+
 
 ### 7.7 Monitor mode WiFi — INVIABLE en mainline (cerrado)
 Probado a fondo esta sesión. Conclusión definitiva, NO es cosa de kernel:

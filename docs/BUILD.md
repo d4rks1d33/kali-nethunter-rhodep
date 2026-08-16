@@ -171,7 +171,9 @@ sudo chroot /tmp/rootfs sh /srv/login/install.sh kali
   `modem_pr/so/` the modem never leaves DMS operating mode 'offline'), opens
   the UIM provisioning session before ModemManager, installs a `tqftpserv`
   patched to serve `/readonly/vendor/fsg/`, answers QMI service 52 (memshare),
-  and drops `/etc/modprobe.d/rhodep-ipa-hold.conf`. Needs `libqrtr-dev`,
+  and drops `/etc/modprobe.d/rhodep-ipa-hold.conf` (plus
+  `rhodep-icc-hold.conf` if the image carries the interconnect provider nodes,
+  as v97 does). Needs `libqrtr-dev`,
   `libzstd-dev` and a compiler; it works in the chroot, where it only lays the
   files down. **Read `userspace/modem/README.md` before shipping an image**:
   the ipa-hold file is deliberate, it is what keeps the phone from

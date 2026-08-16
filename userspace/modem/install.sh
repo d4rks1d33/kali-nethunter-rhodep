@@ -53,7 +53,8 @@ ExecStart=/usr/local/bin/tqftpserv-rhodep -d
 EOF
 
 # --- 2b. rmtfs must be read/write -------------------------------------------
-# In rmtfs, -r means READ-ONLY: writes go to a per-open RAM shadow and are lost.
+# In rmtfs, -r means READ-ONLY (rmtfs.c:526): writes go to a per-open RAM shadow
+# and are lost at reboot.
 # The modem keeps its UIM provisioning session in NV, so with -r a SIM it has
 # not seen before never gets a session and stops at 'detected'.
 install -d /etc/systemd/system/rmtfs.service.d

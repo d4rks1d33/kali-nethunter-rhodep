@@ -84,7 +84,7 @@ only visibility there is into what the modem wants.
 
 ## rmtfs must NOT have -r
 
-In rmtfs, `-r` means **read-only** (`rmtfs.c:525 read_only = true`), and
+In rmtfs, `-r` means **read-only** (`rmtfs.c:526 read_only = true`), and
 read-only means every write the modem makes goes into a per-open RAM shadow and
 is thrown away at reboot. The packaged drop-in shipped `-r` with a comment
 claiming it meant read/write; `install.sh` overrides it with `-P -s`.

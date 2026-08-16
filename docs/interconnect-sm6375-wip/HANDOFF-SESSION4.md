@@ -5,6 +5,52 @@ Kernel 7.2.0-rc5. Read this INSTEAD of HANDOFF-SESSION3.md; sessions 1-3 were
 chasing the wrong thing.
 
 --------------------------------------------------------------------------------
+## NEXT SESSION, START HERE
+--------------------------------------------------------------------------------
+The modem is **done**: cold boot to LTE registration with nothing typed by hand,
+~24 Mbit/s of data, calls that connect, SMS that arrives. §5 session 14 is the
+full log; `userspace/modem/README.md` is the short version.
+
+**One bug is in the way, and it is not a modem bug.** With `ipa.ko` loaded *and*
+the modem registered, the SoC watchdog-resets every 3-10 minutes, silently.
+Either one alone is stable. The phone therefore ships with
+`/etc/modprobe.d/rhodep-ipa-hold.conf`, which keeps `ipa.ko` out of the boot and
+costs mobile data and ModemManager.
+
+Your job, if you are picking this up, is that bug. Concretely:
+
+1. Read §5 "OPEN BUG" for the bisection table and what is already ruled out
+   (suspend, thermal, the IMEM address, IMEM cacheability). Do not redo those.
+2. Best lead: patch 0025 gives SM6375 `interconnect_count = 0`. That was
+   verified for *probe* and never for *operation*, and the vendor IPA node asks
+   for three paths that are not bimc/cnoc/snoc:
+   `blair.dtsi:3201  interconnect-names = "ipa_to_ebi1", "ipa_to_imem", "appss_to_ipa";`
+   The shelved SM6375 interconnect driver is in this same directory
+   (`sm6375.c`, patches 0027-0030, `VENDOR-BIMC.md`, `AUDIT.md`).
+3. Second lead: `ipa_data_v4_11`'s `ipa_mem_local_data` was written for
+   qcm2290/sm6115. Diff the IPA local SRAM partition table against downstream's
+   for IPA v4.11 before assuming it transfers.
+4. Reproduce like this, so the causal window is seconds and not minutes.
+   `ipa.ko` is a module, so no reflash is needed for any of it:
+
+	# boot with rhodep-ipa-hold.conf in place, then:
+	/usr/local/sbin/rhodep-uim-provision
+	qmicli -d qrtr://0 --dms-set-operating-mode=online
+	qmicli -d qrtr://0 --nas-get-serving-system      # wait for 'registered'
+	insmod /lib/modules/7.2.0-rc5/kernel/drivers/net/ipa/ipa.ko dyndbg==p
+
+5. **Do not trust ssh dropping as proof of a reset.** The screen locking takes
+   WiFi down and looks identical; that cost real time here. Log uptime to a file
+   from a systemd unit, and get the truth per boot from the journal:
+   `journalctl -b -N -k | grep -m1 "Kernel command line"` -> `bootreason=`.
+6. **Never read the smem region through /dev/mem.** A 4 KiB read of 0x80900000
+   wedges the SoC and needs a hard reboot. `dd` returning `EFAULT` is the
+   warning, not a permissions problem.
+
+After that, the next thing on the modem is in-call audio, which is a new driver
+(q6voice / MVM-CVS-CVP), not a bug. Scoped at the end of session 14.
+
+--------------------------------------------------------------------------------
 ## 0. CURRENT STATE (read this first)
 --------------------------------------------------------------------------------
 ### The image to use
@@ -773,7 +819,7 @@ shadow buffer), and therefore right that `-r` was not what kept the modem
 offline. It is still wrong to ship it: `-r` means read-only, writes are lost at
 reboot, and **the modem keeps its UIM provisioning session in NV**. The packaged
 drop-in even documented `-r` as "read/write the modem's EFS partitions", which
-is the opposite of what `rmtfs.c:525` does.
+is the opposite of what `rmtfs.c:526` does.
 
 `install.sh` now overrides it to `-P -s`. `modemst1`, `modemst2` and `fsc` are
 backed up to `_common/backups-historicos/modem-efs-20260816/` first.
@@ -831,7 +877,7 @@ not exist here. `ipa_imem_init()` therefore mapped a region the hardware never
 touches and left unmapped the one it does. The correct value is in the vendor
 tree, spelled out with a comment:
 
-	blair.dtsi:3243, ipa_smmu_ap {
+	blair.dtsi:3241, ipa_smmu_ap {
 		iommus = <&apps_smmu 0x04A0 0x0>;
 		qcom,additional-mapping =
 		/* modem tables in IMEM */
@@ -1037,7 +1083,34 @@ This replaces HANDOFF-SESSION3 §5, which is stale.
 	git clone --filter=blob:none --sparse -b fifteen \
 	    https://github.com/Motorola-SM6375-Devs/android_kernel_motorola_sm6375 moto
 	cd moto && git sparse-checkout add arch/arm64/boot/dts/vendor/qcom \
-	    include/dt-bindings drivers/interconnect techpack/audio techpack/dataipa
+	    include/dt-bindings drivers/interconnect techpack/audio techpack/dataipa \
+	    drivers/soc/qcom drivers/remoteproc drivers/rpmsg include/soc/qcom \
+	    include/linux/soc/qcom
+
+  The last five paths were added in session 14. `techpack/dataipa` is the one
+  that matters for the open IPA bug (`ipa_v3/ipa.c`, the `qcom,additional-mapping`
+  handling around line 8929). Note this tree has **no** QC diag driver and no
+  `ssm.c`, which is why two plausible leads died quickly.
+
+- `/tmp/opencode/dl/{rhodep-dt,sm6375-common}` — the LineageOS device trees.
+  Small, plain `--depth 1` clones, and worth having: this is where the RFS
+  layout was found.
+
+	git clone --depth 1 https://github.com/Motorola-SM6375-Devs/android_device_motorola_rhodep     rhodep-dt
+	git clone --depth 1 https://github.com/Motorola-SM6375-Devs/android_device_motorola_sm6375-common sm6375-common
+
+  Useful files: `sm6375-common/common.mk:285`
+  (`rfs_msm_mpss_readonly_vendor_fsg_symlink`, which is what says
+  `/readonly/vendor/fsg` is the fsg partition),
+  `sm6375-common/rootdir/etc/init/hw/init.mmi.rc:103`
+  (`/mnt/vendor/persist/rfs/msm/mpss/mot_rfs`, the persist RFS tree), and
+  `init.qcom.rc` for the daemon list.
+
+- `/tmp/opencode/dl/{rmtfs,tqftpserv}` — upstream of the two daemons, read to
+  settle what their flags actually do. `github.com/andersson/rmtfs` (`-r` is
+  read-only, `rmtfs.c:526`) and `github.com/andersson/tqftpserv` (path
+  translation in `translate.c`; the repo vendors this at commit b6bb92d under
+  `userspace/modem/tqftpserv/`).
 
 - `/tmp/opencode/kernel/linux-7.2-rc5` — pristine reference tree, used to write
   patches against. Same tarball the APKBUILD fetches:

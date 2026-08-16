@@ -21,9 +21,64 @@ Unmasked and verified on the device: `bluetoothd` starts, `hci0` goes
 and its PCM list are byte for byte the same before and after — which was the
 thing worth checking, since the audio stack is the likely reason it was masked.
 
-The `--noplugin` drop-in is left alone. A2DP over Bluetooth is a separate
-feature that has never been validated here, and re-enabling those plugins
-belongs in whatever session actually tests it.
+The `--noplugin` drop-in **has now been tested and disabled**, with real
+earbuds rather than by argument. With all plugins loaded:
+
+	wpctl status
+	  Sinks:
+	      32. Speaker
+	  *   63. AirPods Pro de Mateo            [vol: 0.70]
+
+	wpctl inspect 63
+	  api.bluez5.codec   = "sbc"
+	  api.bluez5.profile = "a2dp-sink"
+
+and audio played in stereo through the earbuds, confirmed by ear. The phone's
+own speaker, its card and its PCM list were unchanged throughout. The old
+drop-in is renamed to `noplugin.conf.disabled-by-rhodep` rather than deleted,
+so putting it back is one `mv`.
+
+### The other trap: changing the address invalidates every existing pairing
+
+Anything the phone was paired with before this must be **paired again, once**.
+There is no way around it, and the obvious workaround does not work.
+
+bluez keeps pairings in `/var/lib/bluetooth/<adapter>/<device>/`, so after the
+address change they sit under an adapter the phone no longer has and
+`bluetoothctl devices Paired` comes back empty. Copying the directories across
+looked like the fix, and three were recovered that way (earbuds, another phone,
+a PC) — `devices Paired` listed all three again. Then connecting failed:
+
+	Failed to connect: org.bluez.Error.Failed br-connection-key-missing
+
+The link key is negotiated **against the adapter address**. Moving the file
+moves a key that was agreed with `02:00:60:3B:D3:94`, and the remote device
+still holds a key for that address too, so neither side can use it. Tried,
+measured, and removed from `install.sh` rather than left in as something that
+looks like it helps.
+
+Delete the stale record and pair once more and it sticks, because the address
+is now stable across boots:
+
+	bluetoothctl remove <MAC>
+	bluetoothctl pair <MAC> && bluetoothctl trust <MAC>
+
+### The trap: WirePlumber has to be restarted, once
+
+WirePlumber builds its Bluetooth device list when **it** starts. Unmask
+`bluetooth.service` on a running system and the headset will pair, connect, and
+then be dropped by the remote end a few seconds later:
+
+	Connection successful
+	hci0 ... disconnected with reason 3
+	[SIGNAL] Disconnected - org.bluez.Reason.Remote
+
+That is not a pairing failure. WirePlumber came up while Bluetooth was masked,
+so it has no bluez monitor, so nothing offers the headset an audio endpoint,
+so the headset gives up. `systemctl --user restart wireplumber pipewire
+pipewire-pulse` and it connects and stays. `install.sh` does this for every
+logged-in session. On a boot where Bluetooth is enabled from the start the
+ordering is right and it does not arise.
 
 ## The address was random
 

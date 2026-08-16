@@ -1070,6 +1070,61 @@ Leads, in the order they deserve:
    **Testing it needs the SIM that actually registers.** The dead prepaid card
    never attaches, and attaching is the trigger — see the measurement below.
 
+#### Session 15 result: the interconnect driver works now, and it was NOT enough
+
+Four real bugs were found and fixed by finally running the SM6375 interconnect
+driver that had sat unloaded in this directory for two sessions. Every one of
+them was invisible until the module was actually loaded:
+
+1. **NULL holes in the node arrays.** The vendor numbers all 94 nodes in one
+   global sequence and the driver used those macros as array indices, so
+   bimc_nodes was 514 entries for 9 real nodes. `qnoc_probe()` walks every slot
+   and died on the first hole. mainline keeps two numberings for exactly this
+   reason - dense per bus for the binding, because the DT id doubles as the
+   array index in `of_icc_xlate_onecell()`, and globally unique for `.id`,
+   because `icc_node_create()` uses one IDR. Fixed the qcm2290 way.
+2. **Mismatched compatibles.** DT said `qcom,sm6375-snoc` / `-cnoc`, the match
+   table said `-sys-noc` / `-config-noc`. Only bimc bound, which looked like
+   success.
+3. **QoS writes park a CPU.** With the compatibles fixed the driver reached the
+   QoS programming and a core stopped answering, NMI included:
+   `After 10 seconds, these CPUS still haven't responded to the NMI: 3`.
+   Patch 0046 leaves QoS as the bootloader set it. That is not a workaround:
+   bandwidth votes go to the RPM and never touch those registers.
+4. **Malformed device tree.** Providers declare `#interconnect-cells = <2>` and
+   the IPA node wrote one cell per specifier, missing the RPM tag. fw_devlink
+   walked the list with the wrong stride, read node id 20 as a phandle, and
+   parked the IPA on whatever it pointed at:
+   `5840000.ipa platform: wait for supplier /opp-table-cpu6`. sm6115.dtsi is
+   the reference for the right shape.
+
+After all four, on kali-boot-v97: six providers bound, no oops, IPA probes,
+`IPA driver setup completed successfully`, no deferrals, and the IPA appears in
+`interconnect_summary` as a consumer with tag 3 on `qxm_ipa` and the rest.
+
+**And the SoC still resets.** Silently, console stopping mid-line, when the
+modem is pushed onto LTE. So the hypothesis is not confirmed.
+
+The most likely reason it was not enough is visible in the same summary:
+
+	qxm_ipa                                    0            0
+	  5840000.ipa               3              0            0
+
+The IPA is registered on the path but votes **avg 0, peak 0**. mainline only
+asks for bandwidth while the IPA is runtime-resumed, and drops to zero when it
+suspends - but the modem reads its tables out of IMEM on its own schedule,
+regardless of what the AP's runtime PM thinks. A path that exists but is voted
+at zero may be no better than no path at all.
+
+So the next thing to try is a **floor** on that path rather than a
+demand-driven vote: either the provider's `keep_alive` (already true in the
+descs - check whether icc-rpm actually applies it to a node with no consumer
+demand), or a permanent minimum vote from the IPA on the imem path
+specifically. Neither needs a device tree change, so neither needs a reflash.
+
+If that fails too, the second lead from session 14 is untouched: the IPA local
+SRAM layout in `ipa_mem_local_data`, inherited from qcm2290.
+
 #### A module that autoloads by device tree is not "held out of the boot"
 
 Worth writing down because it cost a reflash and the reasoning looked sound at

@@ -22,6 +22,12 @@ holes - and qnoc_probe() dereferences the first hole it reaches:
 	pc : qnoc_probe+0x2dc/0x47c
 	Call trace: qnoc_probe -> platform_probe -> really_probe
 
+The compatible strings follow mainline's short forms, "qcom,sm6375-snoc" and
+"qcom,sm6375-cnoc", the way qcm2290.c spells them, rather than "-sys-noc" and
+"-config-noc". The device tree nodes were written with the short forms and the
+match table with the long ones, so on the first boot with a matching DT only
+bimc bound and the other five providers were silently never probed.
+
 Add an SMD-RPM interconnect provider for the Qualcomm SM6375 (Snapdragon
 695), needed so the IPA (mobile data) can vote its NoC bandwidth paths.
 Without it, enabling IPA resets the SoC because the GSI hardware is
@@ -1809,10 +1815,10 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +static const struct of_device_id sm6375_noc_of_match[] = {
 +	{ .compatible = "qcom,sm6375-bimc", .data = &sm6375_bimc },
 +	{ .compatible = "qcom,sm6375-clk-virt", .data = &sm6375_clk_virt },
-+	{ .compatible = "qcom,sm6375-config-noc", .data = &sm6375_config_noc },
++	{ .compatible = "qcom,sm6375-cnoc", .data = &sm6375_config_noc },
 +	{ .compatible = "qcom,sm6375-mmrt-virt", .data = &sm6375_mmrt_virt },
 +	{ .compatible = "qcom,sm6375-mmnrt-virt", .data = &sm6375_mmnrt_virt },
-+	{ .compatible = "qcom,sm6375-sys-noc", .data = &sm6375_sys_noc },
++	{ .compatible = "qcom,sm6375-snoc", .data = &sm6375_sys_noc },
 +	{ }
 +};
 +MODULE_DEVICE_TABLE(of, sm6375_noc_of_match);

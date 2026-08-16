@@ -27,12 +27,34 @@ case "$MAC" in
 	*) echo "rhodep-bt-address: no usable androidboot.btmacaddr on the command line"; exit 0 ;;
 esac
 
-# The controller only accepts a public address while it is powered down.
-btmgmt --index 0 power off >/dev/null 2>&1 || exit 0
-if btmgmt --index 0 public-addr "$MAC" >/dev/null 2>&1; then
-	echo "rhodep-bt-address: set $MAC"
-else
-	echo "rhodep-bt-address: controller refused $MAC, leaving the random one"
-fi
-btmgmt --index 0 power on >/dev/null 2>&1
+current() { hciconfig hci0 2>/dev/null | sed -n 's/.*BD Address: \([0-9A-F:]*\).*/\1/p'; }
+
+# Setting it once is not enough, and this is the whole reason the service looked
+# like it worked while the controller kept a random address. hci0 appears as
+# soon as hci_qca registers, but the QCA firmware download that follows
+# (crbtfw21.tlv, crnv21.bin, "QCA setup on UART is completed" ~1.5 s later)
+# resets the controller and takes the address with it. Order the unit after
+# hci0 and you land right in that window: btmgmt reports success, the setup
+# finishes, and the address is random again.
+#
+# So write it, read it back, and retry until it sticks.
+i=0
+while [ $i -lt 15 ]; do
+	if [ "$(current)" = "$MAC" ]; then
+		[ $i -gt 0 ] && echo "rhodep-bt-address: set $MAC after $i retries" \
+			     || echo "rhodep-bt-address: set $MAC"
+		exit 0
+	fi
+
+	# The controller only accepts a public address while it is powered down.
+	btmgmt --index 0 power off >/dev/null 2>&1
+	btmgmt --index 0 public-addr "$MAC" >/dev/null 2>&1
+	btmgmt --index 0 power on >/dev/null 2>&1
+
+	[ "$(current)" = "$MAC" ] && continue
+	i=$((i + 1))
+	sleep 2
+done
+
+echo "rhodep-bt-address: gave up, controller still on $(current) instead of $MAC"
 exit 0

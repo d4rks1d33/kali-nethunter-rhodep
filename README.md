@@ -729,6 +729,45 @@ from the apt `Post-Invoke` hook, because apt still holds the dpkg lock there.
 Checked after all of it: `dpkg --audit` clean, 5615 packages still visible,
 ordinary `apt install` / `apt purge` of unprotected packages unaffected.
 
+### The port's own files are protected the same way
+
+Holds only cover packages. Everything that makes this phone work that is **not
+owned by any package** — the modem's RFS populator, the UIM provisioning
+service, the patched tqftpserv, the memshare responder, `rhodep-ipa-hold.conf`,
+the audio route and jack-watch scripts, the usb-net profile, the apt guard
+itself — lives in `/usr/local` and `/etc`, where dpkg has never heard of it.
+Nothing reinstalls those. One `rm -rf` and they are gone with no trace.
+
+`rhodep-protect-files` gives them the same two layers: `chattr +i` on the live
+file, and a canonical copy under `/usr/local/share/rhodep/files` that
+`rhodep-holds-enforce` restores from if the live one goes missing **or is
+modified**. **32 files** across six components (`apt`, `apt-conf`, `modem`,
+`modem-conf`, `audio`, `audio-conf`, `usb-net-conf`) are registered:
+
+	rhodep-protect-files status
+
+Each installer calls `release` on its files before overwriting and `register`
+after, so re-running any of them still works — verified by running all four a
+second time against already-immutable files, all exit 0, with audio, usb-net,
+the holds and the modem services untouched.
+
+Attacked on the device:
+
+| attack | result |
+| --- | --- |
+| `rm` the modem scripts, `rhodep-ipa-hold.conf`, the guard | `Operation not permitted` |
+| `chattr -i` then `rm` four of them | all four restored, each logged as an ALERT |
+| edit `rhodep-ipa-hold.conf` to re-enable the IPA | content restored on the next enforce |
+
+That last one matters: silently editing a config is worse than deleting it,
+because nothing looks wrong afterwards. The enforcer compares content, not just
+existence.
+
+**Where the regress stops, stated plainly:** if you `chattr -i` and delete
+`rhodep-holds-enforce` itself, nothing puts it back. There is no way around
+that short of a package, and it is the intended deliberate path anyway. Re-run
+`userspace/apt/apply-holds.sh` to rebuild the whole thing.
+
 It is a guard rail, not a lock. To remove something deliberately, unhold it
 first and the guard steps aside:
 

@@ -16,6 +16,16 @@
 # interface stays up with no IPv4 and nothing answers on 172.16.42.1.
 set -e
 
+PROTECT=/usr/local/sbin/rhodep-protect-files
+# Clear any immutability a previous run set (see userspace/apt: these files
+# belong to no package, so the port protects them itself). Re-registered below.
+if [ -x "$PROTECT" ]; then
+	"$PROTECT" release \
+		/etc/NetworkManager/dnsmasq-shared.d/rhodep-usb-no-default-route.conf \
+		/etc/NetworkManager/system-connections/usb-gadget.nmconnection 2>/dev/null || true
+fi
+
+
 here=$(dirname "$0")
 KEYFILE=/etc/NetworkManager/system-connections/usb-gadget.nmconnection
 
@@ -65,4 +75,12 @@ if [ -d /run/systemd/system ] && command -v nmcli >/dev/null 2>&1; then
 	echo "usb0 is 172.16.42.1; ssh kali@172.16.42.1 from the machine on the other end"
 else
 	echo "no running NetworkManager: profile installed, active on next boot"
+fi
+
+# Protect what we installed: nothing in dpkg owns it, so nothing else would
+# ever put it back. rhodep-holds-enforce restores it if it goes missing.
+if [ -x "$PROTECT" ]; then
+	"$PROTECT" register usb-net-conf 0644 \
+		/etc/NetworkManager/dnsmasq-shared.d/rhodep-usb-no-default-route.conf \
+		/etc/NetworkManager/system-connections/usb-gadget.nmconnection 2>/dev/null || true
 fi

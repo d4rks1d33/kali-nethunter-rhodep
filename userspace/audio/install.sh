@@ -15,6 +15,24 @@
 # Without it the amplifiers refuse to probe and there is no sound at all.
 set -e
 
+PROTECT=/usr/local/sbin/rhodep-protect-files
+# Clear any immutability a previous run set (see userspace/apt: these files
+# belong to no package, so the port protects them itself). Re-registered below.
+if [ -x "$PROTECT" ]; then
+	"$PROTECT" release \
+		/usr/local/bin/rhodep-audio-out \
+		/usr/local/bin/rhodep-audio-route.sh \
+		/usr/local/bin/rhodep-jack-watch \
+		/usr/local/bin/rhodep-wait-audio-card \
+		/etc/systemd/system/rhodep-audio-route.service \
+		/etc/systemd/system/rhodep-jack-watch.service \
+		/etc/pipewire/pipewire.conf.d/51-rhodep-sink.conf \
+		/etc/wireplumber/wireplumber.conf.d/51-rhodep-no-acp.conf \
+		/etc/udev/rules.d/90-rhodep-wcd937x-jack.rules \
+		/etc/systemd/user/pipewire.service.d/10-rhodep-wait-card.conf 2>/dev/null || true
+fi
+
+
 here=$(dirname "$0")
 
 # /run/systemd/system only exists when systemd is actually running as PID 1,
@@ -82,3 +100,20 @@ alsactl store
 systemctl restart rhodep-jack-watch.service
 
 echo "done; restart pipewire/wireplumber or reboot"
+
+# Protect what we installed: nothing in dpkg owns it, so nothing else would
+# ever put it back. rhodep-holds-enforce restores it if it goes missing.
+if [ -x "$PROTECT" ]; then
+	"$PROTECT" register audio 0755 \
+		/usr/local/bin/rhodep-audio-out \
+		/usr/local/bin/rhodep-audio-route.sh \
+		/usr/local/bin/rhodep-jack-watch \
+		/usr/local/bin/rhodep-wait-audio-card 2>/dev/null || true
+	"$PROTECT" register audio-conf 0644 \
+		/etc/systemd/system/rhodep-audio-route.service \
+		/etc/systemd/system/rhodep-jack-watch.service \
+		/etc/pipewire/pipewire.conf.d/51-rhodep-sink.conf \
+		/etc/wireplumber/wireplumber.conf.d/51-rhodep-no-acp.conf \
+		/etc/udev/rules.d/90-rhodep-wcd937x-jack.rules \
+		/etc/systemd/user/pipewire.service.d/10-rhodep-wait-card.conf 2>/dev/null || true
+fi

@@ -39,13 +39,27 @@ set -e
 here=$(dirname "$0")
 xargs -r apt-mark hold < "$here/apt-holds.txt"
 
-# Anything below may be replacing files that were made immutable by a previous
-# run, so clear that first. Harmless if they are not.
-for f in /usr/local/sbin/rhodep-apt-guard \
-	 /etc/apt/apt.conf.d/50rhodep-protect-holds \
-	 /usr/local/share/rhodep/apt-holds.txt; do
-	[ -e "$f" ] && chattr -i "$f" 2>/dev/null
-done
+# Anything below may be replacing files that a previous run made immutable, so
+# clear that first. Harmless if they are not.
+if [ -x /usr/local/sbin/rhodep-protect-files ]; then
+	/usr/local/sbin/rhodep-protect-files release \
+		/usr/local/sbin/rhodep-apt-guard \
+		/usr/local/sbin/rhodep-holds-enforce \
+		/usr/local/sbin/rhodep-hold-override \
+		/usr/local/sbin/rhodep-dpkg-protect \
+		/usr/local/sbin/rhodep-protect-files \
+		/etc/apt/apt.conf.d/50rhodep-protect-holds \
+		/etc/apt/apt.conf.d/60rhodep-enforce-holds \
+		/etc/systemd/system/rhodep-holds-enforce.service \
+		/etc/systemd/system/rhodep-holds-enforce.timer \
+		/usr/local/share/rhodep/apt-holds.txt 2>/dev/null || true
+else
+	for f in /usr/local/sbin/rhodep-apt-guard \
+		 /etc/apt/apt.conf.d/50rhodep-protect-holds \
+		 /usr/local/share/rhodep/apt-holds.txt; do
+		[ -e "$f" ] && chattr -i "$f" 2>/dev/null
+	done
+fi
 
 # A hold does not stop `apt purge`. Install the hook that does; see
 # rhodep-apt-guard for the reasoning and how to override it deliberately.
@@ -62,6 +76,7 @@ install -D -m 0644 "$here/rhodep-apt-guard"       /usr/local/share/rhodep/rhodep
 install -D -m 0644 "$here/50rhodep-protect-holds" /usr/local/share/rhodep/50rhodep-protect-holds
 install -D -m 0755 "$here/rhodep-holds-enforce"   /usr/local/sbin/rhodep-holds-enforce
 install -D -m 0755 "$here/rhodep-dpkg-protect"   /usr/local/sbin/rhodep-dpkg-protect
+install -D -m 0755 "$here/rhodep-protect-files"  /usr/local/sbin/rhodep-protect-files
 install -D -m 0755 "$here/rhodep-hold-override"   /usr/local/sbin/rhodep-hold-override
 install -D -m 0644 "$here/60rhodep-enforce-holds" /etc/apt/apt.conf.d/60rhodep-enforce-holds
 install -D -m 0644 "$here/systemd/rhodep-holds-enforce.service" \
@@ -72,21 +87,28 @@ install -d -m 0755 /etc/rhodep
 [ -e /etc/rhodep/apt-holds-exceptions ] || : > /etc/rhodep/apt-holds-exceptions
 install -D -m 0644 "$here/apply-holds.sh" /usr/share/doc/rhodep-apt/apply-holds.sh
 
-# Make the guard's own files immutable. Root can still take them out, but only
-# by deciding to: `chattr -i <file>` first. That is the difference between a
-# deliberate change and a script or an agent removing them in passing.
-for f in /usr/local/sbin/rhodep-apt-guard \
-	 /etc/apt/apt.conf.d/50rhodep-protect-holds \
-	 /usr/local/share/rhodep/apt-holds.txt; do
-	chattr +i "$f" 2>/dev/null || true
-done
+# Protect every file this component owns: snapshot it, make it immutable, and
+# register it so rhodep-holds-enforce puts it back if it ever goes missing.
+# Root can still take one out, but only by deciding to (chattr -i first).
+/usr/local/sbin/rhodep-protect-files register apt 0755 \
+	/usr/local/sbin/rhodep-apt-guard \
+	/usr/local/sbin/rhodep-holds-enforce \
+	/usr/local/sbin/rhodep-hold-override \
+	/usr/local/sbin/rhodep-dpkg-protect \
+	/usr/local/sbin/rhodep-protect-files 2>/dev/null || true
+/usr/local/sbin/rhodep-protect-files register apt-conf 0644 \
+	/etc/apt/apt.conf.d/50rhodep-protect-holds \
+	/etc/apt/apt.conf.d/60rhodep-enforce-holds \
+	/etc/systemd/system/rhodep-holds-enforce.service \
+	/etc/systemd/system/rhodep-holds-enforce.timer \
+	/usr/local/share/rhodep/apt-holds.txt 2>/dev/null || true
 
 # apt holds mean nothing to dpkg: `dpkg -P <held>` removes the package without
-# a word. dpkg's own Protected field stops it, so set that too. Not done in a
-# chroot, where dpkg's status file belongs to the image being built.
-if [ -d /run/systemd/system ]; then
-	/usr/local/sbin/rhodep-dpkg-protect apply || true
-fi
+# a word. dpkg's own Protected field stops it. This is done in the build chroot
+# too, because there the status file IS the image's, so the flags ship with it.
+# If it declines (something holding the dpkg lock), the enforcer sets them on
+# the first boot instead.
+/usr/local/sbin/rhodep-dpkg-protect apply || true
 
 if [ -d /run/systemd/system ]; then
 	systemctl daemon-reload
@@ -103,5 +125,6 @@ fi
 echo "held: $(apt-mark showhold | wc -l) packages"
 echo "purge protection installed and made immutable"
 echo "dpkg-level protection: $(/usr/local/sbin/rhodep-dpkg-protect status 2>/dev/null | grep -c 'dpkg-protected=yes') packages carry dpkg's Protected flag"
+echo "port files protected : $(/usr/local/sbin/rhodep-protect-files status 2>/dev/null | grep -c 'protected')"
 echo "hold enforcement installed; release one deliberately with:"
 echo "  sudo rhodep-hold-override release <package> \"<reason>\""

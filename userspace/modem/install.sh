@@ -24,6 +24,24 @@ here=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 # rather than on the compile, which is a confusing way to find out.
 install -d /usr/local/bin /usr/local/sbin
 
+# A previous run may have made these immutable (see userspace/apt: nothing in
+# dpkg owns them, so nothing else would ever put them back). Clear that before
+# overwriting; re-registered at the end.
+PROTECT=/usr/local/sbin/rhodep-protect-files
+if [ -x "$PROTECT" ]; then
+	"$PROTECT" release \
+		/usr/local/sbin/rhodep-rfs-populate \
+		/usr/local/sbin/rhodep-uim-provision \
+		/usr/local/bin/rhodep-memshare \
+		/usr/local/bin/tqftpserv-rhodep \
+		/etc/modprobe.d/rhodep-ipa-hold.conf \
+		/etc/systemd/system/rhodep-rfs-populate.service \
+		/etc/systemd/system/rhodep-uim-provision.service \
+		/etc/systemd/system/rhodep-memshare.service \
+		/etc/systemd/system/tqftpserv.service.d/10-rhodep.conf \
+		/etc/systemd/system/rmtfs.service.d/10-rhodep.conf 2>/dev/null || true
+fi
+
 if ! [ -e /usr/include/libqrtr.h ]; then
 	echo "libqrtr-dev is needed to build this: apt install libqrtr-dev" >&2
 	exit 1
@@ -96,6 +114,27 @@ if [ -d /lib/modules/7.2.0-rc5 ]; then
 fi
 
 install -D -m 0644 "$here/README.md" /usr/share/doc/rhodep-modem/README.md
+
+# --- 5. protect what we just installed --------------------------------------
+# None of this belongs to a package, so nothing would ever put it back. Snapshot
+# it, make it immutable, and let rhodep-holds-enforce restore it if it goes.
+if [ -x "$PROTECT" ]; then
+	"$PROTECT" register modem 0755 \
+		/usr/local/sbin/rhodep-rfs-populate \
+		/usr/local/sbin/rhodep-uim-provision \
+		/usr/local/bin/rhodep-memshare \
+		/usr/local/bin/tqftpserv-rhodep 2>/dev/null || true
+	"$PROTECT" register modem-conf 0644 \
+		/etc/modprobe.d/rhodep-ipa-hold.conf \
+		/etc/systemd/system/rhodep-rfs-populate.service \
+		/etc/systemd/system/rhodep-uim-provision.service \
+		/etc/systemd/system/rhodep-memshare.service \
+		/etc/systemd/system/tqftpserv.service.d/10-rhodep.conf \
+		/etc/systemd/system/rmtfs.service.d/10-rhodep.conf 2>/dev/null || true
+else
+	echo "note: userspace/apt/apply-holds.sh has not run yet, so these files are"
+	echo "      not protected. Run it and they will be."
+fi
 
 # systemctl is not usable in the build chroot; enabling by symlink is.
 if [ -d /run/systemd/system ]; then

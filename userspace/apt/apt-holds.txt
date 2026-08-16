@@ -1,6 +1,7 @@
 alsa-topology-conf
 alsa-ucm-conf
 alsa-utils
+bluez
 firmware-atheros
 firmware-motorola-rhodep
 gstreamer1.0-pipewire
@@ -16,6 +17,7 @@ libqmi-proxy
 libqmi-utils
 libqrtr-dev
 libqrtr1
+libspa-0.2-bluetooth
 libspa-0.2-modules
 libwireplumber-0.5-0
 libzstd-dev

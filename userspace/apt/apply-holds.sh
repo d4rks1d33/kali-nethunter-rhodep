@@ -21,6 +21,19 @@
 #   kali-menu       owns /usr/share/kali-menu/exec-in-shell, which hundreds of
 #                   Kali menu launchers call; without it they fail with "could
 #                   not find the program". See userspace/plasma-apps.
+#   libspa-0.2-bluetooth
+#                   the PipeWire plugin that actually carries Bluetooth audio.
+#                   pipewire is pinned at 1.6.8 above, and this ships a plugin
+#                   built against that exact SPA ABI, so letting it move on its
+#                   own is the most likely way to end up with earbuds that pair
+#                   and connect and then play nothing
+#   bluez           bluetoothd, bluetoothctl and btmgmt. btmgmt is what
+#                   rhodep-bt-address uses to program the controller's real
+#                   address at every boot; without it the phone goes back to a
+#                   random one per boot and every pairing dies. Note this one
+#                   is a network-facing daemon with a CVE history, so it is the
+#                   hold most worth lifting deliberately when an update matters:
+#                   rhodep-hold-override release bluez "<reason>"
 #   libqrtr-dev     needed to rebuild the memshare responder in userspace/modem;
 #                   losing it does not stop the installed binary from running,
 #                   but it does stop anyone from rebuilding it

@@ -155,7 +155,7 @@ sudo chroot /tmp/rootfs sh /srv/login/install.sh kali
   Worth baking in: it is the only link that survives a modem restart, since the
   WLAN protection domain lives inside the modem, so it is what makes modem
   debugging possible at all.
-- **apt holds** (`userspace/apt/apply-holds.sh`, 41 packages): keeps an upgrade
+- **apt holds** (`userspace/apt/apply-holds.sh`, 43 packages): keeps an upgrade
   from replacing the kernel, the WiFi firmware, the modem stack, the audio stack
   or the on-screen keyboard. It also installs `rhodep-apt-guard`, an apt hook
   that refuses to remove a held package, because a hold does **not** stop
@@ -176,6 +176,12 @@ sudo chroot /tmp/rootfs sh /srv/login/install.sh kali
   files down. **Read `userspace/modem/README.md` before shipping an image**:
   the ipa-hold file is deliberate, it is what keeps the phone from
   watchdog-resetting, and it is also what costs mobile data and ModemManager.
+- **Bluetooth** (`userspace/bluetooth/install.sh`): unmasks `bluetooth.service`,
+  which was found symlinked to `/dev/null`, drops the `--noplugin` restriction
+  that had Bluetooth audio and input turned off, and programs the controller's
+  real address from `androidboot.btmacaddr` before `bluetoothd` starts. Without
+  that last part the stack invents a new random address every boot and no
+  pairing survives a reboot. A2DP verified with real earbuds.
 - **Login screen** (`userspace/login/install.sh`): required as soon as anything
   pulls in `gdm3` (several Kali metapackages do), because `phosh.service` and a
   display manager both claim the display at boot. See README "Login screen

@@ -172,7 +172,7 @@ userspace/
                       WirePlumber rules, the boot route unit, the udev rule that
                       keeps the codec awake for jack detection, and the jack
                       watcher that switches output (install.sh)
-  apt/                the 41 apt holds this port depends on, the hook that
+  apt/                the 43 apt holds this port depends on, the hook that
                       refuses to purge them, and the enforcer that puts a hold
                       back if anything removes it (apply-holds.sh)
   login/              GDM login screen instead of the phosh.service autologin (install.sh)
@@ -797,6 +797,17 @@ knowing when testing it:
 	E: Sub-process /usr/local/sbin/rhodep-apt-guard returned an error code (1)
 
   and the package is still installed afterwards.
+
+One more thing `--allow-change-held-packages` does, which is easy to miss:
+**it drops the hold even when the transaction is then aborted.** Attacking
+`libspa-0.2-bluetooth` with it left the package installed (dpkg's `Protected`
+refused the removal) but the hold count down from 43 to 42. The enforcer is
+what notices and repairs it:
+
+	ALERT: holds had been removed, putting them back: libspa-0.2-bluetooth
+
+which is a good illustration of why the enforcer exists at all: the guard
+protects the package, and something still has to protect the hold.
 
 Two traps when checking this by hand. `apt -s` does **not** run dpkg hooks, so a
 simulated purge proves nothing about the guard. And a held package shows as

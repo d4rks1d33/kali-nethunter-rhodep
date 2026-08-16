@@ -1171,9 +1171,30 @@ port, which is the IPA's. The way around it is qmicli:
 read/write, so set it, reboot with the IPA still blacklisted, then
 `rhodep-uim-provision` + `--dms-set-operating-mode=online` and watch.
 
+That was attempted at the end of session 15 and **it does not work as
+described**, so here is the missing piece for whoever tries next. Setting the
+selection preference to LTE and rebooting is not enough: with ipa.ko out of the
+way and no ModemManager, the modem sits at `not-registered-searching` with
+radio `none` indefinitely - watched for 7 minutes, and it never attaches.
+
+The reason is that **LTE attach needs an attach APN**, which is one of the
+things ModemManager configures and nothing else here does. MM reports it as
+`initial bearer apn: datos.personal.com`, taken from the carrier config. So
+the experiment needs the APN set by hand first:
+
+	qmicli -d qrtr://0 --wds-get-lte-attach-parameters
+	qmicli -d qrtr://0 --wds-set-lte-attach-pdn-list=...
+
+and only then online + preference + wait. Get that working and the question
+finally gets an answer: does it reset with the modem on LTE and the IPA never
+loaded?
+
 If that comes back "resets without the IPA", the next place to look is the
 modem's own view of the world - the mpss memory regions, or what the vendor's
 `qcom,ipa_smmu_*` context banks do that mainline's two `iommus` entries do not.
+If it comes back "no reset", then it is the IPA after all and the remaining
+suspects are the endpoint/GSI configuration in `ipa_gsi_endpoint_data`, which
+is the last big block still inherited from qcm2290 untouched.
 
 #### A module that autoloads by device tree is not "held out of the boot"
 

@@ -1070,6 +1070,42 @@ Leads, in the order they deserve:
    **Testing it needs the SIM that actually registers.** The dead prepaid card
    never attaches, and attaching is the trigger — see the measurement below.
 
+#### A module that autoloads by device tree is not "held out of the boot"
+
+Worth writing down because it cost a reflash and the reasoning looked sound at
+the time. v95 was built so that "a wrong guess costs a reboot, not a reflash":
+both drivers are modules, neither is loaded at boot, the device tree changes
+are inert without them. The first half was wrong.
+
+`qnoc-sm6375` has `MODULE_DEVICE_TABLE(of, ...)`. **udev autoloads it the
+moment it sees a device tree containing the provider nodes.** It was only
+harmless on v95 because the module was copied into /lib/modules *after* that
+boot. On the next boot it was already there, udev loaded it, and the version in
+place still had the NULL-hole bug:
+
+	kernel boots -> systemd at 7 s -> console stops mid-line
+	no display, no WiFi, no ssh
+
+Not a silent SoC reset this time. `qnoc_probe()` crashes inside
+`icc_node_create()`, which runs holding `icc_lock`, so the dying thread never
+releases it and every interconnect consumer blocks behind it — the eight CPU
+nodes have `interconnects` too. The deferred probe queue stops moving and
+nothing else ever probes.
+
+Two rules follow:
+
+- A module is only out of the boot if `/etc/modprobe.d` says so. There is now a
+  `rhodep-icc-hold.conf` next to `rhodep-ipa-hold.conf`, and both explain
+  themselves.
+- Never leave an untested module in `/lib/modules` when the device tree that
+  matches it is about to be flashed. Keep it somewhere else and `insmod` it by
+  path — which is exactly what §3 of this document recommends and what was not
+  done here.
+
+Recovery is `kali-boot-v94-STABLE.img` specifically, not v95: v94's device tree
+has no provider nodes at all, so there is no modalias to match and the module
+cannot be autoloaded whatever state it is in.
+
 #### Session 15: the trigger needs the modem to ATTACH, not just to be on
 
 Measured before touching anything, on the boot that was already up: `ipa.ko`

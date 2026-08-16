@@ -160,10 +160,17 @@ sudo chroot /tmp/rootfs sh /srv/login/install.sh kali
   or the on-screen keyboard. It also installs `rhodep-apt-guard`, an apt hook
   that refuses to remove a held package, because a hold does **not** stop
   `apt purge`.
-- **memshare responder** (`userspace/modem/install.sh`): answers the QMI service
-  52 requests the modem makes at boot and mainline ignores. Needs `libqrtr-dev`
-  and a compiler, so it is the one piece that does not belong in a chroot; run
-  it on the device.
+- **Modem** (`userspace/modem/install.sh`): the whole reason the radio works.
+  Populates the modem's remote file system from the stock `modem`/`fsg`/
+  `persist` partitions at first boot (without the Hexagon objects under
+  `modem_pr/so/` the modem never leaves DMS operating mode 'offline'), opens
+  the UIM provisioning session before ModemManager, installs a `tqftpserv`
+  patched to serve `/readonly/vendor/fsg/`, answers QMI service 52 (memshare),
+  and drops `/etc/modprobe.d/rhodep-ipa-hold.conf`. Needs `libqrtr-dev`,
+  `libzstd-dev` and a compiler; it works in the chroot, where it only lays the
+  files down. **Read `userspace/modem/README.md` before shipping an image**:
+  the ipa-hold file is deliberate, it is what keeps the phone from
+  watchdog-resetting, and it is also what costs mobile data and ModemManager.
 - **Login screen** (`userspace/login/install.sh`): required as soon as anything
   pulls in `gdm3` (several Kali metapackages do), because `phosh.service` and a
   display manager both claim the display at boot. See README "Login screen

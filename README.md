@@ -154,8 +154,11 @@ packages/
 userspace/
   usb-net/            SSH over the USB cable (172.16.42.1), the only link that
                       survives a modem restart (install.sh)
-  modem/              memshare responder: answers the QMI service 52 requests
-                      the modem makes at boot and mainline ignores (install.sh)
+  modem/              everything that makes the radio work: populates the
+                      modem's remote file system from the stock modem/fsg/
+                      persist partitions, opens the UIM provisioning session,
+                      a tqftpserv patched to serve /readonly/vendor/fsg/, the
+                      memshare responder, and rhodep-ipa-hold.conf (install.sh)
   plasma-apps/        makes the Kali menu launchers work under Plasma Mobile:
                       installs kali-menu and points KDE's terminal at kgx
                       (install.sh)
@@ -454,6 +457,17 @@ sudo chroot /tmp/rootfs sh /srv/login/install.sh kali
 # the device; until it is, the amplifiers do not probe and there is no sound.
 sudo cp -r userspace/audio /tmp/rootfs/srv/audio
 sudo chroot /tmp/rootfs sh /srv/audio/install.sh
+# Modem: the remote file system populator, the UIM provisioning service, the
+# patched tqftpserv and the memshare responder. This is what makes the radio
+# come up; without it the modem sits in DMS operating mode 'offline' forever.
+# Needs libqrtr-dev and libzstd-dev in the chroot to build the two binaries.
+# install.sh notices there is no running systemd and only lays the files down.
+# It also drops /etc/modprobe.d/rhodep-ipa-hold.conf, which keeps ipa.ko out of
+# the boot: read userspace/modem/README.md, that file is deliberate and it is
+# what costs mobile data today.
+sudo chroot /tmp/rootfs apt-get install -y libqrtr-dev libzstd-dev
+sudo cp -r userspace/modem /tmp/rootfs/srv/modem
+sudo chroot /tmp/rootfs sh /srv/modem/install.sh
 # Kali menu launchers: install kali-menu and point KDE's terminal at kgx.
 sudo cp -r userspace/plasma-apps /tmp/rootfs/srv/plasma-apps
 sudo chroot /tmp/rootfs sh /srv/plasma-apps/install.sh

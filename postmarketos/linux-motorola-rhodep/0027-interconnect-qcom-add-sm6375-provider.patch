@@ -1,6 +1,27 @@
 From: postmarketOS rhodep port
 Subject: [PATCH] interconnect: qcom: add SM6375 NoC provider driver
 
+Six providers (bimc, clk_virt, config_noc, mmrt_virt, mmnrt_virt, sys_noc),
+94 nodes, translated from the vendor holi.c (holi is SM6375) against
+mainline's qcm2290.c, which is the same SMD-RPM architecture.
+
+Note the ID split, which is not cosmetic. of_icc_xlate_onecell() uses the ID
+written in the device tree *as an index into that provider's node array*, so
+the binding has to number its nodes densely from 0 within each bus. But
+icc_node_create() registers every node in one global IDR, so the .id field has
+to be unique across all six. mainline qcm2290 solves this with two sets of
+names and so does this driver: bare names in the binding for the array index,
+SM6375_* in an internal enum for .id and .links.
+
+The vendor header numbers all 94 nodes in a single global sequence, which was
+carried over verbatim in the first version of this patch. That produced arrays
+indexed 0..576 with only 9 to 44 real entries - bimc_nodes alone had 505 NULL
+holes - and qnoc_probe() dereferences the first hole it reaches:
+
+	Unable to handle kernel NULL pointer dereference at 0x0000000000000068
+	pc : qnoc_probe+0x2dc/0x47c
+	Call trace: qnoc_probe -> platform_probe -> really_probe
+
 Add an SMD-RPM interconnect provider for the Qualcomm SM6375 (Snapdragon
 695), needed so the IPA (mobile data) can vote its NoC bandwidth paths.
 Without it, enabling IPA resets the SoC because the GSI hardware is
@@ -17,9 +38,9 @@ descriptors and per-bus regmap register windows also match sm6115.
 The binding header qcom,sm6375.h is copied from the downstream
 qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 
---- /dev/null	2026-08-08 22:16:52.764965004 +0000
-+++ b/drivers/interconnect/qcom/sm6375.c	2026-08-09 00:33:06.210021001 +0000
-@@ -0,0 +1,1675 @@
+--- /dev/null
++++ b/drivers/interconnect/qcom/sm6375.c
+@@ -0,0 +1,1789 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Qualcomm SM6375 interconnect driver
@@ -39,13 +60,127 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +#include "icc-rpm.h"
 +
++/*
++ * Internal node IDs. These must be unique across every provider, because
++ * icc_node_create() puts them all in one IDR, while the IDs in the binding
++ * restart at 0 for each bus because they double as array indices. Mainline
++ * qcm2290.c makes the same split (QCM2290_* here, bare names there).
++ */
++enum sm6375_icc_id {
++	SM6375_A1NOC_SNOC_MAS = 1,
++	SM6375_A1NOC_SNOC_SLV = 2,
++	SM6375_A2NOC_SNOC_MAS = 3,
++	SM6375_A2NOC_SNOC_SLV = 4,
++	SM6375_BIMC_SNOC_MAS = 5,
++	SM6375_BIMC_SNOC_SLV = 6,
++	SM6375_MASTER_AMPSS_M0 = 7,
++	SM6375_MASTER_CAMNOC_HF = 8,
++	SM6375_MASTER_CAMNOC_HF_SNOC = 9,
++	SM6375_MASTER_CAMNOC_SF = 10,
++	SM6375_MASTER_CAMNOC_SF_SNOC = 11,
++	SM6375_MASTER_CDSP_PROC = 12,
++	SM6375_MASTER_CRYPTO_CORE0 = 13,
++	SM6375_MASTER_EMMC = 14,
++	SM6375_MASTER_GRAPHICS_3D = 15,
++	SM6375_MASTER_IPA = 16,
++	SM6375_MASTER_MDP_PORT0 = 17,
++	SM6375_MASTER_MDP_PORT0_SNOC = 18,
++	SM6375_MASTER_PIMEM = 19,
++	SM6375_MASTER_QDSS_BAM = 20,
++	SM6375_MASTER_QDSS_DAP = 21,
++	SM6375_MASTER_QDSS_ETR = 22,
++	SM6375_MASTER_QUP_0 = 23,
++	SM6375_MASTER_QUP_1 = 24,
++	SM6375_MASTER_QUP_CORE_0 = 25,
++	SM6375_MASTER_QUP_CORE_1 = 26,
++	SM6375_MASTER_SDCC_2 = 27,
++	SM6375_MASTER_SNOC_BIMC_NRT = 28,
++	SM6375_MASTER_SNOC_BIMC_RT = 29,
++	SM6375_MASTER_SNOC_CFG = 30,
++	SM6375_MASTER_SNOC_NRT = 31,
++	SM6375_MASTER_SNOC_RT = 32,
++	SM6375_MASTER_TCU_0 = 33,
++	SM6375_MASTER_TIC = 34,
++	SM6375_MASTER_UFS_MEM = 35,
++	SM6375_MASTER_USB3_0 = 36,
++	SM6375_MASTER_VIDEO_P0 = 37,
++	SM6375_MASTER_VIDEO_P0_SNOC = 38,
++	SM6375_MASTER_VIDEO_PROC = 39,
++	SM6375_MASTER_VIDEO_PROC_SNOC = 40,
++	SM6375_SLAVE_APPSS = 41,
++	SM6375_SLAVE_BIMC_CFG = 42,
++	SM6375_SLAVE_CAMERA_CFG = 43,
++	SM6375_SLAVE_CAMERA_NRT_THROTTLE_CFG = 44,
++	SM6375_SLAVE_CAMERA_RT_THROTTLE_CFG = 45,
++	SM6375_SLAVE_CAMNOC_HF_SNOC = 46,
++	SM6375_SLAVE_CAMNOC_SF_SNOC = 47,
++	SM6375_SLAVE_CLK_CTL = 48,
++	SM6375_SLAVE_CRYPTO_0_CFG = 49,
++	SM6375_SLAVE_DCC_CFG = 50,
++	SM6375_SLAVE_DDR_PHY_CFG = 51,
++	SM6375_SLAVE_DDR_SS_CFG = 52,
++	SM6375_SLAVE_DISPLAY_CFG = 53,
++	SM6375_SLAVE_DISPLAY_THROTTLE_CFG = 54,
++	SM6375_SLAVE_DSP_CFG = 55,
++	SM6375_SLAVE_EBI = 56,
++	SM6375_SLAVE_EMMC_CFG = 57,
++	SM6375_SLAVE_GRAPHICS_3D_CFG = 58,
++	SM6375_SLAVE_HWKM = 59,
++	SM6375_SLAVE_IMEM_CFG = 60,
++	SM6375_SLAVE_IPA_CFG = 61,
++	SM6375_SLAVE_LPASS = 62,
++	SM6375_SLAVE_MAPSS = 63,
++	SM6375_SLAVE_MDP_PORT0_SNOC = 64,
++	SM6375_SLAVE_MESSAGE_RAM = 65,
++	SM6375_SLAVE_OCIMEM = 66,
++	SM6375_SLAVE_PDM = 67,
++	SM6375_SLAVE_PIMEM = 68,
++	SM6375_SLAVE_PIMEM_CFG = 69,
++	SM6375_SLAVE_PKA_CORE = 70,
++	SM6375_SLAVE_PMIC_ARB = 71,
++	SM6375_SLAVE_QDSS_CFG = 72,
++	SM6375_SLAVE_QDSS_STM = 73,
++	SM6375_SLAVE_QM_CFG = 74,
++	SM6375_SLAVE_QM_MPU_CFG = 75,
++	SM6375_SLAVE_QUP_0 = 76,
++	SM6375_SLAVE_QUP_1 = 77,
++	SM6375_SLAVE_QUP_CORE_0 = 78,
++	SM6375_SLAVE_QUP_CORE_1 = 79,
++	SM6375_SLAVE_RBCPR_CX_CFG = 80,
++	SM6375_SLAVE_RBCPR_MX_CFG = 81,
++	SM6375_SLAVE_RPM = 82,
++	SM6375_SLAVE_SDCC_2 = 83,
++	SM6375_SLAVE_SECURITY = 84,
++	SM6375_SLAVE_SERVICE_SNOC = 85,
++	SM6375_SLAVE_SNOC_BIMC_NRT = 86,
++	SM6375_SLAVE_SNOC_BIMC_RT = 87,
++	SM6375_SLAVE_SNOC_CFG = 88,
++	SM6375_SLAVE_SNOC_NRT = 89,
++	SM6375_SLAVE_SNOC_RT = 90,
++	SM6375_SLAVE_TCSR = 91,
++	SM6375_SLAVE_TCU = 92,
++	SM6375_SLAVE_TLMM = 93,
++	SM6375_SLAVE_UFS_MEM_CFG = 94,
++	SM6375_SLAVE_USB3 = 95,
++	SM6375_SLAVE_VENUS_CFG = 96,
++	SM6375_SLAVE_VENUS_THROTTLE_CFG = 97,
++	SM6375_SLAVE_VIDEO_P0_SNOC = 98,
++	SM6375_SLAVE_VIDEO_PROC_SNOC = 99,
++	SM6375_SLAVE_VSENSE_CTRL_CFG = 100,
++	SM6375_SNOC_BIMC_MAS = 101,
++	SM6375_SNOC_BIMC_SLV = 102,
++	SM6375_SNOC_CNOC_MAS = 103,
++	SM6375_SNOC_CNOC_SLV = 104,
++};
++
++
 +static const u16 apps_proc_links[] = {
-+	SLAVE_EBI, BIMC_SNOC_SLV,
++	SM6375_SLAVE_EBI, SM6375_BIMC_SNOC_SLV,
 +};
 +
 +static struct qcom_icc_node apps_proc = {
 +	.name = "apps_proc",
-+	.id = MASTER_AMPSS_M0,
++	.id = SM6375_MASTER_AMPSS_M0,
 +	.channels = 1,
 +	.buswidth = 16,
 +	.qos.ap_owned = true,
@@ -59,12 +194,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 mas_snoc_rt_links[] = {
-+	SLAVE_SNOC_BIMC_RT,
++	SM6375_SLAVE_SNOC_BIMC_RT,
 +};
 +
 +static struct qcom_icc_node mas_snoc_rt = {
 +	.name = "mas_snoc_rt",
-+	.id = MASTER_SNOC_RT,
++	.id = SM6375_MASTER_SNOC_RT,
 +	.channels = 1,
 +	.buswidth = 256,
 +	.mas_rpm_id = -1,
@@ -74,12 +209,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 mas_snoc_bimc_rt_links[] = {
-+	SLAVE_EBI,
++	SM6375_SLAVE_EBI,
 +};
 +
 +static struct qcom_icc_node mas_snoc_bimc_rt = {
 +	.name = "mas_snoc_bimc_rt",
-+	.id = MASTER_SNOC_BIMC_RT,
++	.id = SM6375_MASTER_SNOC_BIMC_RT,
 +	.channels = 1,
 +	.buswidth = 16,
 +	.qos.ap_owned = true,
@@ -93,12 +228,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 mas_snoc_nrt_links[] = {
-+	SLAVE_SNOC_BIMC_NRT,
++	SM6375_SLAVE_SNOC_BIMC_NRT,
 +};
 +
 +static struct qcom_icc_node mas_snoc_nrt = {
 +	.name = "mas_snoc_nrt",
-+	.id = MASTER_SNOC_NRT,
++	.id = SM6375_MASTER_SNOC_NRT,
 +	.channels = 1,
 +	.buswidth = 256,
 +	.mas_rpm_id = -1,
@@ -108,12 +243,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 mas_snoc_bimc_nrt_links[] = {
-+	SLAVE_EBI,
++	SM6375_SLAVE_EBI,
 +};
 +
 +static struct qcom_icc_node mas_snoc_bimc_nrt = {
 +	.name = "mas_snoc_bimc_nrt",
-+	.id = MASTER_SNOC_BIMC_NRT,
++	.id = SM6375_MASTER_SNOC_BIMC_NRT,
 +	.channels = 1,
 +	.buswidth = 16,
 +	.qos.ap_owned = true,
@@ -127,12 +262,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 mas_snoc_bimc_links[] = {
-+	SLAVE_EBI,
++	SM6375_SLAVE_EBI,
 +};
 +
 +static struct qcom_icc_node mas_snoc_bimc = {
 +	.name = "mas_snoc_bimc",
-+	.id = SNOC_BIMC_MAS,
++	.id = SM6375_SNOC_BIMC_MAS,
 +	.channels = 1,
 +	.buswidth = 16,
 +	.qos.ap_owned = true,
@@ -146,12 +281,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 qnm_gpu_links[] = {
-+	SLAVE_EBI, BIMC_SNOC_SLV,
++	SM6375_SLAVE_EBI, SM6375_BIMC_SNOC_SLV,
 +};
 +
 +static struct qcom_icc_node qnm_gpu = {
 +	.name = "qnm_gpu",
-+	.id = MASTER_GRAPHICS_3D,
++	.id = SM6375_MASTER_GRAPHICS_3D,
 +	.channels = 1,
 +	.buswidth = 32,
 +	.qos.ap_owned = true,
@@ -165,12 +300,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 qnm_cdsp_links[] = {
-+	SLAVE_EBI, BIMC_SNOC_SLV,
++	SM6375_SLAVE_EBI, SM6375_BIMC_SNOC_SLV,
 +};
 +
 +static struct qcom_icc_node qnm_cdsp = {
 +	.name = "qnm_cdsp",
-+	.id = MASTER_CDSP_PROC,
++	.id = SM6375_MASTER_CDSP_PROC,
 +	.channels = 1,
 +	.buswidth = 32,
 +	.qos.ap_owned = true,
@@ -184,12 +319,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 tcu_0_links[] = {
-+	SLAVE_EBI, BIMC_SNOC_SLV,
++	SM6375_SLAVE_EBI, SM6375_BIMC_SNOC_SLV,
 +};
 +
 +static struct qcom_icc_node tcu_0 = {
 +	.name = "tcu_0",
-+	.id = MASTER_TCU_0,
++	.id = SM6375_MASTER_TCU_0,
 +	.channels = 1,
 +	.buswidth = 8,
 +	.qos.ap_owned = true,
@@ -203,12 +338,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 qup0_core_master_links[] = {
-+	SLAVE_QUP_CORE_0,
++	SM6375_SLAVE_QUP_CORE_0,
 +};
 +
 +static struct qcom_icc_node qup0_core_master = {
 +	.name = "qup0_core_master",
-+	.id = MASTER_QUP_CORE_0,
++	.id = SM6375_MASTER_QUP_CORE_0,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = 170,
@@ -218,12 +353,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 qup1_core_master_links[] = {
-+	SLAVE_QUP_CORE_1,
++	SM6375_SLAVE_QUP_CORE_1,
 +};
 +
 +static struct qcom_icc_node qup1_core_master = {
 +	.name = "qup1_core_master",
-+	.id = MASTER_QUP_CORE_1,
++	.id = SM6375_MASTER_QUP_CORE_1,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = 171,
@@ -233,12 +368,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 mas_snoc_cnoc_links[] = {
-+	SLAVE_BIMC_CFG, SLAVE_APPSS, SLAVE_CAMERA_NRT_THROTTLE_CFG, SLAVE_CAMERA_RT_THROTTLE_CFG, SLAVE_CAMERA_CFG, SLAVE_CLK_CTL, SLAVE_DSP_CFG, SLAVE_RBCPR_CX_CFG, SLAVE_RBCPR_MX_CFG, SLAVE_CRYPTO_0_CFG, SLAVE_DCC_CFG, SLAVE_DDR_PHY_CFG, SLAVE_DDR_SS_CFG, SLAVE_DISPLAY_CFG, SLAVE_DISPLAY_THROTTLE_CFG, SLAVE_EMMC_CFG, SLAVE_GRAPHICS_3D_CFG, SLAVE_HWKM, SLAVE_IMEM_CFG, SLAVE_IPA_CFG, SLAVE_LPASS, SLAVE_MAPSS, SLAVE_MESSAGE_RAM, SLAVE_PDM, SLAVE_PIMEM_CFG, SLAVE_PKA_CORE, SLAVE_PMIC_ARB, SLAVE_QDSS_CFG, SLAVE_QM_CFG, SLAVE_QM_MPU_CFG, SLAVE_QUP_0, SLAVE_QUP_1, SLAVE_RPM, SLAVE_SDCC_2, SLAVE_SECURITY, SLAVE_SNOC_CFG, SLAVE_TCSR, SLAVE_TLMM, SLAVE_UFS_MEM_CFG, SLAVE_USB3, SLAVE_VENUS_CFG, SLAVE_VENUS_THROTTLE_CFG, SLAVE_VSENSE_CTRL_CFG,
++	SM6375_SLAVE_BIMC_CFG, SM6375_SLAVE_APPSS, SM6375_SLAVE_CAMERA_NRT_THROTTLE_CFG, SM6375_SLAVE_CAMERA_RT_THROTTLE_CFG, SM6375_SLAVE_CAMERA_CFG, SM6375_SLAVE_CLK_CTL, SM6375_SLAVE_DSP_CFG, SM6375_SLAVE_RBCPR_CX_CFG, SM6375_SLAVE_RBCPR_MX_CFG, SM6375_SLAVE_CRYPTO_0_CFG, SM6375_SLAVE_DCC_CFG, SM6375_SLAVE_DDR_PHY_CFG, SM6375_SLAVE_DDR_SS_CFG, SM6375_SLAVE_DISPLAY_CFG, SM6375_SLAVE_DISPLAY_THROTTLE_CFG, SM6375_SLAVE_EMMC_CFG, SM6375_SLAVE_GRAPHICS_3D_CFG, SM6375_SLAVE_HWKM, SM6375_SLAVE_IMEM_CFG, SM6375_SLAVE_IPA_CFG, SM6375_SLAVE_LPASS, SM6375_SLAVE_MAPSS, SM6375_SLAVE_MESSAGE_RAM, SM6375_SLAVE_PDM, SM6375_SLAVE_PIMEM_CFG, SM6375_SLAVE_PKA_CORE, SM6375_SLAVE_PMIC_ARB, SM6375_SLAVE_QDSS_CFG, SM6375_SLAVE_QM_CFG, SM6375_SLAVE_QM_MPU_CFG, SM6375_SLAVE_QUP_0, SM6375_SLAVE_QUP_1, SM6375_SLAVE_RPM, SM6375_SLAVE_SDCC_2, SM6375_SLAVE_SECURITY, SM6375_SLAVE_SNOC_CFG, SM6375_SLAVE_TCSR, SM6375_SLAVE_TLMM, SM6375_SLAVE_UFS_MEM_CFG, SM6375_SLAVE_USB3, SM6375_SLAVE_VENUS_CFG, SM6375_SLAVE_VENUS_THROTTLE_CFG, SM6375_SLAVE_VSENSE_CTRL_CFG,
 +};
 +
 +static struct qcom_icc_node mas_snoc_cnoc = {
 +	.name = "mas_snoc_cnoc",
-+	.id = SNOC_CNOC_MAS,
++	.id = SM6375_SNOC_CNOC_MAS,
 +	.channels = 1,
 +	.buswidth = 8,
 +	.mas_rpm_id = -1,
@@ -248,12 +383,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 xm_qdss_dap_links[] = {
-+	SLAVE_BIMC_CFG, SLAVE_APPSS, SLAVE_CAMERA_NRT_THROTTLE_CFG, SLAVE_CAMERA_RT_THROTTLE_CFG, SLAVE_CAMERA_CFG, SLAVE_CLK_CTL, SLAVE_DSP_CFG, SLAVE_RBCPR_CX_CFG, SLAVE_RBCPR_MX_CFG, SLAVE_CRYPTO_0_CFG, SLAVE_DCC_CFG, SLAVE_DDR_PHY_CFG, SLAVE_DDR_SS_CFG, SLAVE_DISPLAY_CFG, SLAVE_DISPLAY_THROTTLE_CFG, SLAVE_EMMC_CFG, SLAVE_GRAPHICS_3D_CFG, SLAVE_HWKM, SLAVE_IMEM_CFG, SLAVE_IPA_CFG, SLAVE_LPASS, SLAVE_MAPSS, SLAVE_MESSAGE_RAM, SLAVE_PDM, SLAVE_PIMEM_CFG, SLAVE_PKA_CORE, SLAVE_PMIC_ARB, SLAVE_QDSS_CFG, SLAVE_QM_CFG, SLAVE_QM_MPU_CFG, SLAVE_QUP_0, SLAVE_QUP_1, SLAVE_RPM, SLAVE_SDCC_2, SLAVE_SECURITY, SLAVE_SNOC_CFG, SLAVE_TCSR, SLAVE_TLMM, SLAVE_UFS_MEM_CFG, SLAVE_USB3, SLAVE_VENUS_CFG, SLAVE_VENUS_THROTTLE_CFG, SLAVE_VSENSE_CTRL_CFG,
++	SM6375_SLAVE_BIMC_CFG, SM6375_SLAVE_APPSS, SM6375_SLAVE_CAMERA_NRT_THROTTLE_CFG, SM6375_SLAVE_CAMERA_RT_THROTTLE_CFG, SM6375_SLAVE_CAMERA_CFG, SM6375_SLAVE_CLK_CTL, SM6375_SLAVE_DSP_CFG, SM6375_SLAVE_RBCPR_CX_CFG, SM6375_SLAVE_RBCPR_MX_CFG, SM6375_SLAVE_CRYPTO_0_CFG, SM6375_SLAVE_DCC_CFG, SM6375_SLAVE_DDR_PHY_CFG, SM6375_SLAVE_DDR_SS_CFG, SM6375_SLAVE_DISPLAY_CFG, SM6375_SLAVE_DISPLAY_THROTTLE_CFG, SM6375_SLAVE_EMMC_CFG, SM6375_SLAVE_GRAPHICS_3D_CFG, SM6375_SLAVE_HWKM, SM6375_SLAVE_IMEM_CFG, SM6375_SLAVE_IPA_CFG, SM6375_SLAVE_LPASS, SM6375_SLAVE_MAPSS, SM6375_SLAVE_MESSAGE_RAM, SM6375_SLAVE_PDM, SM6375_SLAVE_PIMEM_CFG, SM6375_SLAVE_PKA_CORE, SM6375_SLAVE_PMIC_ARB, SM6375_SLAVE_QDSS_CFG, SM6375_SLAVE_QM_CFG, SM6375_SLAVE_QM_MPU_CFG, SM6375_SLAVE_QUP_0, SM6375_SLAVE_QUP_1, SM6375_SLAVE_RPM, SM6375_SLAVE_SDCC_2, SM6375_SLAVE_SECURITY, SM6375_SLAVE_SNOC_CFG, SM6375_SLAVE_TCSR, SM6375_SLAVE_TLMM, SM6375_SLAVE_UFS_MEM_CFG, SM6375_SLAVE_USB3, SM6375_SLAVE_VENUS_CFG, SM6375_SLAVE_VENUS_THROTTLE_CFG, SM6375_SLAVE_VSENSE_CTRL_CFG,
 +};
 +
 +static struct qcom_icc_node xm_qdss_dap = {
 +	.name = "xm_qdss_dap",
-+	.id = MASTER_QDSS_DAP,
++	.id = SM6375_MASTER_QDSS_DAP,
 +	.channels = 1,
 +	.buswidth = 8,
 +	.mas_rpm_id = -1,
@@ -263,12 +398,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 qnm_camera_nrt_links[] = {
-+	SLAVE_CAMNOC_SF_SNOC,
++	SM6375_SLAVE_CAMNOC_SF_SNOC,
 +};
 +
 +static struct qcom_icc_node qnm_camera_nrt = {
 +	.name = "qnm_camera_nrt",
-+	.id = MASTER_CAMNOC_SF,
++	.id = SM6375_MASTER_CAMNOC_SF,
 +	.channels = 1,
 +	.buswidth = 32,
 +	.mas_rpm_id = -1,
@@ -278,12 +413,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 qnm_camera_nrt_snoc_links[] = {
-+	SLAVE_SNOC_NRT,
++	SM6375_SLAVE_SNOC_NRT,
 +};
 +
 +static struct qcom_icc_node qnm_camera_nrt_snoc = {
 +	.name = "qnm_camera_nrt_snoc",
-+	.id = MASTER_CAMNOC_SF_SNOC,
++	.id = SM6375_MASTER_CAMNOC_SF_SNOC,
 +	.channels = 1,
 +	.buswidth = 256,
 +	.qos.ap_owned = true,
@@ -297,12 +432,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 qnm_camera_rt_links[] = {
-+	SLAVE_CAMNOC_HF_SNOC,
++	SM6375_SLAVE_CAMNOC_HF_SNOC,
 +};
 +
 +static struct qcom_icc_node qnm_camera_rt = {
 +	.name = "qnm_camera_rt",
-+	.id = MASTER_CAMNOC_HF,
++	.id = SM6375_MASTER_CAMNOC_HF,
 +	.channels = 1,
 +	.buswidth = 32,
 +	.mas_rpm_id = -1,
@@ -312,12 +447,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 qnm_camera_rt_snoc_links[] = {
-+	SLAVE_SNOC_RT,
++	SM6375_SLAVE_SNOC_RT,
 +};
 +
 +static struct qcom_icc_node qnm_camera_rt_snoc = {
 +	.name = "qnm_camera_rt_snoc",
-+	.id = MASTER_CAMNOC_HF_SNOC,
++	.id = SM6375_MASTER_CAMNOC_HF_SNOC,
 +	.channels = 1,
 +	.buswidth = 256,
 +	.qos.ap_owned = true,
@@ -332,12 +467,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 qxm_mdp0_links[] = {
-+	SLAVE_MDP_PORT0_SNOC,
++	SM6375_SLAVE_MDP_PORT0_SNOC,
 +};
 +
 +static struct qcom_icc_node qxm_mdp0 = {
 +	.name = "qxm_mdp0",
-+	.id = MASTER_MDP_PORT0,
++	.id = SM6375_MASTER_MDP_PORT0,
 +	.channels = 1,
 +	.buswidth = 32,
 +	.mas_rpm_id = -1,
@@ -347,12 +482,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 qxm_mdp0_snoc_links[] = {
-+	SLAVE_SNOC_RT,
++	SM6375_SLAVE_SNOC_RT,
 +};
 +
 +static struct qcom_icc_node qxm_mdp0_snoc = {
 +	.name = "qxm_mdp0_snoc",
-+	.id = MASTER_MDP_PORT0_SNOC,
++	.id = SM6375_MASTER_MDP_PORT0_SNOC,
 +	.channels = 1,
 +	.buswidth = 256,
 +	.qos.ap_owned = true,
@@ -367,12 +502,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 qxm_venus0_links[] = {
-+	SLAVE_VIDEO_P0_SNOC,
++	SM6375_SLAVE_VIDEO_P0_SNOC,
 +};
 +
 +static struct qcom_icc_node qxm_venus0 = {
 +	.name = "qxm_venus0",
-+	.id = MASTER_VIDEO_P0,
++	.id = SM6375_MASTER_VIDEO_P0,
 +	.channels = 1,
 +	.buswidth = 16,
 +	.mas_rpm_id = -1,
@@ -382,12 +517,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 qxm_venus0_snoc_links[] = {
-+	SLAVE_SNOC_NRT,
++	SM6375_SLAVE_SNOC_NRT,
 +};
 +
 +static struct qcom_icc_node qxm_venus0_snoc = {
 +	.name = "qxm_venus0_snoc",
-+	.id = MASTER_VIDEO_P0_SNOC,
++	.id = SM6375_MASTER_VIDEO_P0_SNOC,
 +	.channels = 1,
 +	.buswidth = 256,
 +	.qos.ap_owned = true,
@@ -402,12 +537,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 qxm_venus_cpu_links[] = {
-+	SLAVE_VIDEO_PROC_SNOC,
++	SM6375_SLAVE_VIDEO_PROC_SNOC,
 +};
 +
 +static struct qcom_icc_node qxm_venus_cpu = {
 +	.name = "qxm_venus_cpu",
-+	.id = MASTER_VIDEO_PROC,
++	.id = SM6375_MASTER_VIDEO_PROC,
 +	.channels = 1,
 +	.buswidth = 8,
 +	.mas_rpm_id = -1,
@@ -417,12 +552,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 qxm_venus_cpu_snoc_links[] = {
-+	SLAVE_SNOC_NRT,
++	SM6375_SLAVE_SNOC_NRT,
 +};
 +
 +static struct qcom_icc_node qxm_venus_cpu_snoc = {
 +	.name = "qxm_venus_cpu_snoc",
-+	.id = MASTER_VIDEO_PROC_SNOC,
++	.id = SM6375_MASTER_VIDEO_PROC_SNOC,
 +	.channels = 1,
 +	.buswidth = 256,
 +	.qos.ap_owned = true,
@@ -436,12 +571,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 mas_snoc_cfg_links[] = {
-+	SLAVE_SERVICE_SNOC,
++	SM6375_SLAVE_SERVICE_SNOC,
 +};
 +
 +static struct qcom_icc_node mas_snoc_cfg = {
 +	.name = "mas_snoc_cfg",
-+	.id = MASTER_SNOC_CFG,
++	.id = SM6375_MASTER_SNOC_CFG,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -451,12 +586,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 qhm_tic_links[] = {
-+	SLAVE_APPSS, SNOC_CNOC_SLV, SLAVE_OCIMEM, SLAVE_PIMEM, SNOC_BIMC_SLV, SLAVE_QDSS_STM, SLAVE_TCU,
++	SM6375_SLAVE_APPSS, SM6375_SNOC_CNOC_SLV, SM6375_SLAVE_OCIMEM, SM6375_SLAVE_PIMEM, SM6375_SNOC_BIMC_SLV, SM6375_SLAVE_QDSS_STM, SM6375_SLAVE_TCU,
 +};
 +
 +static struct qcom_icc_node qhm_tic = {
 +	.name = "qhm_tic",
-+	.id = MASTER_TIC,
++	.id = SM6375_MASTER_TIC,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -466,12 +601,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 mas_a1noc_snoc_links[] = {
-+	SLAVE_APPSS, SNOC_CNOC_SLV, SLAVE_OCIMEM, SLAVE_PIMEM, SNOC_BIMC_SLV, SLAVE_QDSS_STM,
++	SM6375_SLAVE_APPSS, SM6375_SNOC_CNOC_SLV, SM6375_SLAVE_OCIMEM, SM6375_SLAVE_PIMEM, SM6375_SNOC_BIMC_SLV, SM6375_SLAVE_QDSS_STM,
 +};
 +
 +static struct qcom_icc_node mas_a1noc_snoc = {
 +	.name = "mas_a1noc_snoc",
-+	.id = A1NOC_SNOC_MAS,
++	.id = SM6375_A1NOC_SNOC_MAS,
 +	.channels = 1,
 +	.buswidth = 8,
 +	.mas_rpm_id = 111,
@@ -481,12 +616,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 mas_a2noc_snoc_links[] = {
-+	SLAVE_APPSS, SNOC_CNOC_SLV, SLAVE_OCIMEM, SLAVE_PIMEM, SNOC_BIMC_SLV, SLAVE_QDSS_STM, SLAVE_TCU,
++	SM6375_SLAVE_APPSS, SM6375_SNOC_CNOC_SLV, SM6375_SLAVE_OCIMEM, SM6375_SLAVE_PIMEM, SM6375_SNOC_BIMC_SLV, SM6375_SLAVE_QDSS_STM, SM6375_SLAVE_TCU,
 +};
 +
 +static struct qcom_icc_node mas_a2noc_snoc = {
 +	.name = "mas_a2noc_snoc",
-+	.id = A2NOC_SNOC_MAS,
++	.id = SM6375_A2NOC_SNOC_MAS,
 +	.channels = 1,
 +	.buswidth = 16,
 +	.mas_rpm_id = 112,
@@ -496,12 +631,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 mas_bimc_snoc_links[] = {
-+	SLAVE_APPSS, SNOC_CNOC_SLV, SLAVE_OCIMEM, SLAVE_PIMEM, SLAVE_QDSS_STM, SLAVE_TCU,
++	SM6375_SLAVE_APPSS, SM6375_SNOC_CNOC_SLV, SM6375_SLAVE_OCIMEM, SM6375_SLAVE_PIMEM, SM6375_SLAVE_QDSS_STM, SM6375_SLAVE_TCU,
 +};
 +
 +static struct qcom_icc_node mas_bimc_snoc = {
 +	.name = "mas_bimc_snoc",
-+	.id = BIMC_SNOC_MAS,
++	.id = SM6375_BIMC_SNOC_MAS,
 +	.channels = 1,
 +	.buswidth = 8,
 +	.qos.ap_owned = true,
@@ -515,12 +650,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 qxm_pimem_links[] = {
-+	SLAVE_OCIMEM, SNOC_BIMC_SLV,
++	SM6375_SLAVE_OCIMEM, SM6375_SNOC_BIMC_SLV,
 +};
 +
 +static struct qcom_icc_node qxm_pimem = {
 +	.name = "qxm_pimem",
-+	.id = MASTER_PIMEM,
++	.id = SM6375_MASTER_PIMEM,
 +	.channels = 1,
 +	.buswidth = 8,
 +	.qos.ap_owned = true,
@@ -534,12 +669,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 qhm_qup0_links[] = {
-+	A1NOC_SNOC_SLV,
++	SM6375_A1NOC_SNOC_SLV,
 +};
 +
 +static struct qcom_icc_node qhm_qup0 = {
 +	.name = "qhm_qup0",
-+	.id = MASTER_QUP_0,
++	.id = SM6375_MASTER_QUP_0,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.qos.ap_owned = true,
@@ -553,12 +688,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 qhm_qup1_links[] = {
-+	A1NOC_SNOC_SLV,
++	SM6375_A1NOC_SNOC_SLV,
 +};
 +
 +static struct qcom_icc_node qhm_qup1 = {
 +	.name = "qhm_qup1",
-+	.id = MASTER_QUP_1,
++	.id = SM6375_MASTER_QUP_1,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.qos.ap_owned = true,
@@ -572,12 +707,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 xm_emmc_links[] = {
-+	A1NOC_SNOC_SLV,
++	SM6375_A1NOC_SNOC_SLV,
 +};
 +
 +static struct qcom_icc_node xm_emmc = {
 +	.name = "xm_emmc",
-+	.id = MASTER_EMMC,
++	.id = SM6375_MASTER_EMMC,
 +	.channels = 1,
 +	.buswidth = 8,
 +	.qos.ap_owned = true,
@@ -591,12 +726,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 xm_sdc2_links[] = {
-+	A1NOC_SNOC_SLV,
++	SM6375_A1NOC_SNOC_SLV,
 +};
 +
 +static struct qcom_icc_node xm_sdc2 = {
 +	.name = "xm_sdc2",
-+	.id = MASTER_SDCC_2,
++	.id = SM6375_MASTER_SDCC_2,
 +	.channels = 1,
 +	.buswidth = 8,
 +	.qos.ap_owned = true,
@@ -610,12 +745,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 xm_ufs_mem_links[] = {
-+	A1NOC_SNOC_SLV,
++	SM6375_A1NOC_SNOC_SLV,
 +};
 +
 +static struct qcom_icc_node xm_ufs_mem = {
 +	.name = "xm_ufs_mem",
-+	.id = MASTER_UFS_MEM,
++	.id = SM6375_MASTER_UFS_MEM,
 +	.channels = 1,
 +	.buswidth = 8,
 +	.qos.ap_owned = true,
@@ -629,12 +764,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 xm_usb3_0_links[] = {
-+	A1NOC_SNOC_SLV,
++	SM6375_A1NOC_SNOC_SLV,
 +};
 +
 +static struct qcom_icc_node xm_usb3_0 = {
 +	.name = "xm_usb3_0",
-+	.id = MASTER_USB3_0,
++	.id = SM6375_MASTER_USB3_0,
 +	.channels = 1,
 +	.buswidth = 8,
 +	.qos.ap_owned = true,
@@ -648,12 +783,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 mas_crypto_c0_links[] = {
-+	A2NOC_SNOC_SLV,
++	SM6375_A2NOC_SNOC_SLV,
 +};
 +
 +static struct qcom_icc_node mas_crypto_c0 = {
 +	.name = "mas_crypto_c0",
-+	.id = MASTER_CRYPTO_CORE0,
++	.id = SM6375_MASTER_CRYPTO_CORE0,
 +	.channels = 1,
 +	.buswidth = 8,
 +	.qos.ap_owned = true,
@@ -667,12 +802,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 qhm_qdss_bam_links[] = {
-+	A2NOC_SNOC_SLV,
++	SM6375_A2NOC_SNOC_SLV,
 +};
 +
 +static struct qcom_icc_node qhm_qdss_bam = {
 +	.name = "qhm_qdss_bam",
-+	.id = MASTER_QDSS_BAM,
++	.id = SM6375_MASTER_QDSS_BAM,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.qos.ap_owned = true,
@@ -686,12 +821,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 qxm_ipa_links[] = {
-+	A2NOC_SNOC_SLV,
++	SM6375_A2NOC_SNOC_SLV,
 +};
 +
 +static struct qcom_icc_node qxm_ipa = {
 +	.name = "qxm_ipa",
-+	.id = MASTER_IPA,
++	.id = SM6375_MASTER_IPA,
 +	.channels = 1,
 +	.buswidth = 8,
 +	.qos.ap_owned = true,
@@ -705,12 +840,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 xm_qdss_etr_links[] = {
-+	A2NOC_SNOC_SLV,
++	SM6375_A2NOC_SNOC_SLV,
 +};
 +
 +static struct qcom_icc_node xm_qdss_etr = {
 +	.name = "xm_qdss_etr",
-+	.id = MASTER_QDSS_ETR,
++	.id = SM6375_MASTER_QDSS_ETR,
 +	.channels = 1,
 +	.buswidth = 8,
 +	.qos.ap_owned = true,
@@ -725,7 +860,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node ebi = {
 +	.name = "ebi",
-+	.id = SLAVE_EBI,
++	.id = SM6375_SLAVE_EBI,
 +	.channels = 2,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -734,12 +869,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 slv_bimc_snoc_links[] = {
-+	BIMC_SNOC_MAS,
++	SM6375_BIMC_SNOC_MAS,
 +};
 +
 +static struct qcom_icc_node slv_bimc_snoc = {
 +	.name = "slv_bimc_snoc",
-+	.id = BIMC_SNOC_SLV,
++	.id = SM6375_BIMC_SNOC_SLV,
 +	.channels = 1,
 +	.buswidth = 16,
 +	.mas_rpm_id = -1,
@@ -750,7 +885,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qup0_core_slave = {
 +	.name = "qup0_core_slave",
-+	.id = SLAVE_QUP_CORE_0,
++	.id = SM6375_SLAVE_QUP_CORE_0,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -760,7 +895,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qup1_core_slave = {
 +	.name = "qup1_core_slave",
-+	.id = SLAVE_QUP_CORE_1,
++	.id = SM6375_SLAVE_QUP_CORE_1,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -770,7 +905,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_bimc_cfg = {
 +	.name = "qhs_bimc_cfg",
-+	.id = SLAVE_BIMC_CFG,
++	.id = SM6375_SLAVE_BIMC_CFG,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -780,7 +915,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_camera_nrt_throttle_cfg = {
 +	.name = "qhs_camera_nrt_throttle_cfg",
-+	.id = SLAVE_CAMERA_NRT_THROTTLE_CFG,
++	.id = SM6375_SLAVE_CAMERA_NRT_THROTTLE_CFG,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -790,7 +925,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_camera_rt_throttle_cfg = {
 +	.name = "qhs_camera_rt_throttle_cfg",
-+	.id = SLAVE_CAMERA_RT_THROTTLE_CFG,
++	.id = SM6375_SLAVE_CAMERA_RT_THROTTLE_CFG,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -800,7 +935,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_camera_ss_cfg = {
 +	.name = "qhs_camera_ss_cfg",
-+	.id = SLAVE_CAMERA_CFG,
++	.id = SM6375_SLAVE_CAMERA_CFG,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -810,7 +945,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_clk_ctl = {
 +	.name = "qhs_clk_ctl",
-+	.id = SLAVE_CLK_CTL,
++	.id = SM6375_SLAVE_CLK_CTL,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -820,7 +955,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_compute_dsp_cfg = {
 +	.name = "qhs_compute_dsp_cfg",
-+	.id = SLAVE_DSP_CFG,
++	.id = SM6375_SLAVE_DSP_CFG,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -830,7 +965,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_cpr_cx = {
 +	.name = "qhs_cpr_cx",
-+	.id = SLAVE_RBCPR_CX_CFG,
++	.id = SM6375_SLAVE_RBCPR_CX_CFG,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -840,7 +975,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_cpr_mx = {
 +	.name = "qhs_cpr_mx",
-+	.id = SLAVE_RBCPR_MX_CFG,
++	.id = SM6375_SLAVE_RBCPR_MX_CFG,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -850,7 +985,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_crypto0_cfg = {
 +	.name = "qhs_crypto0_cfg",
-+	.id = SLAVE_CRYPTO_0_CFG,
++	.id = SM6375_SLAVE_CRYPTO_0_CFG,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -860,7 +995,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_dcc_cfg = {
 +	.name = "qhs_dcc_cfg",
-+	.id = SLAVE_DCC_CFG,
++	.id = SM6375_SLAVE_DCC_CFG,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -870,7 +1005,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_ddr_phy_cfg = {
 +	.name = "qhs_ddr_phy_cfg",
-+	.id = SLAVE_DDR_PHY_CFG,
++	.id = SM6375_SLAVE_DDR_PHY_CFG,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -880,7 +1015,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_ddr_ss_cfg = {
 +	.name = "qhs_ddr_ss_cfg",
-+	.id = SLAVE_DDR_SS_CFG,
++	.id = SM6375_SLAVE_DDR_SS_CFG,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -890,7 +1025,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_disp_ss_cfg = {
 +	.name = "qhs_disp_ss_cfg",
-+	.id = SLAVE_DISPLAY_CFG,
++	.id = SM6375_SLAVE_DISPLAY_CFG,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -900,7 +1035,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_display_throttle_cfg = {
 +	.name = "qhs_display_throttle_cfg",
-+	.id = SLAVE_DISPLAY_THROTTLE_CFG,
++	.id = SM6375_SLAVE_DISPLAY_THROTTLE_CFG,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -910,7 +1045,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_emmc_cfg = {
 +	.name = "qhs_emmc_cfg",
-+	.id = SLAVE_EMMC_CFG,
++	.id = SM6375_SLAVE_EMMC_CFG,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -920,7 +1055,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_gpuss_cfg = {
 +	.name = "qhs_gpuss_cfg",
-+	.id = SLAVE_GRAPHICS_3D_CFG,
++	.id = SM6375_SLAVE_GRAPHICS_3D_CFG,
 +	.channels = 1,
 +	.buswidth = 8,
 +	.mas_rpm_id = -1,
@@ -930,7 +1065,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_hw_km = {
 +	.name = "qhs_hw_km",
-+	.id = SLAVE_HWKM,
++	.id = SM6375_SLAVE_HWKM,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -940,7 +1075,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_imem_cfg = {
 +	.name = "qhs_imem_cfg",
-+	.id = SLAVE_IMEM_CFG,
++	.id = SM6375_SLAVE_IMEM_CFG,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -950,7 +1085,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_ipa_cfg = {
 +	.name = "qhs_ipa_cfg",
-+	.id = SLAVE_IPA_CFG,
++	.id = SM6375_SLAVE_IPA_CFG,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -960,7 +1095,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_lpass = {
 +	.name = "qhs_lpass",
-+	.id = SLAVE_LPASS,
++	.id = SM6375_SLAVE_LPASS,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -970,7 +1105,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_mapss = {
 +	.name = "qhs_mapss",
-+	.id = SLAVE_MAPSS,
++	.id = SM6375_SLAVE_MAPSS,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -980,7 +1115,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_mesg_ram = {
 +	.name = "qhs_mesg_ram",
-+	.id = SLAVE_MESSAGE_RAM,
++	.id = SM6375_SLAVE_MESSAGE_RAM,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -990,7 +1125,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_pdm = {
 +	.name = "qhs_pdm",
-+	.id = SLAVE_PDM,
++	.id = SM6375_SLAVE_PDM,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -1000,7 +1135,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_pimem_cfg = {
 +	.name = "qhs_pimem_cfg",
-+	.id = SLAVE_PIMEM_CFG,
++	.id = SM6375_SLAVE_PIMEM_CFG,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -1010,7 +1145,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_pka_wrapper = {
 +	.name = "qhs_pka_wrapper",
-+	.id = SLAVE_PKA_CORE,
++	.id = SM6375_SLAVE_PKA_CORE,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -1020,7 +1155,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_pmic_arb = {
 +	.name = "qhs_pmic_arb",
-+	.id = SLAVE_PMIC_ARB,
++	.id = SM6375_SLAVE_PMIC_ARB,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -1030,7 +1165,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_qdss_cfg = {
 +	.name = "qhs_qdss_cfg",
-+	.id = SLAVE_QDSS_CFG,
++	.id = SM6375_SLAVE_QDSS_CFG,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -1040,7 +1175,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_qm_cfg = {
 +	.name = "qhs_qm_cfg",
-+	.id = SLAVE_QM_CFG,
++	.id = SM6375_SLAVE_QM_CFG,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -1050,7 +1185,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_qm_mpu_cfg = {
 +	.name = "qhs_qm_mpu_cfg",
-+	.id = SLAVE_QM_MPU_CFG,
++	.id = SM6375_SLAVE_QM_MPU_CFG,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -1060,7 +1195,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_qup0 = {
 +	.name = "qhs_qup0",
-+	.id = SLAVE_QUP_0,
++	.id = SM6375_SLAVE_QUP_0,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -1070,7 +1205,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_qup1 = {
 +	.name = "qhs_qup1",
-+	.id = SLAVE_QUP_1,
++	.id = SM6375_SLAVE_QUP_1,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -1080,7 +1215,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_rpm = {
 +	.name = "qhs_rpm",
-+	.id = SLAVE_RPM,
++	.id = SM6375_SLAVE_RPM,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -1090,7 +1225,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_sdc2 = {
 +	.name = "qhs_sdc2",
-+	.id = SLAVE_SDCC_2,
++	.id = SM6375_SLAVE_SDCC_2,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -1100,7 +1235,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_security = {
 +	.name = "qhs_security",
-+	.id = SLAVE_SECURITY,
++	.id = SM6375_SLAVE_SECURITY,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -1109,12 +1244,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 slv_snoc_cfg_links[] = {
-+	MASTER_SNOC_CFG,
++	SM6375_MASTER_SNOC_CFG,
 +};
 +
 +static struct qcom_icc_node slv_snoc_cfg = {
 +	.name = "slv_snoc_cfg",
-+	.id = SLAVE_SNOC_CFG,
++	.id = SM6375_SLAVE_SNOC_CFG,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -1125,7 +1260,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_tcsr = {
 +	.name = "qhs_tcsr",
-+	.id = SLAVE_TCSR,
++	.id = SM6375_SLAVE_TCSR,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -1135,7 +1270,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_tlmm = {
 +	.name = "qhs_tlmm",
-+	.id = SLAVE_TLMM,
++	.id = SM6375_SLAVE_TLMM,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -1145,7 +1280,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_ufs_mem_cfg = {
 +	.name = "qhs_ufs_mem_cfg",
-+	.id = SLAVE_UFS_MEM_CFG,
++	.id = SM6375_SLAVE_UFS_MEM_CFG,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -1155,7 +1290,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_usb3_0 = {
 +	.name = "qhs_usb3_0",
-+	.id = SLAVE_USB3,
++	.id = SM6375_SLAVE_USB3,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -1165,7 +1300,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_venus_cfg = {
 +	.name = "qhs_venus_cfg",
-+	.id = SLAVE_VENUS_CFG,
++	.id = SM6375_SLAVE_VENUS_CFG,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -1175,7 +1310,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_venus_throttle_cfg = {
 +	.name = "qhs_venus_throttle_cfg",
-+	.id = SLAVE_VENUS_THROTTLE_CFG,
++	.id = SM6375_SLAVE_VENUS_THROTTLE_CFG,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -1185,7 +1320,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_vsense_ctrl_cfg = {
 +	.name = "qhs_vsense_ctrl_cfg",
-+	.id = SLAVE_VSENSE_CTRL_CFG,
++	.id = SM6375_SLAVE_VSENSE_CTRL_CFG,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -1194,12 +1329,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 slv_camera_nrt_snoc_links[] = {
-+	MASTER_CAMNOC_SF_SNOC,
++	SM6375_MASTER_CAMNOC_SF_SNOC,
 +};
 +
 +static struct qcom_icc_node slv_camera_nrt_snoc = {
 +	.name = "slv_camera_nrt_snoc",
-+	.id = SLAVE_CAMNOC_SF_SNOC,
++	.id = SM6375_SLAVE_CAMNOC_SF_SNOC,
 +	.channels = 1,
 +	.buswidth = 32,
 +	.mas_rpm_id = -1,
@@ -1209,12 +1344,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 slv_venus0_snoc_links[] = {
-+	MASTER_VIDEO_P0_SNOC,
++	SM6375_MASTER_VIDEO_P0_SNOC,
 +};
 +
 +static struct qcom_icc_node slv_venus0_snoc = {
 +	.name = "slv_venus0_snoc",
-+	.id = SLAVE_VIDEO_P0_SNOC,
++	.id = SM6375_SLAVE_VIDEO_P0_SNOC,
 +	.channels = 1,
 +	.buswidth = 16,
 +	.mas_rpm_id = -1,
@@ -1224,12 +1359,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 slv_venus_cpu_snoc_links[] = {
-+	MASTER_VIDEO_PROC_SNOC,
++	SM6375_MASTER_VIDEO_PROC_SNOC,
 +};
 +
 +static struct qcom_icc_node slv_venus_cpu_snoc = {
 +	.name = "slv_venus_cpu_snoc",
-+	.id = SLAVE_VIDEO_PROC_SNOC,
++	.id = SM6375_SLAVE_VIDEO_PROC_SNOC,
 +	.channels = 1,
 +	.buswidth = 8,
 +	.mas_rpm_id = -1,
@@ -1239,12 +1374,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 slv_snoc_nrt_links[] = {
-+	MASTER_SNOC_NRT,
++	SM6375_MASTER_SNOC_NRT,
 +};
 +
 +static struct qcom_icc_node slv_snoc_nrt = {
 +	.name = "slv_snoc_nrt",
-+	.id = SLAVE_SNOC_NRT,
++	.id = SM6375_SLAVE_SNOC_NRT,
 +	.channels = 1,
 +	.buswidth = 256,
 +	.mas_rpm_id = -1,
@@ -1254,12 +1389,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 slv_snoc_bimc_nrt_links[] = {
-+	MASTER_SNOC_BIMC_NRT,
++	SM6375_MASTER_SNOC_BIMC_NRT,
 +};
 +
 +static struct qcom_icc_node slv_snoc_bimc_nrt = {
 +	.name = "slv_snoc_bimc_nrt",
-+	.id = SLAVE_SNOC_BIMC_NRT,
++	.id = SM6375_SLAVE_SNOC_BIMC_NRT,
 +	.channels = 1,
 +	.buswidth = 32,
 +	.mas_rpm_id = -1,
@@ -1269,12 +1404,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 slv_camera_rt_snoc_links[] = {
-+	MASTER_CAMNOC_HF_SNOC,
++	SM6375_MASTER_CAMNOC_HF_SNOC,
 +};
 +
 +static struct qcom_icc_node slv_camera_rt_snoc = {
 +	.name = "slv_camera_rt_snoc",
-+	.id = SLAVE_CAMNOC_HF_SNOC,
++	.id = SM6375_SLAVE_CAMNOC_HF_SNOC,
 +	.channels = 1,
 +	.buswidth = 32,
 +	.mas_rpm_id = -1,
@@ -1284,12 +1419,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 slv_mdp0_snoc_links[] = {
-+	MASTER_MDP_PORT0_SNOC,
++	SM6375_MASTER_MDP_PORT0_SNOC,
 +};
 +
 +static struct qcom_icc_node slv_mdp0_snoc = {
 +	.name = "slv_mdp0_snoc",
-+	.id = SLAVE_MDP_PORT0_SNOC,
++	.id = SM6375_SLAVE_MDP_PORT0_SNOC,
 +	.channels = 1,
 +	.buswidth = 32,
 +	.mas_rpm_id = -1,
@@ -1299,12 +1434,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 slv_snoc_rt_links[] = {
-+	MASTER_SNOC_RT,
++	SM6375_MASTER_SNOC_RT,
 +};
 +
 +static struct qcom_icc_node slv_snoc_rt = {
 +	.name = "slv_snoc_rt",
-+	.id = SLAVE_SNOC_RT,
++	.id = SM6375_SLAVE_SNOC_RT,
 +	.channels = 1,
 +	.buswidth = 256,
 +	.mas_rpm_id = -1,
@@ -1314,12 +1449,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 slv_snoc_bimc_rt_links[] = {
-+	MASTER_SNOC_BIMC_RT,
++	SM6375_MASTER_SNOC_BIMC_RT,
 +};
 +
 +static struct qcom_icc_node slv_snoc_bimc_rt = {
 +	.name = "slv_snoc_bimc_rt",
-+	.id = SLAVE_SNOC_BIMC_RT,
++	.id = SM6375_SLAVE_SNOC_BIMC_RT,
 +	.channels = 1,
 +	.buswidth = 32,
 +	.mas_rpm_id = -1,
@@ -1330,7 +1465,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qhs_apss = {
 +	.name = "qhs_apss",
-+	.id = SLAVE_APPSS,
++	.id = SM6375_SLAVE_APPSS,
 +	.channels = 1,
 +	.buswidth = 8,
 +	.mas_rpm_id = -1,
@@ -1339,12 +1474,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 slv_snoc_cnoc_links[] = {
-+	SNOC_CNOC_MAS,
++	SM6375_SNOC_CNOC_MAS,
 +};
 +
 +static struct qcom_icc_node slv_snoc_cnoc = {
 +	.name = "slv_snoc_cnoc",
-+	.id = SNOC_CNOC_SLV,
++	.id = SM6375_SNOC_CNOC_SLV,
 +	.channels = 1,
 +	.buswidth = 8,
 +	.mas_rpm_id = -1,
@@ -1355,7 +1490,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qxs_imem = {
 +	.name = "qxs_imem",
-+	.id = SLAVE_OCIMEM,
++	.id = SM6375_SLAVE_OCIMEM,
 +	.channels = 1,
 +	.buswidth = 8,
 +	.mas_rpm_id = -1,
@@ -1365,7 +1500,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node qxs_pimem = {
 +	.name = "qxs_pimem",
-+	.id = SLAVE_PIMEM,
++	.id = SM6375_SLAVE_PIMEM,
 +	.channels = 1,
 +	.buswidth = 8,
 +	.mas_rpm_id = -1,
@@ -1374,12 +1509,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 slv_snoc_bimc_links[] = {
-+	SNOC_BIMC_MAS,
++	SM6375_SNOC_BIMC_MAS,
 +};
 +
 +static struct qcom_icc_node slv_snoc_bimc = {
 +	.name = "slv_snoc_bimc",
-+	.id = SNOC_BIMC_SLV,
++	.id = SM6375_SNOC_BIMC_SLV,
 +	.channels = 1,
 +	.buswidth = 16,
 +	.mas_rpm_id = -1,
@@ -1390,7 +1525,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node srvc_snoc = {
 +	.name = "srvc_snoc",
-+	.id = SLAVE_SERVICE_SNOC,
++	.id = SM6375_SLAVE_SERVICE_SNOC,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -1400,7 +1535,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node xs_qdss_stm = {
 +	.name = "xs_qdss_stm",
-+	.id = SLAVE_QDSS_STM,
++	.id = SM6375_SLAVE_QDSS_STM,
 +	.channels = 1,
 +	.buswidth = 4,
 +	.mas_rpm_id = -1,
@@ -1410,7 +1545,7 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +static struct qcom_icc_node xs_sys_tcu_cfg = {
 +	.name = "xs_sys_tcu_cfg",
-+	.id = SLAVE_TCU,
++	.id = SM6375_SLAVE_TCU,
 +	.channels = 1,
 +	.buswidth = 8,
 +	.mas_rpm_id = -1,
@@ -1419,12 +1554,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 slv_a1noc_snoc_links[] = {
-+	A1NOC_SNOC_MAS,
++	SM6375_A1NOC_SNOC_MAS,
 +};
 +
 +static struct qcom_icc_node slv_a1noc_snoc = {
 +	.name = "slv_a1noc_snoc",
-+	.id = A1NOC_SNOC_SLV,
++	.id = SM6375_A1NOC_SNOC_SLV,
 +	.channels = 1,
 +	.buswidth = 8,
 +	.mas_rpm_id = -1,
@@ -1434,12 +1569,12 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +};
 +
 +static const u16 slv_a2noc_snoc_links[] = {
-+	A2NOC_SNOC_MAS,
++	SM6375_A2NOC_SNOC_MAS,
 +};
 +
 +static struct qcom_icc_node slv_a2noc_snoc = {
 +	.name = "slv_a2noc_snoc",
-+	.id = A2NOC_SNOC_SLV,
++	.id = SM6375_A2NOC_SNOC_SLV,
 +	.channels = 1,
 +	.buswidth = 16,
 +	.mas_rpm_id = -1,
@@ -1695,123 +1830,139 @@ qcom,holi.h (holi == SM6375); the ICBID values are the mainline RPM ids.
 +
 +MODULE_DESCRIPTION("Qualcomm SM6375 NoC driver");
 +MODULE_LICENSE("GPL");
---- /dev/null	2026-08-08 22:16:52.764965004 +0000
-+++ b/include/dt-bindings/interconnect/qcom,sm6375.h	2026-08-09 00:33:06.212021001 +0000
-@@ -0,0 +1,116 @@
+--- /dev/null
++++ b/include/dt-bindings/interconnect/qcom,sm6375.h
+@@ -0,0 +1,132 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +/*
-+ * Copyright (c) 2020, The Linux Foundation. All rights reserved.
-+ * Copyright (c) 2026, SM6375 interconnect port
++ * Qualcomm SM6375 interconnect IDs
++ *
++ * Numbered densely from 0 within each bus, which is what every other
++ * mainline qcom interconnect binding does and what of_icc_xlate_onecell()
++ * requires: the ID in the device tree is used directly as an index into
++ * that provider's node array. The vendor header this was derived from
++ * (qcom,holi.h) numbers every node in one global sequence instead, which
++ * leaves each array full of NULL holes and makes qnoc_probe() dereference
++ * the first one.
 + */
-+
 +#ifndef __DT_BINDINGS_INTERCONNECT_QCOM_SM6375_H
 +#define __DT_BINDINGS_INTERCONNECT_QCOM_SM6375_H
 +
-+#define MASTER_AMPSS_M0				0
-+#define MASTER_SNOC_BIMC_RT				1
-+#define MASTER_SNOC_BIMC_NRT				2
-+#define SNOC_BIMC_MAS				3
-+#define MASTER_GRAPHICS_3D				4
-+#define MASTER_CDSP_PROC				5
-+#define MASTER_TCU_0				6
-+#define MASTER_QUP_CORE_0				7
-+#define MASTER_QUP_CORE_1				8
-+#define MASTER_CRYPTO_CORE0				9
-+#define SNOC_CNOC_MAS				10
-+#define MASTER_QDSS_DAP				11
-+#define MASTER_CAMNOC_SF				12
-+#define MASTER_CAMNOC_HF				13
-+#define MASTER_MDP_PORT0				14
-+#define MASTER_VIDEO_P0				15
-+#define MASTER_VIDEO_PROC				16
-+#define MASTER_SNOC_CFG				17
-+#define MASTER_TIC				18
-+#define A1NOC_SNOC_MAS				19
-+#define A2NOC_SNOC_MAS				20
-+#define BIMC_SNOC_MAS				21
-+#define MASTER_PIMEM				22
-+#define MASTER_QUP_0				23
-+#define MASTER_QUP_1				24
-+#define MASTER_EMMC				25
-+#define MASTER_SDCC_2				26
-+#define MASTER_UFS_MEM				27
-+#define MASTER_QDSS_BAM				28
-+#define MASTER_IPA				29
-+#define MASTER_QDSS_ETR				30
-+#define MASTER_USB3_0				31
-+#define MASTER_CAMNOC_SF_SNOC				32
-+#define MASTER_CAMNOC_HF_SNOC				33
-+#define MASTER_MDP_PORT0_SNOC				34
-+#define MASTER_VIDEO_P0_SNOC				35
-+#define MASTER_VIDEO_PROC_SNOC				36
-+#define MASTER_SNOC_RT				37
-+#define MASTER_SNOC_NRT				38
++/* BIMC */
++#define MASTER_AMPSS_M0                          0
++#define MASTER_SNOC_BIMC_RT                      1
++#define MASTER_SNOC_BIMC_NRT                     2
++#define SNOC_BIMC_MAS                            3
++#define MASTER_GRAPHICS_3D                       4
++#define MASTER_CDSP_PROC                         5
++#define MASTER_TCU_0                             6
++#define SLAVE_EBI                                7
++#define BIMC_SNOC_SLV                            8
 +
-+#define SLAVE_EBI				512
-+#define BIMC_SNOC_SLV				513
-+#define SLAVE_PKA_CORE				514
-+#define SLAVE_QUP_CORE_0				515
-+#define SLAVE_QUP_CORE_1				516
-+#define SLAVE_BIMC_CFG				517
-+#define SLAVE_APPSS				518
-+#define SLAVE_CAMERA_NRT_THROTTLE_CFG				519
-+#define SLAVE_CAMERA_RT_THROTTLE_CFG				520
-+#define SLAVE_CAMERA_CFG				521
-+#define SLAVE_CLK_CTL				522
-+#define SLAVE_DSP_CFG				523
-+#define SLAVE_RBCPR_CX_CFG				524
-+#define SLAVE_RBCPR_MX_CFG				525
-+#define SLAVE_CRYPTO_0_CFG				526
-+#define SLAVE_DCC_CFG				527
-+#define SLAVE_DDR_PHY_CFG				528
-+#define SLAVE_DDR_SS_CFG				529
-+#define SLAVE_DISPLAY_CFG				530
-+#define SLAVE_DISPLAY_THROTTLE_CFG				531
-+#define SLAVE_EMMC_CFG				532
-+#define SLAVE_GRAPHICS_3D_CFG				533
-+#define SLAVE_HWKM				534
-+#define SLAVE_IMEM_CFG				535
-+#define SLAVE_IPA_CFG				536
-+#define SLAVE_LPASS				537
-+#define SLAVE_MAPSS				538
-+#define SLAVE_MESSAGE_RAM				539
-+#define SLAVE_PDM				540
-+#define SLAVE_PIMEM_CFG				541
-+#define SLAVE_PMIC_ARB				542
-+#define SLAVE_QDSS_CFG				543
-+#define SLAVE_QM_CFG				544
-+#define SLAVE_QM_MPU_CFG				545
-+#define SLAVE_QUP_0				546
-+#define SLAVE_QUP_1				547
-+#define SLAVE_RPM				548
-+#define SLAVE_SDCC_2				549
-+#define SLAVE_SECURITY				550
-+#define SLAVE_SNOC_CFG				551
-+#define SLAVE_TCSR				552
-+#define SLAVE_TLMM				553
-+#define SLAVE_UFS_MEM_CFG				554
-+#define SLAVE_USB3				555
-+#define SLAVE_VENUS_CFG				556
-+#define SLAVE_VENUS_THROTTLE_CFG				557
-+#define SLAVE_VSENSE_CTRL_CFG				558
-+#define SLAVE_SNOC_BIMC_NRT				559
-+#define SLAVE_SNOC_BIMC_RT				560
-+#define SNOC_CNOC_SLV				561
-+#define SLAVE_OCIMEM				562
-+#define SLAVE_PIMEM				563
-+#define SNOC_BIMC_SLV				564
-+#define SLAVE_SERVICE_SNOC				565
-+#define SLAVE_QDSS_STM				566
-+#define A1NOC_SNOC_SLV				567
-+#define A2NOC_SNOC_SLV				568
-+#define SLAVE_CAMNOC_HF_SNOC				569
-+#define SLAVE_MDP_PORT0_SNOC				570
-+#define SLAVE_CAMNOC_SF_SNOC				571
-+#define SLAVE_VIDEO_P0_SNOC				572
-+#define SLAVE_VIDEO_PROC_SNOC				573
-+#define SLAVE_SNOC_RT				574
-+#define SLAVE_SNOC_NRT				575
-+#define SLAVE_TCU				576
++/* CLK VIRT */
++#define MASTER_QUP_CORE_0                        0
++#define MASTER_QUP_CORE_1                        1
++#define SLAVE_QUP_CORE_0                         2
++#define SLAVE_QUP_CORE_1                         3
++
++/* CNOC */
++#define SNOC_CNOC_MAS                            0
++#define MASTER_QDSS_DAP                          1
++#define SLAVE_BIMC_CFG                           2
++#define SLAVE_CAMERA_NRT_THROTTLE_CFG            3
++#define SLAVE_CAMERA_RT_THROTTLE_CFG             4
++#define SLAVE_CAMERA_CFG                         5
++#define SLAVE_CLK_CTL                            6
++#define SLAVE_DSP_CFG                            7
++#define SLAVE_RBCPR_CX_CFG                       8
++#define SLAVE_RBCPR_MX_CFG                       9
++#define SLAVE_CRYPTO_0_CFG                       10
++#define SLAVE_DCC_CFG                            11
++#define SLAVE_DDR_PHY_CFG                        12
++#define SLAVE_DDR_SS_CFG                         13
++#define SLAVE_DISPLAY_CFG                        14
++#define SLAVE_DISPLAY_THROTTLE_CFG               15
++#define SLAVE_EMMC_CFG                           16
++#define SLAVE_GRAPHICS_3D_CFG                    17
++#define SLAVE_HWKM                               18
++#define SLAVE_IMEM_CFG                           19
++#define SLAVE_IPA_CFG                            20
++#define SLAVE_LPASS                              21
++#define SLAVE_MAPSS                              22
++#define SLAVE_MESSAGE_RAM                        23
++#define SLAVE_PDM                                24
++#define SLAVE_PIMEM_CFG                          25
++#define SLAVE_PKA_CORE                           26
++#define SLAVE_PMIC_ARB                           27
++#define SLAVE_QDSS_CFG                           28
++#define SLAVE_QM_CFG                             29
++#define SLAVE_QM_MPU_CFG                         30
++#define SLAVE_QUP_0                              31
++#define SLAVE_QUP_1                              32
++#define SLAVE_RPM                                33
++#define SLAVE_SDCC_2                             34
++#define SLAVE_SECURITY                           35
++#define SLAVE_SNOC_CFG                           36
++#define SLAVE_TCSR                               37
++#define SLAVE_TLMM                               38
++#define SLAVE_UFS_MEM_CFG                        39
++#define SLAVE_USB3                               40
++#define SLAVE_VENUS_CFG                          41
++#define SLAVE_VENUS_THROTTLE_CFG                 42
++#define SLAVE_VSENSE_CTRL_CFG                    43
++
++/* MMRT VIRT */
++#define MASTER_CAMNOC_HF                         0
++#define MASTER_MDP_PORT0                         1
++#define MASTER_SNOC_RT                           2
++#define SLAVE_SNOC_BIMC_RT                       3
++#define SLAVE_CAMNOC_HF_SNOC                     4
++#define SLAVE_MDP_PORT0_SNOC                     5
++
++/* MMNRT VIRT */
++#define MASTER_CAMNOC_SF                         0
++#define MASTER_VIDEO_P0                          1
++#define MASTER_VIDEO_PROC                        2
++#define MASTER_SNOC_NRT                          3
++#define SLAVE_SNOC_BIMC_NRT                      4
++#define SLAVE_CAMNOC_SF_SNOC                     5
++#define SLAVE_VIDEO_P0_SNOC                      6
++#define SLAVE_VIDEO_PROC_SNOC                    7
++
++/* SNOC */
++#define MASTER_SNOC_CFG                          0
++#define MASTER_TIC                               1
++#define A1NOC_SNOC_MAS                           2
++#define A2NOC_SNOC_MAS                           3
++#define BIMC_SNOC_MAS                            4
++#define MASTER_PIMEM                             5
++#define MASTER_QUP_0                             6
++#define MASTER_QUP_1                             7
++#define MASTER_EMMC                              8
++#define MASTER_SDCC_2                            9
++#define MASTER_UFS_MEM                           10
++#define MASTER_CRYPTO_CORE0                      11
++#define MASTER_QDSS_BAM                          12
++#define MASTER_IPA                               13
++#define MASTER_QDSS_ETR                          14
++#define MASTER_USB3_0                            15
++#define MASTER_CAMNOC_SF_SNOC                    16
++#define MASTER_CAMNOC_HF_SNOC                    17
++#define MASTER_MDP_PORT0_SNOC                    18
++#define MASTER_VIDEO_P0_SNOC                     19
++#define MASTER_VIDEO_PROC_SNOC                   20
++#define SLAVE_APPSS                              21
++#define SNOC_CNOC_SLV                            22
++#define SLAVE_OCIMEM                             23
++#define SLAVE_PIMEM                              24
++#define SNOC_BIMC_SLV                            25
++#define SLAVE_SERVICE_SNOC                       26
++#define SLAVE_QDSS_STM                           27
++#define SLAVE_TCU                                28
++#define A1NOC_SNOC_SLV                           29
++#define A2NOC_SNOC_SLV                           30
++#define SLAVE_SNOC_RT                            31
++#define SLAVE_SNOC_NRT                           32
 +
 +#endif
 --- a/drivers/interconnect/qcom/Kconfig	2026-08-09 00:32:48.786035007 +0000

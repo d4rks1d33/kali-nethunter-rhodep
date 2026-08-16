@@ -2,7 +2,7 @@
 # Modem support for motorola-rhodep. Run as root on the phone, or in the build
 # chroot (nothing here touches the hardware at install time).
 #
-# Three pieces, see README.md and HANDOFF-SESSION4.md session 14 for why:
+# Four pieces, see README.md and HANDOFF-SESSION4.md session 14 for why:
 #
 #   1. rhodep-rfs-populate  copies the modem's remote file system out of the
 #      stock modem/fsg/persist partitions at first boot. This is what actually
@@ -12,6 +12,8 @@
 #      alongside the distro one so the apt hold on tqftpserv stays valid.
 #   3. the memshare responder (QMI service 52), which the modem asks for during
 #      bring-up. Not the blocker, but the right thing to answer.
+#   4. rhodep-ipa-hold.conf, which keeps ipa.ko out of the boot. TEMPORARY, and
+#      the one thing between this port and working mobile data. Read the file.
 set -e
 
 here=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
@@ -67,6 +69,16 @@ EOF
 cc -O2 -Wall -o /usr/local/bin/rhodep-memshare "$here/memshare-daemon.c" -lqrtr
 install -D -m 0644 "$here/systemd/rhodep-memshare.service" \
 	/etc/systemd/system/rhodep-memshare.service
+
+# --- 4. keep the IPA out of the boot (TEMPORARY) -----------------------------
+# With ipa.ko loaded AND the modem registered the SoC watchdog-resets every few
+# minutes. Until that is fixed the phone is shipped without the IPA, which
+# costs mobile data and ModemManager. The file documents itself; deleting it
+# and rebooting restores the full stack. See HANDOFF-SESSION4.md session 14.
+install -D -m 0644 "$here/rhodep-ipa-hold.conf" /etc/modprobe.d/rhodep-ipa-hold.conf
+if [ -d /lib/modules/7.2.0-rc5 ]; then
+	depmod -a 7.2.0-rc5
+fi
 
 install -D -m 0644 "$here/README.md" /usr/share/doc/rhodep-modem/README.md
 

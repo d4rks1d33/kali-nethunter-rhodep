@@ -19,6 +19,27 @@ list; everything here is a from-scratch community port.
 > SSH over USB and the memshare responder live in the rootfs and are installed
 > by the scripts under `userspace/`; see [`docs/BUILD.md`](docs/BUILD.md).
 
+> **The modem works.** It registers on LTE, mobile data reached ~24 Mbit/s,
+> calls connect and SMS arrives. The cause of two sessions of "the modem never
+> leaves offline" turned out to be files, not silicon: the modem fetches
+> run-time images from the AP over TFTP and every request was being answered
+> "file not found". Install with `userspace/modem/install.sh` and read
+> [`userspace/modem/README.md`](userspace/modem/README.md).
+>
+> **But it is shipped switched off**, because of a separate, newly exposed bug:
+> with `ipa.ko` loaded *and* the modem registered, the SoC watchdog-resets every
+> few minutes. So `install.sh` also drops
+> `/etc/modprobe.d/rhodep-ipa-hold.conf`, which costs mobile data and
+> ModemManager but keeps the phone stable. Deleting that one file and rebooting
+> gives the whole modem back. Bisection and leads: HANDOFF-SESSION4.md session
+> 14, "OPEN BUG". No kernel or device tree change is needed for any of the modem
+> work — `ipa.ko` is a module and the two IPA patches (0042, 0043) ship in it —
+> so `kali-boot-v94-STABLE.img` is still the image to flash.
+
+> In-call audio does not exist yet, and is not a modem problem: Qualcomm voice
+> audio goes modem <-> ADSP <-> codec and mainline has no q6voice (MVM/CVS/CVP)
+> at all. Scoped in HANDOFF-SESSION4.md session 14.
+
 > **Building from a clean clone?** Read
 > **[`docs/BUILD.md`](docs/BUILD.md)** first: it is the end-to-end checklist,
 > including the external material (firmware, `ipa_fws`, the audio blob, the pmOS

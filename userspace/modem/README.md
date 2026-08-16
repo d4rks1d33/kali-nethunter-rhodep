@@ -150,7 +150,37 @@ context bank, faults, and the watchdog takes the SoC down:
 `ipa.ko` is a module, so this one does not need a reflash: rebuild, copy the
 module, `depmod -a 7.2.0-rc5`, reboot.
 
+## READ THIS FIRST: the IPA is held out of the boot on purpose
+
+`install.sh` drops `/etc/modprobe.d/rhodep-ipa-hold.conf`, which keeps `ipa.ko`
+from loading. **That single file is the only thing between this port and
+working mobile data**, and it is there because of a bug that has nothing to do
+with the modem work above:
+
+> With `ipa.ko` loaded **and** the modem registered on a network, the SoC
+> watchdog-resets every 3 to 10 minutes, silently. Either one alone is stable.
+
+While the file is in place:
+
+- no mobile data (`rmnet_ipa0` / `qmapmux0.0` never appear)
+- **no ModemManager**, therefore no dialer and no SMS UI. MM refuses a QMI
+  modem that has no net port:
+  `couldn't create modem for device 'qcom-soc': Failed to find a net port`
+- the QMI layer still works: `qmicli -d qrtr://0 --dms-get-ids`, etc.
+
+Delete the file, reboot, and everything documented below comes back: LTE
+registration, ~24 Mbit/s of data, calls and SMS. Do that if you are working on
+the bug, and read the comments in the file first — it describes the debug loop
+that keeps the causal window a few seconds wide instead of a few minutes.
+
+The bisection and the leads are in HANDOFF-SESSION4.md session 14, "OPEN BUG".
+The best one is that patch 0025 gives SM6375 `interconnect_count = 0`, which
+was verified for probe and never for operation, while the vendor IPA node asks
+for `ipa_to_ebi1`, `ipa_to_imem` and `appss_to_ipa`.
+
 ## Verifying
+
+(with `rhodep-ipa-hold.conf` removed and after a reboot)
 
 	mmcli -m any | grep -E "state:|registration|operator|access tech"
 	  state: registered   registration: home

@@ -75,6 +75,10 @@ EOF
 	grep -qx "$pkg" "$EXCEPT" || printf '%s\n' "$pkg" >> "$EXCEPT"
 	printf '# %s released %s: %s\n' "$(date -Is)" "$pkg" "$reason" >> "$EXCEPT.log"
 	apt-mark unhold "$pkg" >/dev/null 2>&1 || true
+	# Also drop dpkg's Protected flag, otherwise the package still cannot be
+	# removed and "released" would be a lie.
+	[ -x /usr/local/sbin/rhodep-dpkg-protect ] && \
+		/usr/local/sbin/rhodep-dpkg-protect clear "$pkg" >/dev/null 2>&1 || true
 	logger -t rhodep-hold-override -p daemon.warning -- "hold RELEASED for $pkg: $reason" 2>/dev/null || true
 	echo "released: $pkg  ($reason)"
 	echo "put it back with: rhodep-hold-override restore $pkg"
@@ -87,6 +91,8 @@ restore)
 		mv "$EXCEPT.tmp" "$EXCEPT"
 	fi
 	apt-mark hold "$pkg" >/dev/null 2>&1 || true
+	[ -x /usr/local/sbin/rhodep-dpkg-protect ] && \
+		/usr/local/sbin/rhodep-dpkg-protect apply >/dev/null 2>&1 || true
 	printf '# %s restored %s\n' "$(date -Is)" "$pkg" >> "$EXCEPT.log"
 	logger -t rhodep-hold-override -p daemon.notice -- "hold restored for $pkg" 2>/dev/null || true
 	echo "restored: $pkg"

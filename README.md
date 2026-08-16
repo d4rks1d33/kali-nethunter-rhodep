@@ -688,15 +688,46 @@ Verified by attacking it on the device, not by reading it:
 | `rhodep-hold-override` with no tty, no reason, or a package not on the list | refused |
 | authorised release, then enforce | stays released, and is in `status` |
 
-**What it does not protect against, stated plainly:** a raw `dpkg -r` or
-`dpkg -P`. dpkg has no pre-removal hook, so nothing can abort it. The enforcer
-detects the aftermath and says so —
+### `dpkg -r` and `dpkg -P` are covered too
 
-	ALERT: held package 'X' is NOT INSTALLED. Something removed it, most
-	likely a raw dpkg -r/-P, which bypasses apt and therefore the guard.
-	Reinstall it: apt-get install --reinstall X
+Everything above is apt-side, and **dpkg does not honour apt holds at all**.
+Measured, not assumed, on dpkg 1.23.7:
 
-— but by then the package is gone. Use `apt`, not `dpkg`, to remove things.
+	apt-mark hold sl && dpkg -P sl
+	  Removing sl (5.02-1+b2) ...          <- gone, no warning
+
+dpkg has no pre-removal hook to attach to, but it has a field for exactly this
+and it obeys it. `rhodep-dpkg-protect` sets `Protected: yes` on every held
+package, and then:
+
+	dpkg -P tqftpserv
+	  dpkg: error processing package tqftpserv (--purge):
+	   this is a protected package; it should not be removed
+
+	dpkg -r rmtfs
+	  dpkg: error processing package rmtfs (--remove):
+	   this is a protected package; it should not be removed
+
+All 41 carry it. The deliberate way past is dpkg's own
+`--force-remove-protected`, and the supported way is to release the hold, which
+clears the flag as well — otherwise "released" would be a lie.
+
+The field lives in `/var/lib/dpkg/status` and there is no dpkg command to set
+it, so this edits that file. It is the most dangerous file on the system, so
+the edit refuses to run while dpkg or apt holds the frontend lock, writes a
+copy and renames it into place, keeps a backup at
+`/var/backups/dpkg.status.rhodep`, and validates by checking that `dpkg-query`
+still parses the result and reports the same packages — anything else restores
+the backup. It fails open at every step.
+
+dpkg drops the flag whenever it rewrites a package's entry, which is what an
+upgrade or reinstall does, so the enforcer reapplies it at boot and on its
+timer. Verified: `apt-get install --reinstall tqftpserv` succeeds, the flag is
+gone afterwards, and the next enforce puts it back. The edit is **not** done
+from the apt `Post-Invoke` hook, because apt still holds the dpkg lock there.
+
+Checked after all of it: `dpkg --audit` clean, 5615 packages still visible,
+ordinary `apt install` / `apt purge` of unprotected packages unaffected.
 
 It is a guard rail, not a lock. To remove something deliberately, unhold it
 first and the guard steps aside:

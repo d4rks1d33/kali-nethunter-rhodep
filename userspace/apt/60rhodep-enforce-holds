@@ -6,4 +6,4 @@
 // so it cannot abort anything; it repairs and logs instead.
 //
 // || true so that a failure in the enforcer can never make an apt run fail.
-DPkg::Post-Invoke { "/usr/local/sbin/rhodep-holds-enforce >/dev/null 2>&1 || true"; };
+DPkg::Post-Invoke { "/usr/local/sbin/rhodep-holds-enforce --in-apt >/dev/null 2>&1 || true"; };

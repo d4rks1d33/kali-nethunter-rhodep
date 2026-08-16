@@ -18,6 +18,12 @@
 # here logs and exits 0.
 set -u
 
+# apt runs us from DPkg::Post-Invoke while it still holds the dpkg lock, so the
+# dpkg status edit must not happen there. It passes --in-apt; the boot service
+# and the timer do not.
+IN_APT=0
+[ "${1:-}" = "--in-apt" ] && IN_APT=1
+
 CANON=/usr/local/share/rhodep/apt-holds.txt
 EXCEPT=/etc/rhodep/apt-holds-exceptions
 GUARD=/usr/local/sbin/rhodep-apt-guard
@@ -77,6 +83,14 @@ if [ -n "$missing" ]; then
 	log "ALERT: holds had been removed, putting them back:$missing"
 	# shellcheck disable=SC2086
 	apt-mark hold $missing >/dev/null 2>&1 || log "could not re-apply:$missing"
+fi
+
+# --- dpkg's own protection ---------------------------------------------------
+# apt holds do nothing against `dpkg -r` / `dpkg -P`. dpkg's Protected field
+# does, and dpkg drops it whenever it rewrites a package's entry, so it has to
+# be reapplied. Never from inside an apt transaction: apt holds the lock there.
+if [ "$IN_APT" = 0 ] && [ -x /usr/local/sbin/rhodep-dpkg-protect ]; then
+	/usr/local/sbin/rhodep-dpkg-protect apply || true
 fi
 
 exit 0

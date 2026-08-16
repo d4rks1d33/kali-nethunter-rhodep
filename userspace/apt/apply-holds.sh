@@ -61,6 +61,7 @@ install -D -m 0644 "$here/apt-holds.txt"          /usr/local/share/rhodep/apt-ho
 install -D -m 0644 "$here/rhodep-apt-guard"       /usr/local/share/rhodep/rhodep-apt-guard
 install -D -m 0644 "$here/50rhodep-protect-holds" /usr/local/share/rhodep/50rhodep-protect-holds
 install -D -m 0755 "$here/rhodep-holds-enforce"   /usr/local/sbin/rhodep-holds-enforce
+install -D -m 0755 "$here/rhodep-dpkg-protect"   /usr/local/sbin/rhodep-dpkg-protect
 install -D -m 0755 "$here/rhodep-hold-override"   /usr/local/sbin/rhodep-hold-override
 install -D -m 0644 "$here/60rhodep-enforce-holds" /etc/apt/apt.conf.d/60rhodep-enforce-holds
 install -D -m 0644 "$here/systemd/rhodep-holds-enforce.service" \
@@ -80,6 +81,13 @@ for f in /usr/local/sbin/rhodep-apt-guard \
 	chattr +i "$f" 2>/dev/null || true
 done
 
+# apt holds mean nothing to dpkg: `dpkg -P <held>` removes the package without
+# a word. dpkg's own Protected field stops it, so set that too. Not done in a
+# chroot, where dpkg's status file belongs to the image being built.
+if [ -d /run/systemd/system ]; then
+	/usr/local/sbin/rhodep-dpkg-protect apply || true
+fi
+
 if [ -d /run/systemd/system ]; then
 	systemctl daemon-reload
 	systemctl enable --now rhodep-holds-enforce.timer >/dev/null 2>&1
@@ -94,5 +102,6 @@ fi
 
 echo "held: $(apt-mark showhold | wc -l) packages"
 echo "purge protection installed and made immutable"
+echo "dpkg-level protection: $(/usr/local/sbin/rhodep-dpkg-protect status 2>/dev/null | grep -c 'dpkg-protected=yes') packages carry dpkg's Protected flag"
 echo "hold enforcement installed; release one deliberately with:"
 echo "  sudo rhodep-hold-override release <package> \"<reason>\""

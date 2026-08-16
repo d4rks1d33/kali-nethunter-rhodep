@@ -161,9 +161,10 @@ sudo chroot /tmp/rootfs sh /srv/login/install.sh kali
   that refuses to remove a held package, because a hold does **not** stop
   `apt purge`; and `rhodep-holds-enforce`, which puts back any hold or guard
   file that goes missing, because nothing protected the holds themselves. The
-  guard's files are made immutable, and releasing a hold on purpose goes
-  through `rhodep-hold-override`, which wants a reason and refuses to run
-  unattended. See README "A hold does not stop `apt purge`".
+  guard's files are made immutable, `rhodep-dpkg-protect` sets dpkg's own
+  `Protected` field so that `dpkg -r`/`dpkg -P` are refused as well (dpkg
+  ignores apt holds entirely), and releasing a hold on purpose goes through
+  `rhodep-hold-override`, which wants a reason and refuses to run unattended. See README "A hold does not stop `apt purge`".
 - **Modem** (`userspace/modem/install.sh`): the whole reason the radio works.
   Populates the modem's remote file system from the stock `modem`/`fsg`/
   `persist` partitions at first boot (without the Hexagon objects under

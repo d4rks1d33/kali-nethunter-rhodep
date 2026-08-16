@@ -1,53 +1,165 @@
-# memshare responder
+# Modem support
 
-The modem asks the application processor for shared memory over QMI service 52
-during bring-up. Mainline provides no memshare at all, so nothing answered, and
-the modem's own state machine never finished initialising: it answers queries
-and reports its IMEI, but refuses **every** operating mode transition and the
-USIM stops at `check-personalization-state`.
+This is what makes the radio work on motorola-rhodep. Install with:
 
-Captured on this device at boot, with the request decoded:
-
-	MEM_QUERY_SIZE (0x0024) txn=1     client_id=1 proc=0
-	MEM_ALLOC_GENERIC (0x0022) txn=2  num_bytes=0x500000 client_id=1
-	                                  proc_id=0 sequence_id=0 alloc_contiguous=1
-
-Told there is no memory it carries on unchanged. Told there are 5 MB it asks for
-them immediately, which is what proves it wants the memory itself rather than
-just a reply.
-
-## Two halves, and both are needed
-
-**Kernel side**, a reserved region so Linux does not use that memory as ordinary
-RAM. It is a device tree change, so it needs a new boot image:
-
-	memshare@8ab00000 {
-		reg = <0x00 0x8ab00000 0x00 0x800000>;
-		no-map;
-	};
-
-8 MB in the hole between `pil-gpu-ucode` and `pil-mpss-wlan`. Stock places its
-`memshare_region` dynamically as a `shared-dma-pool`; a fixed address is used
-here so the responder can stay in userspace, with nothing to allocate and only a
-number to hand over.
-
-**Userspace side**, this daemon, which publishes service 52 and answers.
-
-## Install
-
-	sudo apt install libqrtr-dev
+	sudo apt install libqrtr-dev libzstd-dev
 	sudo ./install.sh
 
-By default the daemon reports **zero bytes available**, which is the honest
-answer on an image whose device tree has no reserved region: promising memory
-and then failing the allocation is worse than saying up front there is none. To
-actually hand out the region, run it with the size to advertise:
+Before this, the modem booted, registered 48 QMI services, answered DMS/NAS/UIM
+and reported its IMEI, but sat in DMS operating mode `offline` and refused
+**every** operating mode transition (`online` -> DeviceNotReady, `low-power` ->
+InvalidTransition). After it, the phone registers on LTE and mobile data works.
 
-	ExecStart=/usr/local/bin/rhodep-memshare 0x500000
+## What was actually wrong: the modem's remote file system
 
-## Status
+`modem.mbn` is not the whole modem. At run time the modem fetches files from the
+application processor over QMI service 4096 (TFTP), which `tqftpserv` answers.
+On Android those requests resolve against the vendor image, the `fsg` partition
+and `/mnt/vendor/persist`. On this port none of that existed, so every request
+was answered "file not found" — silently, because nothing was logging them.
 
-Answering the query is confirmed to work and is **not sufficient on its own**;
-the modem stays offline. Whether satisfying the allocation is sufficient is the
-open question, and it is the last part of this exchange still missing. See
-`docs/interconnect-sm6375-wip/HANDOFF-SESSION4.md`, sessions 13 and 13b.
+Running `tqftpserv -d` for one boot showed it immediately:
+
+	12  /readonly/firmware/image/modem_pr/so/205_0_0.mbn   <- twelve retries
+	 2  /readonly/vendor/fsg/mcfg_sw/mbn_sw.dig            <- "invalid path"
+	 4  /readwrite/datablock/id_00
+	 2  /readwrite/shob.bin
+	 2  /readwrite/dhob.bin
+	 1  /readwrite/mot_rfs/imei_sv
+
+`205_0_0.mbn` is a **Motorola-signed Hexagon ELF** (`e_machine` 0xa4, 764 KiB)
+that the modem loads into itself at run time, and it exists on the device, in
+the `modem` partition under `image/modem_pr/so/`. Copying `modem_pr` into
+`/lib/firmware/qcom/sm6375/motorola/rhodep/` and rebooting was enough to take
+the modem from `offline` to accepting `--dms-set-operating-mode=online`, and it
+then camped on a cell.
+
+That is what `rhodep-rfs-populate` does, for all three sources:
+
+| partition | what it provides | goes to |
+| --- | --- | --- |
+| `modem_a` | `image/modem_pr/so/*.mbn`, run-time Hexagon objects | `/lib/firmware/qcom/sm6375/motorola/rhodep/modem_pr/` |
+| `fsg_a` | carrier (MCFG) configuration set + `mcfg_sw/mbn_sw.dig` | `.../rhodep/fsg/` |
+| `persist` | `rfs/msm/mpss/`: RF calibration (`cal_rfs`), Motorola datablock / SIM-lock records, `shob.bin`, `dhob.bin`, `mot_rfs/imei_sv` | `/var/lib/tqftpserv/` |
+
+The persist tree is **copied, not bind mounted**: the modem writes into it
+(`mcfg.tmp`, `ticf.bin`, `*_report.txt`) and the stock partition is left alone.
+
+It runs once, at first boot, and is a no-op afterwards.
+
+### A free modem-side log
+
+Two of the files the modem writes into `/var/lib/tqftpserv` are its own
+diagnostics, in plain text with source file and line number:
+
+	datablock_report.txt   mot_datablock.c, 148: Datablock path to validate:
+	                       /readwrite/datablock/id_00
+	simlock_report.txt     mot_simlock_mirror.c, 292: HMAC missmatch
+	hob_report.txt         mot_s_hob_stg.c, 229: HOB not yet created at the factory
+
+This is the closest thing to a modem console this port has, and it costs
+nothing. Note the files copied from `persist` already contain years of history
+written under Android — check the mtime before believing an entry is yours.
+
+## tqftpserv, patched
+
+Upstream `translate.c` maps `/readonly/firmware/image/`,
+`/readonly/firmware/modem_pr`, `/readonly/vendor/firmware/`,
+`/readonly/vendor/firmware_mnt/image/` and `/readwrite/`, and **rejects
+everything else before even looking at the filesystem**. This modem asks for
+`/readonly/vendor/fsg/mcfg_{sw,hw}/mbn_{sw,hw}.dig`, which on Android is a
+symlink into the `fsg` partition (AOSP target package
+`rfs_msm_mpss_readonly_vendor_fsg_symlink`, referenced from
+`sm6375-common/common.mk`).
+
+`tqftpserv/` holds upstream (BSD-3-Clause, commit b6bb92d) plus
+`0001-translate-serve-readonly-vendor-fsg.patch`, three lines that add a
+catch-all for the rest of `/readonly/vendor/`, resolved under the remoteproc
+firmware directory. It is built as `/usr/local/bin/tqftpserv-rhodep` and
+selected with a systemd drop-in, so `/usr/bin/tqftpserv` still belongs to the
+held distro package.
+
+`-d` is left on deliberately. It is a handful of lines per boot and it is the
+only visibility there is into what the modem wants.
+
+## rmtfs must NOT have -r
+
+In rmtfs, `-r` means **read-only** (`rmtfs.c:525 read_only = true`), and
+read-only means every write the modem makes goes into a per-open RAM shadow and
+is thrown away at reboot. The packaged drop-in shipped `-r` with a comment
+claiming it meant read/write; `install.sh` overrides it with `-P -s`.
+
+This matters because the modem keeps the UIM provisioning session in NV. With
+`-r`, a SIM the modem has not seen before never gets one.
+
+**Back up `modemst1`, `modemst2` and `fsc` before turning this on.** There is a
+copy under `_common/backups-historicos/modem-efs-*/`.
+
+## rhodep-uim-provision
+
+Even with a read/write EFS, this modem does not open a provisioning session by
+itself. Without one the UICC application never leaves `detected`:
+
+	Provisioning applications:
+		Primary GW:   session doesn't exist
+	Application [1]:
+		Application state: 'detected'
+		Personalization state: 'unknown'
+
+and ModemManager gives up with "Couldn't check unlock status" and reports
+`failed: sim-missing` — which is what the earlier sessions of this port were
+chasing as a SIM problem. One QMI call fixes it:
+
+	qmicli -d qrtr://0 --uim-change-provisioning-session=\
+	    "activate=yes,session-type=primary-gw-provisioning,slot=1,aid=<AID>"
+
+	-> Application state: 'ready'
+	   Personalization state: 'ready'
+
+This is not a workaround, it is what the vendor stack does: on Android qcrild
+issues `QMI_UIM_CHANGE_PROVISIONING_SESSION` during UIM bring-up. ModemManager
+1.24 does not, because most QMI modems auto-provision the first card.
+
+The service runs before ModemManager so MM's single probe sees a ready card. It
+is idempotent: once the EFS is writable the session survives reboots and the
+service just logs "already exists". It is still needed for any new SIM.
+
+## memshare
+
+The modem asks the application processor for 5 MB over QMI service 52 during
+bring-up. `memshare-daemon.c` answers it, and `kali-boot-v93`+ reserves the
+region at 0x8ab00000. This was investigated at length and is **not** what was
+blocking the radio (see HANDOFF-SESSION4.md sessions 13b/13c), but answering it
+is correct and it is kept.
+
+Do not advertise a size on an image whose device tree lacks the region: the
+daemon would hand out memory Linux is still using.
+
+## Also required, outside this directory
+
+`kernel/patches/0042-net-ipa-sm6375-fix-imem-address.patch`. The IPA data for
+SM6375 inherited qcm2290's IMEM address (0x146a8000); on this SoC the modem's
+route and filter tables are at **0x0c123000**. Nothing notices until the modem
+actually registers, at which point the IPA reads them through its own SMMU
+context bank, faults, and the watchdog takes the SoC down:
+
+	arm-smmu c600000.iommu: Unhandled context fault: fsr=0x402,
+		iova=0x0c123080, cbfrsynra=0x4a0
+	androidboot.bootreason=watchdog
+
+`ipa.ko` is a module, so this one does not need a reflash: rebuild, copy the
+module, `depmod -a 7.2.0-rc5`, reboot.
+
+## Verifying
+
+	mmcli -m any | grep -E "state:|registration|operator|access tech"
+	  state: registered   registration: home
+	  operator name: PERSONAL   access tech: lte
+
+	nmcli con up personal          # gsm connection, apn datos.personal.com
+	curl --interface qmapmux0.0 https://ifconfig.me
+
+If it is not registered, in order: `journalctl -u rhodep-rfs-populate -b`,
+`journalctl -u tqftpserv -b | grep -E "reject|invalid"` (there should be nothing
+but `datablock/id_01`, which is the second SIM slot, and `ota_firewall/ruleset`,
+which the modem creates), then `journalctl -u rhodep-uim-provision -b`.

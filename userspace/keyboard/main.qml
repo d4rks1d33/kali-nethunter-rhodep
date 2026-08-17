@@ -4,18 +4,45 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 //
-// Two additions over the stock layout: a row of digits, and a row with Esc,
-// Tab, Ctrl, Alt and the arrows.
+// Ctrl and Alt arm rather than type, the way Termux's extra keys row works, so
+// any combination is reachable.
 //
-// Ctrl and Alt are modifiers that arm rather than type, the way Termux's extra
-// keys row works, so Ctrl + Shift + C is composed with the keyboard's own Shift
-// key and *any* combination is reachable - not just the handful a dedicated key
-// could cover. They are ModeKeys, which the keyboard style shows as active, and
-// they disarm after one use.
+// How the combination is delivered, which took a protocol trace and a read of
+// plasma-keyboard's source to get right. Passing Qt.ControlModifier to
+// virtualKeyClick does nothing: src/inputlisteneritem.cpp sends
 //
-// The state lives in the ModeKeys themselves because ModeKey does
-// "onClicked: mode = !mode": binding mode to an outer property would work once
-// and then be overwritten.
+//     m_input.keysym(timestamp, key, InputPlugin::Pressed, 0);
+//                                                          ^ hardcoded
+//
+// so the protocol's modifier field is always zero and no mask ever arrives. The
+// terminal saw a bare "C". Holding Control_L down around the key does not work
+// either: InputEngine delivers a key press on release, so the trace showed the
+// letter going out first and Control_L after it.
+//
+// The same file shows the way through. A key whose event carries text is
+// committed as a string instead:
+//
+//     if (event->text().isEmpty() || key == XKB_KEY_Return)
+//         m_input.keysym(...);
+//     else
+//         m_input.commit(event->text());
+//
+// and Ctrl+C on a tty *is* a byte: 0x03. So these keys send the control
+// character as text. The 0x40..0x5f block folds onto 0x00..0x1f, which is
+// exactly what Ctrl does, and Alt is an Escape prefix, which is what every
+// shell expects.
+//
+// What this cannot do is Ctrl+Shift+C for terminal copy: that is not a
+// character, it is a combination the terminal interprets, and combinations are
+// what the hardcoded zero above throws away. It needs a patched
+// plasma-keyboard.
+//
+// The armed state is a property of the root object, not a ModeKey's own "mode":
+// ModeKey does "onClicked: mode = !mode", so a binding to mode would work
+// exactly once and then be overwritten.
+//
+// No digit row: the digits are one tap away on &123, and long press on q..p
+// still reaches them through alternativeKeys.
 
 import QtQuick
 import QtQuick.VirtualKeyboard
@@ -29,112 +56,159 @@ KeyboardLayout {
     readonly property real normalKeyWidth: normalKey.width
     readonly property real functionKeyWidth: mapFromItem(normalKey, normalKey.width / 2, 0).x
 
-    function armed() { return ctrlKey.mode || altKey.mode }
+    property bool ctrlArmed: false
+    property bool altArmed: false
 
-    // Shift comes from the keyboard's own Shift key, so Ctrl + Shift + C is
-    // typed the way it would be on a hardware keyboard.
-    function heldModifiers() {
-        var m = 0
-        if (ctrlKey.mode)
-            m |= Qt.ControlModifier
-        if (altKey.mode)
-            m |= Qt.AltModifier
-        if (InputContext.shiftActive)
-            m |= Qt.ShiftModifier
-        return m
-    }
+    function armed() { return ctrlArmed || altArmed }
 
     function disarm() {
-        ctrlKey.mode = false
-        altKey.mode = false
+        ctrlArmed = false
+        altArmed = false
     }
 
-    // A character key that becomes part of a combination while Ctrl or Alt is
-    // armed. noKeyEvent stops it typing its own character; clicked still fires,
-    // which is what carries the combination.
+    // The 0x40..0x5f block is what Ctrl folds onto 0x00..0x1f on a tty:
+    // Ctrl+C is 0x03, Ctrl+[ is 0x1b (which is why Esc and Ctrl+[ are the same
+    // key on a terminal), Ctrl+_ is 0x1f.
+    function controlCharacter(keyCode) {
+        if (keyCode >= 0x40 && keyCode <= 0x5f)
+            return String.fromCharCode(keyCode & 0x1f)
+        return ""
+    }
+
+    // Sent as text, not as a modifier mask, because the mask is discarded on the
+    // way out - see the note at the top of the file.
+    function sendCombination(keyCode, plainText) {
+        var out = plainText
+        if (ctrlArmed) {
+            var c = controlCharacter(keyCode)
+            if (c !== "")
+                out = c
+        }
+        if (altArmed)
+            out = String.fromCharCode(0x1b) + out // Esc prefix: Alt on a tty
+        disarm()
+        if (out.length === 0)
+            return
+        console.log("RHODEP-KB sending " + JSON.stringify(out) + " for key " + keyCode)
+        InputContext.sendKeyClick(keyCode, out, 0)
+    }
+
+    // A character key that turns into part of a combination while a modifier is
+    // armed: noKeyEvent stops it typing its own character, and clicked still
+    // fires, which is what sends the combination.
     component TermKey: Key {
         noKeyEvent: root.armed()
         onClicked: {
             if (!root.armed())
                 return
-            InputContext.inputEngine.virtualKeyClick(key, "", root.heldModifiers())
-            root.disarm()
+            root.sendCombination(key, uppercased ? text.toUpperCase() : text)
         }
     }
 
+    // Esc, Tab, the modifiers and the arrows, in the same place on every page.
     KeyboardRow {
-        TermKey { key: Qt.Key_1; text: "1" }
-        TermKey { key: Qt.Key_2; text: "2" }
-        TermKey { key: Qt.Key_3; text: "3" }
-        TermKey { key: Qt.Key_4; text: "4" }
-        TermKey { key: Qt.Key_5; text: "5" }
-        TermKey { key: Qt.Key_6; text: "6" }
-        TermKey { key: Qt.Key_7; text: "7" }
-        TermKey { key: Qt.Key_8; text: "8" }
-        TermKey { key: Qt.Key_9; text: "9" }
-        TermKey { key: Qt.Key_0; text: "0" }
-    }
-    KeyboardRow {
-        Key { key: Qt.Key_Escape; displayText: "Esc"; functionKey: true }
-        Key { key: Qt.Key_Tab; text: "\t"; displayText: "Tab"; functionKey: true }
-        ModeKey { id: ctrlKey; displayText: "Ctrl" }
-        ModeKey { id: altKey; displayText: "Alt" }
-        Key { key: Qt.Key_Left; displayText: "\u2190"; functionKey: true }
-        Key { key: Qt.Key_Up; displayText: "\u2191"; functionKey: true }
-        Key { key: Qt.Key_Down; displayText: "\u2193"; functionKey: true }
-        Key { key: Qt.Key_Right; displayText: "\u2192"; functionKey: true }
+        Key { key: Qt.Key_Escape; displayText: "Esc"; functionKey: true; noModifier: true; weight: 210 }
+        Key { key: Qt.Key_Tab; text: "\t"; displayText: "Tab"; functionKey: true; noModifier: true; weight: 210 }
+        Key {
+            displayText: "Ctrl"
+            functionKey: true
+            noKeyEvent: true
+            noModifier: true
+            weight: 210
+            highlighted: root.ctrlArmed
+            // A dot in the corner, so the label keeps its width.
+            smallText: "\u25cf"
+            smallTextVisible: root.ctrlArmed
+            onClicked: root.ctrlArmed = !root.ctrlArmed
+        }
+        Key {
+            displayText: "Alt"
+            functionKey: true
+            noKeyEvent: true
+            noModifier: true
+            weight: 210
+            highlighted: root.altArmed
+            // A dot in the corner, so the label keeps its width.
+            smallText: "\u25cf"
+            smallTextVisible: root.altArmed
+            onClicked: root.altArmed = !root.altArmed
+        }
+        Key { key: Qt.Key_Left; displayText: "\u2190"; functionKey: true; noModifier: true; weight: 120 }
+        Key { key: Qt.Key_Up; displayText: "\u2191"; functionKey: true; noModifier: true; weight: 120 }
+        Key { key: Qt.Key_Down; displayText: "\u2193"; functionKey: true; noModifier: true; weight: 120 }
+        Key { key: Qt.Key_Right; displayText: "\u2192"; functionKey: true; noModifier: true; weight: 120 }
     }
     KeyboardRow {
         TermKey {
             key: Qt.Key_Q
             text: "q"
             alternativeKeys: "q1"
+            smallText: "1"
+            smallTextVisible: true
         }
         TermKey {
             id: normalKey
             key: Qt.Key_W
             text: "w"
             alternativeKeys: "w2"
+            smallText: "2"
+            smallTextVisible: true
         }
         TermKey {
             key: Qt.Key_E
             text: "e"
             alternativeKeys: "êe3ëèé"
+            smallText: "3"
+            smallTextVisible: true
         }
         TermKey {
             key: Qt.Key_R
             text: "r"
             alternativeKeys: "ŕr4ř"
+            smallText: "4"
+            smallTextVisible: true
         }
         TermKey {
             key: Qt.Key_T
             text: "t"
             alternativeKeys: "ţt5ŧť"
+            smallText: "5"
+            smallTextVisible: true
         }
         TermKey {
             key: Qt.Key_Y
             text: "y"
             alternativeKeys: "ÿy6ýŷ"
+            smallText: "6"
+            smallTextVisible: true
         }
         TermKey {
             key: Qt.Key_U
             text: "u"
             alternativeKeys: "űūũûüu7ùú"
+            smallText: "7"
+            smallTextVisible: true
         }
         TermKey {
             key: Qt.Key_I
             text: "i"
             alternativeKeys: "îïīĩi8ìí"
+            smallText: "8"
+            smallTextVisible: true
         }
         TermKey {
             key: Qt.Key_O
             text: "o"
             alternativeKeys: "œøõôöòóo9"
+            smallText: "9"
+            smallTextVisible: true
         }
         TermKey {
             key: Qt.Key_P
             text: "p"
             alternativeKeys: "p0"
+            smallText: "0"
+            smallTextVisible: true
         }
     }
     KeyboardRow {

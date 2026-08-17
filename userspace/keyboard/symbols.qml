@@ -29,7 +29,7 @@ KeyboardLayoutLoader {
     // 0 = symbols, 1 = more symbols, 2 = terminal
     property int page: 0
     onVisibleChanged: if (!visible) page = 0
-    sourceComponent: page === 0 ? pageSymbols : (page === 1 ? pageSymbols2 : pageTerminal)
+    sourceComponent: page === 0 ? pageTerminal : (page === 1 ? pageSymbols : pageSymbols2)
 
     // One tap moves to the next page and wraps around.
     function nextPage() { root.page = (root.page + 1) % 3 }
@@ -66,7 +66,7 @@ KeyboardLayoutLoader {
             }
             KeyboardRow {
                 Key {
-                    displayText: "1/3"
+                    displayText: "2/3"
                     functionKey: true
                     highlighted: true
                     weight: functionKeyWidth
@@ -124,7 +124,7 @@ KeyboardLayoutLoader {
             }
             KeyboardRow {
                 Key {
-                    displayText: "2/3"
+                    displayText: "3/3"
                     functionKey: true
                     highlighted: true
                     weight: functionKeyWidth
@@ -157,75 +157,40 @@ KeyboardLayoutLoader {
             readonly property real normalKeyWidth: normalKey3.width
             readonly property real functionKeyWidth: mapFromItem(normalKey3, normalKey3.width / 2, 0).x
 
-            // Esc, Tab and the characters that are three taps away on the
-            // stock layout and that a shell needs constantly.
+            // Four and five keys per row, not ten. Labels like "Esc", "PgUp"
+            // or "\u21e7^C" need the room: at ten per row they overflow the key
+            // and run into each other.
+
             KeyboardRow {
                 Key { id: normalKey3; key: Qt.Key_Escape; displayText: "Esc"; functionKey: true }
                 Key { key: Qt.Key_Tab; text: "\t"; displayText: "Tab"; functionKey: true }
-                Key { key: Qt.Key_AsciiTilde; text: "~" }
-                Key { key: Qt.Key_Slash; text: "/" }
-                Key { key: Qt.Key_Backslash; text: "\\" }
-                Key { key: Qt.Key_Bar; text: "|" }
-                Key { key: Qt.Key_Minus; text: "-" }
-                Key { key: Qt.Key_Underscore; text: "_" }
-                Key { key: Qt.Key_Asterisk; text: "*" }
-                Key { key: Qt.Key_Greater; text: ">" }
+                Key { key: Qt.Key_Home; displayText: "Home"; functionKey: true }
+                Key { key: Qt.Key_End; displayText: "End"; functionKey: true }
             }
 
-            // Real Ctrl combinations, sent with the modifier set.
+            // The arrows kept together, so they can be used without looking.
+            KeyboardRow {
+                Key { key: Qt.Key_Left; displayText: "\u2190"; functionKey: true }
+                Key { key: Qt.Key_Up; displayText: "\u2191"; functionKey: true }
+                Key { key: Qt.Key_Down; displayText: "\u2193"; functionKey: true }
+                Key { key: Qt.Key_Right; displayText: "\u2192"; functionKey: true }
+            }
+
+            // Real key events with the modifier set, not fabricated control
+            // characters - that is why Ctrl+Shift+C reaches the terminal as
+            // copy instead of as a stray character.
             KeyboardRow {
                 Key {
                     displayText: "^C"; functionKey: true; noKeyEvent: true
                     onClicked: InputContext.inputEngine.virtualKeyClick(Qt.Key_C, "", Qt.ControlModifier)
                 }
                 Key {
-                    displayText: "^D"; functionKey: true; noKeyEvent: true
-                    onClicked: InputContext.inputEngine.virtualKeyClick(Qt.Key_D, "", Qt.ControlModifier)
+                    displayText: "^V"; functionKey: true; noKeyEvent: true
+                    onClicked: InputContext.inputEngine.virtualKeyClick(Qt.Key_V, "", Qt.ControlModifier)
                 }
                 Key {
-                    displayText: "^Z"; functionKey: true; noKeyEvent: true
-                    onClicked: InputContext.inputEngine.virtualKeyClick(Qt.Key_Z, "", Qt.ControlModifier)
-                }
-                Key {
-                    displayText: "^L"; functionKey: true; noKeyEvent: true
-                    onClicked: InputContext.inputEngine.virtualKeyClick(Qt.Key_L, "", Qt.ControlModifier)
-                }
-                Key {
-                    displayText: "^A"; functionKey: true; noKeyEvent: true
-                    onClicked: InputContext.inputEngine.virtualKeyClick(Qt.Key_A, "", Qt.ControlModifier)
-                }
-                Key {
-                    displayText: "^E"; functionKey: true; noKeyEvent: true
-                    onClicked: InputContext.inputEngine.virtualKeyClick(Qt.Key_E, "", Qt.ControlModifier)
-                }
-                Key {
-                    displayText: "^R"; functionKey: true; noKeyEvent: true
-                    onClicked: InputContext.inputEngine.virtualKeyClick(Qt.Key_R, "", Qt.ControlModifier)
-                }
-                Key {
-                    displayText: "^W"; functionKey: true; noKeyEvent: true
-                    onClicked: InputContext.inputEngine.virtualKeyClick(Qt.Key_W, "", Qt.ControlModifier)
-                }
-                Key {
-                    displayText: "^U"; functionKey: true; noKeyEvent: true
-                    onClicked: InputContext.inputEngine.virtualKeyClick(Qt.Key_U, "", Qt.ControlModifier)
-                }
-                Key {
-                    displayText: "^K"; functionKey: true; noKeyEvent: true
-                    onClicked: InputContext.inputEngine.virtualKeyClick(Qt.Key_K, "", Qt.ControlModifier)
-                }
-            }
-
-            // Copy and paste as the terminal understands them, plus history
-            // and cursor movement.
-            KeyboardRow {
-                Key {
-                    displayText: "3/3"
-                    functionKey: true
-                    highlighted: true
-                    weight: functionKeyWidth
-                    Layout.fillWidth: false
-                    onClicked: root.nextPage()
+                    displayText: "^X"; functionKey: true; noKeyEvent: true
+                    onClicked: InputContext.inputEngine.virtualKeyClick(Qt.Key_X, "", Qt.ControlModifier)
                 }
                 Key {
                     displayText: "\u21e7^C"; functionKey: true; noKeyEvent: true
@@ -235,20 +200,20 @@ KeyboardLayoutLoader {
                     displayText: "\u21e7^V"; functionKey: true; noKeyEvent: true
                     onClicked: InputContext.inputEngine.virtualKeyClick(Qt.Key_V, "", Qt.ControlModifier | Qt.ShiftModifier)
                 }
-                Key { key: Qt.Key_Home; displayText: "Home"; functionKey: true }
-                Key { key: Qt.Key_Up; displayText: "\u2191"; functionKey: true }
-                Key { key: Qt.Key_End; displayText: "End"; functionKey: true }
-                Key { key: Qt.Key_PageUp; displayText: "PgUp"; functionKey: true }
-                BackspaceKey { weight: functionKeyWidth; Layout.fillWidth: false }
             }
 
             KeyboardRow {
                 SymbolModeKey { weight: functionKeyWidth; Layout.fillWidth: false; displayText: "ABC" }
-                Key { key: Qt.Key_Left; displayText: "\u2190"; functionKey: true; weight: normalKeyWidth; Layout.fillWidth: false }
-                Key { key: Qt.Key_Down; displayText: "\u2193"; functionKey: true; weight: normalKeyWidth; Layout.fillWidth: false }
-                Key { key: Qt.Key_Right; displayText: "\u2192"; functionKey: true; weight: normalKeyWidth; Layout.fillWidth: false }
+                Key {
+                    displayText: "1/3"
+                    functionKey: true
+                    highlighted: true
+                    weight: functionKeyWidth
+                    Layout.fillWidth: false
+                    onClicked: root.nextPage()
+                }
                 SpaceKey {}
-                Key { key: Qt.Key_PageDown; displayText: "PgDn"; functionKey: true; weight: normalKeyWidth; Layout.fillWidth: false }
+                BackspaceKey { weight: functionKeyWidth; Layout.fillWidth: false }
                 EnterKey { weight: functionKeyWidth; Layout.fillWidth: false }
             }
         }

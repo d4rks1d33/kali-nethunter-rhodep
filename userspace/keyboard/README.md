@@ -3,12 +3,21 @@
 	sudo ./install.sh
 	# then log out and back in, or reboot
 
-Adds a third page to the symbols layout: **Esc, Tab, the arrows, Home/End,
-PgUp/PgDn**, the characters a shell needs constantly (`~ / \ | - _ * >`), and
-**real Ctrl combinations** — `^C ^D ^Z ^L ^A ^E ^R ^W ^U ^K`, plus `⇧^C` and
-`⇧^V` for terminal copy and paste.
+One tap on **&123** and the terminal keys are there — they are the *first* page
+of the symbols layout, not a page you have to walk to:
 
-Reach it with the **&123** key, then **1/3** twice.
+	Esc    Tab     Home   End
+	 ←      ↑       ↓      →
+	^C     ^V      ^X     ⇧^C    ⇧^V
+	ABC    1/3    space    ⌫      ⏎
+
+Four and five keys per row, deliberately. The first version put ten per row,
+copying the stock layout, and labels like `Esc`, `PgUp` and `⇧^C` are far wider
+than a digit: they overflowed their keys and ran into each other, and `PgDn`
+ended up half under the Enter key. Fewer keys, wide enough to hit.
+
+`1/3` cycles on to the two stock symbol pages, so nothing that was there before
+is lost.
 
 ## Why not an existing keyboard
 

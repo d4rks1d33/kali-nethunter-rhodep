@@ -132,9 +132,18 @@ esac
 
 install -D -m 0755 /dev/stdin "$WRAPPER" <<'WRAP'
 #!/bin/sh
-# Point Qt Virtual Keyboard at the layout tree that carries the terminal page.
-# Without this plasma-keyboard uses the layouts baked into its own qrc and the
-# extra page simply does not exist.
+# Both variables are needed, and the first one is the whole trick.
+#
+# plasma-keyboard carries its own copy of the layouts in its qrc and uses those
+# by default, ignoring QT_VIRTUALKEYBOARD_LAYOUT_PATH entirely.
+# PLASMA_KEYBOARD_USE_QT_LAYOUTS is the switch that makes it take Qt Virtual
+# Keyboard's layouts instead - and only then does the path below mean anything.
+# Both names sit next to each other in `strings /usr/bin/plasma-keyboard`.
+#
+# Verified with strace: with both set, the process opens
+# /usr/local/share/rhodep-keyboard/layouts/fallback/main.qml; with only the
+# path set, it opens nothing from that tree.
+export PLASMA_KEYBOARD_USE_QT_LAYOUTS=1
 export QT_VIRTUALKEYBOARD_LAYOUT_PATH=/usr/local/share/rhodep-keyboard/layouts
 exec /usr/bin/plasma-keyboard "$@"
 WRAP

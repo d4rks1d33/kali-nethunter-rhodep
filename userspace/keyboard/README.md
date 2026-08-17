@@ -43,10 +43,23 @@ prefers the layouts compiled into its own qrc:
 	  prefer :/qt/qml/org/kde/plasma/keyboard/
 
 Dropping a `symbols.qml` into that directory changes nothing at all, which is
-exactly what happened on the first attempt. The only way in is
-`QT_VIRTUALKEYBOARD_LAYOUT_PATH`, and setting it replaces the *whole* layout
-set — so `install.sh` copies the stock tree to
-`/usr/local/share/rhodep-keyboard/layouts` and changes one file in it.
+exactly what happened on the first attempt.
+
+`QT_VIRTUALKEYBOARD_LAYOUT_PATH` is the way in, but **on its own it does
+nothing either**: plasma-keyboard carries its own copy of the layouts and
+ignores the variable until `PLASMA_KEYBOARD_USE_QT_LAYOUTS=1` tells it to use
+Qt Virtual Keyboard's layouts instead. The two names sit next to each other in
+`strings /usr/bin/plasma-keyboard`, which is the only documentation there is.
+Setting the path replaces the *whole* layout set, so `install.sh` copies the
+stock tree to `/usr/local/share/rhodep-keyboard/layouts` and changes one file
+in it.
+
+Not guesswork — `strace` on the process settles it:
+
+	# both variables set
+	openat(... "/usr/local/share/rhodep-keyboard/layouts/fallback/main.qml")
+	# only the path set
+	(nothing from that tree)
 
 The variable has to reach the process KWin starts, and that is its own small
 trap: editing `Exec=` in Plasma's `.desktop` file is not enough, KWin goes on

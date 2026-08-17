@@ -3,6 +3,32 @@
 	sudo ./install.sh
 	# then log out and back in, or reboot
 
+## The letters page
+
+	1  2  3  4  5  6  7  8  9  0
+	Esc Tab Ctrl Alt  ←  ↑  ↓  →
+	q  w  e  r  t  y  u  i  o  p
+	 a  s  d  f  g  h  j  k  l
+	⇧   z  x  c  v  b  n  m    ⌫
+	&123 ⚙ ,  space  .  ⌨  ⏎
+
+**Ctrl and Alt arm rather than type**, the way Termux's extra keys row works.
+Tap `Ctrl`, then `c`, and the terminal gets Ctrl+C. Combine with the keyboard's
+own Shift key and `Ctrl` `⇧` `c` gives Ctrl+Shift+C. That reaches *any*
+combination — `^D`, `^Z`, `^R`, `Alt+.` — instead of the handful a dedicated key
+per combination could cover, which is what the first version did.
+
+They are `ModeKey`s, so the keyboard style shows them as active, and they disarm
+after one key. The armed state lives in the ModeKeys themselves: `ModeKey` does
+`onClicked: mode = !mode`, so binding `mode` to an outer property would work
+exactly once and then be overwritten.
+
+Termux itself is no help as code — it is an Android app with its own terminal
+widget, and this is Wayland — but its extra-keys row is the right design and
+this borrows it.
+
+## The symbols page
+
 One tap on **&123** and the terminal keys are there — they are the *first* page
 of the symbols layout, not a page you have to walk to:
 

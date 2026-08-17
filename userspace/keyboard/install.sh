@@ -50,7 +50,8 @@ kwin_set() {
 
 if [ "$1" = "--revert" ]; then
 	[ -x "$PROTECT" ] && "$PROTECT" release "$WRAPPER" "$OUR_DESKTOP" \
-		"$DEST/en_US/symbols.qml" "$DEST/fallback/symbols.qml" 2>/dev/null || true
+		"$DEST/en_US/symbols.qml" "$DEST/fallback/symbols.qml" \
+		"$DEST/fallback/main.qml" 2>/dev/null || true
 	[ -d "$DEST" ] && chattr -R -i "$DEST" 2>/dev/null || true
 	kwin_set "$STOCK_DESKTOP"
 	rm -f "$OUR_DESKTOP" "$WRAPPER"
@@ -72,7 +73,8 @@ fi
 # A previous run registers these with rhodep-protect-files, which sets the
 # immutable bit; without lifting it first the tree cannot be replaced.
 [ -x "$PROTECT" ] && "$PROTECT" release "$WRAPPER" "$OUR_DESKTOP" \
-	"$DEST/en_US/symbols.qml" "$DEST/fallback/symbols.qml" "$STOCK_DESKTOP" 2>/dev/null || true
+	"$DEST/en_US/symbols.qml" "$DEST/fallback/symbols.qml" \
+	"$DEST/fallback/main.qml" "$STOCK_DESKTOP" 2>/dev/null || true
 [ -d "$DEST" ] && chattr -R -i "$DEST" 2>/dev/null || true
 
 # An earlier version of this script edited Plasma's own .desktop file instead of
@@ -110,6 +112,10 @@ install -D -m 0644 "$here/symbols.qml" "$DEST/fallback/symbols.qml"
 # en_US too, since it ships a real symbols.qml that would win over fallback/.
 install -D -m 0644 "$here/symbols.qml" "$DEST/en_US/symbols.qml"
 rm -f "$DEST/en_US/symbols.fallback"
+
+# The letters page, which carries the digit row and the Esc/Tab/Ctrl/Alt/arrows
+# row. Every locale resolves main through fallback/, so one file covers them.
+install -D -m 0644 "$here/main.qml" "$DEST/fallback/main.qml"
 
 # 13 locales ship a symbols page of their own - Arabic, Hebrew, CJK, es_ES,
 # es_MX - and those are left alone, because their symbols are language
@@ -162,7 +168,8 @@ kwin_set "$OUR_DESKTOP"
 if [ -x "$PROTECT" ]; then
 	"$PROTECT" register keyboard 0755 "$WRAPPER" 2>/dev/null || true
 	"$PROTECT" register keyboard-conf 0644 "$OUR_DESKTOP" \
-		"$DEST/fallback/symbols.qml" "$DEST/en_US/symbols.qml" 2>/dev/null || true
+		"$DEST/fallback/symbols.qml" "$DEST/en_US/symbols.qml" \
+		"$DEST/fallback/main.qml" 2>/dev/null || true
 fi
 
 cat <<'MSG'

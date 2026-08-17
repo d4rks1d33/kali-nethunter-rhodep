@@ -50,7 +50,7 @@ kwin_set() {
 
 if [ "$1" = "--revert" ]; then
 	[ -x "$PROTECT" ] && "$PROTECT" release "$WRAPPER" "$OUR_DESKTOP" \
-		"$DEST/en_US/symbols.qml" 2>/dev/null || true
+		"$DEST/en_US/symbols.qml" "$DEST/fallback/symbols.qml" 2>/dev/null || true
 	[ -d "$DEST" ] && chattr -R -i "$DEST" 2>/dev/null || true
 	kwin_set "$STOCK_DESKTOP"
 	rm -f "$OUR_DESKTOP" "$WRAPPER"
@@ -72,7 +72,7 @@ fi
 # A previous run registers these with rhodep-protect-files, which sets the
 # immutable bit; without lifting it first the tree cannot be replaced.
 [ -x "$PROTECT" ] && "$PROTECT" release "$WRAPPER" "$OUR_DESKTOP" \
-	"$DEST/en_US/symbols.qml" "$STOCK_DESKTOP" 2>/dev/null || true
+	"$DEST/en_US/symbols.qml" "$DEST/fallback/symbols.qml" "$STOCK_DESKTOP" 2>/dev/null || true
 [ -d "$DEST" ] && chattr -R -i "$DEST" 2>/dev/null || true
 
 # An earlier version of this script edited Plasma's own .desktop file instead of
@@ -100,9 +100,35 @@ rm -rf "$DEST"
 install -d "$(dirname "$DEST")"
 cp -a "$STOCK_LAYOUTS" "$DEST"
 
-# en_US ships a symbols.fallback marker; a real file wins over it.
+# Where the layout actually has to go, and this is the third trap: Qt Virtual
+# Keyboard picks the layout directory from the *input locale*, and this session
+# runs LANG=C.UTF-8, which is not en_US. An en_US-only layout is simply never
+# looked at. 30 of the 44 locales - en_GB and C.UTF-8 among them - carry a
+# symbols.fallback marker that resolves to fallback/, so that is the single
+# point that covers them all.
+install -D -m 0644 "$here/symbols.qml" "$DEST/fallback/symbols.qml"
+# en_US too, since it ships a real symbols.qml that would win over fallback/.
 install -D -m 0644 "$here/symbols.qml" "$DEST/en_US/symbols.qml"
 rm -f "$DEST/en_US/symbols.fallback"
+
+# 13 locales ship a symbols page of their own - Arabic, Hebrew, CJK, es_ES,
+# es_MX - and those are left alone, because their symbols are language
+# specific. Say so if the session is using one of them, instead of leaving
+# someone wondering why the page is missing.
+lang=$(su "$user" -c "HOME='$home' systemctl --user show-environment 2>/dev/null" | sed -n 's/^LANG=//p')
+[ -n "${lang:-}" ] || lang=$LANG
+case "${lang:-}" in
+	C|C.*|POSIX|en_US*|en_GB*) ;;
+	*)
+		loc=${lang%%.*}
+		if [ -e "$DEST/$loc/symbols.qml" ] && [ "$loc" != en_US ]; then
+			echo
+			echo "note: this session is $lang, and $loc ships its own symbols page,"
+			echo "      which takes precedence. To get the terminal keys there too:"
+			echo "        sudo install -m 0644 $here/symbols.qml $DEST/$loc/symbols.qml"
+		fi
+		;;
+esac
 
 install -D -m 0755 /dev/stdin "$WRAPPER" <<'WRAP'
 #!/bin/sh
@@ -126,7 +152,8 @@ kwin_set "$OUR_DESKTOP"
 
 if [ -x "$PROTECT" ]; then
 	"$PROTECT" register keyboard 0755 "$WRAPPER" 2>/dev/null || true
-	"$PROTECT" register keyboard-conf 0644 "$OUR_DESKTOP" "$DEST/en_US/symbols.qml" 2>/dev/null || true
+	"$PROTECT" register keyboard-conf 0644 "$OUR_DESKTOP" \
+		"$DEST/fallback/symbols.qml" "$DEST/en_US/symbols.qml" 2>/dev/null || true
 fi
 
 cat <<'MSG'

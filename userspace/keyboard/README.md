@@ -59,6 +59,18 @@ The layout was checked with `qmllint` from `qt6-declarative-dev-tools` before
 asking for that reboot. It reports only *unqualified access* style warnings —
 the same ones Qt's own stock `symbols.qml` produces.
 
+And a third trap, which is why an `en_US`-only layout still showed nothing with
+everything else correct: **Qt Virtual Keyboard picks the layout directory from
+the input locale**, and this session runs `LANG=C.UTF-8`. So the layout goes
+into `fallback/`, which is where 30 of the 44 locales — `C.UTF-8` and `en_GB`
+among them — resolve through their `symbols.fallback` marker. The 13 that ship
+a symbols page of their own (Arabic, Hebrew, CJK, `es_ES`, `es_MX`) are left
+alone because their symbols are language specific; `install.sh` says so if the
+session is using one of them.
+
+Quick way to tell whether the layout is live at all: tap **&123** and read the
+page indicator. Stock says **1/2**, ours says **1/3**.
+
 ## The Ctrl keys are real key events
 
 They do not fake control characters. Each calls

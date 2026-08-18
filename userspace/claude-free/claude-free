@@ -1,0 +1,125 @@
+#!/bin/sh
+# Run Claude Code against opencode Zen's free models.
+#
+# Claude Code speaks one API and lets you move it with ANTHROPIC_BASE_URL. Zen
+# speaks the OpenAI shape and its "-free" models answer without a key at all. A
+# small translating proxy sits between the two; this starts it on demand and
+# hands Claude Code the environment that points at it.
+#
+#   claude-free [claude arguments...]
+#   claude-free --models        what is available, with context windows
+#   claude-free --stop          stop the proxy
+#   claude-free --status        is it running
+#
+# Pick models with CLAUDE_FREE_MODEL and CLAUDE_FREE_SMALL_MODEL, or in
+# ~/.config/rhodep/claude-free.conf.
+set -u
+
+PROXY=/usr/local/libexec/rhodep/zen-anthropic-proxy.mjs
+CONF=${XDG_CONFIG_HOME:-$HOME/.config}/rhodep/claude-free.conf
+STATE=${XDG_CACHE_HOME:-$HOME/.cache}/claude-free
+LOG=$STATE/proxy.log
+MODELS_CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/opencode/models.json
+
+[ -r "$CONF" ] && . "$CONF"
+
+PORT=${CLAUDE_FREE_PORT:-8787}
+MODEL=${CLAUDE_FREE_MODEL:-nemotron-3-ultra-free}
+SMALL_MODEL=${CLAUDE_FREE_SMALL_MODEL:-ling-3.0-tiny-free}
+
+mkdir -p "$STATE"
+
+# The free models are not in Claude Code's own table, so it assumes 200k and
+# starts compacting early. The real window is in opencode's model cache.
+context_of() {
+	[ -r "$MODELS_CACHE" ] || return 1
+	python3 - "$1" <<-'PY' 2>/dev/null
+	import json, sys, os
+	cache = os.path.expanduser(os.environ.get("MODELS_CACHE", ""))
+	try:
+	    data = json.load(open(cache))
+	except Exception:
+	    raise SystemExit(1)
+	model = data.get("opencode", {}).get("models", {}).get(sys.argv[1], {})
+	window = (model.get("limit") or {}).get("context")
+	print(window if window else "", end="")
+	PY
+}
+
+proxy_up() {
+	command -v curl >/dev/null 2>&1 || return 1
+	curl -fsS --max-time 2 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1
+}
+
+start_proxy() {
+	proxy_up && return 0
+	[ -r "$PROXY" ] || { echo "claude-free: $PROXY is missing; run install.sh" >&2; return 1; }
+	command -v node >/dev/null 2>&1 || { echo "claude-free: node is not installed" >&2; return 1; }
+	ZEN_PROXY_PORT=$PORT ZEN_MODEL=$MODEL ZEN_SMALL_MODEL=$SMALL_MODEL \
+		nohup node "$PROXY" >>"$LOG" 2>&1 &
+	# Wait for it rather than racing it: Claude Code's first request would
+	# otherwise fail with a connection refused that looks like a proxy bug.
+	i=0
+	while [ $i -lt 40 ]; do
+		proxy_up && return 0
+		i=$((i + 1))
+		sleep 0.25
+	done
+	echo "claude-free: the proxy did not come up; last lines of $LOG:" >&2
+	tail -5 "$LOG" >&2
+	return 1
+}
+
+case "${1:-}" in
+--models)
+	[ -r "$MODELS_CACHE" ] || { echo "no model cache at $MODELS_CACHE; run opencode once" >&2; exit 1; }
+	MODELS_CACHE=$MODELS_CACHE python3 - <<-'PY'
+	import json, os
+	data = json.load(open(os.environ["MODELS_CACHE"]))
+	models = data.get("opencode", {}).get("models", {})
+	rows = []
+	for name, model in models.items():
+	    if "free" not in name:
+	        continue
+	    limit = model.get("limit") or {}
+	    rows.append((limit.get("context") or 0, limit.get("output") or 0, bool(model.get("tool_call")), name))
+	rows.sort(reverse=True)
+	print(f"{'context':>10} {'output':>8}  tools  model")
+	for context, output, tools, name in rows:
+	    print(f"{context:>10} {output:>8}  {'yes' if tools else 'NO ':5}  {name}")
+	PY
+	exit 0
+	;;
+--stop)
+	pkill -f "zen-anthropic-proxy.mjs" 2>/dev/null && echo "proxy stopped" || echo "proxy was not running"
+	exit 0
+	;;
+--status)
+	if proxy_up; then
+		echo "proxy up on port $PORT"
+		curl -fsS "http://127.0.0.1:$PORT/health" 2>/dev/null; echo
+	else
+		echo "proxy down"
+	fi
+	exit 0
+	;;
+esac
+
+start_proxy || exit 1
+
+MODELS_CACHE=$MODELS_CACHE
+export MODELS_CACHE
+window=$(context_of "$MODEL")
+
+export ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT"
+# Claude Code refuses to start without credentials of some kind. The proxy
+# ignores this, and the free models need none.
+export ANTHROPIC_AUTH_TOKEN=${ANTHROPIC_AUTH_TOKEN:-zen-free}
+export ANTHROPIC_MODEL=$MODEL
+export ANTHROPIC_SMALL_FAST_MODEL=$SMALL_MODEL
+export ANTHROPIC_DEFAULT_SONNET_MODEL=$MODEL
+[ -n "${window:-}" ] && export CLAUDE_CODE_MAX_CONTEXT_TOKENS=$window
+# Without this every turn prints a paragraph about the model being unrecognised.
+export CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT=${CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT:-1}
+
+exec claude "$@"

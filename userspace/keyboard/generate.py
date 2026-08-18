@@ -65,6 +65,21 @@ SHARED = '''    property bool ctrlArmed: false
     // way out - see the note at the top of the file.
     function sendCombination(keyCode, plainText) {
         var out = plainText
+
+        // Ctrl+Shift+C and Ctrl+Shift+V cannot be delivered as combinations, and
+        // as control characters they are indistinguishable from Ctrl+C and
+        // Ctrl+V - control characters ignore case, 0x03 either way. So they go
+        // out as Esc followed by the uppercase letter, a sequence nothing else
+        // produces, and the shell turns that into copy and paste. See
+        // userspace/terminal-clipboard.
+        if (ctrlArmed && InputContext.shiftActive && plainText.length > 0) {
+            disarm()
+            InputContext.sendKeyClick(keyCode,
+                                      String.fromCharCode(0x1b) + plainText.toUpperCase(),
+                                      0)
+            return
+        }
+
         if (ctrlArmed) {
             var c = controlCharacter(keyCode)
             if (c !== "")

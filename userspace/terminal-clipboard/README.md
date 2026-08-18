@@ -4,9 +4,28 @@
 	sudo ./install.sh
 	# open a new terminal
 
-	Ctrl V    paste the clipboard into the command line
-	Ctrl O    copy the command line to the clipboard
-	cmd | wl-copy    copy a command's output
+	Ctrl V         paste the clipboard into the command line
+	Ctrl ⇧ V       the same
+	Ctrl ⇧ C       copy: the selected text, or the command line if nothing
+	               is selected
+	Ctrl O         the same
+	cmd | wl-copy  copy a command's output
+
+`Ctrl C` is left alone. It cancels, which is what it has to do.
+
+## Why Ctrl+Shift+C is a different sequence
+
+Control characters ignore case: `Ctrl+C` and `Ctrl+Shift+C` are both `0x03`, so
+one cannot be told from the other, and `0x03` has to keep cancelling. So the
+keyboard sends `Ctrl+Shift+C` as **Esc then `C`** — a sequence nothing else
+produces — and zsh binds that to copy.
+
+Copy prefers the *selection*: dragging a finger across the terminal puts text in
+the primary buffer, which `wl-paste --primary` can read. With nothing selected it
+falls back to the command line, the only other thing that could be meant.
+
+These are ZLE widgets, so they act at the prompt. While a program is running the
+bytes go to the program instead, and `Ctrl+C` keeps cancelling it.
 
 ## Why this is in the shell and not in the keyboard
 

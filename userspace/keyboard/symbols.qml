@@ -74,6 +74,11 @@ KeyboardLayoutLoader {
         return ""
     }
 
+    // Ctrl+V is left alone: it sends 0x16 like any other control character, and
+    // zsh turns that into a clipboard paste - see userspace/terminal-clipboard.
+    // Reading the clipboard here was tried and cannot work: the keyboard has no
+    // keyboard focus, so KWin never sends it a selection offer. The trace showed
+    // not one data_offer, and every read came back empty.
     // Sent as text, not as a modifier mask, because the mask is discarded on the
     // way out - see the note at the top of the file.
     function sendCombination(keyCode, plainText) {
@@ -88,7 +93,6 @@ KeyboardLayoutLoader {
         disarm()
         if (out.length === 0)
             return
-        console.log("RHODEP-KB sending " + JSON.stringify(out) + " for key " + keyCode)
         InputContext.sendKeyClick(keyCode, out, 0)
     }
 

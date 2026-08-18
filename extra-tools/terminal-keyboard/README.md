@@ -221,8 +221,10 @@ and log in again. The stock `.desktop` file is also kept as
 
 ## No language name on the space bar
 
-Breeze draws the current language across the whole space bar — "Español de
-México" — and it never goes away. Its own style holds the opacity up:
+Breeze draws the current language's own name across the whole space bar —
+`Qt.locale(InputContext.locale).nativeLanguageName`, which for a Spanish layout is
+long enough to fill the whole key — and it never goes away. Its own style holds the
+opacity up:
 
 	property real inputLocaleIndicatorOpacity: 1.0
 	onTriggered: inputLocaleIndicatorOpacity = 0.5   // a timer, one second

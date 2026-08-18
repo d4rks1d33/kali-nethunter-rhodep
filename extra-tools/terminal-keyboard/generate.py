@@ -82,8 +82,9 @@ SHARED = '''    property bool ctrlArmed: false
         InputContext.sendKeyClick(keyCode, out, 0)
     }
 
-    // The space bar carries the language name across its whole width - "Espanol
-    // de Mexico" - and it never goes away. Breeze's style holds
+    // The space bar carries the current language's own name across its whole
+    // width - Qt.locale(...).nativeLanguageName, which for Spanish (Mexico) is
+    // long enough to fill it - and it never goes away. Breeze's style holds
     // inputLocaleIndicatorOpacity at 1.0 and a one second timer only takes it to
     // 0.5, never to 0:
     //

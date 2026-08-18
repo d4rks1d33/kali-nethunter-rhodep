@@ -126,12 +126,16 @@ reported instead of quietly swapped:
 
 Not "the proxy returns 200", but Claude Code doing a job, on two providers:
 
+	$ echo 'the secret key is rhodep-4242' > data.txt
+
 	# a Zen free model
-	claude-free -p "Lee dato.txt y deci solo la clave" --allowedTools=Read
+	$ claude-free --model opencode/nemotron-3.5-lightning-free
+	$ claude-free -p "Read data.txt and reply with only the key" --allowedTools=Read
 	rhodep-4242
 
 	# google/gemini-2.5-flash, with your own key
-	La clave secreta es gemini-9911.
+	$ claude-free -p "Read data.txt and reply with only the key" --allowedTools=Read
+	The key is rhodep-4242.
 
 Each needed the whole loop: tools sent upstream, a `tool_use` block streamed back,
 Claude Code running Read, the `tool_result` translated into an OpenAI `tool`
@@ -198,10 +202,12 @@ default, because trusting a directory unasked is what the question exists for.
   `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, set from the catalog, removes the paragraph
   about auto-compacting, but the rest needs a `modelOverrides` format only visible
   inside a minified binary, and filtering stderr would hide real errors.
-- **Free models are rate limited.** Zen answers a 429 as
-  `FreeUsageLimitError: Rate limit exceeded`, which arrives with the provider's own
-  message intact rather than as something mysterious. Your own key has its own
-  quota and is unaffected.
+- **Free models are rate limited, and not all of them are actually free.** Zen
+  answers a 429 as `FreeUsageLimitError: Rate limit exceeded`, and some models the
+  catalog lists as free answer `401 ModelError: Model glm-5-free is not
+  supported...` without a key. Both arrive with the provider's own message intact
+  rather than as something mysterious — the list comes from the catalog, but Zen
+  decides at request time. Your own key has its own quota and is unaffected.
 - **A free model is not Claude.** They call tools and follow instructions less
   reliably, which shows up as loops and skipped steps in long agentic runs. Your
   own paid key, routed the same way, behaves like that provider normally does.

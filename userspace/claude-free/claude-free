@@ -10,6 +10,9 @@
 #   claude-free --model                 list the free models, marking the current
 #   claude-free --model <name>          use that model from now on
 #   claude-free --small-model <name>    the one used for background work
+#   claude-free --trust                 trust this directory without being asked
+#   claude-free --untrust               ask again next time
+#   claude-free --doctor                check everything this depends on
 #   claude-free --stop                  stop the proxy
 #   claude-free --status                is it running
 #
@@ -72,21 +75,23 @@ start_proxy() {
 	return 1
 }
 
-# Claude Code asks whether you trust the directory every single time, because it
-# records the answer as hasTrustDialogAccepted in ~/.claude.json and that value
-# stays false however often you say yes. Set it here, in its own format, for the
-# directory being opened.
+# Claude Code asks once per directory and remembers the answer in
+# ~/.claude.json as hasTrustDialogAccepted. That works - measured: answer it and
+# the value is written immediately, even if the session is then killed, and the
+# question does not come back.
 #
-# This does mean every directory you run claude-free in is trusted without asking.
-# That is the point, but set CLAUDE_FREE_AUTO_TRUST=0 in the config if you would
-# rather be asked.
-trust_cwd() {
-	[ "${CLAUDE_FREE_AUTO_TRUST:-1}" = "0" ] && return 0
+# So this is not done on launch. It exists for the case where the stored value is
+# false and the question will not go away, and for pre-approving a directory on
+# purpose. CLAUDE_FREE_AUTO_TRUST=1 in the config restores doing it every launch,
+# for anyone who wants that.
+set_trust() {
+	wanted=$1
 	command -v python3 >/dev/null 2>&1 || return 0
-	CLAUDE_FREE_DIR=$PWD python3 - <<-'PY' 2>/dev/null
+	CLAUDE_FREE_DIR=$PWD CLAUDE_FREE_TRUST=$wanted python3 - <<-'PY' 2>/dev/null
 	import json, os, tempfile
 	path = os.path.expanduser("~/.claude.json")
 	directory = os.environ["CLAUDE_FREE_DIR"]
+	wanted = os.environ["CLAUDE_FREE_TRUST"] == "yes"
 	try:
 	    with open(path) as handle:
 	        config = json.load(handle)
@@ -96,10 +101,11 @@ trust_cwd() {
 	    raise SystemExit(0)   # not ours to repair
 	projects = config.setdefault("projects", {})
 	entry = projects.setdefault(directory, {})
-	if entry.get("hasTrustDialogAccepted") is True:
+	if entry.get("hasTrustDialogAccepted") is wanted:
 	    raise SystemExit(0)
-	entry["hasTrustDialogAccepted"] = True
-	entry.setdefault("hasCompletedProjectOnboarding", True)
+	entry["hasTrustDialogAccepted"] = wanted
+	if wanted:
+	    entry.setdefault("hasCompletedProjectOnboarding", True)
 	# Atomic, and 0600 like the original: this file holds account state.
 	directory_name = os.path.dirname(path) or "."
 	fd, tmp = tempfile.mkstemp(dir=directory_name)
@@ -162,7 +168,75 @@ list_models() {
 	PY
 }
 
+# The free models are promotional and are retired without notice. Left alone,
+# that surfaces as every request failing with an upstream 404; caught here, it
+# costs a warning and keeps working.
+resolve_model() {
+	model_exists "$MODEL" && return 0
+	replacement=$(MODELS_CACHE=$MODELS_CACHE python3 - <<-'PY' 2>/dev/null
+	import json, os
+	try:
+	    data = json.load(open(os.environ["MODELS_CACHE"]))
+	except Exception:
+	    raise SystemExit(0)
+	best, best_context = "", -1
+	for name, model in data.get("opencode", {}).get("models", {}).items():
+	    if "free" not in name or not model.get("tool_call"):
+	        continue
+	    context = (model.get("limit") or {}).get("context") or 0
+	    if context > best_context:
+	        best, best_context = name, context
+	print(best, end="")
+	PY
+	)
+	if [ -n "$replacement" ]; then
+		echo "claude-free: $MODEL is gone from Zen; using $replacement instead" >&2
+		echo "claude-free: make it permanent with: claude-free --model $replacement" >&2
+		MODEL=$replacement
+	else
+		echo "claude-free: $MODEL is not in the model cache and no replacement was found" >&2
+	fi
+}
+
 case "${1:-}" in
+--trust)
+	set_trust yes
+	echo "trusted: $PWD"
+	exit 0
+	;;
+--untrust)
+	set_trust no
+	echo "will ask again for: $PWD"
+	exit 0
+	;;
+--doctor)
+	echo "node          $(command -v node || echo MISSING) $(node --version 2>/dev/null)"
+	echo "python3       $(command -v python3 || echo MISSING)"
+	echo "claude        $(command -v claude || echo MISSING) $(claude --version 2>/dev/null | head -1)"
+	echo "proxy file    $([ -r "$PROXY" ] && echo "$PROXY" || echo MISSING)"
+	echo "model cache   $([ -r "$MODELS_CACHE" ] && echo "$MODELS_CACHE" || echo "missing - --model cannot list")"
+	printf "model         %s" "$MODEL"
+	if model_exists "$MODEL"; then echo " (offered by Zen)"; else echo " (NOT offered by Zen any more)"; fi
+	printf "background    %s" "$SMALL_MODEL"
+	if model_exists "$SMALL_MODEL"; then echo " (offered by Zen)"; else echo " (NOT offered by Zen any more)"; fi
+	if command -v curl >/dev/null 2>&1; then
+		code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${ZEN_BASE_URL:-https://opencode.ai/zen/v1}/models" 2>/dev/null)
+		echo "zen reachable HTTP ${code:-no answer}"
+	fi
+	if proxy_up; then echo "proxy         up on $PORT"; else echo "proxy         down (starts on demand)"; fi
+	trusted=$(CLAUDE_FREE_DIR=$PWD python3 - <<-'PY' 2>/dev/null
+	import json, os
+	try:
+	    data = json.load(open(os.path.expanduser("~/.claude.json")))
+	except Exception:
+	    raise SystemExit(0)
+	entry = (data.get("projects") or {}).get(os.environ["CLAUDE_FREE_DIR"]) or {}
+	print(entry.get("hasTrustDialogAccepted", "not recorded"), end="")
+	PY
+	)
+	echo "this dir      trusted: ${trusted:-unknown}"
+	exit 0
+	;;
 --model|--small-model)
 	which=$1
 	name=${2:-}
@@ -209,8 +283,9 @@ case "${1:-}" in
 	;;
 esac
 
+resolve_model
 start_proxy || exit 1
-trust_cwd
+[ "${CLAUDE_FREE_AUTO_TRUST:-0}" = "1" ] && set_trust yes
 
 MODELS_CACHE=$MODELS_CACHE
 export MODELS_CACHE

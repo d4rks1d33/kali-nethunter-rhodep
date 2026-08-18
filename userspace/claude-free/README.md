@@ -17,98 +17,62 @@ rather than written, since a typo would otherwise surface as a 404 in the middle
 of a session. The choice is saved in `~/.config/rhodep/claude-free.conf`, and the
 proxy is restarted so it picks the new names up.
 
+## What survives an update
+
+Worth knowing before relying on this, since Claude Code updates itself.
+
+**opencode updating changes nothing.** Nothing here runs opencode. The proxy
+talks to `https://opencode.ai/zen/v1` over HTTP, which is a server, not the
+binary. The only thing read from opencode is `~/.cache/opencode/models.json`, for
+the model list and the context window — if its shape ever changes, `--model`
+lists nothing and the context hint is skipped, and sessions still work.
+
+**Claude Code updating is low risk but not zero.** The four variables it is
+driven with — `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`,
+`ANTHROPIC_SMALL_FAST_MODEL` — are documented and used by every proxy setup, so
+they are unlikely to move. What could: a new version calling an endpoint the proxy
+does not implement, which comes back as an Anthropic-shaped error with the route
+named in the log rather than as a hang; or the `~/.claude.json` format changing,
+which makes `--trust` a no-op instead of corrupting the file. Note that `claude`
+lives in `~/.local/bin` and is not an apt package, so the port's holds do not
+cover it.
+
+**The likely breakage is neither of those.** The free models are promotional and
+get retired without notice, and a retired model means every request fails
+upstream. So the model is checked at launch, and if it is gone the largest
+free model that still supports tool calling is used instead:
+
+	claude-free: nemotron-3-ultra-free is gone from Zen; using mimo-v2-pro-free instead
+	claude-free: make it permanent with: claude-free --model mimo-v2-pro-free
+
+`claude-free --doctor` checks the whole chain in one go — node, python3, claude,
+the proxy file, the model cache, whether both models are still offered, whether
+Zen answers, whether the proxy is up, and whether the current directory is
+trusted.
+
 ## The trust prompt
 
-Claude Code asks whether you trust the directory every time you open it, even
-after you have said yes. The reason is in its own config: `~/.claude.json` keeps
+Claude Code asks once per directory and remembers it. That mechanism works —
+measured three ways in a directory that had never been opened:
 
-	"projects": { "/home/kali": { "hasTrustDialogAccepted": false } }
+	answer it, exit with /exit      hasTrustDialogAccepted = true
+	answer it, then kill the session hasTrustDialogAccepted = true
+	open it again                   no question asked
 
-and that value stays `false`. It is written on a clean exit, so a session that
-ends with Ctrl+C or a closed terminal never records the answer — which is most
-sessions on a phone.
+So `claude-free` does **not** touch trust on launch. Two earlier theories of mine
+were wrong: it is not that the answer needs a clean exit, and it is not that the
+write fails. What was actually wrong was a stored `false` for `/home/kali`, which
+makes the question come back every time and which answering does not appear to
+clear.
 
-So `claude-free` sets it for the directory being opened, in Claude Code's own
-format, atomically and at 0600. Measured on a directory that had never been
-opened:
+For that case, and for pre-approving a directory deliberately:
 
-	without it   trust prompt shown, nothing saved
-	with it      no prompt, hasTrustDialogAccepted = true
+	claude-free --trust      # this directory, no question next time
+	claude-free --untrust    # ask again
 
-**This trusts every directory you run `claude-free` in, without asking.** That is
-the point of it, but `CLAUDE_FREE_AUTO_TRUST=0` in the config brings the question
-back.
-
-## Why this works at all
-
-Three facts, each checked on the device before any code was written:
-
-	claude binary          56 references to ANTHROPIC_BASE_URL
-	Zen provider           api: https://opencode.ai/zen/v1
-	                       npm: @ai-sdk/openai-compatible
-	free model, no key     POST /chat/completions -> HTTP 200
-
-Claude Code talks to exactly one API shape and lets you move it with
-`ANTHROPIC_BASE_URL`. Zen speaks the OpenAI shape, and its `-free` models answer
-**without an API key at all**. So the only missing piece is a translator.
-
-All 25 free models report `tool_call: true`, which is the part that matters:
-Claude Code is a tool-calling loop, and a model that cannot call tools is
-useless to it no matter how well it writes.
-
-## The proxy
-
-`zen-anthropic-proxy.mjs`, Node standard library only — adding a dependency tree
-to a phone to translate two JSON shapes would be a poor trade.
-
-The request direction is mostly renaming. The response direction is not: Claude
-Code expects Anthropic's event sequence
-
-	message_start
-	content_block_start / content_block_delta / content_block_stop
-	message_delta (stop_reason, usage)
-	message_stop
-
-with tool calls arriving as `input_json_delta` fragments, while OpenAI streams
-the same information in a completely different arrangement. That is a small state
-machine, not a field mapping: content blocks have to be numbered, opened once and
-closed once, and a tool call has to close any open text block first.
-
-Model names are mapped rather than passed through — Claude Code asks for
-`haiku` for cheap background work and appends things like `[1m]` to request a
-larger window, and neither is a valid upstream id.
-
-## Verified end to end
-
-Not "the proxy returns 200", but Claude Code actually doing a job:
-
-	claude-free -p "Lee dato.txt y deci solo la clave" --allowedTools=Read
-	rhodep-4242
-
-That answer required the full loop: tools sent upstream, a `tool_use` block
-streamed back, Claude Code running Read, the `tool_result` translated into an
-OpenAI `tool` message, and a second round trip. Text-only replies and
-non-streaming requests were checked separately.
-
-## What it does not do
-
-- **Images are not forwarded.** They become a placeholder line, so the model can
-  say it cannot see them instead of the attachment vanishing silently.
-- **Prompt caching does nothing.** `cache_control` is dropped; Zen has no
-  equivalent, so long sessions cost full input tokens every turn.
-- **Anthropic `thinking` blocks are dropped.** Reasoning models have their own
-  channel and do not want ours; their `reasoning` field is ignored on the way
-  back rather than shown as text.
-- **One diagnostic line per session stays.** Claude Code prints
-  `[claude-code:unrecognized_model]` because these models are not in its table.
-  `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, set from opencode's model cache, removes the
-  paragraph about auto-compacting, but the one-liner needs a `modelOverrides`
-  entry whose format is only visible inside a minified binary. Filtering stderr
-  would hide real errors too, so it stays.
-- **These are not Claude.** They call tools and follow instructions less
-  reliably, which shows up as loops and skipped steps in long agentic runs.
-
-For Zen's paid models, set `OPENCODE_API_KEY` and the proxy will send it.
+`CLAUDE_FREE_AUTO_TRUST=1` in the config trusts every directory on launch, for
+anyone who wants that. It is off by default, because trusting a directory without
+being asked is exactly what the question exists to prevent.
 
 ## Where things are
 

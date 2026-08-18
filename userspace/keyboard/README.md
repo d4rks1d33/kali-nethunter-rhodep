@@ -3,6 +3,25 @@
 	sudo ./install.sh
 	# then log out and back in, or reboot
 
+## Every language, not just one
+
+All 52 layout files Qt ships get the terminal row — 39 `main.qml` and 13
+`symbols.qml`. That matters because **38 of the 44 locales carry a `main.qml` of
+their own**, so an earlier version that patched only `fallback/` meant switching
+to Spanish for the sake of the `ñ` cost you Esc, Tab, Ctrl and the arrows.
+
+	es_ES: terminal row yes, ñ yes
+	es_MX: terminal row yes, ñ yes
+
+There is no `es_AR` in Qt's set; `es_MX` is the Latin American layout, and both
+Spanish layouts have `ñ` as a real key. The fallback layout does not — its `n`
+offers `ņńnň` — which is why the language key matters.
+
+`generate.py` does the transformation at install time and **verifies every file
+with `qmllint`, keeping Qt's original whenever a transform cannot be verified**. A
+layout that will not load is a phone you cannot type on, so the stock file always
+wins. On this device all 52 verified.
+
 ## The letters page
 
 	Esc Tab Ctrl Alt  ←  ↑  ↓  →
@@ -202,6 +221,11 @@ break what they belong to:
 
 	kwinrc    KWin rewrites it constantly
 	.zshrc    it belongs to the user, who edits it
+
+Both `/home/kali/.zshrc` and `/root/.zshrc` are covered: half of what happens on
+this phone happens under `sudo -i`, and a root shell that cannot paste is a root
+shell where long commands get retyped by hand. root's `.zshrc` usually does not
+exist at all, so the enforcer creates it.
 
 Those get `rhodep-keyboard-enforce` instead, at boot and every 30 minutes. It
 puts the `InputMethod` entry and the `.zshrc` source line back and says so in the

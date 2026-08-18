@@ -1,41 +1,35 @@
-import re
+#!/usr/bin/env python3
+"""Build the terminal-friendly layout tree from Qt's stock one.
 
-HEADER_NOTE = '''// Ctrl and Alt arm rather than type, the way Termux's extra keys row works, so
-// any combination is reachable.
-//
-// How the combination is delivered, which took a protocol trace and a read of
-// plasma-keyboard's source to get right. Passing Qt.ControlModifier to
-// virtualKeyClick does nothing: src/inputlisteneritem.cpp sends
-//
-//     m_input.keysym(timestamp, key, InputPlugin::Pressed, 0);
-//                                                          ^ hardcoded
-//
-// so the protocol's modifier field is always zero and no mask ever arrives. The
-// terminal saw a bare "C". Holding Control_L down around the key does not work
-// either: InputEngine delivers a key press on release, so the trace showed the
-// letter going out first and Control_L after it.
-//
-// The same file shows the way through. A key whose event carries text is
-// committed as a string instead:
-//
-//     if (event->text().isEmpty() || key == XKB_KEY_Return)
-//         m_input.keysym(...);
-//     else
-//         m_input.commit(event->text());
-//
-// and Ctrl+C on a tty *is* a byte: 0x03. So these keys send the control
-// character as text. The 0x40..0x5f block folds onto 0x00..0x1f, which is
-// exactly what Ctrl does, and Alt is an Escape prefix, which is what every
-// shell expects.
-//
-// What this cannot do is Ctrl+Shift+C for terminal copy: that is not a
-// character, it is a combination the terminal interprets, and combinations are
-// what the hardcoded zero above throws away. It needs a patched
-// plasma-keyboard.
-//
-// The armed state is a property of the root object, not a ModeKey's own "mode":
-// ModeKey does "onClicked: mode = !mode", so a binding to mode would work
-// exactly once and then be overwritten.'''
+Usage: generate.py <stock-layouts-dir> <destination-dir> [--qmllint PATH] [--qml-import DIR]
+
+Every layout that Qt ships is transformed, not just one, because switching the
+keyboard to Spanish for the sake of the "n" key should not cost you Esc, Tab,
+Ctrl and the arrows. 38 of the 44 locales carry a main.qml of their own, so
+patching only fallback/ left every one of them without the terminal row.
+
+Each transformed file is checked with qmllint when it is available, and any file
+that fails to verify is left as Qt shipped it. A keyboard layout that does not
+load is a phone you cannot type on, so the stock file always wins over a clever
+transform.
+
+What gets added to a layout:
+
+  * a first row with Esc, Tab, Ctrl, Alt and the four arrows
+  * Ctrl and Alt as modifiers that arm rather than type
+  * character keys that become part of a combination while one is armed
+
+How the combination is delivered is the interesting part, and the reasoning is
+in userspace/keyboard/README.md: modifier masks are discarded on the way out, so
+these send control characters as text instead, which is what Ctrl+C on a tty
+actually is.
+"""
+
+import os
+import re
+import shutil
+import subprocess
+import sys
 
 SHARED = '''    property bool ctrlArmed: false
     property bool altArmed: false
@@ -47,31 +41,26 @@ SHARED = '''    property bool ctrlArmed: false
         altArmed = false
     }
 
-    // The 0x40..0x5f block is what Ctrl folds onto 0x00..0x1f on a tty:
-    // Ctrl+C is 0x03, Ctrl+[ is 0x1b (which is why Esc and Ctrl+[ are the same
-    // key on a terminal), Ctrl+_ is 0x1f.
+    // The 0x40..0x5f block is what Ctrl folds onto 0x00..0x1f on a tty: Ctrl+C
+    // is 0x03, Ctrl+[ is 0x1b - which is why Esc and Ctrl+[ are the same key on
+    // a terminal - and Ctrl+_ is 0x1f.
     function controlCharacter(keyCode) {
         if (keyCode >= 0x40 && keyCode <= 0x5f)
             return String.fromCharCode(keyCode & 0x1f)
         return ""
     }
 
-    // Ctrl+V is left alone: it sends 0x16 like any other control character, and
-    // zsh turns that into a clipboard paste - see userspace/terminal-clipboard.
-    // Reading the clipboard here was tried and cannot work: the keyboard has no
-    // keyboard focus, so KWin never sends it a selection offer. The trace showed
-    // not one data_offer, and every read came back empty.
-    // Sent as text, not as a modifier mask, because the mask is discarded on the
-    // way out - see the note at the top of the file.
+    // Sent as text, not as a modifier mask. plasma-keyboard hardcodes the
+    // protocol's modifier field to 0 and KWin ignores it regardless, deriving
+    // modifiers from the keymap, so a mask never arrives. Text does.
     function sendCombination(keyCode, plainText) {
         var out = plainText
 
-        // Ctrl+Shift+C and Ctrl+Shift+V cannot be delivered as combinations, and
-        // as control characters they are indistinguishable from Ctrl+C and
-        // Ctrl+V - control characters ignore case, 0x03 either way. So they go
-        // out as Esc followed by the uppercase letter, a sequence nothing else
-        // produces, and the shell turns that into copy and paste. See
-        // userspace/terminal-clipboard.
+        // Ctrl+Shift+C and Ctrl+Shift+V cannot be told apart from Ctrl+C and
+        // Ctrl+V as control characters - those ignore case, 0x03 either way -
+        // and 0x03 has to keep cancelling. So they go out as Esc followed by the
+        // uppercase letter, which nothing else produces, and the shell turns
+        // that into copy and paste. See userspace/terminal-clipboard.
         if (ctrlArmed && InputContext.shiftActive && plainText.length > 0) {
             disarm()
             InputContext.sendKeyClick(keyCode,
@@ -97,125 +86,219 @@ SHARED = '''    property bool ctrlArmed: false
     // armed: noKeyEvent stops it typing its own character, and clicked still
     // fires, which is what sends the combination.
     component TermKey: Key {
-        noKeyEvent: root.armed()
+        noKeyEvent: ROOT.armed()
         onClicked: {
-            if (!root.armed())
+            if (!ROOT.armed())
                 return
-            root.sendCombination(key, uppercased ? text.toUpperCase() : text)
+            ROOT.sendCombination(key, uppercased ? text.toUpperCase() : text)
         }
     }
 '''
 
-def term_row(indent):
-    i = " " * indent
-    # Word labels get room; arrow glyphs need much less. Equal widths are what
-    # made "Ctrl" and "Esc" look oversized and cramped.
-    def mod(name, prop):
-        return (f'{i}    Key {{\n'
-                f'{i}        displayText: "{name}"\n'
-                f'{i}        functionKey: true\n'
-                f'{i}        noKeyEvent: true\n'
-                f'{i}        noModifier: true\n'
-                f'{i}        weight: 210\n'
-                f'{i}        highlighted: root.{prop}\n'
-                f'{i}        // A dot in the corner, so the label keeps its width.\n'
-                f'{i}        smallText: "\\u25cf"\n'
-                f'{i}        smallTextVisible: root.{prop}\n'
-                f'{i}        onClicked: root.{prop} = !root.{prop}\n'
-                f'{i}    }}\n')
-    return (f'{i}// Esc, Tab, the modifiers and the arrows, in the same place on every page.\n'
-            f'{i}KeyboardRow {{\n'
-            f'{i}    Key {{ key: Qt.Key_Escape; displayText: "Esc"; functionKey: true; noModifier: true; weight: 210 }}\n'
-            f'{i}    Key {{ key: Qt.Key_Tab; text: "\\t"; displayText: "Tab"; functionKey: true; noModifier: true; weight: 210 }}\n'
-            + mod("Ctrl", "ctrlArmed") + mod("Alt", "altArmed") +
-            f'{i}    Key {{ key: Qt.Key_Left; displayText: "\\u2190"; functionKey: true; noModifier: true; weight: 120 }}\n'
-            f'{i}    Key {{ key: Qt.Key_Up; displayText: "\\u2191"; functionKey: true; noModifier: true; weight: 120 }}\n'
-            f'{i}    Key {{ key: Qt.Key_Down; displayText: "\\u2193"; functionKey: true; noModifier: true; weight: 120 }}\n'
-            f'{i}    Key {{ key: Qt.Key_Right; displayText: "\\u2192"; functionKey: true; noModifier: true; weight: 120 }}\n'
-            f'{i}}}')
+TERM_ROW = '''// Esc, Tab, the modifiers and the arrows, in the same place in every layout.
+KeyboardRow {
+    Key { key: Qt.Key_Escape; displayText: "Esc"; functionKey: true; noModifier: true; weight: 210 }
+    Key { key: Qt.Key_Tab; text: "\\t"; displayText: "Tab"; functionKey: true; noModifier: true; weight: 210 }
+    Key {
+        displayText: "Ctrl"
+        functionKey: true
+        noKeyEvent: true
+        noModifier: true
+        weight: 210
+        highlighted: ROOT.ctrlArmed
+        // A dot in the corner, so the label keeps its width. noModifier also
+        // stops Shift rewriting these labels as ESC/TAB/CTRL/ALT, since BaseKey
+        // does "uppercased: InputContext.uppercase && !noModifier".
+        smallText: "\\u25cf"
+        smallTextVisible: ROOT.ctrlArmed
+        onClicked: ROOT.ctrlArmed = !ROOT.ctrlArmed
+    }
+    Key {
+        displayText: "Alt"
+        functionKey: true
+        noKeyEvent: true
+        noModifier: true
+        weight: 210
+        highlighted: ROOT.altArmed
+        smallText: "\\u25cf"
+        smallTextVisible: ROOT.altArmed
+        onClicked: ROOT.altArmed = !ROOT.altArmed
+    }
+    Key { key: Qt.Key_Left; displayText: "\\u2190"; functionKey: true; noModifier: true; weight: 120 }
+    Key { key: Qt.Key_Up; displayText: "\\u2191"; functionKey: true; noModifier: true; weight: 120 }
+    Key { key: Qt.Key_Down; displayText: "\\u2193"; functionKey: true; noModifier: true; weight: 120 }
+    Key { key: Qt.Key_Right; displayText: "\\u2192"; functionKey: true; noModifier: true; weight: 120 }
+}'''
 
-def blocks(src, pattern):
-    out = []
-    for m in re.finditer(pattern, src, re.M):
-        i = src.index('{', m.start()); depth = 0
-        for j in range(i, len(src)):
-            if src[j] == '{': depth += 1
-            elif src[j] == '}':
-                depth -= 1
-                if depth == 0: break
-        out.append((m.start(), j + 1, src[m.start():j + 1]))
-    return out
 
-def to_termkeys(block):
-    res, pos = [], 0
-    for s, e, b in blocks(block, r'^(\s*)Key \{'):
-        res.append(block[pos:s])
-        res.append(re.sub(r'^(\s*)Key \{', r'\1TermKey {', b) if ('text:' in b and 'onClicked' not in b) else b)
-        pos = e
-    res.append(block[pos:])
-    return "".join(res)
+def indent_block(text, spaces):
+    pad = " " * spaces
+    return "\n".join(pad + line if line.strip() else line for line in text.split("\n"))
 
-stock = open('/tmp/opencode/stock_main.qml').read()
-rows = [b for _, _, b in blocks(stock, r'^    KeyboardRow \{')]
-letters = [to_termkeys(r) for r in rows[:3]]
 
-main = ('''// Terminal-friendly Latin layout for the Plasma Mobile keyboard
-// (motorola-rhodep). Derived from Qt's stock main.qml.
-//
-// Copyright (C) 2021 The Qt Company Ltd.
-// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
-//
-''' + HEADER_NOTE + '''
-//
-// No digit row: the digits are one tap away on &123, and long press on q..p
-// still reaches them through alternativeKeys.
+def brace_block(src, start):
+    """The extent of the {...} that begins at or after start."""
+    i = src.index("{", start)
+    depth = 0
+    for j in range(i, len(src)):
+        if src[j] == "{":
+            depth += 1
+        elif src[j] == "}":
+            depth -= 1
+            if depth == 0:
+                return i, j
+    raise ValueError("unbalanced braces")
 
-import QtQuick
-import QtQuick.VirtualKeyboard
-import QtQuick.VirtualKeyboard.Components
-import QtQuick.Layouts
 
-KeyboardLayout {
-    id: root
-    inputMode: InputEngine.InputMode.Latin
-    keyWeight: 160
-    readonly property real normalKeyWidth: normalKey.width
-    readonly property real functionKeyWidth: mapFromItem(normalKey, normalKey.width / 2, 0).x
+def to_termkeys(text):
+    """Character keys become TermKey. Anything with its own onClicked, and every
+    special key type, keeps its behaviour."""
+    out, pos = [], 0
+    for m in re.finditer(r'^([ \t]*)Key \{', text, re.M):
+        start, end = brace_block(text, m.start())
+        block = text[m.start():end + 1]
+        out.append(text[pos:m.start()])
+        if "text:" in block and "onClicked" not in block:
+            block = re.sub(r'^([ \t]*)Key \{', r'\1TermKey {', block, count=1)
+        out.append(block)
+        pos = end + 1
+    out.append(text[pos:])
+    return "".join(out)
 
-''' + SHARED + "\n" + term_row(4) + "\n" + "\n".join(letters) + "\n" + rows[3] + "\n}\n")
-open('main.qml', 'w').write(main)
 
-ss = open('/tmp/opencode/stock_symbols.qml').read()
-pages = blocks(ss, r'^    Component \{')
+def transform(text):
+    """Returns the transformed layout, or None if the shape is unfamiliar."""
+    m = re.search(r'^(KeyboardLayout|KeyboardLayoutLoader)\s*\{', text, re.M)
+    if not m:
+        return None
+    root_type = m.group(1)
+    root_open = text.index("{", m.start())
 
-def rebuild_page(block):
-    block = to_termkeys(block)
-    first = blocks(block, r'^\s+KeyboardRow \{')[0]
-    return block[:first[0]] + term_row(12).lstrip() + "\n" + " " * 12 + block[first[0]:].lstrip()
+    # The root's own id, if it has one; otherwise give it a name that cannot
+    # collide with a key's id.
+    body_start = root_open + 1
+    rid = None
+    id_match = re.search(r'^    id:\s*(\w+)\s*$', text[body_start:], re.M)
+    if id_match and id_match.start() < 400:
+        rid = id_match.group(1)
 
-body = "\n".join(rebuild_page(b) for _, _, b in pages)
-symbols = ('''// Symbols layout for the Plasma Mobile keyboard (motorola-rhodep).
-// Qt's stock two pages, with the terminal row added to both.
-//
-// Copyright (C) 2021 The Qt Company Ltd.
-// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
-//
-''' + HEADER_NOTE + '''
-//
-// There is no extra page of terminal keys any more: the row sits on every page
-// instead, which is fewer taps and one less thing to learn.
+    text = to_termkeys(text)
 
-import QtQuick
-import QtQuick.VirtualKeyboard
-import QtQuick.VirtualKeyboard.Components
-import QtQuick.Layouts
+    # Recompute after the rename, the offsets moved.
+    m = re.search(r'^(KeyboardLayout|KeyboardLayoutLoader)\s*\{', text, re.M)
+    root_open = text.index("{", m.start())
 
-KeyboardLayoutLoader {
-    id: root
-    property bool secondPage
-    onVisibleChanged: if (!visible) { secondPage = false; disarm() }
-    sourceComponent: secondPage ? page2 : page1
+    inject = SHARED.replace("ROOT", rid or "rhodepRoot")
+    if rid is None:
+        inject = "    id: rhodepRoot\n\n" + inject
+    text = text[:root_open + 1] + "\n" + inject + text[root_open + 1:]
 
-''' + SHARED + "\n" + body + "\n}\n")
-open('symbols.qml', 'w').write(symbols)
-print("main.qml y symbols.qml regenerados")
+    row = TERM_ROW.replace("ROOT", rid or "rhodepRoot")
+
+    if root_type == "KeyboardLayout":
+        # Straight into the root, ahead of its first row.
+        first = re.search(r'^([ \t]*)KeyboardRow \{', text, re.M)
+        if not first:
+            return None
+        pad = len(first.group(1))
+        text = text[:first.start()] + indent_block(row, pad).lstrip() + "\n" + text[first.start():]
+    else:
+        # A loader: every page is its own KeyboardLayout and each one needs the
+        # row, or it appears and disappears as you switch pages.
+        pieces, pos, added = [], 0, 0
+        for lm in re.finditer(r'^([ \t]*)KeyboardLayout \{', text, re.M):
+            if lm.start() < pos:
+                continue
+            start, end = brace_block(text, lm.start())
+            block = text[lm.start():end + 1]
+            first = re.search(r'^([ \t]*)KeyboardRow \{', block, re.M)
+            if not first:
+                continue
+            pad = len(first.group(1))
+            block = block[:first.start()] + indent_block(row, pad).lstrip() + "\n" + block[first.start():]
+            pieces.append(text[pos:lm.start()])
+            pieces.append(block)
+            pos = end + 1
+            added += 1
+        if not added:
+            return None
+        pieces.append(text[pos:])
+        text = "".join(pieces)
+
+    return text
+
+
+def qmllint_ok(path, qmllint, imports):
+    if not qmllint:
+        return True
+    cmd = [qmllint]
+    for d in imports:
+        cmd += ["-I", d]
+    cmd.append(path)
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    except Exception:
+        return True  # no verdict is not a failure
+    bad = [ln for ln in (res.stdout + res.stderr).splitlines()
+           if ln.startswith("Error") or (ln.startswith("Warning") and "nqualified" not in ln)]
+    return not bad
+
+
+def main():
+    args = [a for a in sys.argv[1:]]
+    qmllint, imports = None, []
+    while "--qmllint" in args:
+        i = args.index("--qmllint")
+        qmllint = args[i + 1]
+        del args[i:i + 2]
+    while "--qml-import" in args:
+        i = args.index("--qml-import")
+        imports.append(args[i + 1])
+        del args[i:i + 2]
+    if len(args) != 2:
+        print(__doc__.strip().splitlines()[2], file=sys.stderr)
+        return 2
+    stock, dest = args
+
+    if os.path.exists(dest):
+        shutil.rmtree(dest)
+    shutil.copytree(stock, dest)
+
+    done, skipped, untouched = [], [], 0
+    for locale in sorted(os.listdir(dest)):
+        d = os.path.join(dest, locale)
+        if not os.path.isdir(d):
+            continue
+        for name in ("main.qml", "symbols.qml"):
+            path = os.path.join(d, name)
+            if not os.path.exists(path):
+                untouched += 1
+                continue
+            original = open(path, encoding="utf-8").read()
+            try:
+                new = transform(original)
+            except Exception as exc:
+                new = None
+                reason = str(exc)
+            else:
+                reason = "shape not recognised"
+            if new is None:
+                skipped.append(f"{locale}/{name}: {reason}")
+                continue
+            open(path, "w", encoding="utf-8").write(new)
+            if qmllint_ok(path, qmllint, imports):
+                done.append(f"{locale}/{name}")
+            else:
+                open(path, "w", encoding="utf-8").write(original)
+                skipped.append(f"{locale}/{name}: qmllint rejected it, left as Qt shipped it")
+
+    print(f"transformed {len(done)} layout files")
+    if skipped:
+        print(f"left alone ({len(skipped)}):")
+        for s in skipped:
+            print("  " + s)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

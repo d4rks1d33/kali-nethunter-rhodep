@@ -70,6 +70,16 @@ key to evdev keycode mapping written from scratch.
 Against that: `wl-clipboard` and `qmlkonsole` are one new package each and zero
 upgrades.
 
+## Under sudo
+
+The same keys work in a root shell. That needs one extra step, because `sudo -i`
+does not carry the session's Wayland socket in its environment and `wl-paste`
+would silently have nothing to talk to: the snippet looks for
+`/run/user/*/wayland-*` and exports `XDG_RUNTIME_DIR` and `WAYLAND_DISPLAY`
+itself. root can read another user's runtime directory, so this works.
+
+	root lee: [texto-puesto-por-kali]
+
 ## Selecting text on screen
 
 Neither of these keys helps with selecting arbitrary output with a finger, and

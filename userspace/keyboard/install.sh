@@ -50,8 +50,7 @@ kwin_set() {
 
 if [ "$1" = "--revert" ]; then
 	[ -x "$PROTECT" ] && "$PROTECT" release "$WRAPPER" "$OUR_DESKTOP" \
-		"$DEST/en_US/symbols.qml" "$DEST/fallback/symbols.qml" \
-		"$DEST/fallback/main.qml" 2>/dev/null || true
+		2>/dev/null || true
 	[ -d "$DEST" ] && chattr -R -i "$DEST" 2>/dev/null || true
 	kwin_set "$STOCK_DESKTOP"
 	rm -f "$OUR_DESKTOP" "$WRAPPER"
@@ -73,8 +72,7 @@ fi
 # A previous run registers these with rhodep-protect-files, which sets the
 # immutable bit; without lifting it first the tree cannot be replaced.
 [ -x "$PROTECT" ] && "$PROTECT" release "$WRAPPER" "$OUR_DESKTOP" \
-	"$DEST/en_US/symbols.qml" "$DEST/fallback/symbols.qml" \
-	"$DEST/fallback/main.qml" "$STOCK_DESKTOP" \
+	"$STOCK_DESKTOP" \
 	/usr/local/sbin/rhodep-keyboard-enforce \
 	/etc/systemd/system/rhodep-keyboard-enforce.service \
 	/etc/systemd/system/rhodep-keyboard-enforce.timer 2>/dev/null || true
@@ -105,39 +103,20 @@ rm -rf "$DEST"
 install -d "$(dirname "$DEST")"
 cp -a "$STOCK_LAYOUTS" "$DEST"
 
-# Where the layout actually has to go, and this is the third trap: Qt Virtual
-# Keyboard picks the layout directory from the *input locale*, and this session
-# runs LANG=C.UTF-8, which is not en_US. An en_US-only layout is simply never
-# looked at. 30 of the 44 locales - en_GB and C.UTF-8 among them - carry a
-# symbols.fallback marker that resolves to fallback/, so that is the single
-# point that covers them all.
-install -D -m 0644 "$here/symbols.qml" "$DEST/fallback/symbols.qml"
-# en_US too, since it ships a real symbols.qml that would win over fallback/.
-install -D -m 0644 "$here/symbols.qml" "$DEST/en_US/symbols.qml"
-rm -f "$DEST/en_US/symbols.fallback"
+# Every layout, not just one. 38 of the 44 locales ship a main.qml of their own,
+# so patching only fallback/ meant that switching to Spanish for the sake of the
+# "n" key cost you Esc, Tab, Ctrl and the arrows. generate.py transforms the whole
+# tree and verifies each file with qmllint, leaving anything it cannot verify
+# exactly as Qt shipped it - a layout that will not load is a phone you cannot
+# type on.
+command -v python3 >/dev/null 2>&1 || { echo "python3 is needed to build the layouts" >&2; exit 1; }
 
-# The letters page, which carries the digit row and the Esc/Tab/Ctrl/Alt/arrows
-# row. Every locale resolves main through fallback/, so one file covers them.
-install -D -m 0644 "$here/main.qml" "$DEST/fallback/main.qml"
-
-# 13 locales ship a symbols page of their own - Arabic, Hebrew, CJK, es_ES,
-# es_MX - and those are left alone, because their symbols are language
-# specific. Say so if the session is using one of them, instead of leaving
-# someone wondering why the page is missing.
-lang=$(su "$user" -c "HOME='$home' systemctl --user show-environment 2>/dev/null" | sed -n 's/^LANG=//p')
-[ -n "${lang:-}" ] || lang=$LANG
-case "${lang:-}" in
-	C|C.*|POSIX|en_US*|en_GB*) ;;
-	*)
-		loc=${lang%%.*}
-		if [ -e "$DEST/$loc/symbols.qml" ] && [ "$loc" != en_US ]; then
-			echo
-			echo "note: this session is $lang, and $loc ships its own symbols page,"
-			echo "      which takes precedence. To get the terminal keys there too:"
-			echo "        sudo install -m 0644 $here/symbols.qml $DEST/$loc/symbols.qml"
-		fi
-		;;
-esac
+QMLLINT=/usr/lib/qt6/bin/qmllint
+QMLDIR=$(ls -d /usr/lib/*/qt6/qml 2>/dev/null | head -1)
+set -- "$STOCK_LAYOUTS" "$DEST"
+[ -x "$QMLLINT" ] && set -- "$@" --qmllint "$QMLLINT"
+[ -n "$QMLDIR" ] && set -- "$@" --qml-import "$QMLDIR"
+python3 "$here/generate.py" "$@"
 
 install -D -m 0755 /dev/stdin "$WRAPPER" <<'WRAP'
 #!/bin/sh
@@ -185,10 +164,13 @@ fi
 if [ -x "$PROTECT" ]; then
 	"$PROTECT" register keyboard 0755 "$WRAPPER" /usr/local/sbin/rhodep-keyboard-enforce 2>/dev/null || true
 	"$PROTECT" register keyboard-conf 0644 "$OUR_DESKTOP" \
-		"$DEST/fallback/symbols.qml" "$DEST/en_US/symbols.qml" \
-		"$DEST/fallback/main.qml" \
 		/etc/systemd/system/rhodep-keyboard-enforce.service \
 		/etc/systemd/system/rhodep-keyboard-enforce.timer 2>/dev/null || true
+	# Every generated layout, so a stray rm or a bad edit is both refused and
+	# recoverable from the snapshot.
+	find "$DEST" \( -name main.qml -o -name symbols.qml \) -print | while read -r f; do
+		"$PROTECT" register keyboard-layouts 0644 "$f" 2>/dev/null || true
+	done
 fi
 
 cat <<'MSG'

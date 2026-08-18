@@ -25,8 +25,27 @@
 # it receives the bytes itself, and Ctrl+C keeps cancelling it, which is the
 # behaviour you want.
 
+# Under sudo, su or a root login the session's Wayland socket is not in the
+# environment, so wl-paste has nothing to talk to and copy/paste would silently
+# do nothing. Find the logged-in user's runtime directory instead - root can read
+# it. Costs nothing in a normal shell, where both variables are already set.
+rhodep-wayland-env() {
+	[[ -n ${WAYLAND_DISPLAY:-} && -n ${XDG_RUNTIME_DIR:-} ]] && return 0
+	local dir sock
+	for dir in /run/user/*(N/); do
+		for sock in $dir/wayland-<->(N) $dir/wayland-*(N); do
+			[[ $sock == *.lock ]] && continue
+			export XDG_RUNTIME_DIR=$dir
+			export WAYLAND_DISPLAY=${sock:t}
+			return 0
+		done
+	done
+	return 1
+}
+
 if (( $+commands[wl-paste] )); then
 	rhodep-paste-clipboard() {
+		rhodep-wayland-env || return
 		local text
 		text=$(wl-paste --no-newline 2>/dev/null) || return
 		[[ -n $text ]] || return
@@ -43,6 +62,7 @@ if (( $+commands[wl-copy] )); then
 	# buffer. With nothing selected, fall back to the command line, which is the
 	# only other thing here that could be meant.
 	rhodep-copy-clipboard() {
+		rhodep-wayland-env || return
 		local sel
 		sel=$(wl-paste --primary --no-newline 2>/dev/null)
 		if [[ -n $sel ]]; then

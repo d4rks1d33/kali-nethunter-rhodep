@@ -12,6 +12,11 @@ here=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 user=${SUDO_USER:-kali}
 home=$(getent passwd "$user" | cut -d: -f6) || { echo "no such user: $user" >&2; exit 1; }
 
+# root gets the same keys. Half of what anyone does on this phone happens under
+# sudo -i, and a root shell that cannot paste is a root shell where you retype
+# long commands by hand.
+roots=$(getent passwd root | cut -d: -f6)
+
 command -v wl-paste >/dev/null 2>&1 || {
 	echo "wl-clipboard is missing. apt-get install wl-clipboard" >&2; exit 1; }
 
@@ -27,23 +32,32 @@ install -D -m 0644 "$here/rhodep-clipboard.zsh" "$SNIPPET"
 [ -x "$PROTECT" ] && "$PROTECT" register clipboard 0644 "$SNIPPET" 2>/dev/null || true
 
 # One guarded block, so running this twice does not stack up.
-rc=$home/.zshrc
 marker="# >>> rhodep clipboard keys >>>"
-if ! grep -qF "$marker" "$rc" 2>/dev/null; then
+hook() {
+	rc=$1
+	owner=$2
+	# zsh only reads .zshrc if it exists; for root it usually does not.
+	[ -e "$rc" ] || { : > "$rc"; chmod 0644 "$rc"; }
+	if grep -qF "$marker" "$rc" 2>/dev/null; then
+		echo "$rc already hooked, left alone"
+		return
+	fi
 	{
 		echo ""
 		echo "$marker"
-		echo "[ -r /usr/local/share/rhodep/rhodep-clipboard.zsh ] && . /usr/local/share/rhodep/rhodep-clipboard.zsh"
+		echo "[ -r $SNIPPET ] && . $SNIPPET"
 		echo "# <<< rhodep clipboard keys <<<"
 	} >> "$rc"
-	chown "$user":"$user" "$rc"
+	[ -n "$owner" ] && chown "$owner":"$owner" "$rc"
 	echo "hooked into $rc"
-else
-	echo "$rc already hooked, left alone"
-fi
+}
+
+hook "$home/.zshrc" "$user"
+[ -n "$roots" ] && hook "$roots/.zshrc" ""
 
 echo
 echo "Open a new terminal, then:"
 echo "  Ctrl V   paste the clipboard into the command line"
 echo "  Ctrl O   copy the command line to the clipboard"
+echo "Both work under sudo -i too."
 echo "To copy command output:  some-command | wl-copy"

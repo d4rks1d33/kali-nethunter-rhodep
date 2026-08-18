@@ -25,9 +25,11 @@ MARKER="# >>> rhodep clipboard keys >>>"
 
 log() { logger -t rhodep-keyboard-enforce -p daemon.warning -- "$*" 2>/dev/null; echo "rhodep-keyboard-enforce: $*"; }
 
-# Every human user with a home directory, so this keeps working if the account
-# is ever renamed or a second one is added.
+# Every human user with a home directory, so this keeps working if the account is
+# ever renamed or a second one is added - plus root, which gets the clipboard keys
+# but has no Plasma session of its own.
 users=$(getent passwd | awk -F: '$3 >= 1000 && $3 < 65000 && $6 ~ /^\/home\// { print $1 ":" $6 }')
+users="$users root:$(getent passwd root | cut -d: -f6)"
 [ -n "$users" ] || exit 0
 
 for entry in $users; do
@@ -36,7 +38,8 @@ for entry in $users; do
 	[ -d "$home" ] || continue
 
 	# --- the input method KWin starts ------------------------------------
-	if [ -e "$DESKTOP" ]; then
+	# Only for a user who can have a session; root's kwinrc would mean nothing.
+	if [ -e "$DESKTOP" ] && [ "$user" != root ]; then
 		current=$(su "$user" -c "HOME='$home' kreadconfig6 --file kwinrc --group Wayland --key InputMethod" 2>/dev/null)
 		if [ "$current" != "$DESKTOP" ]; then
 			if su "$user" -c "HOME='$home' kwriteconfig6 --file kwinrc --group Wayland --key InputMethod '$DESKTOP'" 2>/dev/null; then
@@ -48,7 +51,12 @@ for entry in $users; do
 	fi
 
 	# --- the clipboard keys ----------------------------------------------
+	# root's .zshrc often does not exist at all, so create it rather than skip:
+	# without it a root shell has no paste key.
 	rc=$home/.zshrc
+	if [ -e "$SNIPPET" ] && [ ! -e "$rc" ] && [ "$user" = root ]; then
+		: > "$rc" 2>/dev/null && chmod 0644 "$rc" 2>/dev/null
+	fi
 	if [ -e "$SNIPPET" ] && [ -e "$rc" ] && ! grep -qF "$MARKER" "$rc" 2>/dev/null; then
 		{
 			echo ""

@@ -82,6 +82,34 @@ SHARED = '''    property bool ctrlArmed: false
         InputContext.sendKeyClick(keyCode, out, 0)
     }
 
+    // The space bar carries the language name across its whole width - "Espanol
+    // de Mexico" - and it never goes away. Breeze's style holds
+    // inputLocaleIndicatorOpacity at 1.0 and a one second timer only takes it to
+    // 0.5, never to 0:
+    //
+    //     property real inputLocaleIndicatorOpacity: 1.0
+    //     onTriggered: inputLocaleIndicatorOpacity = 0.5
+    //     onInputLocaleChanged: inputLocaleIndicatorOpacity = 1.0
+    //
+    // Editing the style is not an option - its qmldir says
+    // "prefer :/qt/qml/QtQuick/VirtualKeyboard/Styles/Breeze/", so it is loaded
+    // from inside libbreezestyle.so and the style.qml on disk is never read.
+    //
+    // So take the property to 0 from here and keep it there. A Binding would be
+    // destroyed by the style's own assignment on the next language change, which
+    // is why this re-asserts instead.
+    function rhodepHideLocaleLabel() {
+        if (typeof keyboard !== "undefined" && keyboard && keyboard.style
+                && keyboard.style.inputLocaleIndicatorOpacity !== 0)
+            keyboard.style.inputLocaleIndicatorOpacity = 0
+    }
+
+    Connections {
+        target: (typeof keyboard !== "undefined" && keyboard) ? keyboard.style : null
+        function onInputLocaleIndicatorOpacityChanged() { ROOT.rhodepHideLocaleLabel() }
+        Component.onCompleted: ROOT.rhodepHideLocaleLabel()
+    }
+
     // A character key that turns into part of a combination while a modifier is
     // armed: noKeyEvent stops it typing its own character, and clicked still
     // fires, which is what sends the combination.

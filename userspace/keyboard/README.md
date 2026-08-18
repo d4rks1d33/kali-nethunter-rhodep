@@ -219,6 +219,39 @@ over SSH:
 and log in again. The stock `.desktop` file is also kept as
 `org.kde.plasma.keyboard.desktop.rhodep-orig`.
 
+## No language name on the space bar
+
+Breeze draws the current language across the whole space bar — "Español de
+México" — and it never goes away. Its own style holds the opacity up:
+
+	property real inputLocaleIndicatorOpacity: 1.0
+	onTriggered: inputLocaleIndicatorOpacity = 0.5   // a timer, one second
+	onInputLocaleChanged: inputLocaleIndicatorOpacity = 1.0
+
+so the label sits there at half opacity for good, and it comes back to full every
+time the language changes.
+
+Editing the style is not an option, and this is the same trap as the layouts: its
+`qmldir` says
+
+	prefer :/qt/qml/QtQuick/VirtualKeyboard/Styles/Breeze/
+
+meaning the style is loaded from inside `libbreezestyle.so` and the `style.qml`
+sitting on disk is never read. Editing it changes nothing.
+
+So the layouts take that property to 0 and **keep it there**. A `Binding` would
+be destroyed the moment the style assigns `1.0` on the next language change, so
+this re-asserts on every change of the property instead:
+
+	Connections {
+	    target: keyboard.style
+	    function onInputLocaleIndicatorOpacityChanged() { rhodepHideLocaleLabel() }
+	    Component.onCompleted: rhodepHideLocaleLabel()
+	}
+
+Checked for runtime QML warnings afterwards, not just with qmllint — a wrong
+property name on a style object is invisible until it runs. None appeared.
+
 ## Protection
 
 The layouts, the wrapper, the launcher and the enforcer are registered with

@@ -7,9 +7,11 @@
 # hands Claude Code the environment that points at it.
 #
 #   claude-free [claude arguments...]
-#   claude-free --models        what is available, with context windows
-#   claude-free --stop          stop the proxy
-#   claude-free --status        is it running
+#   claude-free --model                 list the free models, marking the current
+#   claude-free --model <name>          use that model from now on
+#   claude-free --small-model <name>    the one used for background work
+#   claude-free --stop                  stop the proxy
+#   claude-free --status                is it running
 #
 # Pick models with CLAUDE_FREE_MODEL and CLAUDE_FREE_SMALL_MODEL, or in
 # ~/.config/rhodep/claude-free.conf.
@@ -70,24 +72,126 @@ start_proxy() {
 	return 1
 }
 
-case "${1:-}" in
---models)
+# Claude Code asks whether you trust the directory every single time, because it
+# records the answer as hasTrustDialogAccepted in ~/.claude.json and that value
+# stays false however often you say yes. Set it here, in its own format, for the
+# directory being opened.
+#
+# This does mean every directory you run claude-free in is trusted without asking.
+# That is the point, but set CLAUDE_FREE_AUTO_TRUST=0 in the config if you would
+# rather be asked.
+trust_cwd() {
+	[ "${CLAUDE_FREE_AUTO_TRUST:-1}" = "0" ] && return 0
+	command -v python3 >/dev/null 2>&1 || return 0
+	CLAUDE_FREE_DIR=$PWD python3 - <<-'PY' 2>/dev/null
+	import json, os, tempfile
+	path = os.path.expanduser("~/.claude.json")
+	directory = os.environ["CLAUDE_FREE_DIR"]
+	try:
+	    with open(path) as handle:
+	        config = json.load(handle)
+	except FileNotFoundError:
+	    config = {}
+	except Exception:
+	    raise SystemExit(0)   # not ours to repair
+	projects = config.setdefault("projects", {})
+	entry = projects.setdefault(directory, {})
+	if entry.get("hasTrustDialogAccepted") is True:
+	    raise SystemExit(0)
+	entry["hasTrustDialogAccepted"] = True
+	entry.setdefault("hasCompletedProjectOnboarding", True)
+	# Atomic, and 0600 like the original: this file holds account state.
+	directory_name = os.path.dirname(path) or "."
+	fd, tmp = tempfile.mkstemp(dir=directory_name)
+	try:
+	    with os.fdopen(fd, "w") as handle:
+	        json.dump(config, handle, indent=2)
+	    os.chmod(tmp, 0o600)
+	    os.replace(tmp, path)
+	except Exception:
+	    os.unlink(tmp)
+	    raise SystemExit(0)
+	PY
+}
+
+# Writes a key into the user's config, replacing any existing line for it.
+set_conf() {
+	key=$1
+	value=$2
+	mkdir -p "$(dirname "$CONF")"
+	touch "$CONF"
+	tmp=$CONF.tmp.$$
+	grep -v "^$key=" "$CONF" > "$tmp" 2>/dev/null || :
+	echo "$key=$value" >> "$tmp"
+	mv "$tmp" "$CONF"
+}
+
+# Only Zen models exist upstream; a typo would otherwise show up as a confusing
+# 404 mid-session.
+model_exists() {
+	[ -r "$MODELS_CACHE" ] || return 0
+	MODELS_CACHE=$MODELS_CACHE python3 - "$1" <<-'PY' 2>/dev/null
+	import json, os, sys
+	data = json.load(open(os.environ["MODELS_CACHE"]))
+	models = data.get("opencode", {}).get("models", {})
+	raise SystemExit(0 if sys.argv[1] in models else 1)
+	PY
+}
+
+list_models() {
 	[ -r "$MODELS_CACHE" ] || { echo "no model cache at $MODELS_CACHE; run opencode once" >&2; exit 1; }
-	MODELS_CACHE=$MODELS_CACHE python3 - <<-'PY'
+	MODELS_CACHE=$MODELS_CACHE CURRENT=$MODEL SMALL=$SMALL_MODEL python3 - <<-'PY'
 	import json, os
 	data = json.load(open(os.environ["MODELS_CACHE"]))
 	models = data.get("opencode", {}).get("models", {})
+	current, small = os.environ.get("CURRENT"), os.environ.get("SMALL")
 	rows = []
 	for name, model in models.items():
 	    if "free" not in name:
 	        continue
 	    limit = model.get("limit") or {}
-	    rows.append((limit.get("context") or 0, limit.get("output") or 0, bool(model.get("tool_call")), name))
+	    rows.append((limit.get("context") or 0, limit.get("output") or 0,
+	                 bool(model.get("tool_call")), name))
 	rows.sort(reverse=True)
-	print(f"{'context':>10} {'output':>8}  tools  model")
+	print(f"{'':3}{'context':>10} {'output':>8}  tools  model")
 	for context, output, tools, name in rows:
-	    print(f"{context:>10} {output:>8}  {'yes' if tools else 'NO ':5}  {name}")
+	    mark = "*" if name == current else ("s" if name == small else " ")
+	    print(f"{mark:3}{context:>10} {output:>8}  {'yes' if tools else 'NO ':5}  {name}")
+	print()
+	print(f"* in use    s background work    set with: claude-free --model <name>")
 	PY
+}
+
+case "${1:-}" in
+--model|--small-model)
+	which=$1
+	name=${2:-}
+	if [ -z "$name" ]; then
+		list_models
+		exit 0
+	fi
+	if ! model_exists "$name"; then
+		echo "claude-free: $name is not a model Zen offers. Try: claude-free --model" >&2
+		exit 1
+	fi
+	case "$name" in
+	*-free) ;;
+	*) echo "claude-free: note - $name is not a free model, it needs OPENCODE_API_KEY" >&2 ;;
+	esac
+	if [ "$which" = "--model" ]; then
+		set_conf CLAUDE_FREE_MODEL "$name"
+		echo "model set to $name"
+	else
+		set_conf CLAUDE_FREE_SMALL_MODEL "$name"
+		echo "background model set to $name"
+	fi
+	# The proxy holds the model names from its environment, so it has to be
+	# restarted to pick these up. It starts again on the next run.
+	pkill -f "zen-anthropic-proxy.mjs" 2>/dev/null && echo "proxy restarted on next run"
+	exit 0
+	;;
+--models)
+	list_models
 	exit 0
 	;;
 --stop)
@@ -106,6 +210,7 @@ case "${1:-}" in
 esac
 
 start_proxy || exit 1
+trust_cwd
 
 MODELS_CACHE=$MODELS_CACHE
 export MODELS_CACHE

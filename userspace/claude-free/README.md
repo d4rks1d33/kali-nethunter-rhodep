@@ -1,12 +1,43 @@
 # Claude Code on opencode Zen's free models
 
 	sudo ./install.sh
-	claude-free                 # Claude Code, on a free model
-	claude-free --models        # what is available
-	claude-free --status        # is the proxy up
+	claude-free                        # Claude Code, on a free model
+	claude-free --model                # list the free models, marking the current
+	claude-free --model kimi-k2.5-free # use that one from now on
+	claude-free --small-model <name>   # the one used for background work
+	claude-free --status               # is the proxy up
 	claude-free --stop
 
-Models live in `~/.config/rhodep/claude-free.conf`.
+	  *   1000000   128000  yes    nemotron-3-ultra-free
+          262144   262144  yes    kimi-k2.5-free
+	  s    262144    32768  yes    ling-3.0-tiny-free
+
+`*` is in use, `s` is background work. A name that Zen does not offer is refused
+rather than written, since a typo would otherwise surface as a 404 in the middle
+of a session. The choice is saved in `~/.config/rhodep/claude-free.conf`, and the
+proxy is restarted so it picks the new names up.
+
+## The trust prompt
+
+Claude Code asks whether you trust the directory every time you open it, even
+after you have said yes. The reason is in its own config: `~/.claude.json` keeps
+
+	"projects": { "/home/kali": { "hasTrustDialogAccepted": false } }
+
+and that value stays `false`. It is written on a clean exit, so a session that
+ends with Ctrl+C or a closed terminal never records the answer — which is most
+sessions on a phone.
+
+So `claude-free` sets it for the directory being opened, in Claude Code's own
+format, atomically and at 0600. Measured on a directory that had never been
+opened:
+
+	without it   trust prompt shown, nothing saved
+	with it      no prompt, hasTrustDialogAccepted = true
+
+**This trusts every directory you run `claude-free` in, without asking.** That is
+the point of it, but `CLAUDE_FREE_AUTO_TRUST=0` in the config brings the question
+back.
 
 ## Why this works at all
 

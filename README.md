@@ -141,6 +141,50 @@ list; everything here is a from-scratch community port.
   `rtl8188eus`/`8188eu` DKMS driver, `aireplay-ng --test` injection works too.
 - **Right**: `wifite` scanning nearby APs through the USB adapter.
 
+## Extra tools (`extra-tools/`)
+
+Three things written after the hardware was working, when the obstacles stopped
+being the device and started being software that assumes a desktop. None is needed
+to boot or to place a call; each has a detailed README of its own.
+
+**`terminal-keyboard/`** — Plasma's on-screen keyboard has no Esc, no Tab, no Ctrl
+and no arrows, which makes a terminal close to unusable. This adds them as a row on
+every page, with Ctrl and Alt as modifiers that arm rather than type, so any
+combination is reachable.
+
+The detail worth knowing: modifiers cannot be delivered as modifiers at all.
+`plasma-keyboard` sends the protocol's modifier field as a hardcoded `0`
+(`src/inputlisteneritem.cpp`) and KWin ignores it regardless, deriving modifiers
+from the keymap — which is why an early attempt at Ctrl+C arrived as a capital `C`.
+So these keys send **control characters as text**: Ctrl+C on a tty is not a
+combination, it is the byte `0x03`. All 52 of Qt's layout files are transformed at
+install time and each is verified with `qmllint`, keeping Qt's original whenever a
+transform cannot be verified — a layout that will not load is a phone you cannot
+type on.
+
+**`terminal-clipboard/`** — `Ctrl+V` pastes and `Ctrl+Shift+C` copies in the
+terminal, as zsh widgets.
+
+The detail: this cannot live in the keyboard. The keyboard has no keyboard focus,
+so KWin never sends it a clipboard offer — a protocol trace contains not one
+`data_offer`, and every read came back empty. The shell *can* reach the clipboard,
+and the keyboard can send bytes, so the work happens in the shell. `Ctrl+Shift+C`
+has to travel as `Esc` + `C` rather than as a control character, because control
+characters ignore case: `Ctrl+C` and `Ctrl+Shift+C` are both `0x03`, and `0x03` has
+to keep cancelling.
+
+**`claude-free/`** — Claude Code, running on whatever model providers opencode
+already holds keys for, including opencode Zen's free models, which need no key at
+all.
+
+The detail: Claude Code speaks exactly one API shape and lets you move it with
+`ANTHROPIC_BASE_URL`, so a small proxy translates between that and the OpenAI shape
+every other provider speaks, routing by `provider/model` and reading opencode's own
+`auth.json`. Anthropic is passed through untranslated, since with an Anthropic key
+the request is already the right shape. The real work is the streaming direction:
+Claude Code expects Anthropic's event sequence with tool calls as
+`input_json_delta` fragments, which is a state machine rather than a field rename.
+
 ## Known limitations
 - **Mobile data**: the IPA blocker described in older revisions of this file is
   solved and the modem now enumerates on its own, but it does not get as far as
@@ -214,10 +258,18 @@ userspace/
                       WirePlumber rules, the boot route unit, the udev rule that
                       keeps the codec awake for jack detection, and the jack
                       watcher that switches output (install.sh)
-  apt/                the 43 apt holds this port depends on, the hook that
+  apt/                the 47 apt holds this port depends on, the hook that
                       refuses to purge them, and the enforcer that puts a hold
                       back if anything removes it (apply-holds.sh)
   login/              GDM login screen instead of the phosh.service autologin (install.sh)
+extra-tools/          not needed to boot or to make a call: tools that make the
+                      device pleasant to work *on* (see extra-tools/README.md)
+  terminal-keyboard/  Esc, Tab, Ctrl, Alt and the arrows added to Plasma's
+                      on-screen keyboard, in all 52 layout files (install.sh)
+  terminal-clipboard/ Ctrl+V / Ctrl+Shift+C in the terminal, as zsh widgets,
+                      because the keyboard cannot read the clipboard (install.sh)
+  claude-free/        Claude Code routed through the model providers opencode
+                      already holds keys for (install.sh)
 scripts/
   mkbootv2b.py             build an Android boot.img v2 (flat Image + appended DTB)
   make-boot-from-apk.sh    build a boot.img reusing an initramfs from a base image

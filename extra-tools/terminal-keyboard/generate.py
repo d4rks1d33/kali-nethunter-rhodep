@@ -20,7 +20,7 @@ What gets added to a layout:
   * character keys that become part of a combination while one is armed
 
 How the combination is delivered is the interesting part, and the reasoning is
-in userspace/keyboard/README.md: modifier masks are discarded on the way out, so
+in extra-tools/terminal-keyboard/README.md: modifier masks are discarded on the way out, so
 these send control characters as text instead, which is what Ctrl+C on a tty
 actually is.
 """
@@ -60,7 +60,7 @@ SHARED = '''    property bool ctrlArmed: false
         // Ctrl+V as control characters - those ignore case, 0x03 either way -
         // and 0x03 has to keep cancelling. So they go out as Esc followed by the
         // uppercase letter, which nothing else produces, and the shell turns
-        // that into copy and paste. See userspace/terminal-clipboard.
+        // that into copy and paste. See extra-tools/terminal-clipboard.
         if (ctrlArmed && InputContext.shiftActive && plainText.length > 0) {
             disarm()
             InputContext.sendKeyClick(keyCode,

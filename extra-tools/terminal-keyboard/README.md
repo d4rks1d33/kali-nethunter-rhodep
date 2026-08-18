@@ -252,6 +252,19 @@ this re-asserts on every change of the property instead:
 Checked for runtime QML warnings afterwards, not just with qmllint — a wrong
 property name on a style object is invisible until it runs. None appeared.
 
+## Reinstalling restarts the keyboard
+
+`install.sh` rebuilds the layout tree with `rm -rf` and a fresh copy, which pulls
+the files out from under a running keyboard. It keeps its old, now-deleted layouts
+mapped and cannot load anything it has not already cached, so the panel simply
+stops appearing — with no error anywhere, since nothing crashed. Confirmed by
+looking:
+
+	$ ls -l /proc/$(pgrep -f plasma-keyboard)/map_files | grep -c deleted
+	66
+
+So the installer kills the keyboard at the end and lets KWin start it again.
+
 ## Protection
 
 The layouts, the wrapper, the launcher and the enforcer are registered with

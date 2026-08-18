@@ -187,6 +187,16 @@ if [ -x "$PROTECT" ]; then
 	done
 fi
 
+# The layout tree is deleted and rebuilt above, which pulls the files out from
+# under a running keyboard: it keeps its old, now-deleted layouts mapped and fails
+# to load anything it has not already cached, so the panel stops appearing. Seen
+# for real, with 66 deleted files still mapped by the process. KWin restarts the
+# input method by itself, so killing it is enough.
+if [ -d /run/systemd/system ] && pgrep -f plasma-keyboard >/dev/null 2>&1; then
+	pkill -f '/usr/bin/plasma-keyboard' 2>/dev/null || true
+	echo "keyboard restarted, so it picks up the rebuilt layouts"
+fi
+
 cat <<'MSG'
 installed.
 

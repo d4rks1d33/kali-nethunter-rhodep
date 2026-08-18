@@ -6,6 +6,10 @@
 	claude-free --model google/gemini-2.5-pro
 	claude-free --doctor
 
+Anything in the environment wins over the config file, so
+`CLAUDE_FREE_MODEL=google/gemini-2.5-pro claude-free` is a one-off without editing
+anything.
+
 Models are named `provider/model`. **Whatever you have logged into with `opencode
 auth login` is available here**, because the proxy reads the keys opencode already
 holds — nothing is copied, and no key is written anywhere by this:
@@ -21,6 +25,32 @@ holds — nothing is copied, and no key is written anywhere by this:
 `*` is in use, `s` is background work. A bare name means `opencode`, so older
 configs keep working. Add a provider to opencode and its models appear here with
 no further work.
+
+## In a root shell
+
+Both `claude` and `claude-free` work as root. Two separate problems had to be
+solved for that:
+
+- **`claude` is not on root's PATH.** It installs and updates itself inside a home
+  directory, so `/usr/local/bin/claude` is a shim that finds it wherever it lives
+  rather than a symlink to a path an update could move.
+- **root's home has none of opencode's files.** The catalog, the keys and the model
+  choice all live in the desktop user's home, so a root shell falls back to that
+  user rather than reporting nothing configured:
+
+	running as    root, using /home/kali for opencode's files and config
+
+  The model choice is shared, which is what one person on one machine expects.
+  Trust is not shared: `~/.claude.json` stays per user, as Claude Code intends.
+
+Verified as root: `claude --version` answers, and a tool-using job on
+`google/gemini-2.5-flash` — with the key from `/home/kali` — read a file and
+answered correctly.
+
+Worth being explicit: this means a **root shell runs a binary the desktop user can
+replace**. On a single-user machine where that user already has sudo it grants
+nothing new, but on a shared machine do not install the shim —
+`CLAUDE_FREE_NO_SHIM=1 ./install.sh` skips it.
 
 ## Inside a session
 
@@ -168,6 +198,10 @@ default, because trusting a directory unasked is what the question exists for.
   `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, set from the catalog, removes the paragraph
   about auto-compacting, but the rest needs a `modelOverrides` format only visible
   inside a minified binary, and filtering stderr would hide real errors.
+- **Free models are rate limited.** Zen answers a 429 as
+  `FreeUsageLimitError: Rate limit exceeded`, which arrives with the provider's own
+  message intact rather than as something mysterious. Your own key has its own
+  quota and is unaffected.
 - **A free model is not Claude.** They call tools and follow instructions less
   reliably, which shows up as loops and skipped steps in long agentic runs. Your
   own paid key, routed the same way, behaves like that provider normally does.

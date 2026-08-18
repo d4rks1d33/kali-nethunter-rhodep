@@ -24,6 +24,22 @@ rm -f "$OLD_PROXY"
 
 install -D -m 0644 "$here/anthropic-proxy.mjs" "$PROXY"
 install -D -m 0755 "$here/claude-free" "$WRAPPER"
+
+# `claude` itself is not on root's PATH, because it installs and updates itself
+# inside a home directory. This shim finds it wherever it lives.
+#
+# It does mean a root shell runs a binary the desktop user can replace. On a
+# single-user machine where that user already has sudo it grants nothing new;
+# CLAUDE_FREE_NO_SHIM=1 skips it if that trade is not acceptable here.
+if [ "${CLAUDE_FREE_NO_SHIM:-0}" = "1" ]; then
+	echo "skipping the /usr/local/bin/claude shim (CLAUDE_FREE_NO_SHIM=1)"
+elif [ -e /usr/local/bin/claude ] && ! grep -q "rhodep" /usr/local/bin/claude 2>/dev/null; then
+	echo "/usr/local/bin/claude exists and is not ours; left alone"
+else
+	[ -x "$PROTECT" ] && "$PROTECT" release /usr/local/bin/claude 2>/dev/null || true
+	install -D -m 0755 "$here/claude-shim" /usr/local/bin/claude
+	echo "claude is now on root's PATH too"
+fi
 install -D -m 0644 "$here/README.md" /usr/local/share/rhodep/claude-free/README.md
 
 # A config file the user owns, so model choices survive a reinstall.
@@ -47,11 +63,15 @@ fi
 
 if [ -x "$PROTECT" ]; then
 	"$PROTECT" register claude-free 0755 "$WRAPPER" 2>/dev/null || true
+	[ -e /usr/local/bin/claude ] && "$PROTECT" register claude-free 0755 /usr/local/bin/claude 2>/dev/null || true
 	"$PROTECT" register claude-free-conf 0644 "$PROXY" 2>/dev/null || true
 fi
 
 cat <<'MSG'
 installed.
+
+Works in a root shell too: claude and claude-free both resolve, and opencode's
+keys, catalog and model choice come from the desktop user's home.
 
   claude-free                 Claude Code on a free model
   claude-free --models        what is available

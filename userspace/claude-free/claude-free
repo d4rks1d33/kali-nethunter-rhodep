@@ -23,7 +23,52 @@ LOG=$STATE/proxy.log
 CATALOG=${XDG_CACHE_HOME:-$HOME/.cache}/opencode/models.json
 AUTH=${XDG_DATA_HOME:-$HOME/.local/share}/opencode/auth.json
 
+# In a root shell none of the above exists: opencode's catalog, its keys and
+# Claude Code itself all live in the desktop user's home. Fall back to that user
+# rather than pretending there is nothing configured. This is a single-user
+# machine and root can read those files anyway.
+DESKTOP_HOME=""
+if [ -n "${SUDO_USER:-}" ]; then
+	DESKTOP_HOME=$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6)
+fi
+[ -n "$DESKTOP_HOME" ] || DESKTOP_HOME=$(getent passwd 1000 2>/dev/null | cut -d: -f6)
+
+if [ -n "$DESKTOP_HOME" ] && [ "$DESKTOP_HOME" != "$HOME" ]; then
+	[ -r "$CATALOG" ] || CATALOG=$DESKTOP_HOME/.cache/opencode/models.json
+	[ -r "$AUTH" ] || AUTH=$DESKTOP_HOME/.local/share/opencode/auth.json
+	# Sharing the config means one model choice for both shells, which is what a
+	# single user expects; --model then edits the file both of them read.
+	[ -r "$CONF" ] || {
+		alt=$DESKTOP_HOME/.config/rhodep/claude-free.conf
+		[ -r "$alt" ] && CONF=$alt
+	}
+fi
+
+# Anything set in the environment wins over the file, so a one-off
+# "CLAUDE_FREE_MODEL=... claude-free" works without editing the config.
+env_model=${CLAUDE_FREE_MODEL:-}
+env_small=${CLAUDE_FREE_SMALL_MODEL:-}
+env_port=${CLAUDE_FREE_PORT:-}
 [ -r "$CONF" ] && . "$CONF"
+[ -n "$env_model" ] && CLAUDE_FREE_MODEL=$env_model
+[ -n "$env_small" ] && CLAUDE_FREE_SMALL_MODEL=$env_small
+[ -n "$env_port" ] && CLAUDE_FREE_PORT=$env_port
+
+# Claude Code installs itself into a home directory and updates itself there, so
+# it is not on root's PATH. Resolve it at run time rather than hardcoding a
+# version-specific path.
+find_claude() {
+	for candidate in \
+		"$HOME/.local/bin/claude" \
+		"${DESKTOP_HOME:-/home/kali}/.local/bin/claude" \
+		"$HOME/.claude/local/claude" \
+		"${DESKTOP_HOME:-/home/kali}/.claude/local/claude"
+	do
+		[ -x "$candidate" ] && { echo "$candidate"; return 0; }
+	done
+	# PATH last: /usr/local/bin/claude may be the shim that calls this back.
+	command -v claude 2>/dev/null | grep -v '^/usr/local/bin/claude$' | head -1
+}
 
 PORT=${CLAUDE_FREE_PORT:-8787}
 MODEL=${CLAUDE_FREE_MODEL:-opencode/nemotron-3-ultra-free}
@@ -183,7 +228,9 @@ start_proxy() {
 	proxy_up && return 0
 	[ -r "$PROXY" ] || { echo "claude-free: $PROXY is missing; run install.sh" >&2; return 1; }
 	command -v node >/dev/null 2>&1 || { echo "claude-free: node is not installed" >&2; return 1; }
+	# The proxy gets the same paths, or a root-started proxy would find no keys.
 	ZEN_PROXY_PORT=$PORT ZEN_MODEL=$MODEL ZEN_SMALL_MODEL=$SMALL_MODEL \
+		OPENCODE_AUTH=$AUTH OPENCODE_CATALOG=$CATALOG \
 		nohup node "$PROXY" >>"$LOG" 2>&1 &
 	# Waited for rather than raced: a refused first request looks exactly like a
 	# broken proxy.
@@ -242,7 +289,9 @@ case "${1:-}" in
 --doctor)
 	echo "node          $(command -v node || echo MISSING) $(node --version 2>/dev/null)"
 	echo "python3       $(command -v python3 || echo MISSING)"
-	echo "claude        $(command -v claude || echo MISSING) $(claude --version 2>/dev/null | head -1)"
+	claude_bin=$(find_claude)
+	echo "claude        ${claude_bin:-MISSING} $([ -n "$claude_bin" ] && "$claude_bin" --version 2>/dev/null | head -1)"
+	echo "running as    $(id -un)$([ -n "$DESKTOP_HOME" ] && [ "$DESKTOP_HOME" != "$HOME" ] && echo ", using $DESKTOP_HOME for opencode's files and config")"
 	echo "proxy file    $([ -r "$PROXY" ] && echo "$PROXY" || echo MISSING)"
 	echo "catalog       $([ -r "$CATALOG" ] && echo "$CATALOG" || echo "missing - --model cannot list")"
 	echo "credentials   $(py <<-'PY' 2>/dev/null
@@ -265,6 +314,7 @@ case "${1:-}" in
 	    with open(os.path.expanduser("~/.claude.json")) as handle:
 	        data = json.load(handle)
 	except Exception:
+	    print("not recorded (no ~/.claude.json for this user yet)", end="")
 	    raise SystemExit(0)
 	entry = (data.get("projects") or {}).get(os.environ["CF_DIR"]) or {}
 	print(entry.get("hasTrustDialogAccepted", "not recorded"), end="")
@@ -332,4 +382,10 @@ export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="routed through opencode's prov
 [ -n "${window:-}" ] && export CLAUDE_CODE_MAX_CONTEXT_TOKENS=$window
 export CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT=${CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT:-1}
 
-exec claude "$@"
+CLAUDE_BIN=$(find_claude)
+[ -n "$CLAUDE_BIN" ] || {
+	echo "claude-free: cannot find the claude binary." >&2
+	echo "  looked in $HOME/.local/bin, ${DESKTOP_HOME:-/home/kali}/.local/bin and \$PATH" >&2
+	exit 1
+}
+exec "$CLAUDE_BIN" "$@"

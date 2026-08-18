@@ -1,53 +1,176 @@
 #!/bin/sh
-# Run Claude Code against opencode Zen's free models.
+# Run Claude Code on the models your opencode providers give you.
 #
-# Claude Code speaks one API and lets you move it with ANTHROPIC_BASE_URL. Zen
-# speaks the OpenAI shape and its "-free" models answer without a key at all. A
-# small translating proxy sits between the two; this starts it on demand and
-# hands Claude Code the environment that points at it.
+# Claude Code speaks one API and lets you move it with ANTHROPIC_BASE_URL. A
+# translating proxy sits there and routes by provider, reusing the keys opencode
+# already holds - so whatever you have logged into with `opencode auth login` is
+# available here, plus Zen's free models, which need no key at all.
 #
 #   claude-free [claude arguments...]
-#   claude-free --model                 list the free models, marking the current
-#   claude-free --model <name>          use that model from now on
-#   claude-free --small-model <name>    the one used for background work
-#   claude-free --trust                 trust this directory without being asked
-#   claude-free --untrust               ask again next time
-#   claude-free --doctor                check everything this depends on
-#   claude-free --stop                  stop the proxy
-#   claude-free --status                is it running
-#
-# Pick models with CLAUDE_FREE_MODEL and CLAUDE_FREE_SMALL_MODEL, or in
-# ~/.config/rhodep/claude-free.conf.
+#   claude-free --model                 list what you can use, marking the current
+#   claude-free --model <provider/name>  use that from now on
+#   claude-free --small-model <name>     the one used for background work
+#   claude-free --trust                  trust this directory without being asked
+#   claude-free --untrust                ask again next time
+#   claude-free --doctor                 check everything this depends on
+#   claude-free --status | --stop        the proxy
 set -u
 
-PROXY=/usr/local/libexec/rhodep/zen-anthropic-proxy.mjs
+PROXY=/usr/local/libexec/rhodep/anthropic-proxy.mjs
 CONF=${XDG_CONFIG_HOME:-$HOME/.config}/rhodep/claude-free.conf
 STATE=${XDG_CACHE_HOME:-$HOME/.cache}/claude-free
 LOG=$STATE/proxy.log
-MODELS_CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/opencode/models.json
+CATALOG=${XDG_CACHE_HOME:-$HOME/.cache}/opencode/models.json
+AUTH=${XDG_DATA_HOME:-$HOME/.local/share}/opencode/auth.json
 
 [ -r "$CONF" ] && . "$CONF"
 
 PORT=${CLAUDE_FREE_PORT:-8787}
-MODEL=${CLAUDE_FREE_MODEL:-nemotron-3-ultra-free}
-SMALL_MODEL=${CLAUDE_FREE_SMALL_MODEL:-ling-3.0-tiny-free}
+MODEL=${CLAUDE_FREE_MODEL:-opencode/nemotron-3-ultra-free}
+SMALL_MODEL=${CLAUDE_FREE_SMALL_MODEL:-opencode/ling-3.0-tiny-free}
 
 mkdir -p "$STATE"
+export CATALOG AUTH
 
-# The free models are not in Claude Code's own table, so it assumes 200k and
-# starts compacting early. The real window is in opencode's model cache.
-context_of() {
-	[ -r "$MODELS_CACHE" ] || return 1
-	python3 - "$1" <<-'PY' 2>/dev/null
-	import json, sys, os
-	cache = os.path.expanduser(os.environ.get("MODELS_CACHE", ""))
+# A model spec is provider/model. A bare name means opencode, which is where the
+# free models live, so older configs keep working.
+py() { python3 - "$@"; }
+
+model_query() {
+	CF_SPEC=${1:-} CF_MODE=${2:-exists} py <<-'PY'
+	import json, os, sys
+
+	def load(path):
+	    try:
+	        with open(os.path.expanduser(path)) as handle:
+	            return json.load(handle)
+	    except Exception:
+	        return {}
+
+	catalog = load(os.environ["CATALOG"])
+	spec = os.environ.get("CF_SPEC", "")
+	mode = os.environ.get("CF_MODE", "exists")
+	provider, _, model = spec.partition("/")
+	if not model:
+	    provider, model = "opencode", spec
+	elif provider not in catalog:
+	    provider, model = "opencode", spec
+	entry = (catalog.get(provider) or {}).get("models", {}).get(model)
+	if mode == "exists":
+	    raise SystemExit(0 if entry else 1)
+	if mode == "context":
+	    print((entry or {}).get("limit", {}).get("context") or "", end="")
+	PY
+}
+
+model_exists() { [ -r "$CATALOG" ] || return 0; model_query "$1" exists; }
+context_of() { model_query "$1" context; }
+
+list_models() {
+	[ -r "$CATALOG" ] || { echo "no model catalog at $CATALOG; run opencode once" >&2; exit 1; }
+	CF_CURRENT=$MODEL CF_SMALL=$SMALL_MODEL py <<-'PY'
+	import json, os
+
+	def load(path):
+	    try:
+	        with open(os.path.expanduser(path)) as handle:
+	            return json.load(handle)
+	    except Exception:
+	        return {}
+
+	catalog = load(os.environ["CATALOG"])
+	auth = load(os.environ["AUTH"])
+	current = os.environ.get("CF_CURRENT", "")
+	small = os.environ.get("CF_SMALL", "")
+
+	def normalise(spec):
+	    provider, _, model = spec.partition("/")
+	    return spec if model else f"opencode/{spec}"
+
+	current, small = normalise(current), normalise(small)
+
+	# Zen's free models first: they cost nothing and need no credential, which is
+	# the whole reason this exists.
+	groups = [("opencode", "free, no credential needed", True)]
+	for provider in sorted(auth):
+	    if provider == "opencode":
+	        groups.append((provider, "your opencode credential", False))
+	    else:
+	        groups.append((provider, "your key, held by opencode", False))
+
+	unsupported = {"amazon-bedrock", "azure", "vertex", "google-vertex"}
+	for provider, note, free_only in groups:
+	    models = (catalog.get(provider) or {}).get("models") or {}
+	    rows = []
+	    for name, model in models.items():
+	        if free_only and "free" not in name:
+	            continue
+	        limit = model.get("limit") or {}
+	        rows.append((limit.get("context") or 0, limit.get("output") or 0,
+	                     bool(model.get("tool_call")), f"{provider}/{name}"))
+	    if not rows:
+	        continue
+	    rows.sort(reverse=True)
+	    warn = "  [cannot be reached from here]" if provider in unsupported else ""
+	    print(f"\n{provider} - {note}{warn}")
+	    print(f"{'':3}{'context':>10} {'output':>9}  tools  model")
+	    for context, output, tools, spec in rows[:40]:
+	        mark = "*" if spec == current else ("s" if spec == small else " ")
+	        print(f"{mark:3}{context:>10} {output:>9}  {'yes' if tools else 'NO ':5}  {spec}")
+	    if len(rows) > 40:
+	        print(f"{'':3}... and {len(rows) - 40} more")
+
+	print("\n* in use    s background work")
+	print("set with: claude-free --model <provider/name>")
+	if not auth:
+	    print("only the free models are available; `opencode auth login` adds more")
+	PY
+}
+
+set_conf() {
+	key=$1
+	value=$2
+	mkdir -p "$(dirname "$CONF")"
+	touch "$CONF"
+	tmp=$CONF.tmp.$$
+	grep -v "^$key=" "$CONF" > "$tmp" 2>/dev/null || :
+	echo "$key=$value" >> "$tmp"
+	mv "$tmp" "$CONF"
+}
+
+# Claude Code asks once per directory and remembers the answer itself, which
+# works. This exists for the case where the stored value is false and the question
+# will not go away, and for pre-approving a directory deliberately.
+set_trust() {
+	wanted=$1
+	command -v python3 >/dev/null 2>&1 || return 0
+	CF_DIR=$PWD CF_TRUST=$wanted py <<-'PY' 2>/dev/null
+	import json, os, tempfile
+	path = os.path.expanduser("~/.claude.json")
+	directory = os.environ["CF_DIR"]
+	wanted = os.environ["CF_TRUST"] == "yes"
 	try:
-	    data = json.load(open(cache))
+	    with open(path) as handle:
+	        config = json.load(handle)
+	except FileNotFoundError:
+	    config = {}
 	except Exception:
-	    raise SystemExit(1)
-	model = data.get("opencode", {}).get("models", {}).get(sys.argv[1], {})
-	window = (model.get("limit") or {}).get("context")
-	print(window if window else "", end="")
+	    raise SystemExit(0)   # not ours to repair
+	entry = config.setdefault("projects", {}).setdefault(directory, {})
+	if entry.get("hasTrustDialogAccepted") is wanted:
+	    raise SystemExit(0)
+	entry["hasTrustDialogAccepted"] = wanted
+	if wanted:
+	    entry.setdefault("hasCompletedProjectOnboarding", True)
+	# Atomic and 0600, like the original: that file holds account state.
+	fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".")
+	try:
+	    with os.fdopen(fd, "w") as handle:
+	        json.dump(config, handle, indent=2)
+	    os.chmod(tmp, 0o600)
+	    os.replace(tmp, path)
+	except Exception:
+	    os.unlink(tmp)
 	PY
 }
 
@@ -62,8 +185,8 @@ start_proxy() {
 	command -v node >/dev/null 2>&1 || { echo "claude-free: node is not installed" >&2; return 1; }
 	ZEN_PROXY_PORT=$PORT ZEN_MODEL=$MODEL ZEN_SMALL_MODEL=$SMALL_MODEL \
 		nohup node "$PROXY" >>"$LOG" 2>&1 &
-	# Wait for it rather than racing it: Claude Code's first request would
-	# otherwise fail with a connection refused that looks like a proxy bug.
+	# Waited for rather than raced: a refused first request looks exactly like a
+	# broken proxy.
 	i=0
 	while [ $i -lt 40 ]; do
 		proxy_up && return 0
@@ -75,126 +198,33 @@ start_proxy() {
 	return 1
 }
 
-# Claude Code asks once per directory and remembers the answer in
-# ~/.claude.json as hasTrustDialogAccepted. That works - measured: answer it and
-# the value is written immediately, even if the session is then killed, and the
-# question does not come back.
-#
-# So this is not done on launch. It exists for the case where the stored value is
-# false and the question will not go away, and for pre-approving a directory on
-# purpose. CLAUDE_FREE_AUTO_TRUST=1 in the config restores doing it every launch,
-# for anyone who wants that.
-set_trust() {
-	wanted=$1
-	command -v python3 >/dev/null 2>&1 || return 0
-	CLAUDE_FREE_DIR=$PWD CLAUDE_FREE_TRUST=$wanted python3 - <<-'PY' 2>/dev/null
-	import json, os, tempfile
-	path = os.path.expanduser("~/.claude.json")
-	directory = os.environ["CLAUDE_FREE_DIR"]
-	wanted = os.environ["CLAUDE_FREE_TRUST"] == "yes"
-	try:
-	    with open(path) as handle:
-	        config = json.load(handle)
-	except FileNotFoundError:
-	    config = {}
-	except Exception:
-	    raise SystemExit(0)   # not ours to repair
-	projects = config.setdefault("projects", {})
-	entry = projects.setdefault(directory, {})
-	if entry.get("hasTrustDialogAccepted") is wanted:
-	    raise SystemExit(0)
-	entry["hasTrustDialogAccepted"] = wanted
-	if wanted:
-	    entry.setdefault("hasCompletedProjectOnboarding", True)
-	# Atomic, and 0600 like the original: this file holds account state.
-	directory_name = os.path.dirname(path) or "."
-	fd, tmp = tempfile.mkstemp(dir=directory_name)
-	try:
-	    with os.fdopen(fd, "w") as handle:
-	        json.dump(config, handle, indent=2)
-	    os.chmod(tmp, 0o600)
-	    os.replace(tmp, path)
-	except Exception:
-	    os.unlink(tmp)
-	    raise SystemExit(0)
-	PY
-}
-
-# Writes a key into the user's config, replacing any existing line for it.
-set_conf() {
-	key=$1
-	value=$2
-	mkdir -p "$(dirname "$CONF")"
-	touch "$CONF"
-	tmp=$CONF.tmp.$$
-	grep -v "^$key=" "$CONF" > "$tmp" 2>/dev/null || :
-	echo "$key=$value" >> "$tmp"
-	mv "$tmp" "$CONF"
-}
-
-# Only Zen models exist upstream; a typo would otherwise show up as a confusing
-# 404 mid-session.
-model_exists() {
-	[ -r "$MODELS_CACHE" ] || return 0
-	MODELS_CACHE=$MODELS_CACHE python3 - "$1" <<-'PY' 2>/dev/null
-	import json, os, sys
-	data = json.load(open(os.environ["MODELS_CACHE"]))
-	models = data.get("opencode", {}).get("models", {})
-	raise SystemExit(0 if sys.argv[1] in models else 1)
-	PY
-}
-
-list_models() {
-	[ -r "$MODELS_CACHE" ] || { echo "no model cache at $MODELS_CACHE; run opencode once" >&2; exit 1; }
-	MODELS_CACHE=$MODELS_CACHE CURRENT=$MODEL SMALL=$SMALL_MODEL python3 - <<-'PY'
-	import json, os
-	data = json.load(open(os.environ["MODELS_CACHE"]))
-	models = data.get("opencode", {}).get("models", {})
-	current, small = os.environ.get("CURRENT"), os.environ.get("SMALL")
-	rows = []
-	for name, model in models.items():
-	    if "free" not in name:
-	        continue
-	    limit = model.get("limit") or {}
-	    rows.append((limit.get("context") or 0, limit.get("output") or 0,
-	                 bool(model.get("tool_call")), name))
-	rows.sort(reverse=True)
-	print(f"{'':3}{'context':>10} {'output':>8}  tools  model")
-	for context, output, tools, name in rows:
-	    mark = "*" if name == current else ("s" if name == small else " ")
-	    print(f"{mark:3}{context:>10} {output:>8}  {'yes' if tools else 'NO ':5}  {name}")
-	print()
-	print(f"* in use    s background work    set with: claude-free --model <name>")
-	PY
-}
-
-# The free models are promotional and are retired without notice. Left alone,
-# that surfaces as every request failing with an upstream 404; caught here, it
-# costs a warning and keeps working.
+# Free models are promotional and get retired without notice, which would
+# otherwise surface as every request failing upstream.
 resolve_model() {
 	model_exists "$MODEL" && return 0
-	replacement=$(MODELS_CACHE=$MODELS_CACHE python3 - <<-'PY' 2>/dev/null
+	replacement=$(py <<-'PY' 2>/dev/null
 	import json, os
 	try:
-	    data = json.load(open(os.environ["MODELS_CACHE"]))
+	    with open(os.path.expanduser(os.environ["CATALOG"])) as handle:
+	        catalog = json.load(handle)
 	except Exception:
 	    raise SystemExit(0)
 	best, best_context = "", -1
-	for name, model in data.get("opencode", {}).get("models", {}).items():
+	for name, model in (catalog.get("opencode") or {}).get("models", {}).items():
 	    if "free" not in name or not model.get("tool_call"):
 	        continue
 	    context = (model.get("limit") or {}).get("context") or 0
 	    if context > best_context:
-	        best, best_context = name, context
+	        best, best_context = f"opencode/{name}", context
 	print(best, end="")
 	PY
 	)
 	if [ -n "$replacement" ]; then
-		echo "claude-free: $MODEL is gone from Zen; using $replacement instead" >&2
+		echo "claude-free: $MODEL is no longer offered; using $replacement" >&2
 		echo "claude-free: make it permanent with: claude-free --model $replacement" >&2
 		MODEL=$replacement
 	else
-		echo "claude-free: $MODEL is not in the model cache and no replacement was found" >&2
+		echo "claude-free: $MODEL is not in the catalog and no replacement was found" >&2
 	fi
 }
 
@@ -214,30 +244,35 @@ case "${1:-}" in
 	echo "python3       $(command -v python3 || echo MISSING)"
 	echo "claude        $(command -v claude || echo MISSING) $(claude --version 2>/dev/null | head -1)"
 	echo "proxy file    $([ -r "$PROXY" ] && echo "$PROXY" || echo MISSING)"
-	echo "model cache   $([ -r "$MODELS_CACHE" ] && echo "$MODELS_CACHE" || echo "missing - --model cannot list")"
-	printf "model         %s" "$MODEL"
-	if model_exists "$MODEL"; then echo " (offered by Zen)"; else echo " (NOT offered by Zen any more)"; fi
-	printf "background    %s" "$SMALL_MODEL"
-	if model_exists "$SMALL_MODEL"; then echo " (offered by Zen)"; else echo " (NOT offered by Zen any more)"; fi
-	if command -v curl >/dev/null 2>&1; then
-		code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${ZEN_BASE_URL:-https://opencode.ai/zen/v1}/models" 2>/dev/null)
-		echo "zen reachable HTTP ${code:-no answer}"
-	fi
-	if proxy_up; then echo "proxy         up on $PORT"; else echo "proxy         down (starts on demand)"; fi
-	trusted=$(CLAUDE_FREE_DIR=$PWD python3 - <<-'PY' 2>/dev/null
+	echo "catalog       $([ -r "$CATALOG" ] && echo "$CATALOG" || echo "missing - --model cannot list")"
+	echo "credentials   $(py <<-'PY' 2>/dev/null
 	import json, os
 	try:
-	    data = json.load(open(os.path.expanduser("~/.claude.json")))
+	    with open(os.path.expanduser(os.environ["AUTH"])) as handle:
+	        print(", ".join(sorted(json.load(handle))) or "none", end="")
+	except Exception:
+	    print("none", end="")
+	PY
+	) (plus opencode/*-free, which needs none)"
+	printf "model         %s" "$MODEL"
+	if model_exists "$MODEL"; then echo " (in the catalog)"; else echo " (NOT in the catalog any more)"; fi
+	printf "background    %s" "$SMALL_MODEL"
+	if model_exists "$SMALL_MODEL"; then echo " (in the catalog)"; else echo " (NOT in the catalog any more)"; fi
+	if proxy_up; then echo "proxy         up on $PORT"; else echo "proxy         down (starts on demand)"; fi
+	echo "this dir      trusted: $(CF_DIR=$PWD py <<-'PY' 2>/dev/null
+	import json, os
+	try:
+	    with open(os.path.expanduser("~/.claude.json")) as handle:
+	        data = json.load(handle)
 	except Exception:
 	    raise SystemExit(0)
-	entry = (data.get("projects") or {}).get(os.environ["CLAUDE_FREE_DIR"]) or {}
+	entry = (data.get("projects") or {}).get(os.environ["CF_DIR"]) or {}
 	print(entry.get("hasTrustDialogAccepted", "not recorded"), end="")
 	PY
-	)
-	echo "this dir      trusted: ${trusted:-unknown}"
+	)"
 	exit 0
 	;;
---model|--small-model)
+--model|--models|--small-model)
 	which=$1
 	name=${2:-}
 	if [ -z "$name" ]; then
@@ -245,31 +280,23 @@ case "${1:-}" in
 		exit 0
 	fi
 	if ! model_exists "$name"; then
-		echo "claude-free: $name is not a model Zen offers. Try: claude-free --model" >&2
+		echo "claude-free: $name is not in the catalog. See: claude-free --model" >&2
 		exit 1
 	fi
-	case "$name" in
-	*-free) ;;
-	*) echo "claude-free: note - $name is not a free model, it needs OPENCODE_API_KEY" >&2 ;;
-	esac
-	if [ "$which" = "--model" ]; then
-		set_conf CLAUDE_FREE_MODEL "$name"
-		echo "model set to $name"
-	else
+	if [ "$which" = "--small-model" ]; then
 		set_conf CLAUDE_FREE_SMALL_MODEL "$name"
 		echo "background model set to $name"
+	else
+		set_conf CLAUDE_FREE_MODEL "$name"
+		echo "model set to $name"
 	fi
-	# The proxy holds the model names from its environment, so it has to be
-	# restarted to pick these up. It starts again on the next run.
-	pkill -f "zen-anthropic-proxy.mjs" 2>/dev/null && echo "proxy restarted on next run"
-	exit 0
-	;;
---models)
-	list_models
+	# The proxy holds the model names in its environment, so it restarts to pick
+	# them up. It comes back on the next run.
+	pkill -f "anthropic-proxy.mjs" 2>/dev/null && echo "proxy restarted on next run"
 	exit 0
 	;;
 --stop)
-	pkill -f "zen-anthropic-proxy.mjs" 2>/dev/null && echo "proxy stopped" || echo "proxy was not running"
+	pkill -f "anthropic-proxy.mjs" 2>/dev/null && echo "proxy stopped" || echo "proxy was not running"
 	exit 0
 	;;
 --status)
@@ -287,19 +314,22 @@ resolve_model
 start_proxy || exit 1
 [ "${CLAUDE_FREE_AUTO_TRUST:-0}" = "1" ] && set_trust yes
 
-MODELS_CACHE=$MODELS_CACHE
-export MODELS_CACHE
 window=$(context_of "$MODEL")
 
 export ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT"
 # Claude Code refuses to start without credentials of some kind. The proxy
-# ignores this, and the free models need none.
-export ANTHROPIC_AUTH_TOKEN=${ANTHROPIC_AUTH_TOKEN:-zen-free}
+# ignores this one and uses opencode's.
+export ANTHROPIC_AUTH_TOKEN=${ANTHROPIC_AUTH_TOKEN:-opencode}
 export ANTHROPIC_MODEL=$MODEL
 export ANTHROPIC_SMALL_FAST_MODEL=$SMALL_MODEL
 export ANTHROPIC_DEFAULT_SONNET_MODEL=$MODEL
+# Puts the current model in Claude Code's own /model picker. Only one entry can
+# be added this way, so it is the one in use; any other is reachable by typing
+# "/model provider/name", which the proxy resolves.
+export ANTHROPIC_CUSTOM_MODEL_OPTION=$MODEL
+export ANTHROPIC_CUSTOM_MODEL_OPTION_NAME="$MODEL (claude-free)"
+export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="routed through opencode's providers"
 [ -n "${window:-}" ] && export CLAUDE_CODE_MAX_CONTEXT_TOKENS=$window
-# Without this every turn prints a paragraph about the model being unrecognised.
 export CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT=${CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT:-1}
 
 exec claude "$@"

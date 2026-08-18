@@ -1,43 +1,139 @@
 #!/usr/bin/env node
-// Anthropic Messages API in, OpenAI chat completions out.
+// Anthropic Messages API in, whatever your opencode providers speak out.
 //
-// Claude Code only ever talks to one shape of API, and it lets you move it with
-// ANTHROPIC_BASE_URL. opencode Zen speaks the OpenAI shape and its "-free"
-// models answer without a key at all. This sits between the two.
+// Claude Code only ever talks to one shape of API and lets you move it with
+// ANTHROPIC_BASE_URL. This sits there and routes each request to the provider
+// named in the model - "google/gemini-2.5-flash", "opencode/glm-5-free",
+// "openrouter/qwen/qwen3-coder" - reusing the API keys opencode already holds in
+// ~/.local/share/opencode/auth.json. Nothing is copied and no key is ever
+// written anywhere by this process.
 //
 // Node's standard library only, because adding a dependency tree to a phone to
 // translate two JSON shapes would be a poor trade.
 //
-// The awkward part is not the request, it is the streaming response: Claude Code
-// wants Anthropic's event sequence - message_start, content_block_start,
-// content_block_delta, content_block_stop, message_delta, message_stop - with
-// tool calls arriving as input_json_delta fragments. OpenAI streams the same
-// information in an entirely different arrangement, so that translation is a
-// small state machine rather than a field rename.
+// Three things about this are not obvious:
+//
+//  1. Most providers are reachable with the OpenAI shape, but the catalog only
+//     records an "api" URL for the ones opencode drives with its generic
+//     openai-compatible SDK. google, openai, groq, mistral, xai and cerebras all
+//     have an OpenAI-compatible path that simply is not in the catalog, so those
+//     are in a table below. Verified for google: its
+//     /v1beta/openai/chat/completions answers, including tool calls.
+//
+//  2. Anthropic is not translated at all. If you hold an Anthropic key, the
+//     request is already in the right shape, so it is passed straight through -
+//     less code and perfect fidelity.
+//
+//  3. The streaming translation is the actual work. Claude Code wants
+//     message_start, content_block_start/delta/stop, message_delta, message_stop,
+//     with tool calls arriving as input_json_delta fragments, while OpenAI
+//     streams the same information in a different arrangement. Content blocks
+//     have to be numbered and opened and closed exactly once, and a tool call
+//     has to close any open text block first. Providers differ here too: Zen
+//     streams token by token, Gemini's OpenAI endpoint sends one chunk with the
+//     whole answer. Both end up as the same event sequence.
 
 import http from "node:http"
+import fs from "node:fs"
+import os from "node:os"
 
 const PORT = Number(process.env.ZEN_PROXY_PORT || 8787)
 const HOST = process.env.ZEN_PROXY_HOST || "127.0.0.1"
-const UPSTREAM = (process.env.ZEN_BASE_URL || "https://opencode.ai/zen/v1").replace(/\/$/, "")
-const MAIN_MODEL = process.env.ZEN_MODEL || "nemotron-3-ultra-free"
-const SMALL_MODEL = process.env.ZEN_SMALL_MODEL || "ling-3.0-tiny-free"
-const API_KEY = process.env.OPENCODE_API_KEY || ""
+const MAIN_MODEL = process.env.ZEN_MODEL || "opencode/nemotron-3-ultra-free"
+const SMALL_MODEL = process.env.ZEN_SMALL_MODEL || "opencode/ling-3.0-tiny-free"
+const DEFAULT_PROVIDER = "opencode"
 const DEBUG = Boolean(process.env.ZEN_PROXY_DEBUG)
+
+const HOME = os.homedir()
+const AUTH_PATH = process.env.OPENCODE_AUTH || `${HOME}/.local/share/opencode/auth.json`
+const CATALOG_PATH = process.env.OPENCODE_CATALOG || `${HOME}/.cache/opencode/models.json`
+
+// Providers whose catalog entry carries no api URL because opencode drives them
+// with a dedicated SDK. Each of these does expose an OpenAI-compatible path.
+const KNOWN_BASES = {
+	google: "https://generativelanguage.googleapis.com/v1beta/openai",
+	openai: "https://api.openai.com/v1",
+	groq: "https://api.groq.com/openai/v1",
+	mistral: "https://api.mistral.ai/v1",
+	xai: "https://api.x.ai/v1",
+	cerebras: "https://api.cerebras.ai/v1",
+	deepseek: "https://api.deepseek.com/v1",
+	anthropic: "https://api.anthropic.com",
+}
+// Already the right shape: forwarded untouched.
+const NATIVE = new Set(["anthropic"])
+// Signed requests or deployment-specific routing; out of reach from here.
+const UNSUPPORTED = new Set(["amazon-bedrock", "azure", "vertex", "google-vertex"])
 
 const log = (...a) => console.error(new Date().toISOString(), ...a)
 const debug = (...a) => { if (DEBUG) log("debug", ...a) }
 
-// Claude Code asks for whatever it was configured with, and for a few names of
-// its own for cheap background work. Anything that is not already a Zen model
-// gets mapped rather than passed through to a 404.
-function pickModel(requested) {
-	// Claude Code appends things like "[1m]" to ask for a larger context window,
-	// and prefixes providers with a slash. Neither belongs in an upstream model id.
-	const m = String(requested || "").replace(/\[[^\]]*\]$/, "").replace(/^opencode\//, "").trim()
-	if (/haiku|small|fast/i.test(m)) return SMALL_MODEL
-	if (m.endsWith("-free")) return m
-	return MAIN_MODEL
+// Read-through cache: these files change when you run `opencode auth login`, and
+// re-reading them on every request would be silly.
+const cache = new Map()
+function readJson(path) {
+	try {
+		const stamp = fs.statSync(path).mtimeMs
+		const hit = cache.get(path)
+		if (hit && hit.stamp === stamp) return hit.value
+		const value = JSON.parse(fs.readFileSync(path, "utf8"))
+		cache.set(path, { stamp, value })
+		return value
+	} catch {
+		return {}
+	}
+}
+
+function credentialFor(provider) {
+	const entry = readJson(AUTH_PATH)[provider]
+	if (!entry || typeof entry !== "object") return ""
+	// api keys, and the access token shape oauth logins leave behind.
+	return entry.key || entry.access || entry.token || ""
+}
+
+// "google/gemini-2.5-flash" -> google + gemini-2.5-flash
+// "openrouter/qwen/qwen3-coder" -> openrouter + qwen/qwen3-coder
+// "glm-5-free" -> the default provider
+function resolveTarget(spec) {
+	const clean = String(spec || "").replace(/\[[^\]]*\]$/, "").trim()
+	const slash = clean.indexOf("/")
+	let provider = DEFAULT_PROVIDER
+	let model = clean
+	if (slash > 0) {
+		const head = clean.slice(0, slash)
+		if (readJson(CATALOG_PATH)[head] || KNOWN_BASES[head]) {
+			provider = head
+			model = clean.slice(slash + 1)
+		}
+	}
+	if (UNSUPPORTED.has(provider))
+		return { error: `${provider} needs signed requests, which this proxy cannot do` }
+
+	const catalog = readJson(CATALOG_PATH)[provider] || {}
+	const base = (KNOWN_BASES[provider] || catalog.api || "").replace(/\/$/, "")
+	if (!base) return { error: `no endpoint known for provider "${provider}"` }
+
+	const key = credentialFor(provider)
+	// Zen's free models are the one case that needs no credential at all.
+	if (!key && !(provider === DEFAULT_PROVIDER && model.includes("free")))
+		return { error: `no credential for "${provider}" - run: opencode auth login` }
+
+	return { provider, model, base, key, native: NATIVE.has(provider) }
+}
+
+// Claude Code asks for its own model names for background work, and appends
+// things like [1m] when it wants a larger window. Neither is a real model here.
+function pickSpec(requested) {
+	const m = String(requested || "").replace(/\[[^\]]*\]$/, "").trim()
+	if (!m) return MAIN_MODEL
+	// Claude Code's own names are the only ones rewritten: haiku is what it uses
+	// for cheap background work, and claude-*/sonnet/opus is whatever it thinks it
+	// is talking to.
+	if (/haiku/i.test(m)) return SMALL_MODEL
+	if (/^claude-|^sonnet|^opus/i.test(m)) return MAIN_MODEL
+	// Anything a human named is used as given, so an unusable choice is reported
+	// rather than quietly swapped for a different model.
+	return m
 }
 
 function textOf(content) {
@@ -112,7 +208,7 @@ function toOpenAI(body) {
 	}
 
 	const req = {
-		model: pickModel(body.model),
+		// The router sets the model, once the provider is known.
 		messages,
 		stream: Boolean(body.stream),
 	}
@@ -153,14 +249,35 @@ const STOP_REASONS = {
 	content_filter: "end_turn",
 }
 
-function upstreamFetch(payload) {
+function upstreamFetch(payload, target) {
 	const headers = { "content-type": "application/json" }
-	if (API_KEY) headers.authorization = `Bearer ${API_KEY}`
-	return fetch(`${UPSTREAM}/chat/completions`, {
+	if (target.key) headers.authorization = `Bearer ${target.key}`
+	return fetch(`${target.base}/chat/completions`, {
 		method: "POST",
 		headers,
 		body: JSON.stringify(payload),
 	})
+}
+
+// An Anthropic key needs no translation in either direction: the request is
+// already in the right shape and so is the answer. Rewrite the model name, add
+// the credential, and get out of the way.
+async function passthrough(res, body, target) {
+	const upstream = await fetch(`${target.base}/v1/messages`, {
+		method: "POST",
+		headers: {
+			"content-type": "application/json",
+			"x-api-key": target.key,
+			"anthropic-version": "2023-06-01",
+		},
+		body: JSON.stringify({ ...body, model: target.model }),
+	})
+	res.writeHead(upstream.status, {
+		"content-type": upstream.headers.get("content-type") || "application/json",
+	})
+	if (!upstream.body) return res.end()
+	for await (const chunk of upstream.body) res.write(Buffer.from(chunk))
+	res.end()
 }
 
 function anthropicError(res, status, message) {
@@ -169,8 +286,8 @@ function anthropicError(res, status, message) {
 	res.end(body)
 }
 
-async function handleNonStreaming(res, payload, model) {
-	const upstream = await upstreamFetch(payload)
+async function handleNonStreaming(res, payload, model, target) {
+	const upstream = await upstreamFetch(payload, target)
 	const text = await upstream.text()
 	if (!upstream.ok) return anthropicError(res, upstream.status, `upstream ${upstream.status}: ${text.slice(0, 400)}`)
 	let data
@@ -210,8 +327,8 @@ async function handleNonStreaming(res, payload, model) {
 	}))
 }
 
-async function handleStreaming(res, payload, model) {
-	const upstream = await upstreamFetch(payload)
+async function handleStreaming(res, payload, model, target) {
+	const upstream = await upstreamFetch(payload, target)
 	if (!upstream.ok || !upstream.body) {
 		const text = upstream.body ? await upstream.text() : ""
 		return anthropicError(res, upstream.status || 502, `upstream ${upstream.status}: ${text.slice(0, 400)}`)
@@ -339,7 +456,11 @@ async function handleStreaming(res, payload, model) {
 const server = http.createServer((req, res) => {
 	if (req.method === "GET" && (req.url === "/health" || req.url === "/")) {
 		res.writeHead(200, { "content-type": "application/json" })
-		return res.end(JSON.stringify({ ok: true, upstream: UPSTREAM, model: MAIN_MODEL, small: SMALL_MODEL }))
+		const providers = Object.keys(readJson(AUTH_PATH))
+		return res.end(JSON.stringify({
+			ok: true, model: MAIN_MODEL, small: SMALL_MODEL,
+			authenticated: providers, free: "opencode/*-free needs no credential",
+		}))
 	}
 
 	let body = ""
@@ -362,12 +483,21 @@ const server = http.createServer((req, res) => {
 
 		if (!req.url?.includes("/messages")) return anthropicError(res, 404, `no route for ${req.url}`)
 
-		const payload = toOpenAI(parsed)
-		const model = payload.model
-		debug("->", model, "stream:", payload.stream, "tools:", payload.tools?.length || 0, "messages:", payload.messages.length)
+		const spec = pickSpec(parsed.model)
+		const target = resolveTarget(spec)
+		if (target.error) {
+			log(`cannot route "${spec}": ${target.error}`)
+			return anthropicError(res, 400, `${target.error} (model "${spec}")`)
+		}
+		debug("->", `${target.provider}/${target.model}`, "stream:", Boolean(parsed.stream),
+			"tools:", parsed.tools?.length || 0, "messages:", (parsed.messages || []).length)
 		try {
-			if (payload.stream) await handleStreaming(res, payload, model)
-			else await handleNonStreaming(res, payload, model)
+			if (target.native) return await passthrough(res, parsed, target)
+			const payload = toOpenAI(parsed)
+			payload.model = target.model
+			const shown = `${target.provider}/${target.model}`
+			if (payload.stream) await handleStreaming(res, payload, shown, target)
+			else await handleNonStreaming(res, payload, shown, target)
 		} catch (err) {
 			log("request failed:", err.message)
 			if (!res.headersSent) anthropicError(res, 502, err.message)
@@ -377,6 +507,10 @@ const server = http.createServer((req, res) => {
 })
 
 server.listen(PORT, HOST, () => {
-	log(`zen-anthropic-proxy on http://${HOST}:${PORT} -> ${UPSTREAM}`)
-	log(`main model ${MAIN_MODEL}, small model ${SMALL_MODEL}${API_KEY ? ", using OPENCODE_API_KEY" : ", no key (free models only)"}`)
+	const providers = Object.keys(readJson(AUTH_PATH))
+	log(`anthropic-proxy on http://${HOST}:${PORT}`)
+	log(`main ${MAIN_MODEL}, background ${SMALL_MODEL}`)
+	log(providers.length
+		? `credentials from opencode for: ${providers.join(", ")} (plus opencode/*-free, which needs none)`
+		: `no opencode credentials found; only opencode/*-free will work`)
 })

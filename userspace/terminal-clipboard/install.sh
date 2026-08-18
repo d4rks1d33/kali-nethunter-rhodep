@@ -15,7 +15,16 @@ home=$(getent passwd "$user" | cut -d: -f6) || { echo "no such user: $user" >&2;
 command -v wl-paste >/dev/null 2>&1 || {
 	echo "wl-clipboard is missing. apt-get install wl-clipboard" >&2; exit 1; }
 
-install -D -m 0644 "$here/rhodep-clipboard.zsh" /usr/local/share/rhodep/rhodep-clipboard.zsh
+PROTECT=/usr/local/sbin/rhodep-protect-files
+SNIPPET=/usr/local/share/rhodep/rhodep-clipboard.zsh
+[ -x "$PROTECT" ] && "$PROTECT" release "$SNIPPET" 2>/dev/null || true
+
+install -D -m 0644 "$here/rhodep-clipboard.zsh" "$SNIPPET"
+
+# apt cannot touch this file, but a stray hand can. The .zshrc line that sources
+# it is restored by rhodep-keyboard-enforce instead, since .zshrc belongs to the
+# user and must stay editable.
+[ -x "$PROTECT" ] && "$PROTECT" register clipboard 0644 "$SNIPPET" 2>/dev/null || true
 
 # One guarded block, so running this twice does not stack up.
 rc=$home/.zshrc

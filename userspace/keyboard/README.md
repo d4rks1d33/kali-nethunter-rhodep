@@ -180,3 +180,41 @@ over SSH:
 
 and log in again. The stock `.desktop` file is also kept as
 `org.kde.plasma.keyboard.desktop.rhodep-orig`.
+
+## Protection
+
+The layouts, the wrapper, the launcher and the enforcer are registered with
+`rhodep-protect-files`, so they carry the immutable bit and a snapshot, and the
+packages behind them are held and marked `Protected: yes` in dpkg:
+
+	plasma-keyboard                       hold=1 protected=yes
+	qml6-module-qtquick-virtualkeyboard    hold=1 protected=yes
+	wl-clipboard                           hold=1 protected=yes
+	qmlkonsole                             hold=1 protected=yes
+	tmux                                   hold=1 protected=yes
+
+`qml6-module-qtquick-virtualkeyboard` is on that list because `install.sh` copies
+the stock layout tree from it. Lose the package and a reinstall has nothing to
+build on.
+
+Two things deliberately have **no** immutable bit, because locking them would
+break what they belong to:
+
+	kwinrc    KWin rewrites it constantly
+	.zshrc    it belongs to the user, who edits it
+
+Those get `rhodep-keyboard-enforce` instead, at boot and every 30 minutes. It
+puts the `InputMethod` entry and the `.zshrc` source line back and says so in the
+journal. Both failures are silent otherwise — a missing `InputMethod` just gives
+you the stock keyboard with no terminal row, and a missing `.zshrc` line just
+stops copy and paste working.
+
+Verified by attacking it, which is the only way to know:
+
+	apt-get purge plasma-keyboard          refused
+	dpkg -P plasma-keyboard                "this is a protected package"
+	rm  the wrapper                        Operation not permitted
+	overwrite a layout                     Operation not permitted
+	apt-mark unhold                        put back by the enforcer
+	break kwinrc InputMethod               put back by the enforcer
+	delete the .zshrc line                 put back by the enforcer

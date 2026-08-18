@@ -74,7 +74,10 @@ fi
 # immutable bit; without lifting it first the tree cannot be replaced.
 [ -x "$PROTECT" ] && "$PROTECT" release "$WRAPPER" "$OUR_DESKTOP" \
 	"$DEST/en_US/symbols.qml" "$DEST/fallback/symbols.qml" \
-	"$DEST/fallback/main.qml" "$STOCK_DESKTOP" 2>/dev/null || true
+	"$DEST/fallback/main.qml" "$STOCK_DESKTOP" \
+	/usr/local/sbin/rhodep-keyboard-enforce \
+	/etc/systemd/system/rhodep-keyboard-enforce.service \
+	/etc/systemd/system/rhodep-keyboard-enforce.timer 2>/dev/null || true
 [ -d "$DEST" ] && chattr -R -i "$DEST" 2>/dev/null || true
 
 # An earlier version of this script edited Plasma's own .desktop file instead of
@@ -165,11 +168,27 @@ grep -q "^Exec=$WRAPPER\$" "$OUR_DESKTOP" || { echo "failed to write $OUR_DESKTO
 su "$user" -c "XDG_RUNTIME_DIR=/run/user/\$(id -u) kbuildsycoca6 --noincremental" >/dev/null 2>&1 || true
 kwin_set "$OUR_DESKTOP"
 
+# The two settings that cannot be made immutable - kwinrc, which KWin rewrites,
+# and .zshrc, which belongs to the user - get a boot-time repair instead.
+install -D -m 0755 "$here/rhodep-keyboard-enforce" /usr/local/sbin/rhodep-keyboard-enforce
+install -D -m 0644 "$here/README.md" /usr/local/share/rhodep/keyboard/README.md
+if [ -d /run/systemd/system ]; then
+	install -D -m 0644 "$here/systemd/rhodep-keyboard-enforce.service" \
+		/etc/systemd/system/rhodep-keyboard-enforce.service
+	install -D -m 0644 "$here/systemd/rhodep-keyboard-enforce.timer" \
+		/etc/systemd/system/rhodep-keyboard-enforce.timer
+	systemctl daemon-reload 2>/dev/null || true
+	systemctl enable --now rhodep-keyboard-enforce.service 2>/dev/null || true
+	systemctl enable --now rhodep-keyboard-enforce.timer 2>/dev/null || true
+fi
+
 if [ -x "$PROTECT" ]; then
-	"$PROTECT" register keyboard 0755 "$WRAPPER" 2>/dev/null || true
+	"$PROTECT" register keyboard 0755 "$WRAPPER" /usr/local/sbin/rhodep-keyboard-enforce 2>/dev/null || true
 	"$PROTECT" register keyboard-conf 0644 "$OUR_DESKTOP" \
 		"$DEST/fallback/symbols.qml" "$DEST/en_US/symbols.qml" \
-		"$DEST/fallback/main.qml" 2>/dev/null || true
+		"$DEST/fallback/main.qml" \
+		/etc/systemd/system/rhodep-keyboard-enforce.service \
+		/etc/systemd/system/rhodep-keyboard-enforce.timer 2>/dev/null || true
 fi
 
 cat <<'MSG'

@@ -17,6 +17,25 @@ There is no `es_AR` in Qt's set; `es_MX` is the Latin American layout, and both
 Spanish layouts have `ñ` as a real key. The fallback layout does not — its `n`
 offers `ņńnň` — which is why the language key matters.
 
+### The language key has to be switched on
+
+Reaching those layouts needs one more thing, and without it the language key is
+greyed out and does nothing when tapped. `plasmakeyboardrc` ships with
+`enabledLocales` **empty**, and plasma-keyboard reads an empty list as *one
+language only*:
+
+	if (PlasmaKeyboardSettings.enabledLocales.length === 0)
+	    VirtualKeyboardSettings.activeLocales = [locale];
+
+So `install.sh` writes the list from `enabled-locales`, `en_US,es_MX,es_ES` by
+default. Edit that file to change it.
+
+The enforcer repairs this **only when the setting is empty** — the broken state.
+A list you changed yourself is yours:
+
+	emptied by hand         put back, and logged
+	set to de_DE,fr_FR      left alone
+
 `generate.py` does the transformation at install time and **verifies every file
 with `qmllint`, keeping Qt's original whenever a transform cannot be verified**. A
 layout that will not load is a phone you cannot type on, so the stock file always

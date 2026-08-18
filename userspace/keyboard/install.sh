@@ -147,6 +147,20 @@ grep -q "^Exec=$WRAPPER\$" "$OUR_DESKTOP" || { echo "failed to write $OUR_DESKTO
 su "$user" -c "XDG_RUNTIME_DIR=/run/user/\$(id -u) kbuildsycoca6 --noincremental" >/dev/null 2>&1 || true
 kwin_set "$OUR_DESKTOP"
 
+# The language key is greyed out until this is set: plasmakeyboardrc ships with
+# enabledLocales empty, and plasma-keyboard reads an empty list as "one language
+# only". Without it, reaching the Spanish layout - and its ñ - is impossible from
+# the keyboard itself.
+install -D -m 0644 "$here/enabled-locales" /usr/local/share/rhodep/keyboard/enabled-locales
+locales=$(grep -v '^#' "$here/enabled-locales" | grep -v '^$' | head -1)
+current=$(su "$user" -c "HOME='$home' kreadconfig6 --file plasmakeyboardrc --group General --key enabledLocales" 2>/dev/null)
+if [ -z "$current" ]; then
+	su "$user" -c "HOME='$home' kwriteconfig6 --file plasmakeyboardrc --group General --key enabledLocales '$locales'" 2>/dev/null \
+		&& echo "keyboard languages set to $locales"
+else
+	echo "keyboard languages already set to $current, left alone"
+fi
+
 # The two settings that cannot be made immutable - kwinrc, which KWin rewrites,
 # and .zshrc, which belongs to the user - get a boot-time repair instead.
 install -D -m 0755 "$here/rhodep-keyboard-enforce" /usr/local/sbin/rhodep-keyboard-enforce

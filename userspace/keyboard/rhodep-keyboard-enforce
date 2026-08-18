@@ -21,6 +21,7 @@ set -u
 
 DESKTOP=/usr/share/applications/rhodep-terminal-keyboard.desktop
 SNIPPET=/usr/local/share/rhodep/rhodep-clipboard.zsh
+LOCALES=/usr/local/share/rhodep/keyboard/enabled-locales
 MARKER="# >>> rhodep clipboard keys >>>"
 
 log() { logger -t rhodep-keyboard-enforce -p daemon.warning -- "$*" 2>/dev/null; echo "rhodep-keyboard-enforce: $*"; }
@@ -46,6 +47,21 @@ for entry in $users; do
 				log "restored kwinrc InputMethod for $user (was '${current:-unset}'); takes effect on next login"
 			else
 				log "could not restore kwinrc InputMethod for $user"
+			fi
+		fi
+	fi
+
+	# --- the language key ------------------------------------------------
+	# Empty means plasma-keyboard activates a single locale and the language key
+	# goes grey, which is how you lose access to the Spanish layout. Only the
+	# empty case is repaired: a list the user has changed is theirs.
+	if [ "$user" != root ] && [ -r "$LOCALES" ]; then
+		want=$(grep -v '^#' "$LOCALES" | grep -v '^$' | head -1)
+		if [ -n "$want" ]; then
+			have=$(su "$user" -c "HOME='$home' kreadconfig6 --file plasmakeyboardrc --group General --key enabledLocales" 2>/dev/null)
+			if [ -z "$have" ]; then
+				su "$user" -c "HOME='$home' kwriteconfig6 --file plasmakeyboardrc --group General --key enabledLocales '$want'" 2>/dev/null \
+					&& log "restored the keyboard languages for $user to $want; the language key was greyed out"
 			fi
 		fi
 	fi

@@ -435,9 +435,62 @@ Note also that the vendor declares four devices on CCI0 master 1 (sensor,
 eeprom, actuator, OIS) and only three real ones answer, so the actuator or OIS
 is also missing — they may need a supply of their own.
 
+## The power-on order matters, and it changes what the bus reports
+
+The mainline driver enables the rails in the order vddd, vdda, vddio. The
+vendor lists them the other way round - `regulator-names = "cam_vio",
+"cam_vana", "cam_vdig"` - and VDDIO is what feeds a sensor's I2C buffers, so
+bringing the core up first can leave the part undefined.
+
+Swapping the driver to the vendor's order visibly changes the bus. The address
+that had been returning a different value on every read became stable:
+
+	driver order:  0x56 -> 0000 8b05   noise
+	vendor order:  0x56 -> 8b05 8b05   STABLE
+	                       8 consecutive reads all 8b01
+
+That is worth knowing, and it may well matter once the sensor is found. But it
+did not find the sensor: dumping consecutive registers at 0x56 shows the reads
+are a byte-shifted stream, not addressable registers -
+
+	0x0000 = 8b05
+	0x0001 = 05be     <- "05" is the tail of the previous read
+	0x0002 = beaf     <- "be" likewise
+	0x0003 = af8b
+
+so the device is not decoding the register address at all. 0x56 is a bus
+artefact: deterministic under the vendor order, but still an artefact.
+
+**Method note, twice learned the hard way:** on this bus neither an ACK nor a
+stable value proves a device. Repeated reads catch the noisy case; only a
+plausible register map catches this one.
+
+## Definitive state of the sensor
+
+A sweep run from inside the driver, over the native CCI adapter, with rails,
+MCLK, GDSC, reset and pin mux all verified in their working state, reading every
+address twice:
+
+	0x50 -> 3130 3130 STABLE     EEPROM
+	0x52 -> 73f0 73f0 STABLE     EEPROM-like
+	0x56 -> byte-shifted stream  ARTEFACT
+	0x72 -> 0000 0000 STABLE     answers, all zeroes
+
+The S5KJN1 never answers with 0x38e1 at any address on either master, under
+either power-on order. Everything the application processor controls has been
+measured correct. What is left needs information the device tree does not carry:
+the sensor's strapped address and power sequence live in Qualcomm's
+`com.qti.sensormodule.mot_rhodep_s5kjn1_{qtech,sunny}.bin`, on the stock ROM.
+
 ## What is left to try
 
-1. ~~Reset polarity~~ — ruled out above.
+1. ~~Reset polarity~~ — ruled out from the vendor pinctrl.
+2. ~~A missing rail~~ — all seven PMIC LDOs plus `cam_ois_ldo` (TLMM 86)
+   enabled at once changes nothing.
+3. **Extract the sensormodule blob from the stock ROM** and read the address and
+   power sequence out of it. This is the one avenue that carries new
+   information; everything else has been exhausted.
+4. Try the vendor power-on order *and* whatever that blob says, together.
 2. **The sensor's I2C address may be strapped.** Qualcomm's stack reads it from
    `com.qti.sensormodule.mot_rhodep_s5kjn1_{qtech,sunny}.bin`, and rhodep ships
    two module vendors. Those blobs are on the stock ROM; extracting the address

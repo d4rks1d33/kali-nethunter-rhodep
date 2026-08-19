@@ -1,9 +1,17 @@
 From: rhodep port <none@example.com>
+Date: Tue, 19 Aug 2026 22:45:00 -0300
 Subject: [PATCH] media: s5kjn1: bring the rails up in the documented order
 
-VDDIO feeds the I2C buffers, so it goes first: vddio, vdda, vddd, which is
-what Qualcomm's sensormodule blob and the vendor device tree both specify.
-The driver had the reverse order.
+VDDIO feeds the sensor's I2C buffers, so it comes up first: vddio, vdda,
+vddd. That is the order Qualcomm's sensormodule blob for this module
+specifies and the order the vendor device tree repeats; the driver had the
+reverse.
+
+On a Motorola rhodep the difference is measurable. With the driver's order
+reads from the sensor address return a different value every time; with
+this order they are stable.
+
+Signed-off-by: rhodep port <none@example.com>
 ---
 --- a/drivers/media/i2c/s5kjn1.c
 +++ b/drivers/media/i2c/s5kjn1.c

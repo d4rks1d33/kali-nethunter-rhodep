@@ -614,3 +614,66 @@ undecoded; the field names sit at 0x32b10, 0x32b48 and 0x325d0 and the values in
 the data region around 0x34800, with metadata entries 56 bytes apart. Decoding
 those gives the exact rail order, the delays, and any register writes the part
 wants before it will answer - which is precisely the gap that remains.
+
+## Five power-on sequences tried, none identifies the sensor
+
+Run in a single module load so each hypothesis cost nothing extra, reading the
+id register after each:
+
+	[0] as-is (vddio,vdda,vddd + mclk + reset, 10ms)   id=0x0000
+	[1] longer settle after reset (200 ms)             id=0x8b05
+	[2] reset pulse: low 20ms, high, 200ms             id=0x0000
+	[3] mclk stopped, rails settle, mclk again, reset  id=0x0000
+	[4] double reset pulse                             id=0x0000
+
+Never 0x38e1. Note the pattern: with no settle time the register reads zero,
+with 200 ms it reads 0x8b0x. Something changes state, but not into a part that
+reports its identity.
+
+### The vendor's power sequence enum, for whoever decodes the blob
+
+From `techpack/camera/drivers/cam_sensor_module/cam_sensor_utils/cam_sensor_cmn_header.h`
+in the vendor kernel:
+
+	SENSOR_MCLK = 0        SENSOR_VAF_PWDM = 5     SENSOR_STANDBY = 9
+	SENSOR_VANA = 1        SENSOR_CUSTOM_REG1 = 6  SENSOR_CUSTOM_GPIO1 = 10
+	SENSOR_VDIG = 2        SENSOR_CUSTOM_REG2 = 7  SENSOR_CUSTOM_GPIO2 = 11
+	SENSOR_VIO = 3         SENSOR_RESET = 8        SENSOR_VANA1 = 12
+	SENSOR_VAF = 4
+
+Searching the blob for runs of (type, config, delay) triplets with a valid type
+produces only false positives — the matches have nonsensical configs and delays
+and are really index tables. **The power sequence is not a flat triplet array**;
+the format needs proper work, not pattern matching.
+
+### Everything ruled out on the sensor so far
+
+	reset polarity        vendor pinctrl says active-low, which is what the DT has
+	a missing rail        all 7 PMIC LDOs + cam_ois_ldo on: no change
+	MCLK drive strength   4 mA vs the vendor's 2 mA: no change (2 mA kept, correct)
+	CCI bus speed         400 kHz and 100 kHz: no change
+	soft reset            write 1 to 0x0103: id changes value, never to 0x38e1
+	standby exit          write 0 to 0x0100: same
+	post-reset delay      10 ms, 150 ms, 200 ms: same
+	power-on order        vendor order fixes read *stability*, not identification
+
+### The honest position
+
+Everything the application processor controls has been verified correct and
+measured. The sensor is at the address its own configuration blob names, it
+acknowledges that address when MCLK runs, and it returns ENXIO when the clock
+is off — it is present and alive. It just will not report its identity, and the
+remaining variable is an initialisation detail that lives in a proprietary blob
+whose format has resisted a day of pattern matching.
+
+Two routes carry real information, and neither is more guessing:
+
+1. **Decode the blob properly.** Metadata entries are 56 bytes,
+   `[u32 mask][u32 b][u32 c][u32 id][char name[40]]`, with `powerUpSequence` at
+   0x32b10 carrying c=0x10 and `powerSetting` at 0x32cc0 carrying c=0x24. The
+   values live in a separate data region; the link between the two is what has
+   not been worked out.
+2. **Capture the real sequence from Android.** The stock ROM is on the other
+   slot. Booting it and tracing the camera bring-up — the kernel driver logs
+   every power step at debug level — gives the exact order, delays and register
+   writes, with no reverse engineering at all. This is the cheaper of the two.

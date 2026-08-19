@@ -1,7 +1,7 @@
 ---
 --- a/arch/arm64/boot/dts/qcom/sm6375-motorola-rhodep.dts
 +++ b/arch/arm64/boot/dts/qcom/sm6375-motorola-rhodep.dts
-@@ -1534,6 +1534,36 @@
+@@ -1534,6 +1534,39 @@
  };
  
  &tlmm {
@@ -23,7 +23,10 @@
 +		mclk-pins {
 +			pins = "gpio30";
 +			function = "cam_mclk";
-+			drive-strength = <4>;
++			/* 2 mA, matching the vendor pinctrl. A stronger drive on a
++			 * 24 MHz clock is a plausible source of coupling onto the
++			 * neighbouring CCI lines. */
++			drive-strength = <2>;
 +			bias-disable;
 +		};
 +
@@ -38,7 +41,7 @@
  	cam_pmic_en_default: cam-pmic-en-default-state {
  		pins = "gpio33";
  		function = "gpio";
-@@ -1548,3 +1578,69 @@
+@@ -1548,3 +1581,69 @@
  		bias-pull-up;
  	};
  };

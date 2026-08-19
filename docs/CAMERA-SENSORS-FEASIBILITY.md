@@ -580,3 +580,37 @@ field names are at 0x32b10, 0x32b48 and 0x325d0; the values live in the data
 region around 0x34800. Decoding the power sequence is the obvious next move,
 since it would give the exact rail order, delays and any register writes the
 part expects before it will identify itself.
+
+## Result: something real is at 0x56, and it will not identify itself
+
+Two more things tried, both negative, both narrowing it:
+
+**A soft reset does not help.** Writing 1 to 0x0103, the standard reset for
+Samsung parts, changes what the id register returns but never to 0x38e1:
+
+	before soft reset   0x0000
+	after soft reset    0xe7a1
+	after standby (0x0100 = 0)  0x8b01
+	register 0x0002     0xbedb
+
+Every write reports success. A real part would answer 0x38e1 reproducibly.
+
+**The MCLK drive strength was not the cause.** The device tree had 4 mA where
+the vendor pinctrl specifies 2 mA, and a 24 MHz clock driven harder than
+specified is a plausible source of coupling onto the neighbouring CCI lines.
+Lowered to 2 mA (which is the correct value regardless, and is kept): the
+behaviour is unchanged, still an ACK and still zero.
+
+That settles the question this test was built to answer. **The address is not
+noise.** With MCLK running, the driver's own sweep sees only 0x50, 0x52, 0x56
+and 0x72 and nothing at any other address, so the bus does discriminate; and
+0x56 answers there while returning ENXIO with the clock off. Combined with the
+blob naming 0xac as the sensor, the conclusion is that the sensor is present and
+acknowledging, but is not in a state where it reports its identity.
+
+**So the remaining work is the initialisation sequence, and it is in the blob.**
+`powerUpSequence`, `powerDownSequence` and `sensorI2CFrequencyMode` are still
+undecoded; the field names sit at 0x32b10, 0x32b48 and 0x325d0 and the values in
+the data region around 0x34800, with metadata entries 56 bytes apart. Decoding
+those gives the exact rail order, the delays, and any register writes the part
+wants before it will answer - which is precisely the gap that remains.

@@ -128,6 +128,12 @@ over QMI with vendor-defined message sets, and the thing that speaks it on
 Android is `sensors.moto.so`. This is a reverse-engineering project, not a
 driver port. Rotation, proximity-on-call and auto-brightness all sit behind it.
 
+> Superseded in part — see "Sensors: which bus they are really on" at the end of
+> this file. The buses are now known (the IMU is on I3C, which settles it: no AP
+> device tree node can reach it), the QMI transport and message format have been
+> worked out and verified against the hardware, and the client turned out not to
+> be what blocks it.
+
 So the README is right about sensors and wrong about the camera, which is worth
 stating plainly because the two are usually mentioned in the same breath.
 
@@ -759,3 +765,128 @@ not in the file that was supposed to hold it.
 The remaining route that carries information is tracing the stock ROM: booting
 Android on the other slot and watching the kernel's camera driver log each power
 step gives the sequence directly, with no disassembly and no guessing.
+
+---
+
+# Sensors: which bus they are really on, and how far the SSC protocol got
+
+**Status: the I2C route is ruled out by measurement, and the SSC transport
+works.** The sensor core accepts our requests and answers; it just has no
+sensors to offer. What blocks it is missing infrastructure on the AP side, not
+the protocol.
+
+This section supersedes the guesswork in "Sensors: still hard, and for a
+specific reason" above. That section was right that the sensors are behind the
+SSC, but it did not say which bus they sit on, and it treated the protocol as an
+unbounded reverse-engineering project. Both are now pinned down.
+
+## The vendor states the bus and the address outright
+
+The configuration the SSC uses is plain JSON in the vendor partition, in
+`/vendor/etc/sensors/config/`, one file per part. Mount it read-only the usual
+way (`dmsetup` still fails, `dm_mod` will not load):
+
+	losetup -r -o $((6789120*512)) --sizelimit $((1235440*512)) \
+	        /dev/loop7 /dev/disk/by-partlabel/super
+	mount -o ro /dev/loop7 /mnt/vendor_ro
+
+Each file carries the bus, the address and the interrupt:
+
+	sensor                    bus       instance  address  IRQ
+	lsm6dso (accel + gyro)    I3C       1         0x6A     GPIO 95
+	icm4x6xx (alternate IMU)  I3C       1         0x68     GPIO 95
+	ak991x (magnetometer)     I2C       2         0x0E     -
+	mmc56x3x (magnetometer)   I2C       2         0x30     -
+
+`bus_type` 3 means I3C, and `max_bus_speed_khz` of 12500 agrees. `vddio_rail` is
+`/pmic/client/sensor_vddio`. The IMU is the interesting one: it is on I3C, not
+I2C, which no amount of device tree work on the AP's QUP controllers will reach.
+
+## Why no device tree node can work
+
+	mainline sm6375.dtsi     2 geniqup controllers, 0 i3c nodes
+	vendor holi-qupv3.dtsi   6 SE I2C nodes (se0,2,6,7,8,10), 0 i3c nodes
+
+Neither tree has an I3C controller, and the vendor does not declare the SSC's
+buses at all — because the application processor does not own them. There is no
+controller to hang an `st_lsm6dsx` or `stk3310` node off. Writing one is not a
+partial solution, it is a non-solution.
+
+The only reference to these parts anywhere in the vendor DTS is
+`bindings/iio/imu/st_lsm6dsx.txt`, which is upstream documentation, not a node.
+
+## The SSC transport works
+
+Service 400 is published by the ADSP at node 5, port 14. A client written from
+scratch in Python over `AF_QIPCRTR` gets a real answer:
+
+	02 0100 2000 1900
+	02 0400 00000000     result = 0 SUCCESS, error = 0
+	10 0800 04000...     client_id = 4
+
+So the wrapping is right: QMI message 0x20, one TLV of type 0x01, and — this one
+costs an afternoon if you miss it — the payload inside that TLV is a
+variable-length array, so it carries its own 16-bit element count before the
+protobuf bytes. Without that count the service replies `error 19`
+(`ARG_TOO_LONG`).
+
+## The message format, taken from the blob rather than guessed
+
+`libssc.so` is the client and `libsnsapi.so` the generated message code. It is
+protobuf **lite** (161 references to `MessageLite`, zero `descriptor_table`), so
+there are no embedded descriptors to dump — the field numbers have to come out
+of the generated serialisers. `SerializeWithCachedSizes` gives them exactly:
+
+	sns_client_request_msg   1 message   2 FIXED32   3 message  4 message
+	suspend_config           1 enum      2 enum      3 fixed32
+	sns_suid_req             1 string    2 bool      3 bool
+
+`msg_id` being a `fixed32` rather than a varint is a genuine trap: encoding it as
+a varint still produces a well-formed TLV, so QMI answers `SUCCESS` and hands
+back a client id, and nothing tells you the sensor core read the wrong field.
+
+The lookup sensor's SUID is `0xABABABABABABABAB` in both `suid_low` and
+`suid_high`. Two values that look like SUIDs in a disassembly of
+`suid_lookup::request_suid` — `0x02DA89938702F355` and `0x0FB862E2AF8723EE` —
+are **CFI type ids** passed to `__cfi_slowpath`, not data. Trial and error would
+have accepted them.
+
+## What actually blocks it
+
+Twenty-one variants were tried: five `client_proc_type` values, both
+`delivery_type` values, `suspend_config` field 3 present and absent, three
+`register_updates` settings, ten `data_type` strings, and both connected and
+unconnected sockets with a 30 second wait. Every one was accepted, every one
+allocated a fresh client id (they ran up to 37), and **not one produced an
+indication**. A malformed message does not behave like that. The sensor core is
+running and servicing QMI, and has no sensors registered.
+
+Two things are missing on the AP side, both verifiable:
+
+- **No `/dev/fastrpc`.** `CONFIG_QCOM_FASTRPC=m` and `fastrpc.ko` is installed,
+  but mainline sm6375 declares no `fastrpc` node under either `glink-edge`, so
+  the driver never probes. Checked in the live `/proc/device-tree` and in the
+  dtsi.
+- **The AP publishes no QMI service at all.** In `qrtr-lookup` every service
+  belongs to node 0, 5 or 10. On Android the AP serves RFSA, which is how the
+  ADSP reads files off the AP.
+
+That last point matters because the configuration above — the JSON files and
+`sns_reg_config` — lives on the AP, not in the ADSP firmware. If nothing serves
+it, the ADSP cannot instantiate `lsm6dso` or the magnetometers, a lookup for
+`accel` matches nothing, and with `register_updates=1` the request sits waiting
+forever. Which is precisely what we see.
+
+## Scripts
+
+	scripts/ssc-probe.py   SUID lookup: QRTR + QMI + protobuf, correct field
+	                       types. Prints the decoded reply.
+	scripts/ssc-sweep.py   the variant sweep, kept so nobody repeats it.
+
+## Where to pick this up
+
+Add the `fastrpc` nodes to the sm6375 device tree under the ADSP and CDSP
+`glink-edge`, load `fastrpc.ko`, and see whether the nodes appear and whether the
+ADSP starts registering sensors. It is a bounded patch, it is checkable in one
+boot, and `/dev/fastrpc` is a prerequisite for anything further on this path
+regardless of how the RFSA question resolves.

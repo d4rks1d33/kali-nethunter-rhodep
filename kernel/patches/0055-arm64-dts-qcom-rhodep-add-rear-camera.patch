@@ -1,0 +1,119 @@
+From: rhodep port <none@example.com>
+Date: Tue, 19 Aug 2026 03:14:00 -0300
+Subject: [PATCH] arm64: dts: qcom: rhodep: add the rear camera
+
+Enable CAMSS, CCI0 and the rear main camera: a Samsung S5KJN1 50 MP
+sensor, which mainline already has a driver for.
+
+Wiring comes from the vendor overlay
+(blair-camera-sensor-mot-rhodep-overlay.dtsi): CCI0 master 1, CSIPHY0,
+MCLK1 on gpio30 at 24 MHz, reset on gpio35, and the three rails supplied
+by the FAN53870 camera PMIC added earlier. Four DPHY data lanes at
+700 MHz, which is the only link frequency the driver offers.
+
+Note the CCI pinctrl covers four pins, not two: each CCI master has its
+own pin pair (gpio39/40 for master 0, gpio41/42 for master 1, per the
+vendor's cci0_active and cci1_active). Declaring only one pair leaves the
+other master electrically dead and the sensor never ACKs, which presents
+as "i2c-qcom-cci: master 1 queue 0 timeout".
+
+The other three sensors on this board (OV16A1Q, S5K4H7, GC02M1) sit on
+CCI0 master 0 and have no mainline drivers, so they are not described.
+
+Signed-off-by: rhodep port <none@example.com>
+---
+--- a/arch/arm64/boot/dts/qcom/sm6375-motorola-rhodep.dts
++++ b/arch/arm64/boot/dts/qcom/sm6375-motorola-rhodep.dts
+@@ -1534,6 +1534,36 @@
+ };
+ 
+ &tlmm {
++	/*
++	 * CCI0 has two masters and each one has its own pin pair:
++	 * master 0 on gpio39/40 and master 1 on gpio41/42 (vendor
++	 * blair-pinctrl.dtsi, cci0_active and cci1_active). Declaring only
++	 * one pair leaves the other master electrically dead, which shows up
++	 * as "master 1 queue 0 timeout" and a sensor that never ACKs.
++	 */
++	cci0_default: cci0-default-state {
++		pins = "gpio39", "gpio40", "gpio41", "gpio42";
++		function = "cci_i2c";
++		drive-strength = <2>;
++		bias-disable;
++	};
++
++	cam_rear_default: cam-rear-default-state {
++		mclk-pins {
++			pins = "gpio30";
++			function = "cam_mclk";
++			drive-strength = <4>;
++			bias-disable;
++		};
++
++		reset-pins {
++			pins = "gpio35";
++			function = "gpio";
++			drive-strength = <2>;
++			bias-disable;
++		};
++	};
++
+ 	cam_pmic_en_default: cam-pmic-en-default-state {
+ 		pins = "gpio33";
+ 		function = "gpio";
+@@ -1548,3 +1578,55 @@
+ 		bias-pull-up;
+ 	};
+ };
++
++/*
++ * Rear main camera: Samsung S5KJN1 (50 MP), on CCI0 master 1, CSIPHY0.
++ * Wiring from the vendor overlay (blair-camera-sensor-mot-rhodep-overlay.dtsi):
++ * MCLK1 on gpio30, reset on gpio35, and the three rails off the FAN53870.
++ */
++&cci0 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&cci0_default>;
++	status = "okay";
++};
++
++&cci0_i2c1 {
++	camera_rear: camera@10 {
++		compatible = "samsung,s5kjn1";
++		reg = <0x10>;
++
++		clocks = <&gcc GCC_CAMSS_MCLK1_CLK>;
++		assigned-clocks = <&gcc GCC_CAMSS_MCLK1_CLK>;
++		assigned-clock-rates = <24000000>;
++
++		vdda-supply = <&cam_vana>;
++		vddd-supply = <&cam_vdig>;
++		vddio-supply = <&cam_vio>;
++
++		reset-gpios = <&tlmm 35 GPIO_ACTIVE_LOW>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&cam_rear_default>;
++
++		port {
++			camera_rear_ep: endpoint {
++				data-lanes = <1 2 3 4>;
++				link-frequencies = /bits/ 64 <700000000>;
++				remote-endpoint = <&csiphy0_ep>;
++			};
++		};
++	};
++};
++
++&camss {
++	status = "okay";
++
++	ports {
++		port@0 {
++			reg = <0>;
++			csiphy0_ep: endpoint {
++				data-lanes = <0 1 2 3>;
++				remote-endpoint = <&camera_rear_ep>;
++			};
++		};
++	};
++};

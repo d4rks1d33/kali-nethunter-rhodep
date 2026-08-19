@@ -38,7 +38,7 @@
  	cam_pmic_en_default: cam-pmic-en-default-state {
  		pins = "gpio33";
  		function = "gpio";
-@@ -1548,3 +1578,63 @@
+@@ -1548,3 +1578,69 @@
  		bias-pull-up;
  	};
  };
@@ -56,16 +56,22 @@
 +
 +&cci0_i2c1 {
 +	/*
-+	 * Address is the one the Fairphone FP5 uses for the same part. NOT
-+	 * confirmed on this board: the sensor has never ACKed here. Beware of
-+	 * 0x56, which appears to answer once MCLK is running but returns a
-+	 * different value on every read - it is coupling noise on an empty
-+	 * bus, not a device. The real devices on this master (0x50, 0x52,
-+	 * 0x72) read back identically every time.
++	 * Address, register width and chip id all come out of Qualcomm's own
++	 * sensor configuration blob for this board, read off the stock ROM
++	 * (vendor/lib64/camera/com.qti.sensormodule.mot_rhodep_s5kjn1_sunny.bin):
++	 *
++	 *   addr 0xac (8-bit) = 0x56 7-bit, regType 2, dataType 2,
++	 *   reg 0x0000, expected id 0x38e1
++	 *
++	 * The blob also identifies the module vendor by reading register 0x0d of
++	 * the EEPROM at 0xa0/0x50: this board answers 0x5355 ("SU", Sunny), not
++	 * 0x5154 ("QT", Qtech), which is how the right blob was picked.
++	 *
++	 * Note this is NOT the 0x10 the Fairphone FP5 uses for the same part.
 +	 */
-+	camera_rear: camera@10 {
++	camera_rear: camera@56 {
 +		compatible = "samsung,s5kjn1";
-+		reg = <0x10>;
++		reg = <0x56>;
 +
 +		clocks = <&gcc GCC_CAMSS_MCLK1_CLK>;
 +		assigned-clocks = <&gcc GCC_CAMSS_MCLK1_CLK>;

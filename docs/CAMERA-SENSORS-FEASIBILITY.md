@@ -502,3 +502,81 @@ the sensor's strapped address and power sequence live in Qualcomm's
 Everything above the sensor is done: the ISP enumerates, the buses work, the
 power rails are correct and controllable. What remains is a single device that
 will not ACK.
+
+---
+
+# Reading the vendor blob: what it settled
+
+**Vendor blobs are usable here, but as data, not as code.** The camera HALs
+(`camera.qcom.so`, `libcamx*.so`) cannot run on mainline. But Qualcomm's
+per-module sensor configuration is a plain data file, and it carries exactly the
+facts the device tree needs.
+
+## Getting at it
+
+Same approach as `scripts/extract-aw88261-acf.sh`: `vendor` is a logical
+partition inside `super`, so it has to be mapped before mounting. `dmsetup`
+failed on this kernel (`dm_mod` will not load, "Exec format error"), so use a
+loop device with an offset instead — it needs no device-mapper:
+
+	OFF=$((6789120*512)); SZ=$((1235440*512))
+	losetup -r -o $OFF --sizelimit $SZ /dev/loop7 /dev/disk/by-partlabel/super
+	mount -o ro /dev/loop7 /mnt/vendor_ro
+	ls /mnt/vendor_ro/lib64/camera/com.qti.sensormodule.*
+
+rhodep ships two for the main camera, one per module vendor:
+`..._s5kjn1_qtech.bin` and `..._s5kjn1_sunny.bin`, ~269 KB each.
+
+## The structure worth knowing
+
+Search for the expected chip id as a little-endian u32 and the surrounding
+words are the sensor's I2C description:
+
+	0x348b0:  ac 00 00 00    i2c address, 8-bit form -> 0x56 in 7-bit
+	          02 00 00 00    register address width, bytes
+	          02 00 00 00    data width, bytes
+	          00 00 00 00    chip id register = 0x0000
+	0x348c0:  e1 38 00 00    expected chip id = 0x38e1
+	          ff ff ff ff    mask
+
+A second entry of the same shape identifies the module vendor through the
+EEPROM:
+
+	addr 0xa0 (= 0x50 7-bit), register 0x0d, expected 0x5154 = "QT" (Qtech)
+
+**Read that register on the device to pick the right blob.** This board answers
+`0x5355` = "SU", so it is a **Sunny** module and the qtech blob is the wrong
+one. Both agree on the sensor address, but the field is there for a reason.
+
+## What it settled, and what it did not
+
+Settled: **the sensor is at 0x56**, with 2-byte registers and 2-byte data, chip
+id 0x38e1 at register 0x0000. The Fairphone FP5 uses 0x10 for the same part, so
+this is strapped differently and no amount of reading mainline would have found
+it.
+
+Also settled, by a clean control: the bus distinguishes empty addresses
+properly, and 0x56 behaves like a sensor and not like noise —
+
+	0x11, 0x33 (empty)   -> ENXIO
+	0x56 without MCLK    -> ENXIO
+	0x56 with MCLK       -> ACKs (the driver reports a chip id mismatch, not ENXIO)
+	0x50, 0x52           -> always answer
+
+Needing MCLK to answer on I2C is exactly what an image sensor does, and what
+tells it apart from the EEPROMs on the same master.
+
+Not settled: **the chip id register reads zero.** The part acknowledges its
+address with the clock running, but returns 0x0000 where 0x38e1 is expected.
+Tried and did not change it: the vendor power-on order (which did make reads
+stable instead of noisy - kept as patch 0056), dropping the CCI to 100 kHz, and
+a 150 ms post-reset delay instead of 10 ms.
+
+## Where to pick this up
+
+The blob still holds two things that have not been decoded: the
+`powerUpSequence`/`powerDownSequence` tables and `sensorI2CFrequencyMode`. The
+field names are at 0x32b10, 0x32b48 and 0x325d0; the values live in the data
+region around 0x34800. Decoding the power sequence is the obvious next move,
+since it would give the exact rail order, delays and any register writes the
+part expects before it will identify itself.

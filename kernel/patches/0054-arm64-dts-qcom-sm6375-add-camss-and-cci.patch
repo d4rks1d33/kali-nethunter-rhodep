@@ -1,27 +1,7 @@
-From: rhodep port <none@example.com>
-Date: Tue, 19 Aug 2026 03:12:00 -0300
-Subject: [PATCH] arm64: dts: qcom: sm6375: add CAMSS and the two CCI buses
-
-Describe the camera subsystem and both CCI controllers. Addresses,
-interrupts and clocks are taken from blair-camera.dtsi in the vendor tree
-and cross-checked against qcm2290.dtsi, which describes the same ISP
-generation; the blocks the two SoCs share are at identical addresses.
-
-The SMMU stream id comes from the vendor's own camera context bank and is
-the one detail that must not be copied from qcm2290: that SoC lists
-0x400/0x800/0x820/0x840, but on SM6375 0x820 belongs to the display
-subsystem. Duplicating it makes the device bootloop with nothing in
-ramoops, because the SMMU and the display come up long before any camera
-driver would.
-
-Both nodes are left disabled: they are only useful on a board that also
-describes a sensor.
-
-Signed-off-by: rhodep port <none@example.com>
 ---
 --- a/arch/arm64/boot/dts/qcom/sm6375.dtsi
 +++ b/arch/arm64/boot/dts/qcom/sm6375.dtsi
-@@ -1533,6 +1533,170 @@
+@@ -1533,6 +1533,172 @@
  			};
  		};
  
@@ -156,7 +136,9 @@ Signed-off-by: rhodep port <none@example.com>
 +
 +			cci0_i2c1: i2c-bus@1 {
 +				reg = <1>;
-+				clock-frequency = <400000>;
++				/* 100 kHz: at 400 kHz reads from the sensor come back
++				 * byte-shifted, which is a timing signature. */
++				clock-frequency = <100000>;
 +				#address-cells = <1>;
 +				#size-cells = <0>;
 +			};

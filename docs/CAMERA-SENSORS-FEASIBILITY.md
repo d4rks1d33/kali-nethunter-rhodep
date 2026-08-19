@@ -677,3 +677,85 @@ Two routes carry real information, and neither is more guessing:
    slot. Booting it and tracing the camera bring-up — the kernel driver logs
    every power step at debug level — gives the exact order, delays and register
    writes, with no reverse engineering at all. This is the cheaper of the two.
+
+---
+
+# The sensormodule blob, decoded
+
+Done properly rather than by pattern matching, because guessing had run out.
+The format is documented here so nobody has to redo it.
+
+## Container
+
+	0x0000  "QTI Chromatix Header"
+	0x001c  u32 total file size (0x41ba6 = 269222, matches)
+	0x0028  "Parameter Parser V3.0.1 (2009151142)"
+	0x0058  "com.qti.sensormodule.mot_rhodep_s5kjn1_sunny"
+	0x00c0  start of the parameter table
+
+## Parameter table
+
+A flat array of **56-byte entries**, 3727 of them, each:
+
+	+0x00  u32  flag      0, 2, or 0xffffffff
+	+0x04  u32  offset    into the data area
+	+0x08  u32  size      in bytes, 0 means "no value"
+	+0x0c  u32  id        sequential, 1..3727
+	+0x10  char name[40]
+
+Two things make it readable. The offsets are **contiguous** — each field's
+`offset + size` equals the next field's offset — which is how the layout can be
+verified without guessing. And the data area is **not** at file offset 0:
+
+	DATA_BASE = 0x3401c
+
+derived by taking a field whose value was already known from the hardware
+(`sensorSlaveAddress`, offset 0x894) and locating that value in the file
+(0x348b0). Every other field then resolves correctly.
+
+## What it actually contains
+
+Reading `powerSetting` (id 13, offset 0x8a3, 72 bytes) at DATA_BASE gives the
+identification block, which is what the camera stack probes with:
+
+	0x38e1  0xffffffff  1  10     sensor chip id and mask
+	0xa0    2  2  0x0d            EEPROM at 0xa0 (0x50 7-bit), register 0x0d
+	0x5355                        expected "SU" = Sunny
+
+The qtech blob carries 0x5154 ("QT") in the same place. Reading register 0x0d of
+the EEPROM on the device returns 0x5355, so this board is Sunny — that is how
+the right blob gets picked, and it also confirms the parse is correct.
+
+This is where the sensor's I2C address comes from, and it is worth repeating
+that it is **0xac (8-bit) = 0x56 (7-bit)**, not the 0x10 the Fairphone FP5 uses.
+
+## What it does NOT contain: the power sequence
+
+	powerUpSequence     16 bytes   (belongs to the actuator/flash branch)
+	powerDownSequence   0 bytes
+	powerSetting        108 bytes total across 4 entries, all identification
+	                    or actuator
+
+**There is no sensor power-up sequence in this file.** Searching for
+(type, config, delay) triplets with valid `msm_camera_power_seq_type` values
+returns only false positives — index tables whose configs and delays are
+nonsense.
+
+That is a real answer, not a failure: the blob was the leading candidate for
+where the missing initialisation lived, and it can now be crossed off instead of
+being suspected indefinitely. On this CamX version the sensor's power sequence
+lives in the sensor driver library (`com.qti.sensor.mot_s5kjn1.so`), which is
+AArch64 code rather than data — extracting it means disassembly, a different and
+much larger job.
+
+## Where that leaves the sensor
+
+Confirmed from the vendor's own data: correct address, correct register widths,
+correct expected id. Confirmed on the hardware: the part is at that address,
+acknowledges when MCLK runs, and returns ENXIO when it does not. Still refuses
+to report its identity, and the initialisation detail that would explain it is
+not in the file that was supposed to hold it.
+
+The remaining route that carries information is tracing the stock ROM: booting
+Android on the other slot and watching the kernel's camera driver log each power
+step gives the sequence directly, with no disassembly and no guessing.

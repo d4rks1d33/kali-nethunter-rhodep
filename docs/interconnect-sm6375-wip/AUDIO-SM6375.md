@@ -114,8 +114,17 @@ registers the driver complained about are real: `RX_RX1_RX_PATH_CFG3` 0x0490
 and `RX_RX1_RX_PATH_SEC7` 0x04B4.
 
 --------------------------------------------------------------------------------
-## 4. OPEN: the ADSP dies ~500 ms after a stream starts
+## 4. SOLVED (session 10): the ADSP dies ~500 ms after a stream starts
 --------------------------------------------------------------------------------
+> **This section is the investigation, kept in the order it happened, and it is
+> long. The answer is in session 10 below: the q6asm SMMU stream id was wrong,
+> `iommus = <&apps_smmu 0xa1 0x0>`. A DSP write to DDR is posted and fails
+> quietly, but a DSP read needs a response, so a bad translation hangs the bus
+> and resets the SoC with nothing in the logs. Sessions 5 to 9 are everything
+> that was ruled out on the way, and "Honest status and what is left" near the
+> end of this section was written *before* the fix — it is preserved as a record
+> of what the problem looked like from the inside, not as open work.**
+
 Everything up to and including the whole PCM prepare works. Then, about half a
 second after the stream is triggered, the SoC resets. The bootloader reports the
 reason on the next boot:
@@ -713,10 +722,11 @@ the earpiece, which is how the phone is meant to sound.
 Everything is in `userspace/audio/` in the repository, with an `install.sh`
 that puts each piece where it belongs and enables the unit.
 
-Not yet done: the ACF profiles are still "Music" on both amplifiers, and
-`Receiver` will be wanted for calls; there is no headphone or microphone
-device in the UCM yet, so only the speaker is described; and a reboot has not
-yet been used to confirm the ordering unit does its job.
+Not yet done, **as of session 12** — §6 closed most of it. Headphones and the
+microphone are in the UCM now, jack detection works, and the ordering unit was
+confirmed across reboots. What is still true is the first half: the ACF profiles
+are "Music" on both amplifiers, and `Receiver` will be wanted for calls, which
+is moot until there is call audio at all (q6voice, a driver nobody has written).
 
 ### The shipping image
 
@@ -772,6 +782,14 @@ added to a hunk its `@@` counts must be recalculated or patch rejects the
 file as malformed.
 
 ### Honest status and what is left
+
+> **Written before session 10, and every item below turned out to be a red
+> herring.** It was not the post-processing topology, not the ADM matrix setup,
+> and it did not need the vendor calibration data or anyone who knows the ASM
+> firmware protocol. It was one wrong SMMU stream id. Kept because the reasoning
+> is a fair record of what the problem looked like with the fix still unknown,
+> and because the last line — "it is not a device tree problem" — was exactly
+> wrong, which is worth remembering next time.
 
 The audio hardware description is verified correct, the entire codec path is
 proven innocent, and the question is now precise: **why does this DSP firmware

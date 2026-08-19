@@ -22,23 +22,40 @@ Fixing the node (see `0026-arm64-dts-qcom-rhodep-enable-ipa.patch` in
 
 `rmnet_ipa0` is created and ModemManager gets a data port.
 
-## The interconnect driver was NOT needed
+**None of which the phone does today**, and that is deliberate: `ipa.ko` is held
+out of the boot by `/etc/modprobe.d/rhodep-ipa-hold.conf`, because with the
+module loaded *and* the modem attached to LTE the SoC watchdog-resets every 3 to
+10 minutes. The IPA register-layout fix above is correct and is not the open
+bug; §5 sessions 14-15 of `HANDOFF-SESSION4.md` is.
 
-The earlier theory in this directory — "mobile data needs an SM6375 interconnect
-provider so the IPA can vote its NoC bandwidth" — **was wrong**, and the days
-spent on it are documented in `PROGRESS.md` as a cautionary tale.
+## The interconnect driver was not needed — and it works now anyway
 
+Two separate things, and older revisions of this file ran them together.
+
+**It was not needed for mobile data.** The earlier theory here — "mobile data
+needs an SM6375 interconnect provider so the IPA can vote its NoC bandwidth" —
+was wrong, and the days spent on it are in `PROGRESS.md` as a cautionary tale.
 The RPM keeps bimc/cnoc/snoc voted at INT_MAX on its own: rpmcc hands the icc bus
 clocks off at INT_MAX and never registers them with the clock framework, so Linux
-never clocks DDR on this SoC at all (`/sys/class/interconnect` does not even
-exist on a working boot). `interconnect_count = 0` in the IPA power data is the
-correct description of this platform.
+never clocks DDR on this SoC at all. `interconnect_count = 0` in the IPA power
+data was a correct description of this platform, and fixing the IPA register
+layout is what actually delivered data.
 
-Worse, the hand-written provider in here **resets the SoC** the moment it binds
-the bimc node, for reasons that were never identified (see `PROGRESS.md` and
-`VENDOR-BIMC.md`); since it turned out to be unnecessary, that was never chased
-down. Patches 0027-0030 are kept for reference only and are **not** in the
-kernel aport's `source=`.
+**But the driver is no longer broken.** Older revisions said it "resets the SoC
+the moment it binds the bimc node, for reasons that were never identified".
+Session 15 identified them, all four, by finally loading the module: NULL holes
+in the node arrays (the vendor's global numbering used as array indices), a
+match table whose compatibles did not match the DT, QoS register writes that
+park a CPU, and an `#interconnect-cells = <2>` provider being fed one cell per
+specifier. On `kali-boot-v97` six providers bind, there is no oops, and the IPA
+probes cleanly with the paths visible in `interconnect_summary`.
+
+So patches **0027, 0028 and 0046 are in the kernel aport's `source=`**, not
+reference material. The driver is still held out of the boot by
+`/etc/modprobe.d/rhodep-icc-hold.conf` until it has been loaded by hand at least
+once on a device tree that has the provider nodes — that file says why. It did
+**not** fix the watchdog reset (§5 session 15), but it is real SM6375 support and
+is worth upstreaming.
 
 ## Why it took so long: there was no log
 
@@ -58,16 +75,17 @@ flash cycle.
 
 | file | what it is |
 | --- | --- |
-| `HANDOFF-SESSION4.md` | **current state of the port**, how the IPA was fixed, the debug method, and the next task (the modem never goes online) |
-| `AUDIO-SM6375.md` | the audio bring-up: the card comes up, a stream kills the ADSP. State, what is ruled out with evidence, and where to look next |
-| `PROGRESS.md` | full chronological log, sessions 1-4, including the dead ends |
+| `HANDOFF-SESSION4.md` | **current state of the port**, how the IPA was fixed, the debug method, and the one thing still open: the SoC watchdog-resets when `ipa.ko` is loaded *and* the modem is attached to LTE (§5, sessions 14-15) |
+| `AUDIO-SM6375.md` | the audio bring-up. Speaker, earpiece, headphones, the microphone and jack detection all work; §6 is the state, what is ruled out with evidence, and the one rough edge left |
+| `GNSS-SM6375.md` | **starting a GNSS session watchdog-resets the SoC in under a second**, with `ipa.ko` not loaded. Same silent signature as the mobile-data reset, and a five-second reproducer for it. Read before assuming GPS is a feature request |
+| `REMOVED-MEM-SM6375.md` | mainline's `removed_mem` is 32 MB smaller than the vendor's, because the number came from shima/yupik instead of blair. Untested candidate for the reset, one byte to try, test image already built |
+| `PROGRESS.md` | full chronological log, including the dead ends |
 | `0031-DIAG-net-ipa-trace-probe-steps.patch` | the instrumentation that found it (KERN_EMERG markers per probe step + a `diag_mode` parameter that probes the shared SRAM). Not in `source=`; re-add when debugging IPA |
-| `AUDIT.md`, `VENDOR-BIMC.md` | interconnect research (RPM ids, the bimc reset theory). Historical |
-| `DT-NODES.md`, `gen_sm6375.py`, `sm6375.c`, `qcom,sm6375.h` | the unused interconnect provider and its generator |
+| `AUDIT.md`, `VENDOR-BIMC.md` | interconnect research (RPM ids, the bimc reset theory). Historical — the reset was four bugs in the driver, see above |
+| `DT-NODES.md`, `gen_sm6375.py`, `qcom,sm6375.h` | the interconnect provider's generator and bindings. `sm6375.c` here is the pre-session-15 copy; the one that works is patch 0027 in `kernel/patches/` |
 | `holi_nodes_dump.txt`, `holi_qos_dump.txt`, `icbid_map.txt`, `qcm2290_ports.txt` | parsed vendor NoC/QoS tables |
-| `0027`-`0029` patches | the unused interconnect driver + DT nodes |
-| `0032`-`0036` patches | the audio bring-up (APR/q6dsp, LPASS macros and soundwire, the sound card, the WCD9370, LPASS codec version 2.2). Kept OUT of the kernel `source=` while a stream still kills the SoC |
-| `0037` patch | DIAG: marks the four stages of the ASoC PCM prepare |
+| `0029`, `0037`-`0041` patches | superseded diagnostics and experiments. **Not** in `source=`, and the numbers were never reused. `0029` was replaced by `0045`, which wires all three IPA paths instead of two |
+| `0027`, `0028`, `0032`-`0036` patches | the copies kept here are historical: these are all **in** the kernel aport's `source=` now (interconnect provider + DT nodes, and the audio bring-up). Edit them in `kernel/patches/`, not here |
 
 ## Where the vendor source comes from
 

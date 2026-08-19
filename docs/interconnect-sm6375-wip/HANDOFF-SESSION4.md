@@ -21,15 +21,24 @@ Your job, if you are picking this up, is that bug. Concretely:
 
 1. Read §5 "OPEN BUG" for the bisection table and what is already ruled out
    (suspend, thermal, the IMEM address, IMEM cacheability). Do not redo those.
-2. Best lead: patch 0025 gives SM6375 `interconnect_count = 0`. That was
-   verified for *probe* and never for *operation*, and the vendor IPA node asks
-   for three paths that are not bimc/cnoc/snoc:
-   `blair.dtsi:3201  interconnect-names = "ipa_to_ebi1", "ipa_to_imem", "appss_to_ipa";`
-   The shelved SM6375 interconnect driver is in this same directory
-   (`sm6375.c`, patches 0027-0030, `VENDOR-BIMC.md`, `AUDIT.md`).
-3. Second lead: `ipa_data_v4_11`'s `ipa_mem_local_data` was written for
-   qcm2290/sm6115. Diff the IPA local SRAM partition table against downstream's
-   for IPA v4.11 before assuming it transfers.
+2. **Read §5 session 15 as well, because it buried the two leads this list used
+   to open with.** Both were built, flashed and measured, and neither is the
+   cause. Do not re-test them:
+   - the unvoted NoC paths (`interconnect_count = 0`): the SM6375 interconnect
+     driver now works, six providers bind, the IPA is a consumer on all three
+     vendor paths — and it still resets. Patches 0027/0028/0044/0045/0046/0047.
+   - the IPA SRAM layout inherited from qcm2290: transcribed from the vendor's
+     `ipa_4_11_mem_part`, genuinely different, and it still resets. Patch 0048.
+
+   All of those patches are **kept** — each is a correction that is right on its
+   own merits — but none of them is the bug.
+3. **The one experiment that has never run**, and the thing to do first:
+   *attach to LTE with `ipa.ko` never loaded*. It answers the question outright
+   — if it still resets, the IPA is innocent and three sessions of looking at it
+   were misdirected. It needs the LTE attach APN set by hand over `qmicli`,
+   because ModemManager normally configures it and MM will not touch a QMI modem
+   with no net port. The end of §5 session 15 has the exact commands and the
+   reason the obvious version of this experiment fails.
 4. Reproduce like this, so the causal window is seconds and not minutes.
    `ipa.ko` is a module, so no reflash is needed for any of it:
 
@@ -62,6 +71,27 @@ After that, the next thing on the modem is in-call audio, which is a new driver
 > supersedes v80 for daily use. See the root `README.md` ("Current image") and
 > `AUDIO-SM6375.md` sessions 10-12. The rest of this §0 remains accurate for
 > everything other than audio.
+>
+> **UPDATE 2 (sessions 14-15), and this one changes what "works" means below.**
+> - The image to flash is **`kali-boot-v94-STABLE.img`**, not v92: it is v92
+>   plus one device tree node reserving 8 MB for the modem's memshare region,
+>   and nothing else. Kernel, ramdisk and cmdline are byte for byte identical,
+>   so falling back is just reflashing v92.
+> - **The "IPA / mobile data path: yes, it loads at boot" paragraph below is no
+>   longer true of the shipped phone.** The IPA still works exactly as
+>   described, but `ipa.ko` is deliberately kept out of the boot by
+>   `/etc/modprobe.d/rhodep-ipa-hold.conf`, because with it loaded *and* the
+>   modem attached to LTE the SoC watchdog-resets every 3-10 minutes. So on a
+>   stock install there is no `rmnet_ipa0`, and ModemManager creates no modem at
+>   all. That is the open bug, §5 sessions 14-15.
+> - The modem itself is **done** and the "modem never leaves offline" item below
+>   is solved.
+> - `kali-boot-v97-ipa-interconnect.img` exists for working on the reset: it
+>   adds the interconnect provider nodes and the IPA's three NoC paths to the
+>   device tree and boots identically to v94, because both drivers are held out.
+>   It is **not** the daily image, and v94 specifically is the recovery one —
+>   with no provider nodes in its DT there is no modalias, so `qnoc-sm6375`
+>   cannot be autoloaded whatever state it is in.
 
 **`kali-boot-v92-STABLE-audio.img`** is the complete working port and the one to
 flash: display, touch, GPU, wifi/BT, the three remoteprocs, battery, charger,
@@ -188,6 +218,14 @@ the RPM keeps bimc/cnoc/snoc voted at INT_MAX by itself (rpmcc hands the icc bus
 clocks off at INT_MAX and never registers them with CCF), so Linux never needs
 to clock DDR on this SoC. **The whole interconnect driver effort (patches
 0027-0030, VENDOR-BIMC.md, AUDIT.md) was not needed and is not in source=.**
+
+> **Superseded by session 15, below.** The first half stands: the interconnect
+> driver was not needed for mobile data, and `interconnect_count = 0` was a
+> correct description of the platform. The second half no longer is. Session 15
+> loaded the driver, found and fixed the four bugs that had made it look
+> unusable, and patches **0027, 0028 and 0046 are now in `source=`** along with
+> 0044/0045/0047 which give the IPA real icc data. It still did not fix the
+> watchdog reset. Read §5 session 15 before acting on this paragraph.
 
 --------------------------------------------------------------------------------
 ## 2. THE OTHER ROOT CAUSE: ramoops was at the wrong address (we were blind)

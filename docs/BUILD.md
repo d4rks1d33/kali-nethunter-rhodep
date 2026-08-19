@@ -58,7 +58,7 @@ pmbootstrap build --force linux-motorola-rhodep
 
 - **pmOS kernel**: use the aport as-is.
 - **Kali kernel**: swap in `kernel/config/config-motorola-rhodep.aarch64` before
-  building. The 31 patches are identical either way; only the config differs.
+  building. The 40 patches are identical either way; only the config differs.
 
 **Verify the apk before trusting it:**
 - `iommus = <0x3a 0xa1 0x00>` in the decompiled `sm6375-motorola-rhodep.dtb`
@@ -207,9 +207,19 @@ and `docs/interconnect-sm6375-wip/` for the deep history:
   build/flash/where-everything-lives reference.
 
 Short version: display, GPU, touch, WiFi/BT, battery/charging, USB/OTG, the
-three remoteprocs, IPA (data path up), and **audio** all work. Audio means
-speaker, earpiece, headphones with working jack detection, and the microphone,
-through PipeWire. The modem enumerates but does not register (SIM/UIM issue), so
-**call audio** is blocked on that rather than on audio. One rough edge remains:
-changing output while a stream is already playing works towards the headphones
-but leaves the speaker silent until that stream is reopened (AUDIO-SM6375.md §6).
+three remoteprocs and **audio** all work. Audio means speaker, earpiece,
+headphones with working jack detection, and the microphone, through PipeWire.
+
+**The modem works too** — it registers on LTE, data was measured at ~24 Mbit/s,
+calls connect and SMS arrives — but it is **shipped switched off**. With
+`ipa.ko` loaded *and* the modem attached to LTE the SoC watchdog-resets every 3
+to 10 minutes, so `userspace/modem/install.sh` drops
+`/etc/modprobe.d/rhodep-ipa-hold.conf`. The cost is mobile data and
+ModemManager, which means no dialer, no SMS UI and no `mmcli` on a stock
+install. That is deliberate; see HANDOFF-SESSION4.md §5 sessions 14-15.
+
+**Call audio** is not blocked on the modem: mainline has no q6voice
+(MVM/CVS/CVP) at all, so it is a driver that has to be written. One rough edge
+remains in audio itself: changing output while a stream is already playing works
+towards the headphones but leaves the speaker silent until that stream is
+reopened (AUDIO-SM6375.md §6).

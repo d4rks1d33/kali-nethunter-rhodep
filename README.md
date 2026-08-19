@@ -113,19 +113,67 @@ list; everything here is a from-scratch community port.
 | **Sensors** (accelerometer, gyroscope, proximity, light) | Behind the SSC sensor hub inside the ADSP — LineageOS uses `sensors.ssc.so`. Mainline has no support for it. A research project. |
 | **Fingerprint** | Focaltech with a proprietary HAL (`fingerprint.focaltech.default.so`). No mainline driver. |
 | **NFC** | Samsung `sec-nfc` on i2c7. No mainline driver. |
-| **GPS** | Closer than the docs used to say: the modem publishes the location service and `qmicli --loc-start` works. It has never emitted NMEA, but it has only been tried indoors. **Testing it outdoors is free and is the next thing to try.** |
-| **Camera** | CAMSS plus sensor drivers. Large. |
+| **GPS** | **Starting a GNSS session watchdog-resets the SoC in under a second**, reproducibly, with `ipa.ko` not loaded. The location service (QMI 16) is there and answers every query — mode, NMEA types, XTRA servers, start, stop — but the moment a session runs with indications registered, the phone reboots. It was never an indoors problem. [`GNSS-SM6375.md`](docs/interconnect-sm6375-wip/GNSS-SM6375.md) |
+| **Camera** | **First piece working**: the FAN53870 camera PMIC driver is written and running — all 7 LDOs registered, voltages verified against the chip's own registers. The ISP pipeline (`csid530` + `tfe530` + `tpg101`) is the *same silicon* mainline already drives on qcm2290, the 52 `gcc_camss_*` clocks are in mainline, and the 50 MP main sensor (Samsung S5KJN1) has a mainline driver. Still needed: a `camss` entry for SM6375, the CSIPHY/CSID/TFE nodes and the sensor node. [`CAMERA-SENSORS-FEASIBILITY.md`](docs/CAMERA-SENSORS-FEASIBILITY.md) |
 | **Monitor mode on the internal WiFi** | Infeasible: the WCN3990 firmware reports `raw 0`. Use the external adapter, which does work. |
 
 ## Where to pick this up
 
-1. **GPS outdoors.** Five minutes, no risk, and it decides whether GPS is nearly
-   free or a real project.
-2. **The IPA reset.** Read §5 session 15 of HANDOFF-SESSION4.md first: three
-   hypotheses are already buried with evidence and should not be retried. The
-   experiment to run is attaching to LTE with `ipa.ko` never loaded, which needs
-   the attach APN set by hand over `qmicli`.
-3. Everything else in the table above is a project rather than a task.
+1. **The SoC reset, with GNSS as the trigger.** A live GNSS session kills the
+   SoC in **under 100 ms**, with no SIM, no IPA, no ModemManager, no network and
+   the WWAN radio switched off — `sudo scripts/rhodep-gnss-test.py 40 min` and
+   the phone reboots, every time. The LTE reset needs `ipa.ko` plus an LTE
+   attach plus 3 to 10 minutes of waiting, so if they share a cause the
+   expensive bug now has an instant reproducer.
+
+   Already bisected, on the device, one reboot per row: it is not the
+   indications (an empty event mask still resets), not the optional start TLVs,
+   not `QMI_LOC_START` as a message (`qmicli` sends it and survives, because it
+   frees the client and the session dies with it), and not the WWAN radio. **It
+   is the session being allowed to stay alive**, and nothing else. Dynamic debug
+   on qrtr/glink/q6v5/sysmon produces not one line before the console stops.
+
+   Also excluded, one reboot each: `removed_mem` being 32 MB short (fixed in
+   v98, still resets), clocks and power domains Linux switches off as unused
+   (`clk_ignore_unused pd_ignore_unused`, v99, still resets), memshare, a
+   missing VDD_MX vote, and any AP-side SMMU stream id. **Every CPU wedges at
+   once**, which points at a hung bus rather than one stuck core.
+
+   **The AP has been cleared, with evidence.** An instrumented kernel
+   (`kali-boot-v100-instrumented.img`, with `HARDLOCKUP_DETECTOR_BUDDY` +
+   `PSTORE_FTRACE` and the ramoops region re-split so ftrace has somewhere to
+   land) shows all eight cores sitting in `do_idle` at the moment of death, the
+   last real work being the modem's own glink reply to the START. No panic is
+   ever reached — `kmsg_dump` is never called — and the buddy detector never
+   fires, which can only happen if **every CPU stops in the same instant**.
+   Loading `qnoc-sm6375` so the NoC provider is bound changes nothing either.
+
+   So this is a hardware-level reset of the whole SoC, started somewhere the AP
+   cannot observe: the mpss, TrustZone, or a bus error escalated by hardware.
+   More AP-side instrumentation will not help; the next step needs modem-side
+   visibility (DIAG/QXDM or a modem ramdump).
+   [`GNSS-SM6375.md`](docs/interconnect-sm6375-wip/GNSS-SM6375.md)
+
+2. **`removed_mem` is 32 MB short — tested, real, and not the cause.** Mainline
+   takes the size from shima/yupik instead of blair, so Linux gets 32 MB the
+   secure firmware owns. Confirmed and fixed in
+   `kali-boot-v98-removed-mem.img`; the reset survived it. Keep patch 0049
+   anyway and send it upstream, because handing out firmware memory is wrong on
+   its own terms and would waste somebody's session later.
+   [`REMOVED-MEM-SM6375.md`](docs/interconnect-sm6375-wip/REMOVED-MEM-SM6375.md)
+3. **The IPA reset itself**, if items 1 and 2 come back negative. Read §5
+   session 15 of HANDOFF-SESSION4.md first: three hypotheses are already buried
+   with evidence and should not be retried. The experiment to run is attaching
+   to LTE with `ipa.ko` never loaded, which needs the attach APN set by hand
+   over `qmicli`.
+4. Everything else in the table above is a project rather than a task.
+
+> GPS used to be item 1 here, described as "five minutes, no risk". That was
+> wrong, and how it was wrong is worth knowing before trusting any other "it
+> almost works" line in this file: `qmicli` cannot start a GNSS session and a
+> listener in the same QMI client, and when it fails it fails **quietly** —
+> no NMEA, no error. That reads exactly like a GPS with no sky view, which is
+> what everyone concluded. Doing it properly, from one client, resets the phone.
 
 ## Screenshots
 
@@ -186,19 +234,39 @@ Claude Code expects Anthropic's event sequence with tool calls as
 `input_json_delta` fragments, which is a state machine rather than a field rename.
 
 ## Known limitations
-- **Mobile data**: the IPA blocker described in older revisions of this file is
-  solved and the modem now enumerates on its own, but it does not get as far as
-  registering on the network: ModemManager reports `DeviceNotReady`, and a
-  known-good SIM gets no ATR while an older prepaid SIM reads fine. That is a
-  SIM/UIM problem downstream of everything else and is still being looked at.
+- **Mobile data**: the modem itself is finished. It registers on LTE, data was
+  measured at ~24 Mbit/s, calls connect and SMS arrives. What blocks day-to-day
+  use is a separate bug reachable only now that the radio works: with `ipa.ko`
+  loaded **and** the modem attached to LTE, the SoC watchdog-resets every 3 to
+  10 minutes, silently. Either condition alone is stable (22 and 16.5 minutes
+  observed). So `userspace/modem/install.sh` ships
+  `/etc/modprobe.d/rhodep-ipa-hold.conf`, and `rhodep-icc-hold.conf` for the
+  interconnect provider, which keeps both drivers out of the boot. The cost is
+  that `rmnet_ipa0` never appears and ModemManager, which refuses a QMI modem
+  with no net port, does not create the modem at all — so no dialer, no SMS UI
+  and no `mmcli`. QMI itself still answers directly
+  (`qmicli -d qrtr://0 --dms-get-ids`). Delete the file and reboot to get the
+  whole modem back, resets included. HANDOFF-SESSION4.md §5, sessions 14-15.
+- **The SIM was never the problem.** Older revisions of this file blamed a
+  SIM/UIM fault for the modem not registering (`DeviceNotReady`, no ATR on a
+  known-good card). That was wrong: the modem fetches its run-time images from
+  the AP over TFTP and every request was being answered "file not found", so it
+  never left `offline`. `userspace/modem/` populates the remote file system
+  from the stock `modem`/`fsg`/`persist` partitions, serves
+  `/readonly/vendor/fsg/` from a patched tqftpserv and opens the UIM
+  provisioning session. Nothing about the card had to change.
+- **In-call audio does not exist**, and it is not waiting on the modem. Qualcomm
+  voice audio goes modem ↔ ADSP ↔ codec and mainline has no q6voice (MVM/CVS/
+  CVP) at all, so it is a driver that has to be written, not a bug to fix.
+  Scoped in HANDOFF-SESSION4.md session 14.
 - **Internal WiFi monitor/injection**: impossible in mainline — the WCN3990
   firmware reports `raw 0` (no raw mode). Use an external USB adapter instead.
-- **Audio**: speaker, earpiece, headphones and both microphones work. What is
-  left is call audio, which needs the modem first, and one rough edge: changing
-  output **while a stream is already playing** works towards the headphones but
-  leaves the speaker silent until that stream is reopened. The cause is an ASoC
-  ordering problem, not a configuration one — the amplifiers are powered up
-  ~300 ms before the I2S clock they need to lock onto — and it is written up in
+- **Audio**: speaker, earpiece, headphones and the microphone all work. One
+  rough edge is left: changing output **while a stream is already playing**
+  works towards the headphones but leaves the speaker silent until that stream
+  is reopened. The cause is an ASoC ordering problem, not a configuration one —
+  the amplifiers are powered up ~300 ms before the I2S clock they need to lock
+  onto — and it is written up in
   [`AUDIO-SM6375.md`](docs/interconnect-sm6375-wip/AUDIO-SM6375.md) §6.
   Jack detection needs the codec kept awake (a udev rule), because a suspended
   soundwire slave reports nothing.
@@ -208,8 +276,14 @@ Claude Code expects Anthropic's event sequence with tool calls as
   Note when testing: enabling a capture path emits a settling DC transient, a
   one-sided ramp, before going quiet, so peak and RMS look like signal on a dead
   input. Count sign changes instead.
-- Sensors (SSC/ADSP), GPS, NFC (Samsung `sec-nfc`, no mainline driver),
-  camera: not done.
+- Sensors (SSC/ADSP), NFC (Samsung `sec-nfc`, no mainline driver), fingerprint
+  (proprietary Focaltech HAL) and camera: not done, each for want of a driver.
+- **GPS is worse than "not done": using it reboots the phone.** The location
+  service answers every query, but a GNSS session with indications registered
+  watchdog-resets the SoC in under a second, `ipa.ko` or no `ipa.ko`. Same
+  silent signature as the mobile-data reset, which is why it is now the best
+  lead on that bug rather than a feature request.
+  [`GNSS-SM6375.md`](docs/interconnect-sm6375-wip/GNSS-SM6375.md)
 - Single USB-C port + no mainline Type-C driver → charge vs OTG is not automatic
   (manual `otg on|off`, defaults to charging). See `packages/rhodep-usb-otg`.
 
@@ -218,13 +292,13 @@ Claude Code expects Anthropic's event sequence with tool calls as
 # Repository layout
 ```
 kernel/
-  patches/            31 kernel patches (DTS + shared-driver fixes), applied in order
+  patches/            40 kernel patches (DTS + shared-driver fixes), applied in order
   config/
     config-motorola-rhodep.aarch64   full kernel .config (Kali variant = pmOS config + NetHunter + BTF fix)
     nethunter-config.fragment        the NetHunter symbols merged onto the pmOS config
   APKBUILD            pmaports APKBUILD used by pmbootstrap to build the kernel
 postmarketos/         FULL postmarketOS port source (the base this Kali port builds on)
-  linux-motorola-rhodep/     kernel aport (31 patches + APKBUILD + pmOS config, no NetHunter)
+  linux-motorola-rhodep/     kernel aport (40 patches + APKBUILD + pmOS config, no NetHunter)
   device-motorola-rhodep/    device package (deviceinfo, systemd units, JEITA, modem glue)
   firmware-motorola-rhodep/  firmware aport (APKBUILD; blobs not included)
   README.md                  how to build the kernel/rootfs with pmbootstrap
@@ -275,6 +349,9 @@ scripts/
   make-boot-from-apk.sh    build a boot.img reusing an initramfs from a base image
   build-support-debs.sh    build the three support .deb packages
   build-kernel-headers.sh  build linux-headers-<KVER>.deb (for DKMS / rtl8188eus)
+  rhodep-gnss-test.py      drive a GNSS session from ONE QMI client, which qmicli
+                           cannot do. WARNING: this reboots the phone; that is
+                           the finding. See docs/.../GNSS-SM6375.md
 docs/                       extra notes
 ```
 
@@ -282,7 +359,10 @@ docs/                       extra notes
 
 # The kernel (shared with the pmOS port)
 
-## The 31 patches (`kernel/patches/`, applied in this order)
+## The 40 patches (`kernel/patches/`, applied in this order)
+
+The order below is the aport's `source=` order, which is what `patch` sees; it
+is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
 ```
 0001 add-Motorola-Moto-G82-5G            device DTS base (+ gpio-vibrator node)
 0002 dsi-fix-pclk-for-dsc-without-widebus  [upstream candidate] DSI pclk
@@ -315,11 +395,37 @@ docs/                       extra notes
 0034 ASoC-add-motorola-rhodep-sndcard     machine driver compatible
 0035 rhodep-enable-audio                  DTS sound card, WCD9370, both AW88261 amplifiers
 0036 lpass-macro-add-codec-version-2-2    LPASS codec version 2.2
+0042 net-ipa-sm6375-fix-imem-address      IPA: the sm6375 IMEM address, from the vendor tree
+0043 net-ipa-map-imem-as-device-memory    IPA: map IMEM as device memory, not normal
+0027 interconnect-qcom-add-sm6375-provider  new driver: qnoc-sm6375 (module, held out of the boot)
+0028 sm6375-add-interconnect-nodes        DTS interconnect provider nodes
+0044 net-ipa-sm6375-vote-the-three-noc-paths  IPA: own icc data, 3 paths incl. imem
+0045 rhodep-wire-ipa-interconnects        DTS memory/imem/config paths on the IPA node
+0046 interconnect-sm6375-do-not-program-qos  qnoc-sm6375: skip QoS programming
+0047 net-ipa-sm6375-keep-noc-paths-voted  IPA: hold the votes as a floor, not on demand
+0048 net-ipa-sm6375-own-sram-layout       IPA: its own SRAM layout, not qcm2290's
 ```
 
-Patches 0027-0031 and 0037-0041 were interconnect and audio diagnostics and are
-not part of the build; the ones worth keeping are described in
-[`AUDIO-SM6375.md`](docs/interconnect-sm6375-wip/AUDIO-SM6375.md).
+**The numbering has gaps and they are not omissions.** 0029-0031 and 0037-0041
+were interconnect and audio diagnostics that were dropped; the numbers were
+never reused, and the ones worth reading survive under
+`docs/interconnect-sm6375-wip/` (see
+[`AUDIO-SM6375.md`](docs/interconnect-sm6375-wip/AUDIO-SM6375.md)). Every
+`.patch` file that *is* in `kernel/patches/` is in the build — all 40 of them,
+and both aports list the same 40.
+
+**The tree as it stands builds the v97 device tree, not v94.**
+`kali-boot-v94-STABLE.img`, the image to flash, predates 0028 and 0045, so its
+device tree has no interconnect provider nodes and no NoC paths on the IPA
+node. That difference is inert: both are only read by drivers that
+`rhodep-ipa-hold.conf` and `rhodep-icc-hold.conf` keep out of the boot. It
+matters for one thing only, and §5 of HANDOFF-SESSION4.md says why v94 is the
+recovery image: with no provider nodes there is no modalias, so `qnoc-sm6375`
+cannot be autoloaded whatever state it is in.
+
+Patches 0044-0048 are corrections checked against the vendor tree and all of
+them are kept, but **none of them fixes the watchdog reset** — see §5 session 15
+before re-testing any of them.
 
 ## Audio
 
@@ -440,8 +546,9 @@ pmbootstrap build --force linux-motorola-rhodep
 ```
 Verify after build: no empty `.ko`, **no `.ko.zst`** in the apk.
 
-**The 31 patches under `kernel/patches/` and `postmarketos/linux-motorola-rhodep/`
-are identical** — the only difference between the two trees is the `.config`.
+**The 40 patches under `kernel/patches/` and `postmarketos/linux-motorola-rhodep/`
+are identical**, same filenames and same `source=` order — the only difference
+between the two trees is the `.config`.
 `postmarketos/` is the build engine (pmbootstrap builds the kernel and produces
 the boot.img/initramfs from it); `kernel/` carries the Kali variant of the
 config on top. If you change a patch, change it in both places, or copy the set
@@ -675,6 +782,13 @@ sudo dpkg -i rhodep-usb-otg_*.deb rhodep-battery-jeita_*.deb rhodep-modem-suppor
 # Day-to-day use
 
 ## Update Kali + install the toolset (keep the custom kernel safe)
+
+The three `apt-mark hold` lines below are the historical core and are **not the
+whole list** — the canonical one is `userspace/apt/apt-holds.txt`, 47 packages,
+and `sudo userspace/apt/apply-holds.sh` applies it along with the guard, the
+enforcer and the dpkg `Protected` flags. Prefer that; the commands here are kept
+because they explain *why* each group is held.
+
 ```
 sudo apt-mark hold linux-image-7.2.0-rc5 linux-headers-7.2.0-rc5 \
      realtek-rtl8188eus-dkms firmware-motorola-rhodep \
@@ -781,12 +895,15 @@ the next upgrade replaces the kernel, the WiFi firmware or the audio stack.
   hold as a side effect. The exceptions file is what makes the enforcer leave
   that package alone.
 
-Verified by attacking it on the device, not by reading it:
+Verified by attacking it on the device, not by reading it. The counts below are
+what the list held on the day each attack was run — it was 41 packages then and
+is 47 now; what was verified is that every one of them came back, not the
+number:
 
 | attack | result |
 | --- | --- |
 | `apt-mark unhold rmtfs` | ALERT logged, hold back on the next enforce |
-| `apt-mark unhold $(apt-mark showhold)` — all 41 | all 41 back |
+| `apt-mark unhold $(apt-mark showhold)` — the whole list | every one back |
 | `rm` the guard and the `50` hook | `Operation not permitted`, immutable |
 | `chattr -i` then `rm` both | ALERT logged, both restored, immutability reapplied |
 | unhold, then any ordinary `apt install` | hold back automatically via `Post-Invoke` |
@@ -813,7 +930,9 @@ package, and then:
 	  dpkg: error processing package rmtfs (--remove):
 	   this is a protected package; it should not be removed
 
-All 41 carry it. The deliberate way past is dpkg's own
+All 47 carry it. (`grep -c '^Protected: yes' /var/lib/dpkg/status` says 49, not
+47: `libgcc-s1` and `systemd-sysv` ship protected from the Debian archive and
+have nothing to do with this port.) The deliberate way past is dpkg's own
 `--force-remove-protected`, and the supported way is to release the hold, which
 clears the flag as well — otherwise "released" would be a lie.
 
@@ -846,15 +965,19 @@ Nothing reinstalls those. One `rm -rf` and they are gone with no trace.
 `rhodep-protect-files` gives them the same two layers: `chattr +i` on the live
 file, and a canonical copy under `/usr/local/share/rhodep/files` that
 `rhodep-holds-enforce` restores from if the live one goes missing **or is
-modified**. **32 files** across six components (`apt`, `apt-conf`, `modem`,
-`modem-conf`, `audio`, `audio-conf`, `usb-net-conf`) are registered:
+modified**. On `kali-boot-v94-STABLE.img` **101 files** across 16 components are
+registered — `apt`, `apt-conf`, `modem`, `modem-conf`, `audio`, `audio-conf`,
+`bluetooth`, `bluetooth-conf`, `usb-net-conf`, and the `extra-tools` ones
+(`keyboard`, `keyboard-conf`, `keyboard-layouts`, `clipboard`, `claude-free`,
+`claude-free-conf`, `claude-local`). The list grows as installers are added, so
+read it from the device rather than from here:
 
 	rhodep-protect-files status
 
 Each installer calls `release` on its files before overwriting and `register`
-after, so re-running any of them still works — verified by running all four a
-second time against already-immutable files, all exit 0, with audio, usb-net,
-the holds and the modem services untouched.
+after, so re-running any of them still works — verified by running them a second
+time against already-immutable files, all exit 0, with audio, usb-net, the holds
+and the modem services untouched.
 
 Attacked on the device:
 
@@ -895,8 +1018,8 @@ knowing when testing it:
 One more thing `--allow-change-held-packages` does, which is easy to miss:
 **it drops the hold even when the transaction is then aborted.** Attacking
 `libspa-0.2-bluetooth` with it left the package installed (dpkg's `Protected`
-refused the removal) but the hold count down from 43 to 42. The enforcer is
-what notices and repairs it:
+refused the removal) but took the hold count down by one — 43 to 42, on a list
+that has since grown to 47. The enforcer is what notices and repairs it:
 
 	ALERT: holds had been removed, putting them back: libspa-0.2-bluetooth
 
@@ -929,12 +1052,14 @@ up both the modem and the internal WiFi, and the audio set keeps PipeWire
 starting at all. Unholding one to chase a bug is fine; doing it by reflex
 during an upgrade is how this port breaks.
 
-Check what is protected at any time with `apt-mark showhold`; it should list 39
-packages. The full list lives in `userspace/apt/apt-holds.txt` and
+Check what is protected at any time with `apt-mark showhold`; it should list 47
+packages, and `apt-mark showhold | wc -l` on `kali-boot-v94-STABLE.img` says 47.
+The canonical list lives in `userspace/apt/apt-holds.txt`, is copied to
+`/usr/local/share/rhodep/apt-holds.txt` on the device, and
 `userspace/apt/apply-holds.sh` puts it back after a rootfs reinstall.
 
 <details>
-<summary>The 39 held packages, by purpose</summary>
+<summary>The 47 held packages, by purpose</summary>
 
 | Purpose | Packages |
 |---|---|
@@ -944,15 +1069,41 @@ packages. The full list lives in `userspace/apt/apt-holds.txt` and
 | USB WiFi injection | `realtek-rtl8188eus-dkms` |
 | Modem transport | `rmtfs`, `tqftpserv`, `protection-domain-mapper`, `qrtr-tools`, `libqrtr1` |
 | Modem and SIM | `modemmanager`, `libmm-glib0`, `libqmi-utils`, `libqmi-glib5`, `libqmi-proxy` |
+| Modem tooling | `libqrtr-dev`, `libzstd-dev`, `libzstd1` |
 | ALSA | `alsa-ucm-conf`, `alsa-utils`, `alsa-topology-conf`, `libasound2-data`, `libasound2t64` |
 | PipeWire | `pipewire`, `pipewire-alsa`, `pipewire-audio`, `pipewire-bin`, `pipewire-pulse`, `libpipewire-0.3-0t64`, `libpipewire-0.3-common`, `libpipewire-0.3-modules`, `libspa-0.2-modules` |
 | WirePlumber | `wireplumber`, `libwireplumber-0.5-0` |
 | GStreamer bridge | `gstreamer1.0-pipewire` |
-| On screen keyboard | `squeekboard`, `plasma-keyboard` |
-| Modem tooling | `libqrtr-dev` |
+| Bluetooth | `bluez`, `libspa-0.2-bluetooth` |
+| On screen keyboard | `squeekboard`, `plasma-keyboard`, `qml6-module-qtquick-virtualkeyboard` |
+| Terminal clipboard | `wl-clipboard`, `qmlkonsole`, `tmux` |
 | Kali menu launchers | `kali-menu` |
 
 </details>
+
+Four of those groups are newer than the rest and are the ones a reader is most
+likely to think are stray:
+
+- **`bluez`** owns `btmgmt`, which `rhodep-bt-address` uses to program the
+  controller's real address at every boot; without it the phone invents a
+  random one per boot and every pairing dies. It is also the one hold here most
+  worth lifting deliberately when a security update lands, since it is a
+  network-facing daemon with a CVE history —
+  `rhodep-hold-override release bluez "<reason>"`.
+- **`libspa-0.2-bluetooth`** is the plugin that actually carries A2DP, built
+  against the exact SPA ABI of the pinned PipeWire. Letting it move on its own
+  is the likeliest way to end up with earbuds that pair, connect and play
+  nothing.
+- **`libzstd-dev` / `libzstd1`** are what the patched tqftpserv links against.
+  Losing the runtime library stops the modem's TFTP server from starting at
+  all; losing the `-dev` package only stops anyone from rebuilding it, which is
+  the same reasoning as `libqrtr-dev`.
+- **`qml6-module-qtquick-virtualkeyboard`, `wl-clipboard`, `qmlkonsole`,
+  `tmux`** belong to `extra-tools/`. The first is where
+  `terminal-keyboard/install.sh` reads Qt's stock layout tree from, so losing it
+  means a reinstall has nothing to build on; the other three are what
+  `terminal-clipboard` needs to copy and paste. See
+  [`extra-tools/terminal-keyboard/README.md`](extra-tools/terminal-keyboard/README.md).
 
 `gstreamer1.0-pipewire` is worth calling out because its absence fails in a
 confusing way: the microphone is fine at every level this port controls, ALSA
@@ -1123,9 +1274,12 @@ sudo apt install mobian-phosh-phone nautilus
 sudo update-desktop-database      # refresh the app drawer
 ```
 `mobian-phosh-phone` pulls the dialer (Calls), Chatty/SMS, mmsd-tng and the phone
-role (ModemManager auto-config); `nautilus` is the file manager. The Phone app
-may stay limited until the modem works (mobile data is still blocked on the
-interconnect driver — see open work), but the apps install and appear now.
+role (ModemManager auto-config); `nautilus` is the file manager. **They will look
+dead on a stock install**, and that is expected rather than a packaging problem:
+`rhodep-ipa-hold.conf` keeps `ipa.ko` out of the boot, so there is no net port,
+so ModemManager never creates the modem and every app that talks to MM has
+nothing to show. Remove the hold file and reboot and they all come to life —
+along with the watchdog reset. See "Known limitations".
 
 ## USB WiFi adapter (monitor mode / injection)
 The single USB-C port defaults to **charging**. To power a USB adapter:
@@ -1188,43 +1342,70 @@ flicker entirely. Monitor mode is **USB-only** (wlan1); the internal WCN3990
 
 # How to continue the port (open work)
 
-The two highest-value items are the modem (blocks data and calls) and the audio
-userspace (everything but the speaker). The rest is either not started or a
-research dead-end kept for reference.
+Ordered by value. The single highest-value item is the watchdog reset, because
+it is the one thing between this port and a phone with working mobile data —
+and as of the GNSS measurement it may not be an IPA bug at all. Everything below
+it is either not started or a research project.
 
-1. **Modem registration**: the modem boots, answers QMI and reports its IMEI,
-   but its state machine never finishes initialising, so it blocks mobile data
-   *and* calls. The sharpest evidence is that it rejects **every** mode
-   transition, not just going online (`online` → `DeviceNotReady`, `low-power` →
-   `InvalidTransition`), and the SIM PIN verifying changes nothing.
+1. **The watchdog reset.** The modem is done — it registers on LTE, data was
+   measured at ~24 Mbit/s, calls connect and SMS arrives — but with `ipa.ko`
+   loaded **and** the modem attached to LTE the SoC watchdog-resets every 3 to
+   10 minutes, silently, with the ramoops console stopping mid-line. Either
+   condition alone is stable (22 and 16.5 minutes observed), so the port ships
+   `rhodep-ipa-hold.conf` and pays for it with mobile data and ModemManager.
 
-   **memshare was genuinely missing, is now implemented, and is not the
-   cause.** The modem really does ask the application processor for memory
-   during bring-up, which mainline never answered; `userspace/modem/` does now,
-   and `kali-boot-v93-memshare.img` reserves the region it hands over. With the
-   allocation fully satisfied the modem is unchanged.
+   **Read §5 session 15 of HANDOFF-SESSION4.md before touching this.** Three
+   hypotheses have already been tested on the device and buried: the unvoted NoC
+   path to IMEM, that vote being demand-driven rather than a floor, and the IPA
+   SRAM layout inherited from qcm2290. Patches 0044-0048 are each a correction
+   checked against the vendor tree and are all kept, and none of them is the
+   cause. Do not re-test them.
 
-   **The SIM is not the cause either**, which is worth stating because it is the
-   natural suspicion when the card is an old prepaid one with no service. Power
-   the card off so the modem sees no SIM at all and it *still* refuses to go
-   online, and a modem with no SIM must be able to power its radio. The APN
-   warning Plasma Mobile shows is downstream of all this and equally irrelevant
-   until the radio comes on.
+   **The experiment that would settle it has never been run**: attach to LTE
+   with `ipa.ko` never loaded. It needs the LTE attach APN set by hand over
+   `qmicli`, because ModemManager is what normally configures it and MM will not
+   touch a QMI modem with no net port. Method matters here: do not just delete
+   the hold file, because the window is short and a reset costs a reboot — boot
+   with the file in place, bring the radio up by hand, confirm `registered`, and
+   only then `insmod` the module with `dyndbg==p`, so the causal window is
+   seconds wide. Log uptime from a systemd unit rather than trusting ssh: the
+   screen locking takes WiFi down and is indistinguishable from a reset.
 
-   **It is not a missing QMI service either**, and that was settled by sweeping
-   rather than guessing: since the modem connects to whatever the name service
-   announces, every service id from 1 to 235 that nobody provides was offered
-   across cold boots. The modem reaches out to exactly two, LOWI (location) and
-   an unnamed service 60 carrying `"msm_mpss"` and a 5 s timeout, and answering
-   both with success changes nothing.
+   Two things worth recording so nobody re-derives them. **memshare was
+   genuinely missing and is now implemented** — the modem really does ask the
+   application processor for memory during bring-up, `userspace/modem/` answers
+   it and v93 onwards reserves the region. And **the SIM was never the cause**,
+   which is worth stating because a dead prepaid card is the natural suspect:
+   the real fault was that the modem fetches its run-time images from the AP
+   over TFTP and every request was answered "file not found". Also ruled out
+   with evidence: the SIM lock, the carrier configuration, rmtfs read-only
+   mode, and any missing QMI service — every service id from 1 to 235 that
+   nobody provides was offered across cold boots, and answering the two the
+   modem reaches for changed nothing.
 
-   Ruled out, with reasons, so nobody repeats them: the SIM (including with the
-   card powered off entirely), the SIM lock, the carrier configuration (PDC has
-   the right one active), rmtfs read-only mode, memshare, and any missing QMI
-   service. What is left is below QMI, and the honest next step is asking
-   upstream rather than another reflash. See
-   `docs/interconnect-sm6375-wip/HANDOFF-SESSION4.md` §5, sessions 13 to 13d.
-2. **Audio**: speaker, earpiece, headphones, both microphones and jack detection
+   **And there is now a second way in, which is the reason to reopen this.**
+   Starting a GNSS session watchdog-resets the SoC too — in under a second,
+   3/3, with `ipa.ko` never loaded, no SIM, no ModemManager and no network. Same
+   silence: console stops mid-line, `bootreason=watchdog`, no panic. If it is
+   the same bug, the expensive reproducer (SIM + LTE attach + 3 to 10 minutes)
+   has been replaced by `sudo scripts/rhodep-gnss-test.py 40 min`. The
+   hypothesis that follows — that neither reset is about the IPA, and both are
+   mpss moving data against AP memory — would also explain why every IPA-side
+   correction in 0044-0048 was individually right and none of them helped.
+   Evidence, the argument against it, and the four next steps are in
+   [`GNSS-SM6375.md`](docs/interconnect-sm6375-wip/GNSS-SM6375.md).
+
+2. **GPS itself**, once the reset is understood, is downstream of it: there is
+   nothing to test until a session can run without rebooting the phone. Note
+   for whoever gets there: the XTRA almanac on the device expired 2026-08-04,
+   and `qmicli` alone cannot drive a GNSS session at all — see the same
+   document for why every shell-only attempt fails silently.
+
+3. **In-call audio.** Calls connect and there is no sound, and this is *not*
+   blocked on the modem: Qualcomm voice audio goes modem ↔ ADSP ↔ codec and
+   mainline has no q6voice (MVM/CVS/CVP) at all. A driver to write, not a bug to
+   fix. Scoped in HANDOFF-SESSION4.md session 14.
+4. **Audio**: speaker, earpiece, headphones, the microphone and jack detection
    all work; see `docs/interconnect-sm6375-wip/AUDIO-SM6375.md` §6. Three things
    are left, in order of how cheap they are:
    - **Switching to the speaker mid-stream** leaves it silent until the stream
@@ -1240,20 +1421,36 @@ research dead-end kept for reference.
      alive across runtime suspend, which is a kernel change and would also stop
      the port from burning power to hold the slave up.
 
-   **Call audio** is blocked on the modem (item 1), not on audio.
-3. **Sensors, GPS, NFC, camera** — not started. The detailed technical notes
-   (I2C addresses, GPIOs, which subsystem each goes through, feasibility) live
-   in `docs/KERNEL-TECHNICAL.md` §7 (that doc is otherwise historical, but §7
-   is still valid for these unstarted areas): §7.2 sensors (SSC/ADSP),
-   §7.4 GPS (QMI/QRTR GNSS), §7.5 NFC (Samsung `sec-nfc`, no mainline driver —
-   would need writing), §7.8 camera (CAMSS, effectively infeasible).
-4. **Interconnect driver** (`docs/interconnect-sm6375-wip/`): not needed for
-   mobile data (that was solved via the IPA register layout instead), but a
-   real SM6375 interconnect driver would still benefit both ports. It was
-   written and compiles, but resets the SoC at bus bind; next step is to
-   register the buses one at a time and cross-check every `mas_rpm_id`/
-   `slv_rpm_id` against a known-good SM6375/holi list. See
-   `docs/interconnect-sm6375-wip/PROGRESS.md`.
+   Call audio is item 3, and it is a missing driver rather than an audio bug.
+5. **The camera — started, and the first piece works.** The FAN53870 camera
+   PMIC driver (patches 0051/0052) is written, compiles clean, probes on the
+   device and registers all seven LDOs, with the programmed voltages verified
+   against the chip's registers. Note it is a FAN53870 at 0x35, *not* the
+   `semi,wl2868c` at 0x2f the vendor DT claims — checking the hardware before
+   writing the driver is what caught that. Next: a `qcom,sm6375-camss` entry
+   (qcm2290's is the template, same CSID and TFE revisions), the
+   CSIPHY/CSID/TFE nodes, and the S5KJN1 sensor node. First meaningful test
+   after that is a raw capture, not a photo.
+   [`CAMERA-SENSORS-FEASIBILITY.md`](docs/CAMERA-SENSORS-FEASIBILITY.md)
+6. **Sensors, NFC, fingerprint** — these are the genuinely hard ones. The
+   sensors (`lsm6dso`, `stk3a5x`) have mainline drivers but **do not appear in
+   the AP's device tree at all**: they hang off the SSC inside the ADSP, so the
+   chip is unreachable from Linux and the only route is speaking Qualcomm's SSC
+   protocol (protobuf over QMI) to service 400. Rotation, proximity-on-call and
+   auto-brightness all sit behind that. NFC is a Samsung `sec-nfc` with no
+   mainline driver; fingerprint is a proprietary Focaltech HAL. Older technical
+   notes (I2C addresses, GPIOs) are in `docs/KERNEL-TECHNICAL.md` §7.
+7. **Interconnect driver** (`docs/interconnect-sm6375-wip/`, patches 0027/0028/
+   0046): **it works now.** Session 15 found and fixed four bugs that were
+   invisible until the module was actually loaded — NULL holes in the node
+   arrays, compatibles that did not match the DT, QoS writes that park a CPU,
+   and an `#interconnect-cells = <2>` provider being fed one cell per specifier.
+   On v97 six providers bind, no oops, and the IPA probes cleanly. It is not
+   needed for mobile data and it did not fix the watchdog reset, but it is real
+   SM6375 support that benefits both ports and is worth upstreaming. It is still
+   held out of the boot by `rhodep-icc-hold.conf` until it has been loaded by
+   hand at least once on a device tree that has the provider nodes. See
+   `docs/interconnect-sm6375-wip/PROGRESS.md` and §5 session 15.
 
 # License
 Kernel patches: GPL-2.0. Packaging/glue: MIT. Vendor firmware blobs: proprietary,

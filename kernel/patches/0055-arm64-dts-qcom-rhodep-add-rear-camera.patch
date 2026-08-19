@@ -1,26 +1,3 @@
-From: rhodep port <none@example.com>
-Date: Tue, 19 Aug 2026 03:14:00 -0300
-Subject: [PATCH] arm64: dts: qcom: rhodep: add the rear camera
-
-Enable CAMSS, CCI0 and the rear main camera: a Samsung S5KJN1 50 MP
-sensor, which mainline already has a driver for.
-
-Wiring comes from the vendor overlay
-(blair-camera-sensor-mot-rhodep-overlay.dtsi): CCI0 master 1, CSIPHY0,
-MCLK1 on gpio30 at 24 MHz, reset on gpio35, and the three rails supplied
-by the FAN53870 camera PMIC added earlier. Four DPHY data lanes at
-700 MHz, which is the only link frequency the driver offers.
-
-Note the CCI pinctrl covers four pins, not two: each CCI master has its
-own pin pair (gpio39/40 for master 0, gpio41/42 for master 1, per the
-vendor's cci0_active and cci1_active). Declaring only one pair leaves the
-other master electrically dead and the sensor never ACKs, which presents
-as "i2c-qcom-cci: master 1 queue 0 timeout".
-
-The other three sensors on this board (OV16A1Q, S5K4H7, GC02M1) sit on
-CCI0 master 0 and have no mainline drivers, so they are not described.
-
-Signed-off-by: rhodep port <none@example.com>
 ---
 --- a/arch/arm64/boot/dts/qcom/sm6375-motorola-rhodep.dts
 +++ b/arch/arm64/boot/dts/qcom/sm6375-motorola-rhodep.dts
@@ -61,7 +38,7 @@ Signed-off-by: rhodep port <none@example.com>
  	cam_pmic_en_default: cam-pmic-en-default-state {
  		pins = "gpio33";
  		function = "gpio";
-@@ -1548,3 +1578,55 @@
+@@ -1548,3 +1578,63 @@
  		bias-pull-up;
  	};
  };
@@ -78,6 +55,14 @@ Signed-off-by: rhodep port <none@example.com>
 +};
 +
 +&cci0_i2c1 {
++	/*
++	 * Address is the one the Fairphone FP5 uses for the same part. NOT
++	 * confirmed on this board: the sensor has never ACKed here. Beware of
++	 * 0x56, which appears to answer once MCLK is running but returns a
++	 * different value on every read - it is coupling noise on an empty
++	 * bus, not a device. The real devices on this master (0x50, 0x52,
++	 * 0x72) read back identically every time.
++	 */
 +	camera_rear: camera@10 {
 +		compatible = "samsung,s5kjn1";
 +		reg = <0x10>;

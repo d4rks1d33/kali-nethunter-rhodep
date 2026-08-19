@@ -400,12 +400,44 @@ per-master layout:
 	master 1: sensor_main (S5KJN1) + its eeprom/actuator/ois
 	master 0: sensor_front, sensor_macro, sensor_wide + their eeproms
 
+## Ruled out since: reset polarity, and a false lead at 0x56
+
+**Reset polarity is correct**, settled from the vendor pinctrl without needing
+a flash. `cam_sensor_main_reset_suspend` carries `output-low` and
+`bias-pull-down`, so low is the powered-down state and high is running — i.e.
+active-low, which is what the device tree says.
+
+**0x56 is not the sensor.** Scanning CCI0 master 1 with and without MCLK
+running showed a device appearing only with the clock up, which looked exactly
+like an image sensor and nothing else on that master. Pointing the driver at it
+even got past the bus layer:
+
+	s5kjn1 4-0056: chip id mismatch: 38e1!=0
+
+It is coupling noise on an empty address. Reading the same register repeatedly
+is what settles it — the real devices answer identically every time, 0x56 does
+not:
+
+	0x50 -> 0x3032  0x3032  0x3032    stable, real
+	0x52 -> 0x4520  0x4520  0x4520    stable, real
+	0x72 -> 0x0000  0x0000  0x0000    stable, real
+	0x56 -> 0xae99  0xbe9b  0xbee9    different every read, NOISE
+
+A dump of a dozen registers at 0x56 also aliases (0x0002 and 0x000a return the
+same value, so do 0x0016/0x001a and 0x0100/0x0104), which is another sign there
+is no device decoding the address.
+
+**Lesson worth keeping: an ACK is not a device.** On this bus, with MCLK
+running, empty addresses can ACK. Always read one register several times before
+believing a scan.
+
+Note also that the vendor declares four devices on CCI0 master 1 (sensor,
+eeprom, actuator, OIS) and only three real ones answer, so the actuator or OIS
+is also missing — they may need a supply of their own.
+
 ## What is left to try
 
-1. **Reset polarity.** The one thing that cannot be checked without changing
-   the device tree. The driver drives the pin high (out of reset) via
-   `GPIO_ACTIVE_LOW`; if this board wires it the other way the sensor stays
-   held down and would be silent exactly like this.
+1. ~~Reset polarity~~ — ruled out above.
 2. **The sensor's I2C address may be strapped.** Qualcomm's stack reads it from
    `com.qti.sensormodule.mot_rhodep_s5kjn1_{qtech,sunny}.bin`, and rhodep ships
    two module vendors. Those blobs are on the stock ROM; extracting the address

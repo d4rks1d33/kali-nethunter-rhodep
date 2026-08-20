@@ -1,0 +1,10 @@
+Package: rhodep-gpu-opencl
+Version: 1
+Architecture: arm64
+Maintainer: rhodep port
+Depends: mesa-opencl-icd, clinfo
+Description: OpenCL on the Adreno 619 via rusticl for Motorola rhodep
+ Mesa's rusticl provides OpenCL on freedreno, but it ships disabled and only
+ turns on when RUSTICL_ENABLE names the driver. Without it clinfo reports zero
+ platforms and hashcat says "No devices found/left" even though the GPU works.
+ This sets RUSTICL_ENABLE=freedreno system-wide so OpenCL consumers see FD619.

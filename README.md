@@ -313,6 +313,8 @@ packages/
                            realtek-rtl8188eus-dkms driver so it builds on 7.2
   rhodep-phosh-wifi-guard/ .deb source: keep Phosh alive across WiFi-auditing
                            network churn (airmon-ng check kill) + airmon-safe
+  rhodep-gpu-opencl/       .deb source: enable rusticl so OpenCL (hashcat) sees
+                           the Adreno 619 as FD619 (RUSTICL_ENABLE=freedreno)
   firmware-motorola-rhodep/ .deb template (blobs NOT included, see its README)
 userspace/
   usb-net/            SSH over the USB cable (172.16.42.1), the only link that

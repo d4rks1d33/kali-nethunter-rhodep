@@ -341,7 +341,7 @@ userspace/
                       WirePlumber rules, the boot route unit, the udev rule that
                       keeps the codec awake for jack detection, and the jack
                       watcher that switches output (install.sh)
-  apt/                the 47 apt holds this port depends on, the hook that
+  apt/                the 51 apt holds this port depends on, the hook that
                       refuses to purge them, and the enforcer that puts a hold
                       back if anything removes it (apply-holds.sh)
   login/              GDM login screen instead of the phosh.service autologin (install.sh)
@@ -805,7 +805,7 @@ sudo dpkg -i rhodep-usb-otg_*.deb rhodep-battery-jeita_*.deb rhodep-modem-suppor
 ## Update Kali + install the toolset (keep the custom kernel safe)
 
 The three `apt-mark hold` lines below are the historical core and are **not the
-whole list** — the canonical one is `userspace/apt/apt-holds.txt`, 47 packages,
+whole list** — the canonical one is `userspace/apt/apt-holds.txt`, 51 packages,
 and `sudo userspace/apt/apply-holds.sh` applies it along with the guard, the
 enforcer and the dpkg `Protected` flags. Prefer that; the commands here are kept
 because they explain *why* each group is held.
@@ -918,7 +918,7 @@ the next upgrade replaces the kernel, the WiFi firmware or the audio stack.
 
 Verified by attacking it on the device, not by reading it. The counts below are
 what the list held on the day each attack was run — it was 41 packages then and
-is 47 now; what was verified is that every one of them came back, not the
+is 51 now; what was verified is that every one of them came back, not the
 number:
 
 | attack | result |
@@ -951,8 +951,8 @@ package, and then:
 	  dpkg: error processing package rmtfs (--remove):
 	   this is a protected package; it should not be removed
 
-All 47 carry it. (`grep -c '^Protected: yes' /var/lib/dpkg/status` says 49, not
-47: `libgcc-s1` and `systemd-sysv` ship protected from the Debian archive and
+All 51 carry it. (`grep -c '^Protected: yes' /var/lib/dpkg/status` says 53, not
+51: `libgcc-s1` and `systemd-sysv` ship protected from the Debian archive and
 have nothing to do with this port.) The deliberate way past is dpkg's own
 `--force-remove-protected`, and the supported way is to release the hold, which
 clears the flag as well — otherwise "released" would be a lie.
@@ -1040,7 +1040,7 @@ One more thing `--allow-change-held-packages` does, which is easy to miss:
 **it drops the hold even when the transaction is then aborted.** Attacking
 `libspa-0.2-bluetooth` with it left the package installed (dpkg's `Protected`
 refused the removal) but took the hold count down by one — 43 to 42, on a list
-that has since grown to 47. The enforcer is what notices and repairs it:
+that has since grown to 51. The enforcer is what notices and repairs it:
 
 	ALERT: holds had been removed, putting them back: libspa-0.2-bluetooth
 
@@ -1073,14 +1073,14 @@ up both the modem and the internal WiFi, and the audio set keeps PipeWire
 starting at all. Unholding one to chase a bug is fine; doing it by reflex
 during an upgrade is how this port breaks.
 
-Check what is protected at any time with `apt-mark showhold`; it should list 47
-packages, and `apt-mark showhold | wc -l` on `kali-boot-v94-STABLE.img` says 47.
+Check what is protected at any time with `apt-mark showhold`; it should list 51
+packages, and `apt-mark showhold | wc -l` on `kali-boot-v94-STABLE.img` says 51.
 The canonical list lives in `userspace/apt/apt-holds.txt`, is copied to
 `/usr/local/share/rhodep/apt-holds.txt` on the device, and
 `userspace/apt/apply-holds.sh` puts it back after a rootfs reinstall.
 
 <details>
-<summary>The 47 held packages, by purpose</summary>
+<summary>The 51 held packages, by purpose</summary>
 
 | Purpose | Packages |
 |---|---|
@@ -1099,10 +1099,12 @@ The canonical list lives in `userspace/apt/apt-holds.txt`, is copied to
 | On screen keyboard | `squeekboard`, `plasma-keyboard`, `qml6-module-qtquick-virtualkeyboard` |
 | Terminal clipboard | `wl-clipboard`, `qmlkonsole`, `tmux` |
 | Kali menu launchers | `kali-menu` |
+| Sensors | `iio-sensor-proxy`, `libssc2`, `libqrtr-glib0` |
+| GPU compute | `mesa-opencl-icd` |
 
 </details>
 
-Four of those groups are newer than the rest and are the ones a reader is most
+Six of those groups are newer than the rest and are the ones a reader is most
 likely to think are stray:
 
 - **`bluez`** owns `btmgmt`, which `rhodep-bt-address` uses to program the
@@ -1125,6 +1127,48 @@ likely to think are stray:
   means a reinstall has nothing to build on; the other three are what
   `terminal-clipboard` needs to copy and paste. See
   [`extra-tools/terminal-keyboard/README.md`](extra-tools/terminal-keyboard/README.md).
+- **`iio-sensor-proxy`, `libssc2`, `libqrtr-glib0`** are the whole userspace
+  side of the sensors. `libssc2` is the library that speaks to the sensor core
+  and it has exactly one reverse dependency, `iio-sensor-proxy`, so removing
+  the latter autoremoves the former and the phone silently stops rotating.
+  `iio-sensor-proxy` is held for its behaviour rather than its existence: this
+  port depends on the `ssc-accel` and `ssc-proximity` drivers inside it and on
+  the `IIO_SENSOR_PROXY_TYPE` tag names its own udev rule uses, which
+  `81-rhodep-ssc.rules` appends to. `libqrtr-glib0` is the QRTR transport
+  underneath, the sibling of the already-held `libqmi-glib5`.
+
+  Deliberately **not** held: `libyaml-0-2`, `libbsd0`, `libmd0` and
+  `libprotobuf-c1`, which the FastRPC and SSC libraries link against. Each has
+  between three and eighteen other installed reverse dependencies, so
+  `apt autoremove` will not take them, and pinning base libraries to protect
+  something that is not at risk costs security updates for nothing — the same
+  reasoning that keeps `python3` off this list.
+- **`mesa-opencl-icd`** is rusticl, the OpenCL runtime the Adreno 619 shows up
+  through as `FD619`, which is what the terminal tools that use the GPU need.
+  It is held for the reason `rhodep-gpu-opencl`'s postinst gives: rusticl on
+  freedreno is young, this is the version the GPU was validated against, and an
+  unattended upgrade is a plausible way to lose working OpenCL.
+
+  It was **already held on the device and not in this list**, which is a
+  different kind of bug and the reason it is here now: `rhodep-holds-enforce`
+  only puts back holds that are in `apt-holds.txt`, so a hold set by a
+  package's postinst is protected by nothing. One `apt-mark unhold` and it was
+  gone for good. Verified by doing exactly that, and the enforcer now says
+  `ALERT: holds had been removed, putting them back: mesa-opencl-icd`.
+
+  Being honest about what the hold does *not* do: it is not what keeps the
+  package installed. `apt autoremove` will not take it today — it is marked
+  auto-installed, but `hashcat` and `python3-pyopencl` both depend on it and
+  both are installed and manual, and a simulated autoremove with the hold
+  released removes nothing. That only becomes the hold's job if those two ever
+  go. `ocl-icd-libopencl1` (the ICD loader every OpenCL program links) is
+  likewise auto-installed with six other reverse dependencies, so it is not
+  held; `clinfo` is a diagnostic, not a dependency.
+
+  The switch that actually turns rusticl on, `/etc/profile.d/rhodep-rusticl.sh`,
+  belongs to no package on this image, so it is registered with
+  `rhodep-protect-files` as the `gpu-opencl` component. Losing it is silent:
+  `clinfo` simply reports zero platforms.
 
 `gstreamer1.0-pipewire` is worth calling out because its absence fails in a
 confusing way: the microphone is fine at every level this port controls, ALSA

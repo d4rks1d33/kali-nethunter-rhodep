@@ -45,3 +45,7 @@ qml6-module-qtquick-virtualkeyboard
 wl-clipboard
 qmlkonsole
 tmux
+iio-sensor-proxy
+libssc2
+libqrtr-glib0
+mesa-opencl-icd

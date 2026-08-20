@@ -1333,3 +1333,329 @@ The gyroscope, `rotv`, `gravity`, `game_rv`, `geomag_rv`, `step_detect`,
 nothing publishes them on D-Bus. That is a consumer-side gap, not a port one.
 
 ---
+
+# Does the sensors work help the camera? No, and here is why, plus two corrections
+
+Asked after the sensors were finished, and worth answering with evidence rather
+than with hope, because the two problems look adjacent and are not.
+
+**The camera sensor path does not touch FastRPC at all.** Checked rather than
+assumed: `/vendor/lib/rfsa/adsp/` — the only thing the new listener can serve to
+a DSP — holds `libadsp_jpege_skel.so`, `libcamera_nn_skel.so`, `libhdr_skel.so`,
+`libmctfengine_skel.so` and friends. Those are image-processing offload, used
+long after a frame exists. Sensor probe, power and I2C are all AP-side: the
+FAN53870 rails, the CCI master, the MCLK and the reset GPIO. Nothing in that
+chain goes near the ADSP, so a working listener changes nothing about it.
+
+What the sensors work *does* transfer is the method, and applying it to the
+sensormodule blob produced two corrections.
+
+## The power sequence is not in the sensor driver library either
+
+The section above concluded that it "lives in the sensor driver library
+(`com.qti.sensor.mot_s5kjn1.so`), which is AArch64 code rather than data —
+extracting it means disassembly, a different and much larger job."
+
+That library is 28 KB and exports exactly **one** real symbol:
+
+	25: 00000000000050a8   4 FUNC GLOBAL DEFAULT 14 GetSensorLibraryAPIs
+	29: 0000000000005000 148 FUNC GLOBAL DEFAULT 14 __cfi_check
+
+Four bytes: a stub that returns a pointer to a table of function pointers in
+`.data.rel.ro`. Everything else in the file is `__ubsan_handle_*` boilerplate.
+In CamX that library is the exposure and gain arithmetic — `SensorFillExposure`
+and relatives — not power control. Disassembling it is aimed at the wrong file.
+
+## The blob has no sensor power sequence under any name
+
+The earlier search looked for `(type, config, delay)` triplets with valid
+`msm_camera_power_seq_type` values and found only false positives. That is
+pattern matching on values; the file carries a **name** for every field, so the
+question can be settled outright. Parsing the 3839-entry table and filtering by
+name:
+
+	  12  powerSetting        size 0        <- sensor slave info branch
+	  13  powerSetting        size 72       <- the identification block
+	3705  powerUpSequence     size 16       <- actuator/OIS branch
+	3706  powerDownSequence   size 0
+
+Entries 1 to 40 are the sensor's own branch — `moduleType`, `IICAddrSwitch`,
+`powerSetting`, `sensorVersion`, `streamConfiguration`, the register tables —
+and there is no power sequence among them. The only `powerUpSequence` in the
+file sits at id 3705, four hundred entries into the actuator and OIS branch. So
+the previous conclusion was right that it is not here, and it is now right for a
+reason that can be checked in one command instead of being inferred from a
+failed search.
+
+## And one dead lead closed
+
+	id 11  IICAddrSwitch  size 4  00000000
+
+Zero. The sensor's address is not switched at run time, which closes the "it may
+be strapped differently" line. `moduleType` confirms the rest:
+`ac 000000 | 02 000000 | 02 0000` -- slave address 0xac (0x56 in 7-bit),
+two-byte register addresses, two-byte data.
+
+A caveat on those two values, because it nearly produced a wrong answer here:
+they depend on `DATA_BASE = 0x3401c`, which was derived by locating a known
+value rather than computed. An attempt to derive it generically -- assuming the
+20-byte `sensorDriverData` footer at the end of the file marks the end of the
+data region -- gave 0x34ef8, at which `IICAddrSwitch` reads 0x50 instead. The
+0x3401c base is the right one: at that base `moduleType` reads 0xac, which is
+where the part actually ACKs on the bus, and the 72-byte block decodes to chip
+id 0x38e1 with an 0xffffffff mask. Both are checkable against hardware, which is
+why they are the anchor. Anything read out of this file at a base that has not
+been anchored that way should be treated as unverified.
+
+## The same is true of all four cameras, which is the control
+
+Parsing the other three module bins the same way -- `gc02m1_sunwin`,
+`ov16a1q_ofilm` and `s5k4h7_qtech_ff` -- none of them carries a `powerUpSequence`
+in its sensor branch either. That is the control that turns "we could not find
+it" into "it is not there": this CamX version's module format simply does not
+hold a sensor power sequence, for any of the four parts, and no amount of
+further decoding will produce one.
+
+## The vendor's device tree node, compared field by field
+
+	blair-camera-sensor-mot-rhodep-overlay.dtsi, sensor_main:
+	  cam_vio-supply   = cam_pmic_ldo7    1.80 V   120 mA
+	  cam_vana-supply  = cam_pmic_ldo4    2.80 V    80 mA
+	  cam_vdig-supply  = cam_pmic_ldo1    1.05 V  1200 mA
+	  cam_clk-supply   = gcc_camss_top_gdsc
+	  gpios            = tlmm 30 (MCLK1), tlmm 35 (reset)
+	  cci-master       = 1     clock-rates = 24000000
+	  clock-cntl-level = "turbo"
+
+Everything there is already in patch 0055 except `clock-cntl-level`, and the
+CAMSS GDSC is on regardless. The difference is not a missing rail or a missing
+GPIO in the description.
+
+`rgltr-load-current` looked promising -- 1.2 A on the digital core, and a
+regulator left in a low-power mode would give exactly the observed symptom of an
+I/O interface that answers and a core that does not. It is a dead end: the
+vendor's own `wl2868c-regulator.c` implements nothing but voltage and enable for
+the fan53870 variant (`fan53870_LDO_EN` 0x03, VOUTs 0x04-0x0a, offset 1), so
+there is no mode or load control on this PMIC downstream either.
+
+## Worth a second look: the camera PMIC's own input rail
+
+	rhodep-wl2868c.dtsi:
+	  cam_pmic: wl2868c@2F {
+	      semi,cs-gpios = <&tlmm 33 1>;
+	      vin1-supply = <&S6A>;          <- PM6125 buck S6
+
+Nothing in this port describes that, and on the running device:
+
+	s6 = disabled   320000 uV   users=0
+
+Linux believes it owns S6, that it is off, and reports 0.32 V, which is not a
+plausible input for LDOs producing 2.8 V and is what a regulator driver reports
+for a rail it has never touched.
+
+**It is not the current cause**, and the counter-evidence is worth stating so
+that nobody spends a day on it: `eeprom_main` hangs off the *same*
+`cam_pmic_ldo7`, and the EEPROM works -- register 0x0d returns 0x5355, stably
+and repeatedly, which a rail with no input could not do. So S6 is physically on,
+and this is only Linux's uninitialised view of it.
+
+It is still worth describing rather than leaving: a rail the kernel thinks is
+unused and off is a rail something can legitimately turn off later, and that
+failure would arrive as a camera that used to work. Giving the FAN53870 node a
+`vin-supply` costs one property.
+
+
+## What this leaves, and it is narrower than it was
+
+The EEPROM at 0x50 sits on the **same CCI master**, is read with the **same**
+two-byte address / two-byte data transaction, and answers correctly — register
+0x0d returns 0x5355, `"SU"`, which is how the board was identified as a Sunny
+module. So the bus, the CCI driver, the addressing mode and the transaction
+shape are all exonerated by a working device next to the broken one.
+
+The sensor ACKs with MCLK running and returns ENXIO without it, so it is
+powered, clocked and addressed — and it answers 0x0000 where its own
+configuration says 0x38e1. That is a part that is being talked to correctly and
+has not been brought up, which leaves the ordering and timing of rails, clock
+and reset, and nothing else.
+
+## Do NOT boot Android to trace it
+
+The section above recommended booting the stock ROM on the other slot as "the
+cheaper of the two" routes. **It is not cheap, it is destructive.** This port
+installs Kali as a raw GPT disk inside the `userdata` partition. Android's init
+will not recognise that as a valid `/data`, and the standard response to an
+unmountable `/data` is to format it. That is the whole port, and after the first
+boot the rootfs has grown to about 107 GB, so "back it up first" is not a
+five-minute step either.
+
+If someone does want the trace, the safe shape of it is a full `dd` of userdata
+to external storage first, and a plan for restoring it -- not a slot switch.
+
+## What is actually left
+
+Everything the application processor controls has been measured correct. The
+remaining unknown is the ordering and timing of rails, clock and reset, and the
+routes to it, cheapest first:
+
+1. **Iterate on the device.** `s5kjn1.ko` is a module, so a hypothesis costs a
+   rebuild and an `scp`, not a reflash. Five orderings have been tried; what has
+   not is reading the part with different addressing (one-byte data, one-byte
+   register), probing for *any* register that returns something stable and
+   plausible, or writing and reading back to see whether the register interface
+   is alive at all in either direction.
+2. **CamX is open source.** Since the module bins provably do not carry a power
+   sequence for any of the four sensors, CamX must be supplying a default. That
+   default is in `chi-cdk` (CodeLinaro), which is a download rather than a
+   disassembly.
+3. **Describe `vin-supply` on the camera PMIC**, above -- correctness rather
+   than a fix.
+4. **A scope or a meter on the sensor rails** settles in one minute what all of
+   the above is inferring, if anyone has the hardware and a way to reach the
+   flex.
+
+---
+
+# Session: an interactive rig, and what it measured
+
+No fastboot available (the build host is a container), and booting Android is
+destructive, so the work went to the two routes that are left: read the vendor
+sources, and iterate on the device.
+
+## The rig is the deliverable
+
+`tools/camdiag/` binds to the sensor node, powers it in the vendor's order and
+then stays there, so the sensor can be poked from userspace with `i2ctransfer`
+over `/dev/i2c-4`. Every step of the sequence is a sysfs-writable module
+parameter. A hypothesis now costs an unbind and a bind, not a rebuild -- and it
+builds on the phone against the installed headers, so it costs no reflash
+either. Read its README before using it; two measurement traps in there produced
+confidently wrong answers twice in one session.
+
+## The vendor's power sequence, found in readable form
+
+No Motorola board spells it out, but two Qualcomm reference boards do, and the
+kernel supports building the sequence from DT (`cam_get_dt_power_setting_data`):
+
+	yupik-camera-sensor-rb3.dtsi:
+	  qcom,cam-power-seq-type    = "cam_reset","cam_vio","cam_clk","cam_reset";
+	  qcom,cam-power-seq-cfg-val = <0 1 24000000 1>;
+	  qcom,cam-power-seq-delay   = <1 0 1 18>;
+
+Assert reset and hold 1 ms, rails, MCLK at 24 MHz and hold 1 ms, release reset
+and wait 18 ms. `camdiag` implements exactly that, and the mainline s5kjn1
+driver already does the same thing in the same order. **The sequence was never
+the difference.**
+
+## What is now established behaviourally rather than by reading a register
+
+- **0x56 is the sensor.** Its ACK disappears when the camera rails go, and
+  independently when `gpio35` is driven low. Of the four devices on this master
+  only the sensor has a reset line, so the reset gating is what identifies it.
+  The rail test alone does not: the EEPROM, actuator and OIS all share
+  `cam_vio`.
+- **The reset GPIO is correct.** `out high` released, `out low` asserted, and
+  the part follows it.
+- **The CCI read path is byte-exact**, proven against a device with known
+  content: the EEPROM at 0x50 reads ASCII "SUN" and register 0x0d returns
+  0x5355, exactly what the module blob predicts for a Sunny module.
+- **The register file is not a register file.** Across six different power-up
+  sequences the high bytes never change (8b be 8b a5 67 be 8b be), the low bytes
+  change per power cycle and are stable within one, and addresses alias
+  (0x00 = 0x04 = 0x0c, 0x02 = 0x0a = 0x0e). The full table is in
+  `tools/camdiag/README.md`.
+
+That last point is the new information, and it retires the old description of
+0x56 as "an artefact" and "byte-shifted noise". It is neither: it is a device
+that ACKs, that is gated by the sensor's own reset line, and that returns a
+reproducible pattern which is not addressed data.
+
+## Corrections to earlier conclusions in this file
+
+- "0x56 behaves like a bus artefact" -- no. With power held steady it is stable
+  and reproducible, and it tracks the reset line.
+- "The power-on order changes read stability" -- the instability was the rig,
+  not the order. With the part held powered, every order gives stable reads;
+  only the low bytes differ between power cycles.
+
+## More that the rig ruled out
+
+- **The transaction shape does not matter.** A repeated-START read and a
+  write-STOP-then-read give the sensor the identical value, and the EEPROM
+  control returns 0x5355 under both, so both shapes are correct on this bus.
+- **MCLK reaches the part.** With the rails up and reset released but the clock
+  disabled, the sensor NAKs while the EEPROM on the same rail keeps answering.
+  Enable the clock and the sensor answers again. That is behavioural proof that
+  the clock arrives, which no register read can give.
+- **The returned value depends on preceding bus traffic.** Reading the same
+  register twice in a row gives the same answer, but reading it after a
+  transaction to a different device gives a different one. That is a shift
+  register being clocked out without ever being loaded -- the I2C slave answers
+  its address, and nothing behind it fills in the data.
+
+## The diagnosis: the sensor's digital core has no supply
+
+Everything the application processor controls is verified. What is not verified,
+and turns out not to be verifiable from sysfs at all, is whether the LDOs are
+actually producing voltage -- "enabled" in `/sys/class/regulator` means the
+PMIC's register bit is set, and a PMIC has no idea whether its own input is
+present.
+
+	rhodep-wl2868c.dtsi:  vin1-supply = <&S6A>;
+
+	ldo1, ldo2   600000 - 1800000 uV     <- low group,  VIN1
+	ldo3 .. ldo7 1200000 - 4300000 uV    <- high group, VIN2
+
+	S6A: 382000 - 1374000 uV, qcom,init-voltage = 1352000
+
+S6A at 1.35 V can only be the input of the low group; it is far too low to feed
+a 2.8 V LDO. And the split maps straight onto the sensor's supplies:
+
+| sensor supply | LDO | group | works? |
+| --- | --- | --- | --- |
+| `cam_vio` 1.8 V | LDO7 | high, VIN2 | yes -- EEPROM reads, I2C pads ACK |
+| `cam_vana` 2.8 V | LDO4 | high, VIN2 | presumed yes |
+| **`cam_vdig` 1.05 V** | **LDO1** | **low, VIN1 = S6** | **S6 is off** |
+
+On this port S6 is registered, `disabled`, `users=0`, because nothing in the
+device tree references it. Every consumer of S6A anywhere in the vendor tree is
+a camera PMIC or a camera sensor, so nothing else would have turned it on by
+accident, and nothing else breaks by it being off.
+
+That predicts exactly what is measured: the I/O domain is alive, so the address
+matcher answers and MCLK gating works, while the register block behind it is
+unpowered and clocks out residue. It also explains why every power-up order,
+delay and reset variation tried over two sessions changed nothing -- the core
+was unpowered in all of them.
+
+### Tested on hardware: NEGATIVE
+
+`kali-boot-v112-cam-s6.img` was built and flashed -- the running image with
+`regulator-always-on` and a fixed 1.352 V on s6, and literally nothing else
+changed (kernel, ramdisk and cmdline verified byte for byte identical after
+repacking, and the decompiled DTB diff is that one node).
+
+It worked as intended and changed nothing:
+
+	s6        enabled   1352000 uV users=1
+	cam_vdig  enabled   1056000 uV users=1
+	cam_vana  enabled   2804000 uV users=1
+	cam_vio   enabled   1804000 uV users=1
+
+	s5kjn1 2-0056: chip id mismatch: 38e1!=0
+
+	sensor regs 00..0e, S6 on : 8b25 aeab 8b25 a553 27ae aeab 8b25 aeab
+	the same before S6        : 8b05 be8f 8b05 a553 67ae be8f 8b05 be8f
+	control, EEPROM reg 0x0d  : 0x5355 three times running
+
+Same structure, same aliasing, same kind of residue -- only the per-power-cycle
+low bytes differ, which they always did. **So the sensor's digital core was not
+the missing supply**, and either S6 is not this board's VIN1 despite what
+`rhodep-wl2868c.dtsi` says, or VIN1 was already powered from somewhere else.
+
+The reasoning was sound and the prediction was specific, which is what made it
+worth a flash; it was simply wrong. Recorded here so that the next person
+reading the VIN1/VIN2 split in the vendor DT does not spend the same day on it.
+`kali-boot-v111-restore.img` is the exact image that was running before, rebuilt
+from the same parts, for going back -- `regulator-always-on` on a rail nothing
+needs is only a small idle-power cost, but it buys nothing.

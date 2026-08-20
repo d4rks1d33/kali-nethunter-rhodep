@@ -1,5 +1,5 @@
 Package: rhodep-usb-otg
-Version: 3
+Version: 4
 Architecture: arm64
 Maintainer: rhodep port
 Depends: i2c-tools

@@ -993,3 +993,92 @@ The remaining question is unchanged and now much better isolated: nothing asks
 the ADSP to start its `sensor_pd`. The locator that would let it resolve that
 domain exists at last, which was the prerequisite, but the domain is still not
 running.
+
+---
+
+# The sensor_pd is already running, which rules out the leading theory
+
+**Status: measured.** `msm/adsp/sensor_pd` reports `SERVREG_SERVICE_STATE_UP`.
+The protection domain that the sensor drivers live in is up, has been all along,
+and the sensor core still reports no sensors.
+
+The previous section ended by saying nothing asks the ADSP to start its
+`sensor_pd`. That turns out to be the wrong question: it is started.
+
+## Talking SERVREG without reverse engineering
+
+Mainline already implements this protocol, so the wire format is not guesswork.
+`drivers/soc/qcom/pdr_interface.c` for the flow, `qcom_pdr_msg.c` for the TLV
+layout, `include/linux/soc/qcom/qmi.h` for the service numbers:
+
+	64 (0x40)  SERVREG_LOCATOR   published by pd-mapper on the AP
+	66 (0x42)  SERVREG_NOTIFIER  published by each remote processor
+
+	0x20  REGISTER_LISTENER    TLV 1 = enable (u8), TLV 2 = service_path
+	0x21  GET_DOMAIN_LIST      TLV 1 = service name, TLV 0x10 = offset
+	0x24  RESTART_PD           TLV 1 = service_path
+
+Two details that cost a round trip each. In `register_listener` the TLVs are
+**not** in the order the struct suggests — `enable` is TLV 1 and the path is TLV
+2; getting it backwards returns `error=1` (MALFORMED_MSG). And top-level
+`QMI_STRING` carries no length prefix, the TLV length is the length
+(`qmi_encode_string_elem`, `enc_level == 1`).
+
+`scripts/pdr-tool.py` implements list, state and restart.
+
+## What it reports
+
+Registering a listener against the ADSP notifier (node 5, instance 74) succeeds
+for all three domains, and every one of them is up:
+
+	msm/adsp/sensor_pd    result=0   state UP (0x1FFFFFFF)
+	msm/adsp/audio_pd     result=0   state UP
+	msm/adsp/root_pd      result=0   state UP
+
+The other notifiers reject these paths with `error=45`, which is correct — they
+are not their domains. The state values are the `servreg_service_state` enum
+from `pdr.h`, where UP is `0x1FFFFFFF` rather than anything intuitive.
+
+`RESTART_PD` on `msm/adsp/sensor_pd` returns `error=69`,
+**`QMI_ERR_DISABLED_V01`**: the firmware does not permit the AP to restart that
+domain. Worth knowing before anyone plans around being able to.
+
+## The startup-order theory, tested and also wrong
+
+There is a real ordering problem on this device:
+
+	[11.1s]  kernel: remote processor adsp is now up
+	[18.2s]  systemd: Started rmtfs.service
+
+The ADSP initialises seven seconds before RFSA — the service the DSP would use
+to read files off the AP, where the sensor configuration in
+`/vendor/etc/sensors/` lives. A sensor core that came up with no file server
+would plausibly instantiate nothing.
+
+It can be tested. Restarting the ADSP by hand drops the AP's services off the
+bus, but stopping it *first* avoids that:
+
+	stop adsp -> restart rmtfs and pd-mapper -> RFSA (14) and locator (64) up
+	           -> start adsp -> both still up
+
+That gives an ADSP that initialised with RFSA present. The SUID lookup still
+returns nothing. So the ordering, real as it is, is not what is stopping this.
+
+## Where that leaves it
+
+Ruled out by measurement, in order: the I2C route (the IMU is on I3C), the
+client's message format (every field checked against the vendor's serialisers),
+missing fastrpc, pd-mapper serving nothing, the DSPs not being managed by Linux,
+the sensor_pd not running, and RFSA being absent when the ADSP starts.
+
+The one observation that now looks most important, and that all of the above
+leaves untouched: the sensor core returns nothing for `resampler` and `suid`
+either, and those are framework sensors that do not depend on the sensor
+drivers at all. Whatever is wrong is upstream of the individual sensors. Either
+the client is not receiving indications that are being sent, or the framework
+itself is not publishing sensors to clients on this transport.
+
+Distinguishing those two is the next useful step, and it does not need more
+guessing: capture what the ADSP actually sends. Either by having something else
+on the bus observe the traffic, or by checking whether the indication is being
+dropped before it reaches the socket.

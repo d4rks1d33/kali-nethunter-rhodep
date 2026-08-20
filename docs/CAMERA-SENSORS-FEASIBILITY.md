@@ -1178,3 +1178,62 @@ and sensors should appear in D-Bus without further work on our side.
 
 Scripts: `ssc-probe.py` (single lookup, decodes the reply),
 `ssc-enum.py` (enumerate data types).
+
+## The remote heap, and what is left
+
+The ADSP fastrpc node needed a `memory-region`. Without it the probe printed
+`no reserved DMA memory for FASTRPC` on every boot and any attempt to create a
+protection domain failed. Patch 0057 now declares one, and the values agree from
+two independent directions: the vendor writes
+`qcom,adsp-remoteheap-vmid = <22 37>`, and mainline's `QCOM_SCM_VMID_LPASS` is
+0x16 with `QCOM_SCM_VMID_ADSP_HEAP` 0x25 - the same pair `kodiak.dtsi` uses,
+8 MB in both. Declared as a reusable CMA pool with no fixed address, like the
+vendor does, so it cannot collide with the firmware carve-outs. The warning is
+gone.
+
+With the heap in place both fastrpc entry points behave, and neither produces a
+registry:
+
+	FASTRPC_IOCTL_INIT_ATTACH_SNS      (_IO('R',8))    OK, no change
+	FASTRPC_IOCTL_INIT_CREATE_STATIC   "sensorspd"     OK, then the ADSP dies
+
+The second one is worth flagging. It returns success and then the ADSP stops
+answering QMI entirely - `remoteproc1/state` still says `running` while every
+service on node 5 disappears. Recovering needs a stop, an rmtfs and pd-mapper
+restart, and a start. Do not run it casually.
+
+One trap that will produce false negatives: **the sensor core's port moves**.
+It was 5:14, and after an ADSP restart it came back on 5:13. Anything hardcoding
+the port will silently test nothing. `ssc-enum.py` looks it up now.
+
+## Why the registry is missing, as far as this goes
+
+The registry sensor is not a loadable library. `/vendor/lib/rfsa/adsp/` holds 23
+files, almost all camera and DSP, and the only sensor ones are
+`libsns_device_mode_skel.so` and `libsns_low_lat_stream_skel.so`. The registry
+lives inside the ADSP firmware, and the firmware's own strings say what it wants:
+
+	/vendor/etc/sensors/sns_reg_config
+	Registry dir '%s' not available
+	Registry disabled, leaving default mode enabled
+	Sending registry request for group name:%s
+
+It wants to read a directory on the AP. That is what RFSA is for, and RFSA rides
+on fastrpc with a **listener** on the AP side answering the DSP's file requests -
+which is what `adsprpcd`/`sscrpcd` provide on Android. Mainline's fastrpc has no
+listener support at all: no `listener`, no reverse-invocation path anywhere in
+`drivers/misc/fastrpc.c`.
+
+So the remaining gap is a real one and it is in the kernel, not in our client:
+the DSP has no way to read files from the AP. Closing it means porting
+listener/reverse-RPC support into mainline fastrpc and writing the userspace
+daemon that serves `/persist/sensors/registry/`. That is a substantially bigger
+job than anything in this file so far, and it should be sized honestly before
+being started.
+
+What is already done and does not need revisiting: the buses are known, the
+transport and message format are understood and verified, the client is correct,
+indications work, the sensor core is up with its framework sensors, the
+protection domains are up, fastrpc works with a remote heap, and the consumer
+(`iio-sensor-proxy`) is installed and polling. The single missing link is file
+access from DSP to AP.

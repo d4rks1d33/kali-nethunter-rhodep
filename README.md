@@ -103,6 +103,13 @@ list; everything here is a from-scratch community port.
   `userspace/modem/README.md`.
 - **Bluetooth audio** (A2DP), with the controller's real address so pairings
   survive a reboot — `userspace/bluetooth/`.
+- **Sensors**: accelerometer, gyroscope, magnetometer, compass, proximity and
+  ambient light, through `iio-sensor-proxy`, so **screen auto-rotation works**.
+  They live on the SSC inside the ADSP (the IMU on I3C) and read their registry
+  off the application processor over FastRPC; `userspace/sensors/` is the half
+  that was missing. Contrary to what this repo said until now, that needed **no
+  kernel change at all** — Qualcomm's own libadsprpc (`quic/fastrpc`, BSD-3)
+  already speaks mainline's uapi.
 
 ## What does not work
 
@@ -110,7 +117,7 @@ list; everything here is a from-scratch community port.
 | --- | --- |
 | **Mobile data, day to day** | It works, and then the SoC watchdog-resets 3 to 10 minutes after the modem attaches to LTE. `ipa.ko` is therefore held out of the boot. This is the one thing standing between this port and a finished phone. HANDOFF-SESSION4.md §5, sessions 14-15. |
 | **In-call audio** | Calls connect but there is no sound. Not a modem problem: Qualcomm voice audio goes modem ↔ ADSP ↔ codec and mainline has no q6voice (MVM/CVS/CVP) at all. A new driver, not a bug. |
-| **Sensors** (accelerometer, gyroscope, proximity, light) | Behind the SSC sensor hub inside the ADSP — LineageOS uses `sensors.ssc.so`. Mainline has no support for it. A research project. |
+| ~~**Sensors**~~ | **Done** — accelerometer, gyroscope, magnetometer/compass, proximity and ambient light all work, and the screen auto-rotates. See `userspace/sensors/`. |
 | **Fingerprint** | Focaltech with a proprietary HAL (`fingerprint.focaltech.default.so`). No mainline driver. |
 | **NFC** | Samsung `sec-nfc` on i2c7. No mainline driver. |
 | **GPS** | **Starting a GNSS session watchdog-resets the SoC in under a second**, reproducibly, with `ipa.ko` not loaded. The location service (QMI 16) is there and answers every query — mode, NMEA types, XTRA servers, start, stop — but the moment a session runs with indications registered, the phone reboots. It was never an indoors problem. [`GNSS-SM6375.md`](docs/interconnect-sm6375-wip/GNSS-SM6375.md) |
@@ -338,6 +345,12 @@ userspace/
                       refuses to purge them, and the enforcer that puts a hold
                       back if anything removes it (apply-holds.sh)
   login/              GDM login screen instead of the phosh.service autologin (install.sh)
+  sensors/            the SSC sensors: Qualcomm's FastRPC userspace built
+                      against the mainline driver, the registry copied out of
+                      the stock vendor/persist partitions, and the udev bits
+                      iio-sensor-proxy needs. Accelerometer, gyroscope,
+                      magnetometer, proximity and light (build-fastrpc.sh,
+                      install.sh)
 extra-tools/          not needed to boot or to make a call: tools that make the
                       device pleasant to work *on* (see extra-tools/README.md)
   terminal-keyboard/  Esc, Tab, Ctrl, Alt and the arrows added to Plasma's
@@ -354,6 +367,12 @@ scripts/
   rhodep-gnss-test.py      drive a GNSS session from ONE QMI client, which qmicli
                            cannot do. WARNING: this reboots the phone; that is
                            the finding. See docs/.../GNSS-SM6375.md
+  ssc-probe.py             ask the sensor core for the SUID of one data type
+  ssc-enum.py              which sensor data types the sensor core actually has
+  ssc-stream.py            stream raw samples out of an SSC sensor (this is how
+                           the accelerometer's axes were measured rather than
+                           guessed)
+  pdr-tool.py              list / query / restart protection domains (SERVREG)
 docs/                       extra notes
 ```
 
@@ -1434,14 +1453,21 @@ it is either not started or a research project.
    CSIPHY/CSID/TFE nodes, and the S5KJN1 sensor node. First meaningful test
    after that is a raw capture, not a photo.
    [`CAMERA-SENSORS-FEASIBILITY.md`](docs/CAMERA-SENSORS-FEASIBILITY.md)
-6. **Sensors, NFC, fingerprint** — these are the genuinely hard ones. The
-   sensors (`lsm6dso`, `stk3a5x`) have mainline drivers but **do not appear in
-   the AP's device tree at all**: they hang off the SSC inside the ADSP, so the
-   chip is unreachable from Linux and the only route is speaking Qualcomm's SSC
-   protocol (protobuf over QMI) to service 400. Rotation, proximity-on-call and
-   auto-brightness all sit behind that. NFC is a Samsung `sec-nfc` with no
-   mainline driver; fingerprint is a proprietary Focaltech HAL. Older technical
-   notes (I2C addresses, GPIOs) are in `docs/KERNEL-TECHNICAL.md` §7.
+6. **NFC and fingerprint** — the two that are left of what used to be the "hard
+   three". NFC is a Samsung `sec-nfc` on i2c7 with no mainline driver;
+   fingerprint is a proprietary Focaltech HAL. Older technical notes (I2C
+   addresses, GPIOs) are in `docs/KERNEL-TECHNICAL.md` §7.
+
+   **Sensors came off this list.** They work — see `userspace/sensors/`. What
+   made it tractable is worth carrying to the other two: the blocker was never
+   the SSC protocol, which an earlier session had already worked out, but the
+   fact that the sensor core had no *registry*, and the registry lives on the
+   application processor and is fetched over FastRPC by a listener nobody was
+   running. The listener needed no kernel work: it is ordinary forward
+   invocations on a static handle, and Qualcomm's own userspace already
+   supports the mainline driver. Left over from that, for anyone continuing:
+   the gyroscope and the DSP's fusion sensors are enumerated and streaming but
+   have no `iio-sensor-proxy` driver, so nothing on D-Bus exposes them yet.
 7. **Interconnect driver** (`docs/interconnect-sm6375-wip/`, patches 0027/0028/
    0046): **it works now.** Session 15 found and fixed four bugs that were
    invisible until the module was actually loaded — NULL holes in the node

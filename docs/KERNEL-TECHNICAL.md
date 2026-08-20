@@ -54,7 +54,7 @@ comandos exactos para copiar/pegar y `.img` listos.
 | **Docker** (netfilter/nftables + veth/bridge/overlayfs) | FUNCIONA (§7.9) |
 | **Audio** (parlante, auricular, jack, micrófono) | FUNCIONA |
 | **Audio Bluetooth** (A2DP) | FUNCIONA (userspace/bluetooth) |
-| **Sensor proximidad/luz** | no hecho, va por SSC/ADSP (ver §7.2) |
+| **Sensores** (acelerómetro, giróscopo, magnetómetro, proximidad, luz) | FUNCIONAN (rotación automática incluida) — `userspace/sensors/`, ver §7.2 |
 | **GPS** | el módem publica el servicio de ubicación y acepta sesión; nunca emitió NMEA, sin probar al aire libre (ver §7.4) |
 | **NFC** | chip Samsung sec-nfc, sin driver mainline (ver §7.5) |
 | **Datos móviles** | FUNCIONAN (~24 Mbit/s) **pero el SoC se reinicia a los 3-10 min con el módem enganchado a LTE**; por eso ipa.ko se envía bloqueado del arranque (ver §7.6) |
@@ -257,14 +257,31 @@ Plan: portar `pinctrl-sm6115-lpass-lpi.c` → sm6375 comparando tablas de pines
 contra el vendor holi, y el `lpasscc`. Auriculares/mic son otro camino (WCD9370
 por SoundWire, también sin soporte LPASS/SWR para sm6375).
 
-### 7.2 Sensor de proximidad/luz (y acelerómetro)
-**Malas noticias**: en el vendor los sensores van por el **SSC (Sensor hub
-dentro del ADSP)**, no por I2C directo (`qcom,fastrpc-adsp-sensors-pdr` en
-holi.dtsi). Eso en mainline es muy difícil (no hay soporte de sensor hub SSC
-genérico). Primer paso: escanear los buses I2C que aún NO habilitamos (sólo van
-i2c8/i2c10 de carga; el SoC tiene i2c0,1,2,6,7,9) por si algún sensor está en
-I2C directo. Método: `i2cdetect` tras habilitar cada bus, comparar con el DTS
-del vendor. Si están en SSC, es un proyecto grande y probablemente inviable.
+### 7.2 Sensores — HECHO (ver `userspace/sensors/`)
+
+Esta sección decía "probablemente inviable" y estaba equivocada. Funcionan:
+acelerómetro (icm4x6xx), giróscopo, magnetómetro, brújula, proximidad y luz
+(stk3a5x), expuestos por `iio-sensor-proxy` en D-Bus, con rotación automática
+de pantalla.
+
+Lo que sí era cierto: los sensores van por el **SSC dentro del ADSP** y no por
+I2C directo — la IMU está en **I3C**, así que ningún nodo del device tree del AP
+puede alcanzarla, y escanear buses I2C no habría encontrado nada.
+
+Lo que faltaba no era un driver sino el **registry**: cada driver del SSC lee su
+bus, dirección, interrupción y calibración de un registry que vive en el
+application processor, y el ADSP lo pide por FastRPC. Nadie contestaba, así que
+el sensor core arrancaba sin ningún sensor.
+
+**No hizo falta ningún cambio de kernel.** El "reverse RPC" que este repo daba
+por imposible en mainline no existe como tal: el demonio hace una invocación
+normal hacia adelante sobre el handle estático 3 y el DSP la contesta cuando
+tiene trabajo. Todo pasa por `FASTRPC_IOCTL_INVOKE`, que mainline ya tenía, y
+`FASTRPC_IOCTL_INIT_ATTACH_SNS` existe justo para este caso. La userspace de
+Qualcomm (`quic/fastrpc`, BSD-3) ya soporta el driver de mainline y compiló sin
+tocar nada.
+
+Detalle completo, trampas incluidas, en `userspace/sensors/README.md`.
 
 ### 7.3 Vibrador — HECHO (v41), patch 0025 (config) + nodo DT
 `gpio-vibrator` sobre **GPIO tlmm 100** (igual que el vendor

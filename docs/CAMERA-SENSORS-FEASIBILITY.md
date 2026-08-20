@@ -1237,3 +1237,99 @@ indications work, the sensor core is up with its framework sensors, the
 protection domains are up, fastrpc works with a remote heap, and the consumer
 (`iio-sensor-proxy`) is installed and polling. The single missing link is file
 access from DSP to AP.
+
+---
+
+# SOLVED: the sensors work
+
+**Status: verified on the device across three consecutive clean boots.**
+Accelerometer, gyroscope, magnetometer, compass, proximity and ambient light are
+all up, exposed on D-Bus through `iio-sensor-proxy`, and the screen
+auto-rotates. The whole of it lives in [`userspace/sensors/`](../userspace/sensors/),
+which has the full write-up; this section records what the section above got
+wrong, because that is the part worth carrying forward.
+
+## The sizing above was wrong, and expensively so
+
+The previous section ended:
+
+> Closing it means porting listener/reverse-RPC support into mainline fastrpc
+> and writing the userspace daemon that serves `/persist/sensors/registry/`.
+> That is a substantially bigger job than anything in this file so far, and it
+> should be sized honestly before being started.
+
+Both halves were wrong, and the reasoning behind them is a good example of a
+conclusion that is locally sound and globally false.
+
+**There is no reverse RPC to port.** The premise was that the DSP calls into the
+AP and that mainline `drivers/misc/fastrpc.c` has no path for it — which is true
+as stated, and irrelevant, because the DSP never initiates anything. The AP
+daemon makes an ordinary *forward* invocation on static handle 3
+(`adsp_listener`); the DSP answers it only when it has work for us; the daemon
+does the work and invokes again carrying the result. It is all
+`FASTRPC_IOCTL_INVOKE`, which mainline has always had. **No kernel patch was
+written for any of this** and the running kernel is unchanged.
+
+The mistake was reading the kernel driver for the word "listener", finding
+nothing, and concluding the mechanism was missing — instead of reading what the
+vendor's own daemon does. `/vendor/bin/sscrpcd` is 15 KB and does exactly one
+thing: `dlopen("libssc_default_listener.so")` and call
+`adsp_default_listener_start()`. Its strings name `remote_handle_open`,
+`remote_handle_invoke` and `createstaticpd:` — all client-side calls. Five
+minutes with `strings` would have settled the size of the job.
+
+**And the userspace did not need writing.** Qualcomm publishes libadsprpc as
+[`quic/fastrpc`](https://github.com/quic/fastrpc), BSD-3-Clause, including
+`listener_android.c`, `apps_std_imp.c` and the generated stubs — and it has
+supported the *mainline* uapi since 2024:
+
+	src/fastrpc_ioctl.c
+	  /* File only compiled when support to upstream kernel is required */
+	  #define FASTRPC_IOCTL_INIT_ATTACH_SNS  _IO('R', 8)
+
+with `-DENABLE_UPSTREAM_DRIVER_INTERFACE` on by default. It built for aarch64
+unmodified on the first attempt, and its `sensorspd` path maps straight onto
+`FASTRPC_IOCTL_INIT_ATTACH_SNS` — the ioctl mainline added for precisely this
+case and which nothing on this port had ever used.
+
+## What was genuinely missing
+
+The registry files, on the application processor, where the ADSP could fetch
+them. The section above had already identified that correctly. What it had not
+noticed is that the DSP does not want them at `/persist/sensors/registry/`: the
+paths are compiled into the ADSP firmware as the Android ones,
+`/vendor/etc/sensors/` and `/mnt/vendor/persist/sensors/registry/registry`, and
+`sns_reg_config` also asks for six `/sys/devices/soc0` attributes that mainline's
+socinfo does not expose.
+
+The first run, with the listener working but no files behind it, produced the
+clearest error message this port has seen:
+
+	fatal error received: err_qdi.c:1045:EF:sensor_process:0x1:SNS_REG_TASK:0xa3:
+	  sns_registry_sensor.c:154: SNS_RC_SUCCESS == rc
+
+— the registry task waking up for the first time, asking, being refused, and
+asserting, which on this platform restarts the whole ADSP and kills audio.
+
+## Corrections to the facts above
+
+- The accelerometer on this board is the **TDK-Invensense icm4x6xx** on I3C, not
+  the `lsm6dso` the vendor JSON also describes. Both are in the registry; only
+  one answers.
+- `iio-sensor-proxy` is not merely "installed and polling" — it contains
+  `ssc-accel` and `ssc-proximity` drivers that its own udev rule never tags, so
+  two of the four sensors it can do were never even probed.
+- The registry's `icm4x6xx_0_platform.placement` matrix is twelve zeros, and its
+  `.orient` entry is the sensor-to-device transform which the DSP already
+  applies. The raw SSC stream is in the standard Android device frame, measured
+  with `scripts/ssc-stream.py`. The 180-degree offset that remained is the panel
+  mounting, and it is fixed with `ACCEL_MOUNT_MATRIX` in udev.
+
+## What is left
+
+The gyroscope, `rotv`, `gravity`, `game_rv`, `geomag_rv`, `step_detect`,
+`pedometer` and the rest of the fusion set all enumerate and stream — see
+`scripts/ssc-stream.py gyro` — but `iio-sensor-proxy` has no driver for them, so
+nothing publishes them on D-Bus. That is a consumer-side gap, not a port one.
+
+---

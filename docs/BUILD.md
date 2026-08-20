@@ -33,6 +33,8 @@ Nothing below is in the repo. Gather it first.
 | 5 | **A base pmOS `boot.img`** | The postmarketOS rhodep port (e.g. `boot-v45-DOCKER.img`) | Rescue image, and as a source of the initramfs |
 | 6 | **The debos rootfs recipe** | `git clone` the `kali-nethunter-pro` repo (GitLab). `debos/wip.toml` here is only the device config that gets copied into it | Building the Kali rootfs |
 | 7 | **`realtek-rtl8188eus-dkms`** | Kali repos; then patch it with `packages/rhodep-rtl8188eus-fix/apply-rtl8188eus-fix.sh` so it builds on 7.2 | External USB WiFi monitor/injection (wlan1) |
+| 8 | **Qualcomm's FastRPC userspace** | `git clone` [`quic/fastrpc`](https://github.com/quic/fastrpc) (BSD-3); `userspace/sensors/build-fastrpc.sh` does the clone, the patch and the build | Sensors: it is the FastRPC listener the ADSP's sensor core reads its registry through |
+| 9 | **The SSC sensor registry** (`/vendor/etc/sensors/`, `/persist/sensors/`) | The device's own stock `vendor` (inside `super`) and `persist` partitions; `rhodep-ssc-populate` copies them at first boot | Sensors: no registry, no sensor drivers, and the ADSP asserts |
 
 ---
 
@@ -189,6 +191,18 @@ sudo chroot /tmp/rootfs sh /srv/login/install.sh kali
   display manager both claim the display at boot. See README "Login screen
   (GDM)".
 
+- **Sensors** (`userspace/sensors/install.sh`): the SSC sensors -- accelerometer,
+  gyroscope, magnetometer, proximity, ambient light, and therefore screen
+  auto-rotation. Needs `build-fastrpc.sh --install` first, which clones and
+  builds Qualcomm's FastRPC userspace (`quic/fastrpc`, BSD-3) against the
+  mainline driver; that step wants network and a compiler, so run it in the
+  build chroot before `install.sh` or on the device afterwards. The registry
+  itself is copied out of the stock `vendor` and `persist` partitions at first
+  boot by `rhodep-ssc-populate`, exactly like the modem's RFS tree, so it cannot
+  be baked into an image. **Read `userspace/sensors/README.md` first**: with the
+  listener running and the registry missing, the sensors PD asserts and restarts
+  the whole ADSP, which takes audio with it.
+
 The one step that **cannot** be baked in, and still has to happen on the device:
 
 - Extract the AW88261 blob: `scripts/extract-aw88261-acf.sh` (item 3). It is not
@@ -207,8 +221,10 @@ and `docs/interconnect-sm6375-wip/` for the deep history:
   build/flash/where-everything-lives reference.
 
 Short version: display, GPU, touch, WiFi/BT, battery/charging, USB/OTG, the
-three remoteprocs and **audio** all work. Audio means speaker, earpiece,
-headphones with working jack detection, and the microphone, through PipeWire.
+three remoteprocs, **audio** and **sensors** all work. Audio means speaker,
+earpiece, headphones with working jack detection, and the microphone, through
+PipeWire. Sensors means accelerometer, gyroscope, magnetometer, proximity and
+ambient light through iio-sensor-proxy, so the screen auto-rotates.
 
 **The modem works too** — it registers on LTE, data was measured at ~24 Mbit/s,
 calls connect and SMS arrives — but it is **shipped switched off**. With

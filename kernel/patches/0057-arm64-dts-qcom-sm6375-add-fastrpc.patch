@@ -1,0 +1,135 @@
+From: rhodep port <none@example.com>
+Date: Wed, 20 Aug 2026 01:10:00 -0300
+Subject: [PATCH] arm64: dts: qcom: sm6375: add fastrpc to the ADSP and CDSP
+
+SM6375 has no fastrpc nodes, so the driver never probes and there is no
+/dev/fastrpc, even though CONFIG_QCOM_FASTRPC builds fine and the module
+is installed. Both remoteprocs already have a glink-edge; they just have
+nothing under it but apr on the ADSP side.
+
+The context bank stream IDs are the vendor's, out of holi.dtsi rather than
+guessed from another SoC: 0x00a3..0x00a7 for the ADSP and 0x1001..0x1006
+plus 0x1009 for the CDSP. They follow the same base-plus-bank-number
+pattern sm6115 uses, which is a useful cross-check - getting a stream ID
+wrong on this SoC is not a soft failure, a wrong SID copied from qcm2290
+for camss bootlooped the device with no log output at all.
+
+This is wanted for sensors. The accelerometer and gyroscope are on I3C
+bus 1 and the magnetometers on the sensor core's own I2C bus 2, none of
+which the application processor owns, so the only route to them is the
+Snapdragon Sensor Core over QMI. That service answers - it accepts
+requests and allocates client ids - but it never returns any sensor
+UIDs, which is consistent with it having no sensors registered. The
+vendor's own fastrpc node declares qcom,fastrpc-adsp-sensors-pdr, so the
+sensor protection domain on the ADSP sits behind this interface.
+
+Whether this alone makes the ADSP register sensors is the thing being
+tested; /dev/fastrpc is a prerequisite either way.
+
+Signed-off-by: rhodep port <none@example.com>
+--- a/arch/arm64/boot/dts/qcom/sm6375.dtsi
++++ b/arch/arm64/boot/dts/qcom/sm6375.dtsi
+@@ -2144,6 +2144,45 @@
+ 						};
+ 					};
+ 				};
++
++				fastrpc {
++					compatible = "qcom,fastrpc";
++					qcom,glink-channels = "fastrpcglink-apps-dsp";
++					label = "adsp";
++					qcom,non-secure-domain;
++					#address-cells = <1>;
++					#size-cells = <0>;
++
++					compute-cb@3 {
++						compatible = "qcom,fastrpc-compute-cb";
++						reg = <3>;
++						iommus = <&apps_smmu 0x00a3 0x0>;
++					};
++
++					compute-cb@4 {
++						compatible = "qcom,fastrpc-compute-cb";
++						reg = <4>;
++						iommus = <&apps_smmu 0x00a4 0x0>;
++					};
++
++					compute-cb@5 {
++						compatible = "qcom,fastrpc-compute-cb";
++						reg = <5>;
++						iommus = <&apps_smmu 0x00a5 0x0>;
++					};
++
++					compute-cb@6 {
++						compatible = "qcom,fastrpc-compute-cb";
++						reg = <6>;
++						iommus = <&apps_smmu 0x00a6 0x0>;
++					};
++
++					compute-cb@7 {
++						compatible = "qcom,fastrpc-compute-cb";
++						reg = <7>;
++						iommus = <&apps_smmu 0x00a7 0x0>;
++					};
++				};
+ 			};
+ 		};
+ 
+@@ -2180,6 +2219,57 @@
+ 						IPCC_MPROC_SIGNAL_GLINK_QMP>;
+ 				label = "cdsp";
+ 				qcom,remote-pid = <5>;
++
++				fastrpc {
++					compatible = "qcom,fastrpc";
++					qcom,glink-channels = "fastrpcglink-apps-dsp";
++					label = "cdsp";
++					qcom,non-secure-domain;
++					#address-cells = <1>;
++					#size-cells = <0>;
++
++					compute-cb@1 {
++						compatible = "qcom,fastrpc-compute-cb";
++						reg = <1>;
++						iommus = <&apps_smmu 0x1001 0x0>;
++					};
++
++					compute-cb@2 {
++						compatible = "qcom,fastrpc-compute-cb";
++						reg = <2>;
++						iommus = <&apps_smmu 0x1002 0x0>;
++					};
++
++					compute-cb@3 {
++						compatible = "qcom,fastrpc-compute-cb";
++						reg = <3>;
++						iommus = <&apps_smmu 0x1003 0x0>;
++					};
++
++					compute-cb@4 {
++						compatible = "qcom,fastrpc-compute-cb";
++						reg = <4>;
++						iommus = <&apps_smmu 0x1004 0x0>;
++					};
++
++					compute-cb@5 {
++						compatible = "qcom,fastrpc-compute-cb";
++						reg = <5>;
++						iommus = <&apps_smmu 0x1005 0x0>;
++					};
++
++					compute-cb@6 {
++						compatible = "qcom,fastrpc-compute-cb";
++						reg = <6>;
++						iommus = <&apps_smmu 0x1006 0x0>;
++					};
++
++					compute-cb@9 {
++						compatible = "qcom,fastrpc-compute-cb";
++						reg = <9>;
++						iommus = <&apps_smmu 0x1009 0x0>;
++					};
++				};
+ 			};
+ 		};
+ 

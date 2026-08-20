@@ -890,3 +890,106 @@ Add the `fastrpc` nodes to the sm6375 device tree under the ADSP and CDSP
 ADSP starts registering sensors. It is a bounded patch, it is checkable in one
 boot, and `/dev/fastrpc` is a prerequisite for anything further on this path
 regardless of how the RFSA question resolves.
+
+---
+
+# fastrpc, pd-mapper and the ADSP: three things fixed, sensors still absent
+
+**Status: verified on the device.** `/dev/fastrpc` exists, pd-mapper serves
+domains for the first time, and Linux now boots the ADSP, CDSP and modem from
+firmware instead of inheriting whatever the bootloader left running. The sensor
+core still returns no sensors.
+
+These are worth having on their own — they are prerequisites for anything on
+this path and they fix real gaps in the port — but none of them made sensors
+appear, so the honest summary is three steps forward and the original question
+still open.
+
+## fastrpc (patch 0057)
+
+SM6375 declared no fastrpc nodes, so the driver never probed despite
+`CONFIG_QCOM_FASTRPC=m` and `fastrpc.ko` being installed. Adding them under both
+`glink-edge` nodes gives:
+
+	/dev/fastrpc-adsp
+	/dev/fastrpc-cdsp
+	/dev/fastrpc-cdsp-secure
+
+with five context banks on the ADSP and seven on the CDSP registering into IOMMU
+groups. Stream IDs are the vendor's, from `holi.dtsi`: `0x00a3..0x00a7` for the
+ADSP, `0x1001..0x1006` and `0x1009` for the CDSP. They follow the same
+base-plus-bank-number pattern as sm6115, which is a useful independent check,
+and getting one wrong here is not a soft failure — a wrong SID copied from
+qcm2290 for camss bootlooped the device with no log output at all.
+
+## pd-mapper was running and serving nothing
+
+It logged `Cannot open firmware path: /lib/firmware/postmarketos` on every boot
+and the AP published no QMI service whatsoever. The fix is not simply creating
+that directory. Tracing it shows what it actually does:
+
+	read /sys/class/remoteproc/<n>/firmware   -> qcom/sm6375/motorola/rhodep/adsp.mbn
+	opendir <firmware_class path>/updates/qcom/sm6375/motorola/rhodep   -> ENOENT
+	opendir <firmware_class path>/qcom/sm6375/motorola/rhodep           -> ok
+
+It derives the *directory of the remoteproc firmware* and looks for `.jsn` files
+**inside it**, not in the firmware root. So the domain files belong in
+`qcom/sm6375/motorola/rhodep/`, next to the firmware. Dropping them in the base
+directory appears to work only while that subdirectory does not exist yet, which
+is a confusing intermediate state worth naming: it publishes the locator, and
+then stops the moment real firmware is installed.
+
+The `.jsn` files from qrb4210 work unmodified. Their `qmi_instance_id` values
+match what this device's remote processors publish as servreg instances:
+
+	adspr/adsps/adspua  74    ADSP publishes servreg instance 74
+	cdspr               76    CDSP publishes servreg instance 76
+	modemr/modemuw     180    modem publishes servreg instance 180
+
+pd-mapper only parses `*.jsn`, so sharing the directory with the firmware blobs
+is fine. One failure mode to recognise, because it cost time here: `unable to
+match a value` means a `.jsn` failed to parse, and in this case the files were
+zero bytes — copied moments before a forced power-off, so the inodes were on
+disk and the contents never were.
+
+## Linux now boots the DSPs
+
+`adsp.mbn` was failing with -2. The firmware is on the **modem** partition, not
+on `dsp`: `/image/adsp.mdt` plus 34 `.bXX` segments, and the same for the CDSP.
+`qcom_mdt_load` treats the file it is given as the MDT header and derives the
+segment names, so copying `adsp.mdt` to `adsp.mbn` is enough. After that, on a
+clean boot:
+
+	remoteproc1: Booting fw image qcom/sm6375/motorola/rhodep/adsp.mbn
+	remoteproc2: remote processor cdsp is now up
+	remoteproc1: remote processor adsp is now up
+	remoteproc0: remote processor modem is now up
+
+Until now the ADSP only answered QMI because the bootloader had started it;
+remoteproc's own load failed and Linux did not manage it.
+
+## What appeared, and what still does not
+
+With all of it in place on a clean boot the AP finally publishes services:
+
+	14    Remote file system service      (RFSA - how the DSP reads AP files)
+	52    Dynamic Heap Memory Sharing
+	64    Service registry locator service (pd-mapper)
+	4096  TFTP
+
+RFSA is specifically the piece the earlier analysis predicted was missing, since
+the sensor configuration lives on the AP in `/vendor/etc/sensors/`. It is there
+now. The SUID lookup still returns nothing: request accepted, `result=0`, fresh
+client id, no indication.
+
+Two things to know before continuing. Restarting the ADSP by hand drops RFSA
+from the bus — it comes back only on a clean boot, so hand-sequencing the
+subsystems is not equivalent to booting with everything already in place. And
+rebooting while Linux manages the DSPs hung the device once during shutdown,
+needing a forced power-off; that is worth pinning down separately, and it is
+also how the zero-byte `.jsn` files happened.
+
+The remaining question is unchanged and now much better isolated: nothing asks
+the ADSP to start its `sensor_pd`. The locator that would let it resolve that
+domain exists at last, which was the prerequisite, but the domain is still not
+running.

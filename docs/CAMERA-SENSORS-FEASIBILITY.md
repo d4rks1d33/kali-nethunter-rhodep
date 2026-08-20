@@ -1082,3 +1082,99 @@ Distinguishing those two is the next useful step, and it does not need more
 guessing: capture what the ADSP actually sends. Either by having something else
 on the bus observe the traffic, or by checking whether the indication is being
 dropped before it reaches the socket.
+
+---
+
+# The sensor core works. It is missing its registry, and that is all
+
+**Status: measured.** Indications now arrive, the framework's own sensors
+enumerate, and the reason no physical sensor exists is identified: the
+`registry` sensor is absent, and every driver depends on it.
+
+This is the section that turns "sensors do not work" into a specific missing
+piece.
+
+## What was actually wrong with the client
+
+One TLV. The request needs **TLV 0x10 set to 1** alongside the payload TLV:
+
+	10 01 00 01      <- this
+	01 33 00 ...     <- payload
+
+Without it the sensor core accepts the request, returns `result=0`, allocates a
+client id, and never sends an indication. Every failure mode looks like success.
+With it, the indication arrives immediately.
+
+This was not deduced, it was observed. Logging QRTR in the kernel showed a 32
+byte response *and* a 71 byte indication going to some other port once a second,
+while ours only ever got the 32 byte response. The other port belonged to
+**`iio-sensor-proxy`**, which is already installed and has an SSC backend, and
+diffing its request against ours left exactly one difference.
+
+Two things worth taking from that. Instrumenting the transport answered in one
+boot what a dozen protocol variants had not. And the useful comparison was not
+against documentation but against a working client that was already running on
+the device.
+
+## iio-sensor-proxy is already wired up
+
+It polls the sensor core once a second, from boot, and has done through this
+whole investigation. That removes a whole step from the earlier plan: nobody
+needs to write the bridge to userspace. `monitor-sensor` and the
+`net.hadess.SensorProxy` D-Bus interface are in place and will start reporting
+the moment the sensor core has sensors. Right now:
+
+	HasAccelerometer = false
+	HasAmbientLight  = false
+	HasProximity     = false
+
+## What the sensor core does and does not have
+
+With indications working the SUID lookup can enumerate. Asking for every data
+type gives a very clean split:
+
+	timer            1 suid
+	resampler        1 suid
+	async_com_port   1 suid
+	device_mode      1 suid
+	suid             1 suid
+
+	registry         0
+	interrupt        0
+	accel gyro mag proximity ambient_light pressure   0
+	island low_lat_stream amd gravity                 0
+
+Everything that exists is internal to the framework and needs no external
+configuration. Everything missing sits downstream of one sensor: **`registry`**.
+
+That is not a coincidence. On SSC every physical sensor driver reads its bus,
+address, interrupt and calibration out of the registry at init. No registry, no
+driver instantiates - which is exactly why `interrupt` is missing too, and why
+`async_com_port` (the one that would drive the I3C and I2C buses) is present but
+idle. The sensor core is healthy; it has nothing to configure itself from.
+
+## Where the registry lives
+
+On the `persist` partition, which is present and mountable:
+
+	/persist/sensors/registry/registry/   229 files
+	/persist/sensors/sensors_list.txt
+	/persist/sensors/sensors_settings
+
+These live on the AP. The ADSP reads them remotely - this is what RFSA (Remote
+File System Access) is for, and it is why `/vendor/lib/rfsa/adsp/` exists at all.
+Note that this is a different thing from RMTFS: `rmtfs` serves the modem's EFS
+as block storage and publishes QMI service 14, and that is already running. It
+is not what serves sensor registry files.
+
+## Next step
+
+Get the ADSP able to read `/persist/sensors/registry/`. That is now the whole
+problem, and it is a much better defined one than anything earlier in this file:
+the sensor core is up, its framework sensors work, the transport is understood,
+the client is correct, and the consumer (`iio-sensor-proxy`) is already
+installed and polling. Once the registry is served, drivers should instantiate
+and sensors should appear in D-Bus without further work on our side.
+
+Scripts: `ssc-probe.py` (single lookup, decodes the reply),
+`ssc-enum.py` (enumerate data types).

@@ -126,19 +126,26 @@ def build_suid_request(data_type):
 
 
 def qmi_wrap(txn, msg_id, payload, count_prefix=True):
-    """QMI service message: header + one TLV carrying the protobuf.
+    """QMI service message: header + TLV 0x10, then the payload TLV.
 
     sns_client_req_msg_v01 declares the payload as a variable-length array,
     and the QMI encoder puts an element count in front of the data. The max
     length is over 255, so that count is 16-bit.
+
+    TLV 0x10 set to 1 is what makes the sensor core send indications back.
+    Without it the request is still accepted - result=0, a client id is even
+    allocated - and no indication ever arrives. Found by logging what
+    iio-sensor-proxy puts on the wire, since it gets indications and we did
+    not; it is the only difference between the two requests.
     """
     body = struct.pack("<H", len(payload)) + payload if count_prefix else payload
-    tlv = bytes([0x01]) + struct.pack("<H", len(body)) + body
+    tlvs = (bytes([0x10]) + struct.pack("<H", 1) + b"\x01"
+            + bytes([0x01]) + struct.pack("<H", len(body)) + body)
     return (bytes([0x00])                       # control flags: request
             + struct.pack("<H", txn)
             + struct.pack("<H", msg_id)
-            + struct.pack("<H", len(tlv))
-            + tlv)
+            + struct.pack("<H", len(tlvs))
+            + tlvs)
 
 
 # ---------------------------------------------------------------- transport
@@ -148,7 +155,9 @@ def main():
         sys.exit("this kernel/python has no AF_QIPCRTR")
 
     s = socket.socket(socket.AF_QIPCRTR, socket.SOCK_DGRAM)
+    s.bind((1, 0))
     s.settimeout(5)
+    print("local port: %s" % (s.getsockname(),))
 
     # Find the SSC service. sockaddr_qrtr is (family, node, port).
     CTRL_PORT = 0xFFFFFFFE

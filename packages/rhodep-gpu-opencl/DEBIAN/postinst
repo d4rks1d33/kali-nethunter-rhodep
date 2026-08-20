@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+# /etc/profile.d and /etc/environment.d only cover login shells and systemd
+# user sessions respectively; Kali's root shell is zsh and interactive SSH is
+# not always a login shell, so the variable would not be set where hashcat
+# actually runs. /etc/environment is applied by PAM to every session, so add
+# it there too, idempotently and without disturbing the existing file.
+ENVF=/etc/environment
+if [ -f "$ENVF" ] && ! grep -q '^RUSTICL_ENABLE=' "$ENVF"; then
+    printf 'RUSTICL_ENABLE=freedreno\n' >> "$ENVF"
+fi
+exit 0

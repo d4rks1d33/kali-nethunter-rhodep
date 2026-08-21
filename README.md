@@ -198,7 +198,7 @@ list; everything here is a from-scratch community port.
 
 ## Extra tools (`extra-tools/`)
 
-Three things written after the hardware was working, when the obstacles stopped
+Things written after the hardware was working, when the obstacles stopped
 being the device and started being software that assumes a desktop. None is needed
 to boot or to place a call; each has a detailed README of its own.
 
@@ -239,6 +239,22 @@ every other provider speaks, routing by `provider/model` and reading opencode's 
 the request is already the right shape. The real work is the streaming direction:
 Claude Code expects Anthropic's event sequence with tool calls as
 `input_json_delta` fragments, which is a state machine rather than a field rename.
+
+**`pwnagotchi/`** — the WiFi-auditing agent (jayofelony fork) capturing WPA
+handshakes on the phone. Verified in auto mode: bettercap on `wlan1mon` sees
+dozens of APs and it captured 11 handshakes in a short run.
+
+The detail worth knowing: pwnagotchi is built for a Raspberry Pi whose only WiFi
+does monitor mode, and this phone is the opposite. **wlan0** (internal WCN3990)
+is the only real WiFi and cannot do monitor mode at all, so it has to stay a
+managed client; **wlan1** (external TP-Link RTL8188EUS) is the one that does
+monitor and injection. So everything is pinned to `wlan1mon` and wlan0 is never
+touched: the monstart helper works on wlan1 by name only, refuses to run if
+pointed at wlan0 or if wlan1 shares a phy with it, and never runs
+`airmon-ng check kill` (which would drop wlan0 for nothing). The three services
+(`rhodep-pwn-bettercap`, `rhodep-pwngrid-peer`, `rhodep-pwnagotchi`) are disabled
+at boot and started on demand, because capture needs `otg on` and the external
+adapter anyway. Its face and status are on the web UI at `http://<phone>:8080`.
 
 ## Known limitations
 - **Mobile data**: the modem itself is finished. It registers on LTE, data was
@@ -359,6 +375,9 @@ extra-tools/          not needed to boot or to make a call: tools that make the
                       because the keyboard cannot read the clipboard (install.sh)
   claude-free/        Claude Code routed through the model providers opencode
                       already holds keys for (install.sh)
+  pwnagotchi/         pwnagotchi capturing WPA handshakes on the external
+                      TP-Link (wlan1mon), never touching the internal wlan0
+                      (install.sh; on-demand services, needs otg on)
 scripts/
   mkbootv2b.py             build an Android boot.img v2 (flat Image + appended DTB)
   make-boot-from-apk.sh    build a boot.img reusing an initramfs from a base image

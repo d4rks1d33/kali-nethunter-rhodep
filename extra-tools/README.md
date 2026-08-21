@@ -19,8 +19,8 @@ paid API key.
 
 Each directory has its own README with the reasoning, the protocol traces, and
 the things that turned out to be impossible. Those are worth reading before
-changing anything: in all three cases the obvious approach does not work, and the
-reason is never in the documentation.
+changing anything: the obvious approach usually does not work, and the reason is
+never in the documentation.
 
 ## Installing
 

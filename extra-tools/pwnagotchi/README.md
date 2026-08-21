@@ -65,13 +65,21 @@ Three services, same split as upstream but retargeted:
 3. **pwnagotchi** is the agent: it talks to bettercap's API, sets
    `wifi.interface wlan1mon`, and runs the recon/associate/deauth/capture loop.
 
+Stopping is the important direction: bettercap's `ExecStopPost` runs
+`rhodep-pwn-monstop`, which renames `wlan1mon` back to `wlan1`, sets it managed
+and hands it to NetworkManager — so after an off there is a normal `wlan1`
+again, by name and mode, and wlan0 was never touched. Verified: start -> stop
+leaves `wlan1 type managed`, no `wlan1mon`, `wlan0` still connected.
+
 It runs from a venv at `/opt/pwnagotchi/.venv` built `--system-site-packages`,
 because Kali is EXTERNALLY-MANAGED: scapy, flask, dbus, prctl and the rest come
 from apt, and only `pycryptodome` (the `Crypto` module) is added into the venv.
 
 Default mode is **manual**: it listens and serves the UI but never transmits.
 For the full loop change `launcher manual` to `launcher auto` in
-`rhodep-pwnagotchi.service`.
+`rhodep-pwnagotchi.service`. The NetHunter Pro app does this with a systemd
+drop-in (`.../rhodep-pwnagotchi.service.d/10-mode.conf`) rather than editing the
+unit, so a package upgrade does not fight it.
 
 ## The trap that will reboot your phone
 

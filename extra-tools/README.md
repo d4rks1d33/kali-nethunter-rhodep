@@ -16,6 +16,8 @@ paid API key.
 	                      already holds keys for
 	pwnagotchi/           pwnagotchi capturing on the external TP-Link (wlan1),
 	                      never touching the internal wlan0
+	cleanup/              weekly disk-space cleanup (caches, journal, coredumps)
+	                      and a permanent cap on the systemd journal
 
 Each directory has its own README with the reasoning, the protocol traces, and
 the things that turned out to be impossible. Those are worth reading before
@@ -30,6 +32,7 @@ Each has an `install.sh` that is idempotent and safe to re-run:
 	cd terminal-clipboard && sudo ./install.sh   # then open a new terminal
 	cd claude-free        && sudo ./install.sh
 	cd pwnagotchi         && sudo ./install.sh   # needs /opt/pwnagotchi cloned
+	cd cleanup            && sudo ./install.sh   # weekly timer + journal cap
 
 `terminal-keyboard` and `terminal-clipboard` belong together — the keyboard sends
 the bytes, the shell turns them into clipboard operations — so install both or

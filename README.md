@@ -256,6 +256,20 @@ pointed at wlan0 or if wlan1 shares a phy with it, and never runs
 at boot and started on demand, because capture needs `otg on` and the external
 adapter anyway. Its face and status are on the web UI at `http://<phone>:8080`.
 
+**`cleanup/`** — a weekly disk-space cleanup and a permanent cap on the systemd
+journal. The disk had drifted to 50G used, ~2G of it junk that comes straight
+back with use, and the journal alone was 633M.
+
+The detail worth knowing: it deletes only regenerable things — caches (GPU
+shaders, thumbnails, browser, npm), apt archives, coredumps, fwupd metadata,
+rotated logs, `/tmp` — so **no apt hold is affected**, because dpkg owns none of
+those files and the holds protect packages. It never touches data (the `/opt`
+toolset, libpostal, the databases, the clamav signatures, the AI tools' state).
+A journald drop-in sets `SystemMaxUse=100M` so the journal cannot grow back
+between runs; the weekly `rhodep-cleanup.timer` reclaims the rest, catching up on
+the next boot if the phone was off (`Persistent=true`). Run it by hand with
+`sudo rhodep-cleanup`, or `--dry-run` to see what it would free.
+
 ## Known limitations
 - **Mobile data**: the modem itself is finished. It registers on LTE, data was
   measured at ~24 Mbit/s, calls connect and SMS arrives. What blocks day-to-day
@@ -378,6 +392,8 @@ extra-tools/          not needed to boot or to make a call: tools that make the
   pwnagotchi/         pwnagotchi capturing WPA handshakes on the external
                       TP-Link (wlan1mon), never touching the internal wlan0
                       (install.sh; on-demand services, needs otg on)
+  cleanup/            weekly disk-space cleanup (caches, journal, coredumps)
+                      + a permanent journal cap; weekly systemd timer (install.sh)
 scripts/
   mkbootv2b.py             build an Android boot.img v2 (flat Image + appended DTB)
   make-boot-from-apk.sh    build a boot.img reusing an initramfs from a base image

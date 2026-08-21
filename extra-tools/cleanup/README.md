@@ -55,3 +55,18 @@ the phone was off at the scheduled time it catches up on the next boot, and a
 
 Change the schedule by editing the `.timer` (`OnCalendar=daily`, etc.) and
 `systemctl daemon-reload`.
+
+## Protection
+
+`install.sh` registers its four files with `rhodep-protect-files` (the same
+mechanism the rest of the port uses for files dpkg does not own): each gets a
+snapshot under `/usr/local/share/rhodep/files` and `chattr +i`, so a stray `rm`
+or a cleanup cannot remove them silently, and `rhodep-holds-enforce` restores
+any that go missing. Root can still edit one on purpose — `chattr -i` first, or
+just re-run `install.sh`, which drops the flag before overwriting.
+
+This protects the *files*, not the timer's enabled state: `chattr +i` on the
+`.timer` stops it being deleted or edited, but `systemctl disable` would still
+turn it off. Re-running `install.sh` re-enables it. Protection is skipped
+(with a note) if `rhodep-protect-files` is not installed yet, so run
+`userspace/apt/apply-holds.sh` first if you want the immutable layer.

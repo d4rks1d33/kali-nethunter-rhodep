@@ -1,0 +1,24 @@
+#!/bin/sh
+# rhodep: take the external adapter back out of monitor mode. Touches only
+# wlan1/wlan1mon; wlan0 is never referenced.
+set -e
+
+PHYS_IFACE=wlan1
+MON_IFACE=wlan1mon
+
+log() { echo "rhodep-pwn-monstop: $*"; }
+
+if iw dev "$MON_IFACE" info >/dev/null 2>&1; then
+	ip link set "$MON_IFACE" down 2>/dev/null || true
+	iw dev "$MON_IFACE" set type managed 2>/dev/null || true
+	ip link set "$MON_IFACE" name "$PHYS_IFACE" 2>/dev/null || true
+fi
+
+if ip link show "$PHYS_IFACE" >/dev/null 2>&1; then
+	ip link set "$PHYS_IFACE" up 2>/dev/null || true
+	# hand it back to NetworkManager if it wants it
+	command -v nmcli >/dev/null 2>&1 && \
+		nmcli device set "$PHYS_IFACE" managed yes >/dev/null 2>&1 || true
+fi
+
+log "done"

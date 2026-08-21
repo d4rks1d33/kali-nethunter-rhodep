@@ -14,6 +14,8 @@ paid API key.
 	                      because the keyboard cannot reach the clipboard
 	claude-free/          Claude Code driven by the model providers opencode
 	                      already holds keys for
+	pwnagotchi/           pwnagotchi capturing on the external TP-Link (wlan1),
+	                      never touching the internal wlan0
 
 Each directory has its own README with the reasoning, the protocol traces, and
 the things that turned out to be impossible. Those are worth reading before
@@ -27,6 +29,7 @@ Each has an `install.sh` that is idempotent and safe to re-run:
 	cd terminal-keyboard  && sudo ./install.sh   # then log out and back in
 	cd terminal-clipboard && sudo ./install.sh   # then open a new terminal
 	cd claude-free        && sudo ./install.sh
+	cd pwnagotchi         && sudo ./install.sh   # needs /opt/pwnagotchi cloned
 
 `terminal-keyboard` and `terminal-clipboard` belong together — the keyboard sends
 the bytes, the shell turns them into clipboard operations — so install both or

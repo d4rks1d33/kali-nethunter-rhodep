@@ -1,0 +1,98 @@
+# pwnagotchi on rhodep
+
+	git clone https://github.com/jayofelony/pwnagotchi /opt/pwnagotchi   # if not already there
+	# install the aarch64 pwngrid from jayofelony/pwngrid releases to /usr/bin/pwngrid
+	sudo ./install.sh
+	otg on
+	sudo systemctl start rhodep-pwnagotchi
+
+Then the web UI is at `http://<phone>:8080` (or `172.16.42.1:8080` over the USB
+cable). It captures WPA handshakes into `/etc/pwnagotchi/handshakes/`.
+
+Verified working on the device: bettercap on `wlan1mon` sees dozens of APs, the
+agent sends association/deauth frames and **captured 11 handshakes** in a short
+auto-mode run, e.g.
+
+	!!! captured new handshake on channel 1: b2:4e:26:df:2b:2f -> Claro Fibra !!!
+
+## The one thing that matters: it uses wlan1, never wlan0
+
+pwnagotchi is built for a Raspberry Pi whose only WiFi does monitor mode. This
+phone is the opposite:
+
+- **wlan0** is the internal ath10k / WCN3990. It is the only real WiFi and
+  **cannot do monitor mode at all** — the firmware reports `raw 0` — so it has
+  to stay a managed client (that is your actual network).
+- **wlan1** is the external TP-Link TL-WN722N (RTL8188EUS), which does monitor
+  and injection. All capture happens here.
+
+So everything is pinned to wlan1 and wlan0 is never touched:
+
+- `main.iface = "wlan1mon"` in the config — a distinct name, impossible to
+  confuse with wlan0.
+- `rhodep-pwn-monstart` operates on **wlan1 by name only**, refuses to run if
+  pointed at wlan0, and refuses if wlan1 turns out to share a phy with wlan0.
+- It **never runs `airmon-ng check kill`**. Upstream's monstart does, which
+  stops NetworkManager and wpa_supplicant for the whole system — on this phone
+  that would drop wlan0 and gain nothing, since NetworkManager already ignores
+  wlan1. Instead it hands only wlan1 to `nmcli device set wlan1 managed no`,
+  with no daemon restart.
+- It removes the driver's stray P2P-device vif, but only ones on wlan1's phy,
+  and explicitly skips wlan0.
+
+Confirmed after a full run: `wlan0` stayed `type managed` and connected
+throughout, `nmcli` still showed `wlan0:connected`.
+
+## Pieces
+
+	bin/rhodep-pwn-monstart            wlan1 -> monitor as wlan1mon (wlan1 only)
+	bin/rhodep-pwn-monstop             wlan1mon -> managed
+	bin/rhodep-pwn-bettercap-launcher  bettercap on wlan1mon (main.mon_start_cmd path)
+	bin/rhodep-pwn-launcher            the agent, from the venv
+	config/config.toml                 the user override
+	systemd/rhodep-pwn-bettercap.service   bettercap + api.rest on :8081
+	systemd/rhodep-pwngrid-peer.service    pwngrid peer on wlan1mon
+	systemd/rhodep-pwnagotchi.service      the agent (pulls in the other two)
+
+## How it runs
+
+Three services, same split as upstream but retargeted:
+
+1. **bettercap** brings up `wlan1mon` (via monstart) and serves its REST API on
+   `127.0.0.1:8081`. This is what actually drives the radio.
+2. **pwngrid-peer** is the identity/mesh peer, on `wlan1mon`, API on `:8666`.
+   `grid.report = false` in the config keeps it from phoning home.
+3. **pwnagotchi** is the agent: it talks to bettercap's API, sets
+   `wifi.interface wlan1mon`, and runs the recon/associate/deauth/capture loop.
+
+It runs from a venv at `/opt/pwnagotchi/.venv` built `--system-site-packages`,
+because Kali is EXTERNALLY-MANAGED: scapy, flask, dbus, prctl and the rest come
+from apt, and only `pycryptodome` (the `Crypto` module) is added into the venv.
+
+Default mode is **manual**: it listens and serves the UI but never transmits.
+For the full loop change `launcher manual` to `launcher auto` in
+`rhodep-pwnagotchi.service`.
+
+## The trap that will reboot your phone
+
+pwnagotchi's `set_name()` rewrites `/etc/hostname` and **reboots the whole
+machine** whenever `main.name` differs from the current hostname — and
+`main.name` is read from `default.toml`, where it is `"pwnagotchi"`, so simply
+leaving it out of your config does not help: it reboots towards "pwnagotchi".
+
+`install.sh` pins `main.name` to the device's current hostname so the check is a
+no-op and nothing is ever renamed or rebooted. During bring-up here it did fire
+once and changed the hostname from `kali` to `pwnagotchi` before this was
+understood; the installer sets it correctly, but if you edit the config by hand,
+keep `main.name` equal to `hostname` or expect a reboot.
+
+## Notes
+
+- Needs the TP-Link powered, which means USB-host + VBUS: `otg on` first
+  (`rhodep-usb-otg`). monstart calls `otg on` itself if wlan1 is absent, but the
+  adapter has to be physically plugged in.
+- The internal wlan0 keeps working as your normal WiFi the entire time, so you
+  can SSH in over it (or over the USB cable) while pwnagotchi runs.
+- This is not held or protected like the core port packages — it is an
+  extra-tool, optional, and lives entirely under /opt/pwnagotchi,
+  /usr/local/sbin and /etc/pwnagotchi.

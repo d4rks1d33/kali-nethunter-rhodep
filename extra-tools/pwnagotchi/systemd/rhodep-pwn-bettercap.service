@@ -1,0 +1,17 @@
+[Unit]
+Description=bettercap for pwnagotchi (rhodep, external wlan1 only)
+Documentation=https://bettercap.org
+Wants=network.target
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/rhodep-pwn-bettercap-launcher
+Restart=always
+RestartSec=15
+LimitNOFILE=65535
+StandardOutput=append:/etc/pwnagotchi/log/bettercap.log
+StandardError=append:/etc/pwnagotchi/log/bettercap.log
+
+[Install]
+WantedBy=multi-user.target

@@ -50,6 +50,7 @@ throughout, `nmcli` still showed `wlan0:connected`.
 	bin/rhodep-pwn-bettercap-launcher  bettercap on wlan1mon (main.mon_start_cmd path)
 	bin/rhodep-pwn-launcher            the agent, from the venv
 	config/config.toml                 the user override
+	apply-ui-fixes.sh                  web-UI patches to /opt/pwnagotchi (idempotent)
 	systemd/rhodep-pwn-bettercap.service   bettercap + api.rest on :8081
 	systemd/rhodep-pwngrid-peer.service    pwngrid peer on wlan1mon
 	systemd/rhodep-pwnagotchi.service      the agent (pulls in the other two)
@@ -93,6 +94,32 @@ no-op and nothing is ever renamed or rebooted. During bring-up here it did fire
 once and changed the hostname from `kali` to `pwnagotchi` before this was
 understood; the installer sets it correctly, but if you edit the config by hand,
 keep `main.name` equal to `hostname` or expect a reboot.
+
+## Adapters: single- and dual-band
+
+Either TP-Link works, and monstart is driver-agnostic (it drives `wlan1` by name
+and phy, not by chipset), so nothing here changes between them:
+
+- **RTL8188EUS** (single-band 2.4 GHz) — the `rtl8188eus` driver, see
+  `packages/rhodep-rtl8188eus-fix`.
+- **RTL8811AU / Archer T2U Nano** (dual-band 2.4 + 5 GHz) — the `rtw88` driver
+  (`rtw_8821au`), see `packages/rhodep-rtl8821au`. With this one, add the 5 GHz
+  channels to `personality.channels` in the config to actually hop them; the
+  non-DFS channels (36-48, 149-165) are the useful ones, since DFS channels are
+  `no-IR` and cannot transmit assoc/deauth. Confirmed hopping 5 GHz and seeing
+  APs on channels 40/149/153.
+
+## Web UI feel (apply-ui-fixes.sh)
+
+The web frame is a PNG pwnagotchi re-saves per update; with the stock
+`ui.fps = 0` it is written only on major state changes, so the "waiting Ns"
+countdown never ticks and the whole thing feels static. Setting `ui.fps = 2` in
+the config (device-side) starts the periodic refresh so it animates. To match
+it, `apply-ui-fixes.sh` lowers the browser poll in `index.html` from 1000 ms to
+500 ms, and moves the `APS` widget from x=28 to x=38 so three-digit 5 GHz
+channel numbers do not overlap the label. Those two touch `/opt/pwnagotchi`
+(third-party source), so `install.sh` reapplies them; re-run after any
+pwnagotchi update.
 
 ## Notes
 

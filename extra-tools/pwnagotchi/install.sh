@@ -73,6 +73,14 @@ fi
 [ -f /etc/pwnagotchi/id_rsa ] || \
 	{ command -v pwngrid >/dev/null 2>&1 && pwngrid -generate -keys /etc/pwnagotchi >/dev/null 2>&1; }
 
+# ---------------------------------------------------------------- web UI fixes
+# Two patches to the pwnagotchi source (fps-matched web poll interval, and the
+# APS widget moved so 5 GHz channel numbers do not overlap it). Idempotent, and
+# reapplied here because /opt/pwnagotchi is third-party source the repo does not
+# own. See apply-ui-fixes.sh for the reasoning.
+echo "pwnagotchi: web UI fixes"
+sh "$here/apply-ui-fixes.sh" "$PWN" 2>&1 | sed 's/^/  /' || true
+
 for u in rhodep-pwn-bettercap rhodep-pwngrid-peer rhodep-pwnagotchi; do
 	install -m 0644 "$here/systemd/$u.service" "/etc/systemd/system/$u.service"
 done

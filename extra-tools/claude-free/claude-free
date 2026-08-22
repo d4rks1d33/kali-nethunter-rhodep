@@ -7,7 +7,9 @@
 # available here, plus Zen's free models, which need no key at all.
 #
 #   claude-free [claude arguments...]
-#   claude-free --model                 list what you can use, marking the current
+#   claude-free --model                 pick one interactively (type to filter,
+#                                       arrows to move, enter to select). Falls
+#                                       back to a plain listing when not on a tty.
 #   claude-free --model <provider/name>  use that from now on
 #   claude-free --small-model <name>     the one used for background work
 #   claude-free --trust                  trust this directory without being asked
@@ -17,6 +19,7 @@
 set -u
 
 PROXY=/usr/local/libexec/rhodep/anthropic-proxy.mjs
+PICKER=/usr/local/libexec/rhodep/claude-free-pick.mjs
 CONF=${XDG_CONFIG_HOME:-$HOME/.config}/rhodep/claude-free.conf
 STATE=${XDG_CACHE_HOME:-$HOME/.cache}/claude-free
 LOG=$STATE/proxy.log
@@ -170,6 +173,23 @@ list_models() {
 	if not auth:
 	    print("only the free models are available; `opencode auth login` adds more")
 	PY
+}
+
+# Interactive picker: prints the chosen "provider/model" on stdout, or nothing
+# if cancelled. A small node picker (using @inquirer/prompts' search) ships next
+# to this script and gives type-to-filter with arrow keys. It only runs on a
+# terminal; piped or non-interactive callers fall back to the plain listing.
+# The interactive picker (node + @inquirer/search) draws on the terminal, reads
+# keypresses directly (so TERM=unknown is fine), and does its own saving: it
+# writes CLAUDE_FREE_MODEL into $CONF and kills the proxy so the next run picks
+# it up. So this just decides whether to run it -- only on a terminal, with node
+# and the picker present and the catalog readable -- and returns non-zero to let
+# the caller fall back to the static listing otherwise.
+can_pick() {
+	[ -t 0 ] && [ -t 1 ] || return 1
+	[ -r "$CATALOG" ] || return 1
+	[ -r "$PICKER" ] && command -v node >/dev/null 2>&1 || return 1
+	return 0
 }
 
 set_conf() {
@@ -326,6 +346,17 @@ case "${1:-}" in
 	which=$1
 	name=${2:-}
 	if [ -z "$name" ]; then
+		# No name given. For --model/--models on a terminal, launch the
+		# interactive picker, which saves the choice and restarts the proxy
+		# itself; it inherits this terminal so the search UI renders. If we are
+		# not on a terminal, or the picker/node are missing, fall back to the
+		# plain listing. (--small-model has no interactive picker; it lists.)
+		if [ "$which" != "--small-model" ] && can_pick; then
+			CLAUDE_FREE_MODEL=$MODEL CLAUDE_FREE_CONF=$CONF \
+				OPENCODE_CATALOG=$CATALOG OPENCODE_AUTH=$AUTH \
+				node "$PICKER"
+			exit $?
+		fi
 		list_models
 		exit 0
 	fi

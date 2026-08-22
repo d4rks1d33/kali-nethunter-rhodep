@@ -12,10 +12,12 @@ command -v node >/dev/null 2>&1 || { echo "node is needed for the proxy" >&2; ex
 command -v python3 >/dev/null 2>&1 || { echo "python3 is needed to read the model cache" >&2; exit 1; }
 
 PROXY=/usr/local/libexec/rhodep/anthropic-proxy.mjs
+PICKER=/usr/local/libexec/rhodep/claude-free-pick.mjs
+LIBEXEC=/usr/local/libexec/rhodep
 WRAPPER=/usr/local/bin/claude-free
 PROTECT=/usr/local/sbin/rhodep-protect-files
 
-[ -x "$PROTECT" ] && "$PROTECT" release "$PROXY" "$WRAPPER" 2>/dev/null || true
+[ -x "$PROTECT" ] && "$PROTECT" release "$PROXY" "$PICKER" "$WRAPPER" 2>/dev/null || true
 
 # The proxy used to be Zen-only and named for it.
 OLD_PROXY=/usr/local/libexec/rhodep/zen-anthropic-proxy.mjs
@@ -23,7 +25,19 @@ OLD_PROXY=/usr/local/libexec/rhodep/zen-anthropic-proxy.mjs
 rm -f "$OLD_PROXY"
 
 install -D -m 0644 "$here/anthropic-proxy.mjs" "$PROXY"
+install -D -m 0755 "$here/claude-free-pick.mjs" "$PICKER"
 install -D -m 0755 "$here/claude-free" "$WRAPPER"
+
+# The picker uses @inquirer/prompts. Install it next to the picker so it resolves
+# regardless of the caller's cwd. npm is only needed at install time.
+install -D -m 0644 "$here/picker-package.json" "$LIBEXEC/package.json"
+if command -v npm >/dev/null 2>&1; then
+	( cd "$LIBEXEC" && npm install --no-audit --no-fund --silent ) \
+		&& echo "installed the picker's node dependency (@inquirer/prompts)" \
+		|| echo "warning: npm install failed; --model will use the static list"
+else
+	echo "npm not found; --model will use the static list until it is installed"
+fi
 
 # `claude` itself is not on root's PATH, because it installs and updates itself
 # inside a home directory. This shim finds it wherever it lives.
@@ -65,6 +79,7 @@ if [ -x "$PROTECT" ]; then
 	"$PROTECT" register claude-free 0755 "$WRAPPER" 2>/dev/null || true
 	[ -e /usr/local/bin/claude ] && "$PROTECT" register claude-free 0755 /usr/local/bin/claude 2>/dev/null || true
 	"$PROTECT" register claude-free-conf 0644 "$PROXY" 2>/dev/null || true
+	"$PROTECT" register claude-free 0755 "$PICKER" 2>/dev/null || true
 fi
 
 cat <<'MSG'
@@ -74,7 +89,8 @@ Works in a root shell too: claude and claude-free both resolve, and opencode's
 keys, catalog and model choice come from the desktop user's home.
 
   claude-free                 Claude Code on a free model
-  claude-free --models        what is available
+  claude-free --model         pick one interactively (type to filter, arrows)
+  claude-free --model X       set it directly to provider/name
   claude-free --status        is the proxy up
   claude-free --stop          stop it
 

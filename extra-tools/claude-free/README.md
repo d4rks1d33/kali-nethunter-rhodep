@@ -2,9 +2,16 @@
 
 	sudo ./install.sh
 	claude-free                               # Claude Code, routed through opencode
-	claude-free --model                       # everything you can use, by provider
-	claude-free --model google/gemini-2.5-pro
+	claude-free --model                       # pick one interactively (search + arrows)
+	claude-free --model google/gemini-2.5-pro # or set it directly
 	claude-free --doctor
+
+`claude-free --model` with no argument opens a searchable picker: type to filter,
+arrow keys to move, Enter to select. It saves the choice and restarts the proxy,
+so the next run uses it. It is a small node script (`claude-free-pick.mjs`) using
+`@inquirer/search`, which reads keypresses directly and so works even when TERM
+is `unknown` (the norm in this phone's shell). When run non-interactively (piped,
+or no picker/node), `--model` prints the plain grouped listing instead.
 
 Anything in the environment wins over the config file, so
 `CLAUDE_FREE_MODEL=google/gemini-2.5-pro claude-free` is a one-off without editing

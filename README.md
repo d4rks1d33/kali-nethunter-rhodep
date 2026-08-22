@@ -19,11 +19,13 @@ list; everything here is a from-scratch community port.
 > SSH over USB and the memshare responder live in the rootfs and are installed
 > by the scripts under `userspace/`; see [`docs/BUILD.md`](docs/BUILD.md).
 
-> **The modem works.** It registers on LTE, mobile data reached ~24 Mbit/s,
-> calls connect and SMS arrives. The cause of two sessions of "the modem never
-> leaves offline" turned out to be files, not silicon: the modem fetches
-> run-time images from the AP over TFTP and every request was being answered
-> "file not found". Install with `userspace/modem/install.sh` and read
+> **The modem is functional but shipped off, so mobile data is not usable
+> day to day.** It registers on LTE, mobile data reached ~24 Mbit/s, calls
+> connect (there is no in-call *audio* yet, see below) and SMS arrives — the
+> radio itself is done. The cause of two sessions of "the modem never leaves
+> offline" turned out to be files, not silicon: the modem fetches run-time
+> images from the AP over TFTP and every request was being answered "file not
+> found". Install with `userspace/modem/install.sh` and read
 > [`userspace/modem/README.md`](userspace/modem/README.md).
 >
 > **But it is shipped switched off**, because of a separate bug that only
@@ -81,10 +83,14 @@ list; everything here is a from-scratch community port.
 - **Battery** (CellWise CW2217 gauge) + **charging** (SGM41542) with full thermal
   protection (kernel hot-side + userspace cold-side JEITA)
 - **USB host / OTG** with VBUS from the SGM41542 charger → **external USB WiFi
-  adapters** (tested: TP-Link TL-WN722N v2/v3 / RTL8188EUS → `wlan1` with
-  **monitor mode + packet injection**, which the internal WCN3990 cannot do).
-  Injection uses the `rtl8188eus` (`8188eu`) DKMS driver, not the generic
-  `rtl8xxxu` — see `packages/rhodep-rtl8188eus-fix`.
+  adapters** with **monitor mode + packet injection**, which the internal
+  WCN3990 cannot do. Two are supported:
+  - **TP-Link TL-WN722N v2/v3 (RTL8188EUS)** — single-band 2.4 GHz, via the
+    `rtl8188eus` (`8188eu`) DKMS driver, see `packages/rhodep-rtl8188eus-fix`.
+  - **TP-Link Archer T2U Nano (RTL8811AU)** — dual-band 2.4 + 5 GHz, via the
+    `rtw88` mac80211 driver (`rtw_8821au`), see `packages/rhodep-rtl8821au`.
+
+  Either shows up as `wlan1`; the internal `wlan0` is never touched.
 - **Docker**, and all NetHunter kernel features (WiFi USB injection drivers,
   BadUSB HID gadget, CAN, SDR, NFS)
 - **Phone apps** (dialer, SMS, Contacts, file manager) via `mobian-phosh-phone`
@@ -98,9 +104,11 @@ list; everything here is a from-scratch community port.
   switches back to the speaker, automatically.
 - **Microphone** (AMIC3), exposed as a PipeWire source, so recording works from
   any application, through the PulseAudio compatibility layer as well.
-- **Modem**: registers on LTE, mobile data measured at ~24 Mbit/s, voice calls
-  connect and SMS arrives. Shipped switched off, see the note at the top and
-  `userspace/modem/README.md`.
+- **Modem** (bring-up done, but **shipped off — not usable day to day**):
+  registers on LTE, mobile data measured at ~24 Mbit/s, voice calls connect
+  (no in-call audio yet) and SMS arrives. It is held out of the boot because
+  the SoC watchdog-resets a few minutes after attaching to LTE — see "What does
+  not work" and the note at the top, and `userspace/modem/README.md`.
 - **Bluetooth audio** (A2DP), with the controller's real address so pairings
   survive a reboot — `userspace/bluetooth/`.
 - **Sensors**: accelerometer, gyroscope, magnetometer, compass, proximity and
@@ -117,11 +125,10 @@ list; everything here is a from-scratch community port.
 | --- | --- |
 | **Mobile data, day to day** | It works, and then the SoC watchdog-resets 3 to 10 minutes after the modem attaches to LTE. `ipa.ko` is therefore held out of the boot. This is the one thing standing between this port and a finished phone. HANDOFF-SESSION4.md §5, sessions 14-15. |
 | **In-call audio** | Calls connect but there is no sound. Not a modem problem: Qualcomm voice audio goes modem ↔ ADSP ↔ codec and mainline has no q6voice (MVM/CVS/CVP) at all. A new driver, not a bug. |
-| ~~**Sensors**~~ | **Done** — accelerometer, gyroscope, magnetometer/compass, proximity and ambient light all work, and the screen auto-rotates. See `userspace/sensors/`. |
 | **Fingerprint** | Focaltech with a proprietary HAL (`fingerprint.focaltech.default.so`). No mainline driver. |
 | **NFC** | Samsung `sec-nfc` on i2c7. No mainline driver. |
 | **GPS** | **Starting a GNSS session watchdog-resets the SoC in under a second**, reproducibly, with `ipa.ko` not loaded. The location service (QMI 16) is there and answers every query — mode, NMEA types, XTRA servers, start, stop — but the moment a session runs with indications registered, the phone reboots. It was never an indoors problem. [`GNSS-SM6375.md`](docs/interconnect-sm6375-wip/GNSS-SM6375.md) |
-| **Camera** | **First piece working**: the FAN53870 camera PMIC driver is written and running — all 7 LDOs registered, voltages verified against the chip's own registers. The ISP pipeline (`csid530` + `tfe530` + `tpg101`) is the *same silicon* mainline already drives on qcm2290, the 52 `gcc_camss_*` clocks are in mainline, and the 50 MP main sensor (Samsung S5KJN1) has a mainline driver. Still needed: a `camss` entry for SM6375, the CSIPHY/CSID/TFE nodes and the sensor node. [`CAMERA-SENSORS-FEASIBILITY.md`](docs/CAMERA-SENSORS-FEASIBILITY.md) |
+| **Camera** | **Does not capture** — no photos, no video, no viewfinder. Only groundwork is done: the FAN53870 camera PMIC driver is written and running (all 7 LDOs registered, voltages verified against the chip's registers), and the rest is feasible because the ISP pipeline (`csid530` + `tfe530` + `tpg101`) is the *same silicon* mainline already drives on qcm2290, the 52 `gcc_camss_*` clocks are in mainline, and the 50 MP main sensor (Samsung S5KJN1) has a mainline driver. Still needed before any image: a `camss` entry for SM6375, the CSIPHY/CSID/TFE nodes and the sensor node. [`CAMERA-SENSORS-FEASIBILITY.md`](docs/CAMERA-SENSORS-FEASIBILITY.md) |
 | **Monitor mode on the internal WiFi** | Infeasible: the WCN3990 firmware reports `raw 0`. Use the external adapter, which does work. |
 
 ## Where to pick this up
@@ -313,8 +320,10 @@ the next boot if the phone was off (`Persistent=true`). Run it by hand with
   Note when testing: enabling a capture path emits a settling DC transient, a
   one-sided ramp, before going quiet, so peak and RMS look like signal on a dead
   input. Count sign changes instead.
-- Sensors (SSC/ADSP), NFC (Samsung `sec-nfc`, no mainline driver), fingerprint
-  (proprietary Focaltech HAL) and camera: not done, each for want of a driver.
+- **Sensors work** (SSC/ADSP over FastRPC) — see the "What works" list and
+  `userspace/sensors/`. Still not done, each for want of a driver: NFC (Samsung
+  `sec-nfc`), fingerprint (proprietary Focaltech HAL) and the camera (only the
+  PMIC is up; it does not capture yet — see below).
 - **GPS is worse than "not done": using it reboots the phone.** The location
   service answers every query, but a GNSS session with indications registered
   watchdog-resets the SoC in under a second, `ipa.ko` or no `ipa.ko`. Same
@@ -1561,10 +1570,12 @@ it is either not started or a research project.
      the port from burning power to hold the slave up.
 
    Call audio is item 3, and it is a missing driver rather than an audio bug.
-5. **The camera — started, and the first piece works.** The FAN53870 camera
-   PMIC driver (patches 0051/0052) is written, compiles clean, probes on the
-   device and registers all seven LDOs, with the programmed voltages verified
-   against the chip's registers. Note it is a FAN53870 at 0x35, *not* the
+5. **The camera — started, but it does not capture yet.** Only the power rails
+   are up: the FAN53870 camera PMIC driver (patches 0051/0052) is written,
+   compiles clean, probes on the device and registers all seven LDOs, with the
+   programmed voltages verified against the chip's registers. No image path
+   exists yet (no camss/CSID/TFE/sensor nodes), so there is no photo or preview.
+   Note it is a FAN53870 at 0x35, *not* the
    `semi,wl2868c` at 0x2f the vendor DT claims — checking the hardware before
    writing the driver is what caught that. Next: a `qcom,sm6375-camss` entry
    (qcm2290's is the template, same CSID and TFE revisions), the

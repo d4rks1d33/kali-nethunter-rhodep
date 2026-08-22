@@ -51,6 +51,28 @@ down by the driver's own install.
 No blacklist is needed: `rtl8xxxu` does not claim `2357:011e`, and the module
 autoloads on the USB modalias when the adapter enumerates.
 
+## LED off
+
+The Archer T2U Nano has a bright LED that is pointless on a phone and adds heat
+at the single USB-C port (already warm from OTG VBUS boost).
+`99-rhodep-rtw88-led-off.rules` switches it off (`trigger=none`,
+`brightness=0`) whenever the LED class device appears; it matches by the
+`rtw88-*` LED name so the USB-port-dependent instance name does not matter.
+
+## Held / protected
+
+rtw88 is a DKMS module, not an apt package, so there is nothing to `apt-mark
+hold`. Instead `install.sh` registers the built `rtw_8821au.ko` and the udev
+rule with `rhodep-protect-files` (immutable + snapshot + auto-restore), and the
+DKMS source lives in `/usr/src/rtw88-0.6` with the kernel headers held so it can
+always rebuild.
+
+Making the `.ko` immutable is deliberate friction: it stops an accidental delete
+but means DKMS cannot overwrite it on a **kernel change**. On a new kernel,
+`rhodep-protect-files release <ko>`, `dkms install rtw88/0.6 -k <NEW> --force`,
+then re-run `install.sh`. See "Updating the kernel" in the top-level README —
+you are reapplying every out-of-tree patch anyway.
+
 ## Load and test
 
 The adapter needs USB-host + OTG VBUS to enumerate (single USB-C port).

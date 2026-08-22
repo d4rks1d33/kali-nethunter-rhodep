@@ -651,7 +651,46 @@ It does a full kernel build once to produce a real `Module.symvers` (with
 mac80211/cfg80211 symbols), packages the headers + aarch64-native `scripts/`,
 and sets up `/lib/modules/<KVER>/build`. Validated by building an out-of-tree
 module with the exact installed vermagic. See `packages/rhodep-rtl8188eus-fix`
-for the full TP-Link RTL8188EUS monitor+injection workflow.
+(single-band RTL8188EUS) and `packages/rhodep-rtl8821au` (dual-band RTL8811AU
+via rtw88) for the full USB Wi-Fi monitor+injection workflows.
+
+## Updating the kernel: what you have to redo
+
+This is a hand-maintained mainline port, so a new kernel is not a drop-in — it
+is a deliberate re-do of everything that lives **outside** the kernel tree.
+Nothing here auto-migrates. After building and flashing a new kernel version:
+
+1. **Reapply the out-of-tree patches / config.** The 40 patches under
+   `kernel/patches/` and the Kali `.config` (`CONFIG_MODULE_ALLOW_BTF_MISMATCH`,
+   the NetHunter fragment, flat `Image`, no module compression) all have to be
+   carried forward and re-verified against the new base. See "The kernel".
+2. **Rebuild the headers `.deb`** for the new `<KVER>`
+   (`scripts/build-kernel-headers.sh`) and `apt-mark hold` it, or DKMS has
+   nothing to build against.
+3. **Rebuild every DKMS module** against the new kernel: `rtw88` (dual-band
+   Wi-Fi), `realtek-rtl8188eus` (single-band Wi-Fi), plus lime-forensics / xtrx
+   if present. DKMS does this automatically on install *unless* a file is held
+   immutable — see the next point.
+4. **Release, rebuild, re-register the protected driver files.** The dual-band
+   driver's built `.ko` is made immutable by `rhodep-protect-files` (so it can't
+   be deleted by accident), which also means DKMS cannot overwrite it on a new
+   kernel. For `rhodep-rtl8821au`:
+   ```sh
+   rhodep-protect-files release /lib/modules/<OLD_KVER>/updates/dkms/rtw_8821au.ko
+   dkms install rtw88/0.6 -k <NEW_KVER> --force
+   packages/rhodep-rtl8821au/install.sh      # re-registers the new .ko + LED rule
+   ```
+   The udev LED-off rule and the DKMS source in `/usr/src/rtw88-0.6` are not
+   kernel-specific and carry over as-is.
+5. **Reapply the userspace and audio blobs** if you reinstalled the rootfs (the
+   AW88261 ACF, the modules under `/lib/modules/<KVER>`, `userspace/*/install.sh`).
+6. **Re-run `userspace/apt/apply-holds.sh`** so the holds and the immutable
+   protection cover the freshly installed files.
+
+In short: a new kernel means redo the patches, rebuild the headers and DKMS
+modules, and re-register the immutable driver files. The `.ko` immutability is
+intentional friction — it stops an accidental `rm`, at the cost of one
+`release` + re-register per kernel bump, which you are doing anyway.
 
 ---
 

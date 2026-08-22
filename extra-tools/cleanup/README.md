@@ -17,7 +17,10 @@ Only things that regenerate on their own, so deleting them costs nothing:
 - **apt archives + stale lists** (`apt-get clean`, `autoclean`) — re-fetched on
   the next install.
 - **user caches** — GPU shader caches, thumbnails, browser caches and npm's
-  `_cacache`, under every home directory. All rebuilt on demand.
+  `_cacache`, under every home directory. All rebuilt on demand. One thing is
+  **kept**: `~/.cache/opencode` (the model catalog `models.json`). Deleting it
+  breaks `claude-free` until opencode is run again ("no model catalog … run
+  opencode once"), so it is on a small keep-list (`CACHE_KEEP` in the script).
 - **coredumps** (`/var/lib/systemd/coredump`) — crash dumps, never needed to run
   the phone.
 - **fwupd metadata cache** — re-downloaded when fwupd next refreshes.

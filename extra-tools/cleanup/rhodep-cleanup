@@ -55,8 +55,28 @@ fi
 
 # 3. user caches: GPU shader caches, thumbnails, browser caches. All rebuilt on
 #    demand. Home directories are discovered so a renamed/extra user is covered.
+#
+# KEEP list: some things under ~/.cache are cheap to lose in theory but
+# expensive in practice. ~/.cache/opencode/models.json is opencode's model
+# catalog; deleting it breaks `claude-free` until opencode is run again
+# ("no model catalog ... run opencode once"), so it is preserved. Add more
+# names here if another tool turns out to keep something load-bearing in cache.
+CACHE_KEEP="opencode"
 for home in /root /home/*; do
-	[ -d "$home/.cache" ] && rm_glob "$home/.cache"
+	if [ -d "$home/.cache" ]; then
+		for entry in "$home/.cache"/* "$home/.cache"/.[!.]*; do
+			[ -e "$entry" ] || continue
+			name=$(basename "$entry")
+			keep=0
+			for k in $CACHE_KEEP; do [ "$name" = "$k" ] && keep=1; done
+			[ "$keep" -eq 1 ] && continue
+			if [ "$DRY" -eq 1 ]; then
+				say "would remove $entry ($(size "$entry"))"
+			else
+				rm -rf "$entry" 2>/dev/null || true
+			fi
+		done
+	fi
 	[ -d "$home/.npm/_cacache" ] && rm_glob "$home/.npm/_cacache"
 	[ -d "$home/.thumbnails" ] && rm_glob "$home/.thumbnails"
 done

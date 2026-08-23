@@ -1,0 +1,22 @@
+#!/bin/bash
+# Foto del estado post-boot. Deja /var/log/rhodep-bootreport.log (append).
+L=/var/log/rhodep-bootreport.log
+exec >>"$L" 2>&1
+echo; echo "############ BOOT $(date -Is) ############"
+echo "kernel : $(uname -r)  #$(uname -v)"
+echo "reason : $(tr ' ' '\n' < /proc/cmdline | grep -E 'bootreason|powerup_reason' | tr '\n' ' ')"
+echo "-- modulo q6dsp instalado --"
+md5sum /lib/modules/$(uname -r)/kernel/sound/soc/qcom/qdsp6/snd-q6dsp-common.ko 2>/dev/null
+echo "-- modulos de audio/adsp cargados --"
+lsmod | grep -E "q6|apr|pdr_interface|fastrpc|snd_soc_lpass" | sort
+echo "-- oops/warn en este boot --"
+journalctl -k -b --no-pager 2>/dev/null | grep -cE "Internal error: Oops|WARNING:" | sed 's/^/  count=/'
+journalctl -k -b --no-pager 2>/dev/null | grep -E "Internal error: Oops|Unable to handle kernel" | head -5
+echo "-- ADSP --"
+journalctl -k -b --no-pager 2>/dev/null | grep -E "remote processor adsp|crash detected|fatal error received" | head -10
+echo "-- tarjeta de sonido --"
+[ -e /proc/asound/cards ] && cat /proc/asound/cards | head -4
+echo "-- display --"
+echo "  dpms=$(cat /sys/class/drm/card0/card0-DSI-1/dpms 2>/dev/null) enabled=$(cat /sys/class/drm/card0/card0-DSI-1/enabled 2>/dev/null) bl=$(cat /sys/class/backlight/5e94000.dsi.0/brightness 2>/dev/null)"
+echo "-- suspend --"
+echo "  sleep.target: $(systemctl is-enabled sleep.target 2>&1)"

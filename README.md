@@ -1910,6 +1910,58 @@ it is either not started or a research project.
    blaming the ADSP interrupt storm in item 8 for them was speculation built on
    top of the misreading.
 
+# Nice to have in the future
+
+Small, self-contained things that would make the phone nicer to live with. None
+of them blocks anything, and each is written down with the reason it is not
+already done.
+
+1. **An "automatic brightness" tile in the quick settings shade.** Plasma Mobile
+   6.7.2 ships 21 tiles — `airplanemode audio autohidepanels battery bluetooth
+   caffeine docked donotdisturb flashlight hotspot keyboardtoggle kscreenosd
+   mobiledata nightcolor powermenu record screenrotation screenshot settingsapp
+   waydroid wifi` — and none of them is auto-brightness, so the only way to
+   toggle it is Settings → Display Configuration.
+
+   The tile itself would be trivial: they live in
+   `/usr/share/plasma/quicksettings/` and the Night Color one is about twenty
+   lines of QML around a `QS.QuickSetting` with a `toggle()`. **The blocker is
+   that nothing outside KWin can flip the setting.** `kscreen-doctor` has no
+   option for it, KWin exposes no D-Bus method, and `libKF6Screen*` exports no
+   `autoBrightness` symbol — the KCM writes it through KScreen's internal API.
+   So a working tile needs a small C++/QML plugin against libkscreen, which is a
+   project rather than an afternoon.
+
+2. **Synchronise the panel's DCS brightness write to a frame boundary.** This
+   is the cause of the horizontal lines that flash for a second or two when the
+   brightness moves a long way at once, and it is in this port's own driver:
+   `nt37701_bl_update_status()` calls
+   `mipi_dsi_dcs_set_display_brightness_large()` on the same DSI link that
+   carries the frames, and in command mode that write can land mid-transfer.
+
+   `userspace/sensors/rhodep-autobrightness` worked around it by capping how far
+   one command may move the level, but KWin's native ambient brightness does not
+   and the artefact is visible there. Fixing it in the driver fixes it for every
+   consumer instead of one.
+
+3. **Give the FAN53870 node a `vin-supply`.** Linux currently believes PM6125's
+   S6 is off and unused (`s6 = disabled, users=0`) while it is physically
+   powering the camera PMIC's low group. Nothing breaks today, but a rail the
+   kernel thinks is free is a rail something can legitimately switch off later,
+   and that failure would arrive as a camera that used to work. One property.
+   See `docs/CAMERA-SENSORS-FEASIBILITY.md`.
+
+4. **Drop the device tree nodes for hardware this board does not have.** The
+   four VA-macro DMICs and AMIC1/AMIC2 return digital silence; only AMIC3 is
+   populated. Cosmetic, so it is worth batching with the next reflash.
+   `AUDIO-SM6375.md` §6.
+
+5. **Stop needing the codec kept awake for jack detection.** A udev rule pins
+   the soundwire TX slave on because MBHC detects nothing while it is
+   suspended. The real fix is for the codec driver to keep that block alive
+   across runtime suspend, which would also stop the port burning power to hold
+   the slave up.
+
 # License
 Kernel patches: GPL-2.0. Packaging/glue: MIT. Vendor firmware blobs: proprietary,
 not included (extract from your own device). See `LICENSE`.

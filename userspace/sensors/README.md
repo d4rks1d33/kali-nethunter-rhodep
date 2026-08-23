@@ -306,10 +306,32 @@ something to read it:
 	                             brightness from ambient: %.1f%%"
 	org_kde_powerdevil         0
 
+> **Superseded: KWin does this natively now, and this daemon is installed
+> disabled.** On Plasma 6.7 `libkwin.so` carries `ClaimLight`,
+> `AutomaticBrightness` and `LightLevel`, and the "Automatic brightness" switch
+> in the Settings app drives *that*. Verified working on the device. Running
+> this daemon at the same time means two things fighting over one control, so
+> `install.sh` no longer enables it. Enable it deliberately only if you also
+> turn KWin's switch off:
+>
+>	systemctl --user enable --now rhodep-autobrightness
+>
+> The rest of this section is kept because the reasoning still applies -- the
+> curve, the filter, the panel artefact -- and because the daemon is the
+> fallback if KWin's version is ever unusable here.
+>
+> **The one real difference, measured:** KWin's implementation shows the panel
+> artefact described below. Turning its switch on and covering the sensor
+> produces a few glitched horizontal lines for a couple of seconds. This daemon
+> avoids them by capping how far one command may move the level; KWin does not
+> appear to. That is a panel-driver problem rather than a KWin one, and the
+> proper fix is in `nt37701_bl_update_status()` -- see "nice to have" in the
+> root README.
+
 **PowerDevil, which drives brightness under Plasma Mobile, has no ambient light
-support at all**, so the "automatic brightness" switch in that shell is not
-reading any sensor. Turning it on and finding the screen at full brightness in a
-dark room is that, not a miscalibrated sensor.
+support at all** (0 references to SensorProxy in `org_kde_powerdevil`), so its
+own dimming is not reading any sensor. That is what this daemon was written
+for, before KWin gained the feature.
 
 ### It obeys that switch, and the reason it has to is a trap
 

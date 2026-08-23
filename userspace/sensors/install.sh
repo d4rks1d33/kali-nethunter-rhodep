@@ -111,19 +111,18 @@ if [ -d /run/systemd/system ]; then
 	echo "  check:  systemctl status rhodep-sscrpcd"
 	echo "          monitor-sensor"
 	echo
-	# Ambient brightness: only Plasma Mobile needs it. The unit itself refuses
-	# to start unless XDG_CURRENT_DESKTOP=KDE, so enabling it is safe either way.
-	if dpkg-query -W -f='${Status}' powerdevil 2>/dev/null | grep -q 'ok installed'; then
-		for u in $(getent passwd | awk -F: '$3>=1000 && $3<60000 {print $1}'); do
-			uid=$(id -u "$u" 2>/dev/null) || continue
-			[ -d "/run/user/$uid" ] || continue
-			sudo -u "$u" XDG_RUNTIME_DIR="/run/user/$uid" \
-				systemctl --user enable --now rhodep-autobrightness >/dev/null 2>&1 || true
-		done
-		echo "  enabled rhodep-autobrightness for the desktop user:"
-		echo "  Plasma Mobile's PowerDevil has no ambient-light support of its own."
-		echo
-	fi
+	# Ambient brightness is installed but NOT enabled. KWin 6.4 and later does
+	# this natively -- libkwin.so carries ClaimLight/AutomaticBrightness/
+	# LightLevel -- and it is the switch the Settings app actually drives, so
+	# running both means two things fighting over the same control. PowerDevil
+	# still has no ambient support (0 references), which is what the original
+	# note here was about and is no longer the whole picture.
+	# Enable it deliberately only if you want its step limiting; see the README.
+	echo "  rhodep-autobrightness installed but left disabled: KWin does ambient"
+	echo "  brightness natively now. Enable it only if you turn KWin's own"
+	echo "  'Automatic brightness' off:"
+	echo "      systemctl --user enable --now rhodep-autobrightness"
+	echo
 
 	echo "  NOTE: iio-sensor-proxy refcounts claims, and a client that claims"
 	echo "  the accelerometer before the SSC device is discovered leaves it"

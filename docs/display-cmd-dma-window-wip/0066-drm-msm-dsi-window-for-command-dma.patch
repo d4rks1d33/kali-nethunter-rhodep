@@ -1,0 +1,196 @@
+From: rhodep port <none@example.com>
+Date: Sun, 23 Aug 2026 14:05:00 -0300
+Subject: [PATCH] drm/msm/dsi: give the command DMA a window to start in
+
+dsi_ctrl_enable() sets DSI_TRIG_CTRL_BLOCK_DMA_WITHIN_FRAME on 6G v1.2
+and later, which asks the controller not to begin a command DMA in the
+middle of a frame. The window it may use instead is programmed in a
+separate register, and this driver never writes it, so it stays at
+reset. The controller is told what not to do and never told when it may.
+
+On a command mode panel the result is that a DCS write lands on top of
+the pixel stream. Every occurrence reads the same:
+
+  fifo=88881010 timeout=00000001 ack=00000000 status0=00000005
+  phy=00088888 clk=008037c3 mdp_busy=1 dma_busy=0
+
+DLN0..3_HS_FIFO_UNDERFLOW on all four lanes with the MDP mid-transfer.
+
+Measured on a Motorola rhodep, 1080x2400 command mode with DSC, over
+ninety seconds of use:
+
+  scrolling a long list, no DCS traffic ........  0 errors
+  brightness moving, screen otherwise still ...  0 errors
+  brightness moving while the screen repaints .. 20 errors, all of them
+                                                 within 300ms of a
+                                                 backlight write
+
+Neither half raises anything alone. Synthetic loads agree: a 60 Hz
+scroll raised nothing across sixteen runs, and driving the backlight at
+20, 60, 120 and 240 Hz against a still screen raised nothing either.
+
+Two things are needed, and a first attempt that did only half of the
+first changed nothing, 23 errors against 20:
+
+  - The window has to be programmed ahead of each transfer while the
+    display is up, not once when the host is enabled.
+
+  - DSI_TRIG_CTRL_DMA_TRIGGER is declared three bits wide here with an
+    enum that stops at 6, and dsi_ctrl_enable() writes TRIGGER_SW.
+    Downstream clears four bits and writes 0xc for a scheduled DMA, so
+    the field is wider than this map says and the value cannot be
+    spelled with the enum.
+
+The window is defined against the tear signal, so it only exists once
+frames are running. Arming a transfer before that leaves the controller
+waiting for something that never arrives: an attempt without any check
+timed out on the first initialisation command,
+
+  dsi_cmds2buf_tx: cmd dma tx failed, type=0x39, data0=0xf0, len=12,
+                   ret=-110
+  panel: sending dcs data f0 55 aa 52 08 00 failed: -110
+  panel: Failed to initialize panel: -110
+
+and the panel never lit. That the transfer blocked at all is what says
+the offset and the trigger value are right, since writing either to the
+wrong place changed nothing at all.
+
+Downstream gates this on its display being enabled, but the equivalent
+flag here is set too early: this panel sets prepare_prev_first, so
+msm_dsi_host_enable() runs before the panel is prepared and the
+initialisation commands still go out with the host marked enabled. Gate
+on the MDP having completed a frame instead, which is the point the tear
+signal is actually running. DSI_IRQ_CMD_MDP_DONE is already unmasked in
+command mode and the interrupt handler ignores it.
+
+The window opens TEARCHECK_WINDOW_SIZE lines past the active region and
+is as wide as the active region, which is what downstream computes for
+command mode. The schedule register is not in the map these headers come
+from either; the offset carries the same four byte shift as the rest.
+
+Signed-off-by: rhodep port <none@example.com>
+---
+--- a/drivers/gpu/drm/msm/dsi/dsi_host.c
++++ b/drivers/gpu/drm/msm/dsi/dsi_host.c
+@@ -185,6 +185,12 @@
+ 	bool registered;
+ 	bool power_on;
+ 	bool enabled;
++	/*
++	 * Set once the MDP has completed a frame, which is the point from
++	 * which the tear signal is running and a scheduled command DMA has a
++	 * window to land in.
++	 */
++	bool mdp_frame_seen;
+ 	int irq;
+ };
+ 
+@@ -805,6 +811,27 @@
+ 	dsi_write(msm_host, REG_DSI_CTRL, 0);
+ }
+ 
++/*
++ * Command mode DMA scheduling, as the vendor driver programs it on controller
++ * versions 2.2 through 2.5. This SoC is 2.4.
++ *
++ * REG_DSI_DMA_SCHEDULE_CTRL2 is not in the register map these headers are
++ * generated from. Downstream calls it DSI_DMA_SCHEDULE_CTRL2 at 0x104, four
++ * bytes above the mainline numbering, which is the shift the whole map
++ * carries -- DSI_TRIG_CTRL is 0x84 downstream and 0x80 here.
++ *
++ * DSI_TRIG_CTRL_DMA_TRIGGER is declared three bits wide above, with an enum
++ * that stops at 6. Downstream clears four bits and writes 0xc, so the field is
++ * wider than this map says and the value it wants cannot be spelled with the
++ * enum.
++ */
++#define REG_DSI_DMA_SCHEDULE_CTRL2	0x00000100
++#define DSI_TRIG_CTRL_DMA_TRIGGER_WIDE__MASK	0x0000000f
++#define DSI_TRIG_CTRL_DMA_TRIGGER_SCHEDULED	0x0000000c
++/* Lines past the active region before the window opens; TEARCHECK_WINDOW_SIZE
++ * downstream. */
++#define DSI_DMA_SCHEDULE_TE_MARGIN	5
++
+ static bool msm_dsi_host_version_geq(struct msm_dsi_host *msm_host,
+ 				    u32 major, u32 minor)
+ {
+@@ -1455,6 +1482,53 @@
+ 	return 0;
+ }
+ 
++/*
++ * BLOCK_DMA_WITHIN_FRAME, set in dsi_ctrl_enable(), asks the controller to
++ * hold a command DMA back rather than let it cut into a frame. The window it
++ * may use instead is programmed here. Without it the register sits at reset
++ * and the request has nowhere to land, so a DCS write goes out on top of the
++ * pixel stream and the lane FIFOs run dry.
++ *
++ * Downstream reprograms this ahead of every transfer while the display is up,
++ * rather than once when the host is enabled, and resets the trigger controls
++ * afterwards; follow that.
++ */
++static void dsi_cmd_dma_schedule(struct msm_dsi_host *msm_host)
++{
++	u32 vactive, data;
++
++	if (msm_host->mode_flags & MIPI_DSI_MODE_VIDEO)
++		return;
++	if (!msm_host->mode)
++		return;
++	/*
++	 * The window is defined against the tear signal, so it only exists
++	 * once frames are running. Arming a transfer before that leaves the
++	 * controller waiting for something that never arrives, and the panel's
++	 * own initialisation is the first thing to be lost.
++	 *
++	 * msm_host->enabled is not the right test: this panel sets
++	 * prepare_prev_first, so msm_dsi_host_enable() has already run by the
++	 * time the initialisation commands are sent. Wait for the MDP to have
++	 * finished a frame instead.
++	 */
++	if (!msm_host->mdp_frame_seen)
++		return;
++	if (!msm_dsi_host_version_geq(msm_host, MSM_DSI_VER_MAJOR_6G,
++				      MSM_DSI_6G_VER_MINOR_V2_2_1))
++		return;
++
++	vactive = msm_host->mode->vdisplay;
++
++	data = dsi_read(msm_host, REG_DSI_TRIG_CTRL);
++	data &= ~DSI_TRIG_CTRL_DMA_TRIGGER_WIDE__MASK;
++	data |= DSI_TRIG_CTRL_DMA_TRIGGER_SCHEDULED;
++	dsi_write(msm_host, REG_DSI_TRIG_CTRL, data);
++
++	dsi_write(msm_host, REG_DSI_DMA_SCHEDULE_CTRL2,
++		  (vactive + DSI_DMA_SCHEDULE_TE_MARGIN) | (vactive << 16));
++}
++
+ static int dsi_cmd_dma_tx(struct msm_dsi_host *msm_host, int len)
+ {
+ 	const struct msm_dsi_cfg_handler *cfg_hnd = msm_host->cfg_hnd;
+@@ -1470,6 +1544,8 @@
+ 
+ 	reinit_completion(&msm_host->dma_comp);
+ 
++	dsi_cmd_dma_schedule(msm_host);
++
+ 	dsi_wait4video_eng_busy(msm_host);
+ 
+ 	triggered = msm_dsi_manager_cmd_xfer_trigger(
+@@ -1719,6 +1795,9 @@
+ 	if (isr & DSI_IRQ_VIDEO_DONE)
+ 		complete(&msm_host->video_comp);
+ 
++	if (isr & DSI_IRQ_CMD_MDP_DONE)
++		msm_host->mdp_frame_seen = true;
++
+ 	if (isr & DSI_IRQ_CMD_DMA_DONE)
+ 		complete(&msm_host->dma_comp);
+ 
+@@ -2470,6 +2549,7 @@
+ 	struct msm_dsi_host *msm_host = to_msm_dsi_host(host);
+ 
+ 	msm_host->enabled = false;
++	msm_host->mdp_frame_seen = false;
+ 	dsi_op_mode_config(msm_host,
+ 		!!(msm_host->mode_flags & MIPI_DSI_MODE_VIDEO), false);
+ 

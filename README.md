@@ -286,6 +286,20 @@ the next boot if the phone was off (`Persistent=true`). Run it by hand with
 `sudo rhodep-cleanup`, or `--dry-run` to see what it would free.
 
 ## Known limitations
+- **Glitched lines while the brightness moves**: a band of corrupted lines
+  appears while the brightness ramps and the screen is repainting. Both halves
+  are needed — scrolling alone produces nothing, and moving the brightness with
+  a still screen produces nothing. Measured with
+  `scripts/rhodep-glitch-capture`: twenty errors in ninety seconds of use, all
+  of them within 300 ms of a backlight write.
+  The cause is characterised: a DCS write lands on top of the pixel stream and
+  all four DSI HS lanes underflow. `dsi_ctrl_enable()` already asks the
+  controller to hold command DMAs out of a frame
+  (`DSI_TRIG_CTRL_BLOCK_DMA_WITHIN_FRAME`) but never programs the window it may
+  use instead, because that register is not in the map mainline generates its
+  headers from. Four attempts at supplying it are written up in
+  `docs/display-cmd-dma-window-wip/`, including two that left a black screen and
+  one that made things worse; read that before trying a fifth.
 - **Mobile data**: the modem itself is finished. It registers on LTE, data was
   measured at ~24 Mbit/s, calls connect and SMS arrives. What blocks day-to-day
   use is a separate bug reachable only now that the radio works: with `ipa.ko`
@@ -425,6 +439,15 @@ scripts/
                            the accelerometer's axes were measured rather than
                            guessed)
   pdr-tool.py              list / query / restart protection domains (SERVREG)
+  rhodep-glitch-capture    watch DSI errors while a person drives the screen by
+                           hand, sampling the backlight at 20 Hz so each error can
+                           be attributed to a moment the brightness was moving or
+                           not. Needs patch 0064 applied for the register values
+  rhodep-repaint-bench     repeatable repaint load: scrolls a GPU texture at the
+                           refresh rate and reports frames, late frames and DSI
+                           errors, so two kernels can be compared. Measures jank
+                           well; does NOT reproduce the display glitch
+  rhodep-repaint-bench.py  the GTK4 load itself, driven by the above
 docs/                       extra notes
 ```
 
@@ -432,7 +455,7 @@ docs/                       extra notes
 
 # The kernel (shared with the pmOS port)
 
-## The 51 patches (`kernel/patches/`, applied in this order)
+## The 54 patches (`kernel/patches/`, applied in this order)
 
 The order below is the aport's `source=` order, which is what `patch` sees; it
 is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
@@ -490,7 +513,16 @@ is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
                                           the kernel with prepare_lock held
 0060 remoteproc-q6v5-ratelimit-handover  one message a minute, not 4 a second
 0061 cpuidle-psci-init-after-deferred-probe  cpuidle never initialised at all
+0062 panel-nt37701-brightness-in-lp-mode  brightness DCS in LP; no effect on the glitch
+0063 dsi-wait-mdp-idle-before-cmd-xfer   waits for MDP idle; the wait never fires
+0065 rhodep-display-interconnect-paths   mdss had no icc paths, so it never voted
 ```
+
+0062 and 0063 are kept but neither changes the glitched lines they were written
+for; they are inert rather than wrong, and `docs/display-cmd-dma-window-wip/`
+explains what the artefact actually is. 0064 is a diagnostic that prints the raw
+DSI error registers and lives in `kernel/patches/` without being in `source=`,
+the same way 0058 does — apply it by hand when measuring the display.
 
 **The numbering has gaps and they are not omissions.** 0029-0031 and 0037-0041
 were interconnect and audio diagnostics that were dropped, 0050 and 0058 were

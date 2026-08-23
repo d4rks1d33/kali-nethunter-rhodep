@@ -452,6 +452,52 @@ que la serie aplica **sin fuzz** sobre un árbol pristino (aplicar 0007+ sobre
 
 ## 9. Los bugs de mainline que este port destapó (contexto técnico)
 
+### 9.x El mdss nunca votaba ancho de banda (0065)
+
+`msm_mdss_parse_data_bus_icc_path()` pide `devm_of_icc_get(dev, "mdp0-mem")`. El
+nodo `mdss` del rhodep no declaraba `interconnects`, así que devolvía NULL,
+`num_mdp_paths` quedaba en 0 y **todos** los `icc_set_bw()` de `msm_mdss.c`
+iteraban sobre un array vacío. El driver de display corría sin pedir un solo
+byte de ancho de banda, y los valores que el catálogo del SM6375 calcula para
+eso (`min_dram_ib = 1600000`, `min_core_ib = 2500000`) se computaban y se
+tiraban.
+
+Arreglado con las mismas rutas que usa el sm6115, que es el hermano SMD-RPM más
+cercano: `mmrt_virt MASTER_MDP_PORT0 → bimc SLAVE_EBI` y
+`bimc MASTER_AMPSS_M0 → config_noc SLAVE_DISPLAY_CFG`.
+
+Obliga a compilar el proveedor dentro del kernel
+(`CONFIG_INTERCONNECT_QCOM_SM6375=y`, antes `=m`): al nombrar un interconnect,
+el probe del mdss difiere hasta que el proveedor exista, y el proveedor era un
+módulo en blacklist desde v96. De paso quedó verificado que ese blacklist ya no
+hace falta — cargado a mano bindea los seis buses sin colgarse, así que el fix
+0027 aguanta.
+
+Ojo con el efecto medido: el voteo pasa a estar vivo (`avg 903260, peak
+1600000`), pero el agregado sobre `ebi` ya figuraba en INT_MAX por decisión del
+RPM. O sea que el bug era real y el parche es correcto, pero **no está
+demostrado** que esto cambie el comportamiento observable.
+
+### 9.y El cpuidle profundo cuesta frames (0061)
+
+Medido con `scripts/rhodep-repaint-bench`, 3 corridas de 20 s por condición:
+
+| | frames tardíos | peor frame |
+| --- | ---: | ---: |
+| `cpu-sleep-0-1` activo | 5 | 33.6 ms |
+| desactivado | 0 | 16.9 ms |
+
+33 ms son dos períodos de refresco: un frame perdido entero. El estado declara
+1617 us de latencia de salida, casi el 10% del presupuesto a 60 Hz.
+
+0061 sigue en el build porque el otro lado de la balanza nunca se midió bien: el
+A/B/A de batería dio 67.5 / 71.1 / 72.1 mA con un ruido de ±30-43 mA que se
+traga cualquier diferencia. Antes de tocarlo hay que medir el consumo en serio.
+
+No tiene nada que ver con las líneas glitcheadas: 20 errores con el estado
+activo y 20 con él desactivado.
+
+
 Todos con el mismo patrón: código correcto bajo una suposición que este
 hardware no cumple. Upstream nunca habilitó estos periféricos en sm6375, así que
 nunca se ejecutaron.

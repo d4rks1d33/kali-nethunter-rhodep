@@ -76,6 +76,14 @@ list; everything here is a from-scratch community port.
 
 ## What works
 - Boots to **Phosh** (mobile GUI), user `kali` / password `1234`
+- **Plasma Mobile**, which is what this port is actually used on day to day —
+  it is more comfortable than Phosh here. Installed with `apt install
+  plasma-mobile` and picked from the GDM session menu; see "Extra sessions"
+  below, and `extra-tools/terminal-keyboard/` for the on-screen keyboard work
+  that makes its terminal usable.
+- **Suspend and resume**, including waking with the screen intact. This needed
+  kernel patch 0059 and a systemd sleep hook; before them the phone came back
+  from a long screen-off with a permanently black display. See "Suspend" below.
 - **Display** (Novatek NT37701 AMOLED 1080x2400, DSI + DSC command mode)
 - **Internal WiFi + Bluetooth** (WCN3990)
 - **Modem / ADSP / CDSP** remoteprocs
@@ -338,7 +346,7 @@ the next boot if the phone was off (`Persistent=true`). Run it by hand with
 # Repository layout
 ```
 kernel/
-  patches/            40 kernel patches (DTS + shared-driver fixes), applied in order
+  patches/            49 kernel patches (DTS + shared-driver fixes), applied in order
   config/
     config-motorola-rhodep.aarch64   full kernel .config (Kali variant = pmOS config + NetHunter + BTF fix)
     nethunter-config.fragment        the NetHunter symbols merged onto the pmOS config
@@ -424,7 +432,7 @@ docs/                       extra notes
 
 # The kernel (shared with the pmOS port)
 
-## The 40 patches (`kernel/patches/`, applied in this order)
+## The 49 patches (`kernel/patches/`, applied in this order)
 
 The order below is the aport's `source=` order, which is what `patch` sees; it
 is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
@@ -469,15 +477,35 @@ is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
 0046 interconnect-sm6375-do-not-program-qos  qnoc-sm6375: skip QoS programming
 0047 net-ipa-sm6375-keep-noc-paths-voted  IPA: hold the votes as a floor, not on demand
 0048 net-ipa-sm6375-own-sram-layout       IPA: its own SRAM layout, not qcm2290's
+0049 sm6375-fix-removed-region-size        DTS removed_mem is 0x7100000, not shima's
+0051 regulator-add-fan53870-camera-pmic    new driver: FAN53870 (7 LDOs), camera rails
+0052 rhodep-add-camera-pmic                DTS i2c7 + the FAN53870 node
+0053 media-camss-add-sm6375-support        camss: qcom,sm6375-camss (4 CSIPHY/3 CSID/3 TFE)
+0054 sm6375-add-camss-and-cci              DTS camss + both CCI masters
+0055 rhodep-add-rear-camera                DTS S5KJN1 node (does not capture yet)
+0056 media-s5kjn1-vendor-power-order       sensor: vendor rail order (vio,vana,vdig)
+0057 sm6375-add-fastrpc                    DTS fastrpc on the ADSP/CDSP glink edges
+0059 ASoC-qdsp6-set-drvdata-before-clocks  q6dsp clocks: publish drvdata before
+                                          registering, or an ADSP restart oopses
+                                          the kernel with prepare_lock held
 ```
 
 **The numbering has gaps and they are not omissions.** 0029-0031 and 0037-0041
-were interconnect and audio diagnostics that were dropped; the numbers were
-never reused, and the ones worth reading survive under
+were interconnect and audio diagnostics that were dropped, 0050 and 0058 were
+never used, and the ones worth reading survive under
 `docs/interconnect-sm6375-wip/` (see
 [`AUDIO-SM6375.md`](docs/interconnect-sm6375-wip/AUDIO-SM6375.md)). Every
-`.patch` file that *is* in `kernel/patches/` is in the build — all 40 of them,
-and both aports list the same 40.
+`.patch` file that *is* in `kernel/patches/` is in the build — all 49 of them,
+and both aports list the same 49.
+
+**0059 is a mainline bug, not a rhodep quirk**, and it is the one to send
+upstream first: `q6dsp_clock_dev_probe()` calls `dev_set_drvdata()` *after*
+registering its clocks, while the clk ops read that drvdata — so a clock
+prepared during its own registration dereferences NULL. It only fires after an
+ADSP restart, because that is what leaves prepared orphan clocks behind for the
+clk core to reparent. The oops happens inside `__clk_register()`, which holds
+the global clk `prepare_lock`, so the real damage is that every
+`clk_prepare_enable()` afterwards blocks forever. See "Suspend" below.
 
 **The tree as it stands builds the v97 device tree, not v94.**
 `kali-boot-v94-STABLE.img`, the image to flash, predates 0028 and 0045, so its
@@ -611,7 +639,7 @@ pmbootstrap build --force linux-motorola-rhodep
 ```
 Verify after build: no empty `.ko`, **no `.ko.zst`** in the apk.
 
-**The 40 patches under `kernel/patches/` and `postmarketos/linux-motorola-rhodep/`
+**The 49 patches under `kernel/patches/` and `postmarketos/linux-motorola-rhodep/`
 are identical**, same filenames and same `source=` order — the only difference
 between the two trees is the `.config`.
 `postmarketos/` is the build engine (pmbootstrap builds the kernel and produces
@@ -669,7 +697,7 @@ This is a hand-maintained mainline port, so a new kernel is not a drop-in — it
 is a deliberate re-do of everything that lives **outside** the kernel tree.
 Nothing here auto-migrates. After building and flashing a new kernel version:
 
-1. **Reapply the out-of-tree patches / config.** The 40 patches under
+1. **Reapply the out-of-tree patches / config.** The 49 patches under
    `kernel/patches/` and the Kali `.config` (`CONFIG_MODULE_ALLOW_BTF_MISMATCH`,
    the NetHunter fragment, flat `Image`, no module compression) all have to be
    carried forward and re-verified against the new base. See "The kernel".
@@ -1338,6 +1366,79 @@ afterwards: lomiri and xfce4 pull `lightdm` in as a Recommends and its postinst
 will happily make itself the display manager. The script's `keep_gdm` step
 (debconf preseed + masking) is what stops that.
 
+**Plasma Mobile is the session this port is actually driven on.** It is more
+comfortable than Phosh on this device, KWin runs accelerated on the Adreno 619,
+and rotation, the on-screen keyboard and PowerDevil all behave. Two things about
+it are documented elsewhere because they cost real time: its keyboard has no
+Esc/Tab/Ctrl/arrows until `extra-tools/terminal-keyboard/` adds them, and
+PowerDevil has no ambient-light support at all, so automatic brightness comes
+from `rhodep-autobrightness` in `userspace/sensors/`.
+
+## Suspend
+
+Suspend works, and the phone wakes with its display intact. Getting there needed
+two changes, and the failure it used to produce is worth describing because it
+looks like a display bug and is not one.
+
+**The symptom.** After a short screen-off everything was fine. After a long one
+the screen would not come back at all — permanently black, no backlight, no
+recovery except a forced reboot — while **SSH kept working normally**. That
+combination is the diagnostic: the machine was alive, the display was not.
+
+**The chain.** Three things stacked, and only the third was fatal:
+
+1. A long idle makes PowerDevil actually *suspend*, rather than just blanking
+   the screen. A short screen-off is only DPMS, which always worked.
+2. Suspend freezes userspace, including `rhodep-sscrpcd`, the FastRPC listener
+   the ADSP's sensors PD reads its registry through. The PD gets no answer and
+   asserts, which is fatal to the whole ADSP:
+
+	fatal error received: err_qdi.c:1045:EX:sensor_process:0x1:frpc_dsp
+
+3. The ADSP restarts and re-registers its LPASS clocks. The previous crash left
+   those clocks unregistered *while still prepared*, so the clk core reparents
+   the orphans onto the newly registered clock and prepares it — inside
+   `devm_clk_hw_register()`, before `q6dsp_clock_dev_probe()` has published its
+   drvdata. `clk_q6dsp_prepare()` reads that drvdata, gets NULL, and oopses on
+   `cc->desc` at offset 0x348.
+
+**Why the display specifically.** The oops happens inside `__clk_register()`,
+which runs holding the global clk `prepare_lock`. The worker dies with the mutex
+held and nothing ever releases it, so every `clk_prepare_enable()` in the system
+blocks forever. Turning the panel back on needs the DSI and DPU clocks, so it
+hangs; SSH does not ask for a clock at runtime, so it does not. Same shape as the
+`icc_lock` deadlock in `docs/interconnect-sm6375-wip/`.
+
+**The two fixes.**
+
+- **Kernel patch 0059** moves `dev_set_drvdata()` before the registration loop.
+  This is an upstream mainline bug, not a rhodep quirk. `snd_q6dsp_common` is a
+  module, so it needs **no reflash**: rebuild, copy the `.ko`, `depmod`, reboot.
+- **`userspace/sensors/systemd/rhodep-adsp-sleep-hook`** stops the listener
+  before the freeze and restarts it after, so the ADSP never asserts in the
+  first place. Stopping it while awake was measured and does not disturb the
+  ADSP.
+
+They are complementary and both are worth having: the hook prevents the crash,
+the kernel fix makes the crash survivable if it ever happens for another reason.
+
+Measured on the device, 120-second suspend/resume cycles:
+
+| | without 0059 | with 0059 | with 0059 + hook |
+| --- | --- | --- | --- |
+| kernel oops | yes | none | none |
+| display after resume | black forever | comes back | comes back |
+| SSH | dies with the network | survives | survives |
+| sound card | gone | gone | **present** |
+| sensors | dead | `iio-sensor-proxy` segfaults | **working** |
+
+Two notes for whoever measures this again. `deep` suspend aborts on this device
+and systemd falls back to `s2idle`, which does sleep properly (119.6 s measured
+against a 120 s RTC alarm) but saves less power — that is unfinished business.
+And **do not trust `dmesg`**: the ADSP emits `Handover signaled, but it already
+happened` about 4.2 times a second, for ever, which wraps the kernel ring buffer
+every six minutes or so. Use `journalctl -k -b`, which keeps it all.
+
 ### On-screen keyboard under Plasma Mobile
 
 Plasma Mobile uses `plasma-keyboard`, which is Qt Virtual Keyboard: its layouts
@@ -1608,6 +1709,28 @@ it is either not started or a research project.
    held out of the boot by `rhodep-icc-hold.conf` until it has been loaded by
    hand at least once on a device tree that has the provider nodes. See
    `docs/interconnect-sm6375-wip/PROGRESS.md` and §5 session 15.
+8. **The ADSP's handover interrupt storm**, which is cheap to fix and pays for
+   itself immediately in debuggability. From ~30 ms after the ADSP boots, on
+   every boot, forever:
+
+	qcom_q6v5_pas a400000.remoteproc: Handover signaled, but it already happened
+
+   at **4.2 times a second** — 26 355 of them in one 1h44 boot. `smp2p-adsp`
+   IRQ 16 and the `q6v5 ready` / `q6v5 handover` bits fire together each time,
+   so the ADSP is re-signalling both, without ever crashing (`q6v5 fatal` stays
+   at 0). Two costs: it wraps the kernel ring buffer every six minutes, so
+   `dmesg` is useless for anything older than that and every early-boot message
+   is gone; and the ADSP is a wakeup source, which is a plausible reason `deep`
+   suspend aborts and the port falls back to `s2idle`. Start at
+   `q6v5_handover_interrupt()` in `drivers/remoteproc/qcom_q6v5.c` and work out
+   why the remote keeps re-asserting; even a `dev_err_ratelimited()` would give
+   `dmesg` back while the real cause is found.
+9. **`deep` suspend aborts and falls back to `s2idle`.** Measured: `PM: suspend
+   entry (deep)` returns in ~0.6 s, right after the freeze completes, which is
+   what a pending wakeup at `pm_wakeup_pending()` looks like. `s2idle` then
+   sleeps correctly (119.6 s against a 120 s RTC alarm), so this is a power
+   figure rather than a correctness bug — but `deep` is where the real savings
+   are, and item 8 is the obvious suspect.
 
 # License
 Kernel patches: GPL-2.0. Packaging/glue: MIT. Vendor firmware blobs: proprietary,

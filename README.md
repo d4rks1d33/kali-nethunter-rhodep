@@ -1461,9 +1461,18 @@ Measured on the device, 120-second suspend/resume cycles:
 | sound card | gone | gone | **present** |
 | sensors | dead | `iio-sensor-proxy` segfaults | **working** |
 
-Two notes for whoever measures this again. `deep` suspend aborts on this device
-and systemd falls back to `s2idle`, which does sleep properly (119.6 s measured
-against a 120 s RTC alarm) but saves less power — that is unfinished business.
+Confirmed afterwards the way it actually gets used, rather than with a script:
+left idle until the screen went off, woken by the **power button** ~20 minutes
+later. It had slept 1229.7 s in `deep`, the `pm8941_pwrkey` interrupt is what
+woke it, and there was no ADSP crash, no oops, and the sound card, the sensors
+and the display were all still there.
+
+One note for whoever measures this again. `deep` suspend works, but it
+occasionally aborts in ~0.6 s and systemd falls back to `s2idle`, which also
+sleeps properly (119.6 s against a 120 s RTC alarm); and after a successful
+`deep` sleep systemd tries `s2idle` once more anyway and it returns in
+milliseconds. Both are noise in the log rather than failures — see the open-work
+list.
 And **do not trust `dmesg`**: the ADSP emits `Handover signaled, but it already
 happened` about 4.2 times a second, for ever, which wraps the kernel ring buffer
 every six minutes or so. Use `journalctl -k -b`, which keeps it all.
@@ -1754,12 +1763,19 @@ it is either not started or a research project.
    `q6v5_handover_interrupt()` in `drivers/remoteproc/qcom_q6v5.c` and work out
    why the remote keeps re-asserting; even a `dev_err_ratelimited()` would give
    `dmesg` back while the real cause is found.
-9. **`deep` suspend aborts and falls back to `s2idle`.** Measured: `PM: suspend
-   entry (deep)` returns in ~0.6 s, right after the freeze completes, which is
-   what a pending wakeup at `pm_wakeup_pending()` looks like. `s2idle` then
-   sleeps correctly (119.6 s against a 120 s RTC alarm), so this is a power
-   figure rather than a correctness bug — but `deep` is where the real savings
-   are, and item 8 is the obvious suspect.
+9. **`deep` suspend sometimes aborts, and systemd always tries `s2idle`
+   afterwards.** Both halves are cosmetic as far as anyone can tell, but they
+   are confusing to read in a log, so: `deep` **does** work on this device — a
+   real overnight-style idle slept 1229.7 s (20.5 min) in `deep` and woke on
+   the power button, with the display, the sound card and the sensors all
+   intact. Sometimes it instead returns in ~0.6 s right after the freeze,
+   which is what a pending wakeup at `pm_wakeup_pending()` looks like, and
+   systemd falls back to `freeze`, which also sleeps properly (119.6 s against
+   a 120 s RTC alarm). And even after a *successful* `deep` sleep, systemd
+   still tries `s2idle` once and it returns in ~3 ms, which means the write to
+   `/sys/power/state` reports an error even when the sleep worked. None of this
+   has been chased down; the ADSP interrupt storm in item 8 is the obvious
+   suspect for the spurious aborts, since the ADSP is a wakeup source.
 
 # License
 Kernel patches: GPL-2.0. Packaging/glue: MIT. Vendor firmware blobs: proprietary,

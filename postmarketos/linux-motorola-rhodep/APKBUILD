@@ -69,6 +69,14 @@ source="
 	0046-interconnect-sm6375-do-not-program-qos.patch
 	0047-net-ipa-sm6375-keep-noc-paths-voted.patch
 	0048-net-ipa-sm6375-own-sram-layout.patch
+	0049-arm64-dts-qcom-sm6375-fix-removed-region-size.patch
+	0051-regulator-add-fan53870-camera-pmic.patch
+	0052-arm64-dts-qcom-rhodep-add-camera-pmic.patch
+	0053-media-camss-add-sm6375-support.patch
+	0054-arm64-dts-qcom-sm6375-add-camss-and-cci.patch
+	0055-arm64-dts-qcom-rhodep-add-rear-camera.patch
+	0056-media-s5kjn1-vendor-power-order.patch
+	0057-arm64-dts-qcom-sm6375-add-fastrpc.patch
 "
 options="!check !strip !tracedeps pmb:cross-native"
 _carch="arm64"
@@ -162,4 +170,12 @@ ecd800a2f836ffa2d3e9037fdb511fd93b18593a0f7a44e1214a616706cd5a0b04774cdebdee5f41
 aa06b1c744c3c9857b7b1877f8b716f240dd1d3296faf0bb598b156a04dbcdef1016ba1db7f55f3c9e22ab3bcbba089ad897e641c18dfa108a0553908e72fd95  0046-interconnect-sm6375-do-not-program-qos.patch
 1d6537e32ee7be4ebf9f0a8b21910bc8867f3e10caa9e8791ad6e2d7dbb58568fdf23cba5d6ffab0dbfd395e51a0155e9844d892099472659efdb1f7a8d4a470  0047-net-ipa-sm6375-keep-noc-paths-voted.patch
 f964d0e558033e1ba0c22284c167911adaec0868b0cce0597a7359f70f3c1d21f46e7b0d3ff37039aa24b1679d45f4482d20853e9b85873fa984dfa074d63ee9  0048-net-ipa-sm6375-own-sram-layout.patch
+a6a221b1235d5d7f8ff26508d3cf4a59136b7a63e9b6ae08e09c8b57186d601e07671f311e2fea64f57d65da8b38d6581f1cff05caae1eb4085c515f07adb496  0049-arm64-dts-qcom-sm6375-fix-removed-region-size.patch
+1b66b8bc6268e6b1a2e0a69a7c48fbd6fbffa8b544960638374c57f7310219a21424a3c0e7c2ae5921a1f0ea5d365c85c960b021f502762613aa24800fad3676  0051-regulator-add-fan53870-camera-pmic.patch
+5af8675508d0fbcd7d9775089adc5492ba9e47c8e2db7395a37a1c3eb1bf974cd18365bb45443afd95b7394729c315f127d59aac1c5f3f772f6a9dcf2bf63f66  0052-arm64-dts-qcom-rhodep-add-camera-pmic.patch
+a7cf9af7c8890e7757587d7a711cfb70fa5c252689e2422631503dac19cd5dd48e7fda10cb09c68729e075dd973c833886566fa4f70af5d775d995e092ce67f9  0053-media-camss-add-sm6375-support.patch
+9c335d82cc03135cc4e1b795c6ba7bcc64aa1d67550f2fe291e60234f974a461fab60d44595c25a4c7294f09496819bbc5cda816c0ba98eaea4cd9e92f471d9f  0054-arm64-dts-qcom-sm6375-add-camss-and-cci.patch
+8b0764b33ad5dbda77512ac158309251d827894dc390a9a95aad80f4cd5cf2e4907049dd6a2e33ee1dd8e12f59ddaa8cdd1f87c39acb2ea5897c5894d77cbe0e  0055-arm64-dts-qcom-rhodep-add-rear-camera.patch
+34d4a971b8b79f899807e1437d43acd41372d622ec87d0df0e0a70522de6793ab0bc52fe756f0fa9e9855530c9faa95295fb9d9ba62555418f476f8e12322937  0056-media-s5kjn1-vendor-power-order.patch
+fece4ba6e1c8f8a5438b0d515e6152d7763942d4f183f93d09106f4c098dfc67f88c0ffdaaf6a8f7dd834b8725c13f81e4ad8299454b3ca3436031623ccfdf58  0057-arm64-dts-qcom-sm6375-add-fastrpc.patch
 "

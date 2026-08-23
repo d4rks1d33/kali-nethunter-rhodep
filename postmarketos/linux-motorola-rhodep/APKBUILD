@@ -77,6 +77,7 @@ source="
 	0055-arm64-dts-qcom-rhodep-add-rear-camera.patch
 	0056-media-s5kjn1-vendor-power-order.patch
 	0057-arm64-dts-qcom-sm6375-add-fastrpc.patch
+	0059-ASoC-qdsp6-set-drvdata-before-registering-clocks.patch
 "
 options="!check !strip !tracedeps pmb:cross-native"
 _carch="arm64"
@@ -178,4 +179,5 @@ a7cf9af7c8890e7757587d7a711cfb70fa5c252689e2422631503dac19cd5dd48e7fda10cb09c687
 8b0764b33ad5dbda77512ac158309251d827894dc390a9a95aad80f4cd5cf2e4907049dd6a2e33ee1dd8e12f59ddaa8cdd1f87c39acb2ea5897c5894d77cbe0e  0055-arm64-dts-qcom-rhodep-add-rear-camera.patch
 34d4a971b8b79f899807e1437d43acd41372d622ec87d0df0e0a70522de6793ab0bc52fe756f0fa9e9855530c9faa95295fb9d9ba62555418f476f8e12322937  0056-media-s5kjn1-vendor-power-order.patch
 fece4ba6e1c8f8a5438b0d515e6152d7763942d4f183f93d09106f4c098dfc67f88c0ffdaaf6a8f7dd834b8725c13f81e4ad8299454b3ca3436031623ccfdf58  0057-arm64-dts-qcom-sm6375-add-fastrpc.patch
+dbf4b52eca0c7be4772b19c14ea71ba964fd033592e0bf45d2d016f2706b7cef44fb8730299749e88947100dd8c15d17dcf7e312b524679955f04c718b9c6721  0059-ASoC-qdsp6-set-drvdata-before-registering-clocks.patch
 "

@@ -346,7 +346,7 @@ the next boot if the phone was off (`Persistent=true`). Run it by hand with
 # Repository layout
 ```
 kernel/
-  patches/            50 kernel patches (DTS + shared-driver fixes), applied in order
+  patches/            51 kernel patches (DTS + shared-driver fixes), applied in order
   config/
     config-motorola-rhodep.aarch64   full kernel .config (Kali variant = pmOS config + NetHunter + BTF fix)
     nethunter-config.fragment        the NetHunter symbols merged onto the pmOS config
@@ -432,7 +432,7 @@ docs/                       extra notes
 
 # The kernel (shared with the pmOS port)
 
-## The 50 patches (`kernel/patches/`, applied in this order)
+## The 51 patches (`kernel/patches/`, applied in this order)
 
 The order below is the aport's `source=` order, which is what `patch` sees; it
 is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
@@ -489,6 +489,7 @@ is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
                                           registering, or an ADSP restart oopses
                                           the kernel with prepare_lock held
 0060 remoteproc-q6v5-ratelimit-handover  one message a minute, not 4 a second
+0061 cpuidle-psci-init-after-deferred-probe  cpuidle never initialised at all
 ```
 
 **The numbering has gaps and they are not omissions.** 0029-0031 and 0037-0041
@@ -496,8 +497,8 @@ were interconnect and audio diagnostics that were dropped, 0050 and 0058 were
 never used, and the ones worth reading survive under
 `docs/interconnect-sm6375-wip/` (see
 [`AUDIO-SM6375.md`](docs/interconnect-sm6375-wip/AUDIO-SM6375.md)). Every
-`.patch` file that *is* in `kernel/patches/` is in the build — all 50 of them,
-and both aports list the same 50.
+`.patch` file that *is* in `kernel/patches/` is in the build — all 51 of them,
+and both aports list the same 51.
 
 **0059 is a mainline bug, not a rhodep quirk**, and it is the one to send
 upstream first: `q6dsp_clock_dev_probe()` calls `dev_set_drvdata()` *after*
@@ -640,7 +641,7 @@ pmbootstrap build --force linux-motorola-rhodep
 ```
 Verify after build: no empty `.ko`, **no `.ko.zst`** in the apk.
 
-**The 50 patches under `kernel/patches/` and `postmarketos/linux-motorola-rhodep/`
+**The 51 patches under `kernel/patches/` and `postmarketos/linux-motorola-rhodep/`
 are identical**, same filenames and same `source=` order — the only difference
 between the two trees is the `.config`.
 `postmarketos/` is the build engine (pmbootstrap builds the kernel and produces
@@ -698,7 +699,7 @@ This is a hand-maintained mainline port, so a new kernel is not a drop-in — it
 is a deliberate re-do of everything that lives **outside** the kernel tree.
 Nothing here auto-migrates. After building and flashing a new kernel version:
 
-1. **Reapply the out-of-tree patches / config.** The 50 patches under
+1. **Reapply the out-of-tree patches / config.** The 51 patches under
    `kernel/patches/` and the Kali `.config` (`CONFIG_MODULE_ALLOW_BTF_MISMATCH`,
    the NetHunter fragment, flat `Image`, no module compression) all have to be
    carried forward and re-verified against the new base. See "The kernel".
@@ -1847,7 +1848,9 @@ it is either not started or a research project.
    which is still unexplained. It costs a wakeup-capable interrupt 4 times a
    second on a device that is trying to idle, so it is worth understanding even
    though it no longer hurts debugging.
-9. **cpuidle never initialises, so the cores only ever WFI.** Not a missing
+9. ~~**cpuidle never initialises, so the cores only ever WFI.**~~ **Fixed by
+   patch 0061.** Kept here because the diagnosis is the useful part. It was not
+   a missing
    device tree and not a missing config -- `sm6375.dtsi` has the `idle-states`,
    the `psci` node carries all nine CPU power domains, and
    `ARM_PSCI_CPUIDLE`, `ARM_PSCI_CPUIDLE_DOMAIN` and `QCOM_MPM` are all `=y`.
@@ -1865,10 +1868,35 @@ it is either not started or a research project.
    device with `faux_device_create()` -- **which has no deferred-probe
    support**, so nothing retries. Upstream bug, not a rhodep one. The fix is in
    generic `drivers/cpuidle/cpuidle-psci.c` and `ARM_PSCI_CPUIDLE` is built in,
-   so it needs a new boot image rather than a module swap. Worth doing: with no
-   cpuidle the cores never power-collapse, which costs battery continuously.
+   so it needed a new boot image rather than a module swap.
+
+   **Measured after flashing:** `current_driver` went from `none` to
+   `psci_idle`, `cpu0` reports `WFI` / `cpu-sleep-0-0` / `cpu-sleep-0-1` (the
+   big cores get `cpu-sleep-1-*`), the per-CPU domains show `off-0` in
+   `pm_genpd_summary`, and in a 10-second window `cpu0` entered the deepest
+   state 430 times for 9734 ms — about 97% of wall time in power collapse,
+   against 0% before. No oops, no regressions.
+
+   **What could not be shown is a battery saving.** An A/B/A on the same boot,
+   screen off, toggling `state*/disable`: 67.5 mA with the deep states, 71.1 mA
+   with only WFI, 72.1 mA with the deep states again. The difference is smaller
+   than the drift between the two control runs and far smaller than the ±30-43
+   mA spread, so it measures nothing. The likely reason is item 10.
    `docs/interconnect-sm6375-wip/GNSS-SM6375.md` has the full analysis.
-10. **After a successful `deep` sleep, systemd tries `s2idle` once more.** It
+10. **The system takes more than 100 interrupts a second while idle**, which is
+    both a power cost and the reason the cpuidle A/B above could not measure
+    anything. Sampled with the screen off and nothing running:
+
+	IPI1            78.9/s      arch_timer      33.7/s
+	arch_mem_timer  58.7/s      ipcc_0          16.1/s
+	glink-smem      15.9/s      smp2p-adsp       4.2/s
+
+    `smp2p-adsp` is item 8. `ipcc_0` and `glink-smem` at ~16/s each are the
+    unexamined ones. Some of the timer traffic is expected -- a CPU in a deep
+    state stops its local timer and the broadcast timer takes over -- so this
+    needs separating into "consequence of idling" and "reason we cannot idle"
+    before anything is concluded.
+11. **After a successful `deep` sleep, systemd tries `s2idle` once more.** It
    returns in about 3 ms, so the write to `/sys/power/state` is reporting an
    error even when the sleep worked — systemd only moves to the next state in
    `SuspendState=` when the previous one fails. Purely cosmetic, but it makes a

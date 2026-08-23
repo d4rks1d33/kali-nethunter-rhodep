@@ -346,7 +346,7 @@ the next boot if the phone was off (`Persistent=true`). Run it by hand with
 # Repository layout
 ```
 kernel/
-  patches/            49 kernel patches (DTS + shared-driver fixes), applied in order
+  patches/            50 kernel patches (DTS + shared-driver fixes), applied in order
   config/
     config-motorola-rhodep.aarch64   full kernel .config (Kali variant = pmOS config + NetHunter + BTF fix)
     nethunter-config.fragment        the NetHunter symbols merged onto the pmOS config
@@ -432,7 +432,7 @@ docs/                       extra notes
 
 # The kernel (shared with the pmOS port)
 
-## The 49 patches (`kernel/patches/`, applied in this order)
+## The 50 patches (`kernel/patches/`, applied in this order)
 
 The order below is the aport's `source=` order, which is what `patch` sees; it
 is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
@@ -488,6 +488,7 @@ is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
 0059 ASoC-qdsp6-set-drvdata-before-clocks  q6dsp clocks: publish drvdata before
                                           registering, or an ADSP restart oopses
                                           the kernel with prepare_lock held
+0060 remoteproc-q6v5-ratelimit-handover  one message a minute, not 4 a second
 ```
 
 **The numbering has gaps and they are not omissions.** 0029-0031 and 0037-0041
@@ -495,8 +496,8 @@ were interconnect and audio diagnostics that were dropped, 0050 and 0058 were
 never used, and the ones worth reading survive under
 `docs/interconnect-sm6375-wip/` (see
 [`AUDIO-SM6375.md`](docs/interconnect-sm6375-wip/AUDIO-SM6375.md)). Every
-`.patch` file that *is* in `kernel/patches/` is in the build — all 49 of them,
-and both aports list the same 49.
+`.patch` file that *is* in `kernel/patches/` is in the build — all 50 of them,
+and both aports list the same 50.
 
 **0059 is a mainline bug, not a rhodep quirk**, and it is the one to send
 upstream first: `q6dsp_clock_dev_probe()` calls `dev_set_drvdata()` *after*
@@ -639,7 +640,7 @@ pmbootstrap build --force linux-motorola-rhodep
 ```
 Verify after build: no empty `.ko`, **no `.ko.zst`** in the apk.
 
-**The 49 patches under `kernel/patches/` and `postmarketos/linux-motorola-rhodep/`
+**The 50 patches under `kernel/patches/` and `postmarketos/linux-motorola-rhodep/`
 are identical**, same filenames and same `source=` order — the only difference
 between the two trees is the `.config`.
 `postmarketos/` is the build engine (pmbootstrap builds the kernel and produces
@@ -697,7 +698,7 @@ This is a hand-maintained mainline port, so a new kernel is not a drop-in — it
 is a deliberate re-do of everything that lives **outside** the kernel tree.
 Nothing here auto-migrates. After building and flashing a new kernel version:
 
-1. **Reapply the out-of-tree patches / config.** The 49 patches under
+1. **Reapply the out-of-tree patches / config.** The 50 patches under
    `kernel/patches/` and the Kali `.config` (`CONFIG_MODULE_ALLOW_BTF_MISMATCH`,
    the NetHunter fragment, flat `Image`, no module compression) all have to be
    carried forward and re-verified against the new base. See "The kernel".
@@ -1820,22 +1821,20 @@ it is either not started or a research project.
    held out of the boot by `rhodep-icc-hold.conf` until it has been loaded by
    hand at least once on a device tree that has the provider nodes. See
    `docs/interconnect-sm6375-wip/PROGRESS.md` and §5 session 15.
-8. **The ADSP's handover interrupt storm**, which is cheap to fix and pays for
-   itself immediately in debuggability. From ~30 ms after the ADSP boots, on
-   every boot, forever:
+8. **Why the ADSP re-signals handover 4.2 times a second.** From ~30 ms after
+   it boots, on every boot, for as long as it is up, the ADSP re-asserts its
+   handover smp2p bit — `smp2p-adsp` IRQ 16 and the `q6v5 ready` / `q6v5
+   handover` bits fire together each time, without it ever crashing (`q6v5
+   fatal` stays at 0). The interrupt is `IRQF_TRIGGER_RISING`, so each one is a
+   genuine 0->1 edge: smp2p and the handover logic are both behaving, and the
+   remote really is doing this.
 
-	qcom_q6v5_pas a400000.remoteproc: Handover signaled, but it already happened
-
-   at **4.2 times a second** — 26 355 of them in one 1h44 boot. `smp2p-adsp`
-   IRQ 16 and the `q6v5 ready` / `q6v5 handover` bits fire together each time,
-   so the ADSP is re-signalling both, without ever crashing (`q6v5 fatal` stays
-   at 0). Two costs: it wraps the kernel ring buffer every six minutes, so
-   `dmesg` is useless for anything older than that and every early-boot message
-   is gone; and the ADSP is a wakeup source, which is a plausible reason `deep`
-   suspend aborts and the port falls back to `s2idle`. Start at
-   `q6v5_handover_interrupt()` in `drivers/remoteproc/qcom_q6v5.c` and work out
-   why the remote keeps re-asserting; even a `dev_err_ratelimited()` would give
-   `dmesg` back while the real cause is found.
+   **The log damage is fixed** by patch 0060, which rate limits the message to
+   one a minute per remote; `dmesg` reaches `[0.000000]` again instead of
+   holding about six minutes. What is *not* fixed is the behaviour itself,
+   which is still unexplained. It costs a wakeup-capable interrupt 4 times a
+   second on a device that is trying to idle, so it is worth understanding even
+   though it no longer hurts debugging.
 9. **After a successful `deep` sleep, systemd tries `s2idle` once more.** It
    returns in about 3 ms, so the write to `/sys/power/state` is reporting an
    error even when the sleep worked — systemd only moves to the next state in

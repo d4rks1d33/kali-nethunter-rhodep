@@ -1119,27 +1119,51 @@ Nothing reinstalls those. One `rm -rf` and they are gone with no trace.
 `rhodep-protect-files` gives them the same two layers: `chattr +i` on the live
 file, and a canonical copy under `/usr/local/share/rhodep/files` that
 `rhodep-holds-enforce` restores from if the live one goes missing **or is
-modified**. It is up to **26 components** — `apt`, `apt-conf`, `modem`,
-`modem-conf`, `audio`, `audio-conf`, `bluetooth`, `bluetooth-conf`,
-`usb-net-conf`, the sensor ones (`sensors`, `sensors-lib`, `sensors-conf`,
-`adsp-suspend`), `gpu-opencl`, `rtl8821au`, `cleanup` and the `extra-tools`
-ones (`keyboard`, `keyboard-conf`, `keyboard-layouts`, `clipboard`,
-`claude-free`, `claude-free-conf`, `claude-local`). The list grows as installers
-are added, so read it from the device rather than from here:
+modified**. It is up to **32 components**; the list grows as installers are
+added, so read it from the device rather than from here:
 
 	rhodep-protect-files status
 
-**Every component here protects a file that belongs to no package**, which is
-why nothing would ever put it back, and that boundary is worth keeping sharp. A
-file that *is* package-owned belongs to the other mechanism — the hold plus
-dpkg's `Protected` flag — and making it immutable as well only means the next
-legitimate package operation fails. The one time this port crossed that line,
-for the patched `snd-q6dsp-common.ko`, the right answer turned out to be fixing
-the package instead; see "Updating the kernel".
+### Which mechanism a file belongs to
 
-**What protect-files does not cover is a unit's enabled state.** `chattr +i` on
-a `.service` stops it being deleted or edited, but `systemctl disable` still
-works. Re-running the relevant `install.sh` re-enables it.
+The useful question is **not** "does a package own this file" but **"if it is
+deleted, can anything put it back"**. There are three cases and they are easy
+to tell apart:
+
+| the file comes from | what protects it | why |
+| --- | --- | --- |
+| a distro package with a repo (`rmtfs`, `bluez`, `pipewire`) | the apt hold + dpkg `Protected` | `apt-get install --reinstall` can always re-fetch it. `chattr +i` would add nothing and would break the next legitimate upgrade |
+| **a locally built `.deb` with no repo** (`rhodep-battery-jeita`, `rhodep-modem-support`, `rhodep-usb-otg`) | **both** layers | dpkg's `Protected` stops the *package* being removed, but nothing stops `rm` of a *file*, and there is no archive to restore it from |
+| no package at all (everything under `/usr/local`, the units in `/etc`) | `rhodep-protect-files` | dpkg has never heard of it; a single `rm` and it is gone with no trace |
+
+The middle row is the one that is easy to get wrong, and this port got it wrong
+first. Those packages exist only in `/var/lib/dpkg/status` — there is no repo
+and no cached `.deb` — so apt says so outright:
+
+	# apt-get install --reinstall rhodep-battery-jeita
+	Reinstallation of rhodep-battery-jeita is not possible, it cannot be downloaded.
+
+A hold is no help against `rm`, and `--reinstall` is not available, so a deleted
+`/usr/local/sbin/rhodep-battery-jeita` would take the cold-side battery
+protection away permanently and silently. They are registered with
+`rhodep-protect-files` as well, `battery-jeita`, `modem-support` and `usb-otg`
+(plus their `-conf` halves). **The cost is that `dpkg -i` of a newer version of
+one of those packages will fail on the immutable files**, so `release` them
+first — the same friction as the DKMS drivers, for the same reason.
+
+`snd-q6dsp-common.ko` looked like the middle row and was not: `linux-image` is
+locally built too, but the fix could simply be put *into* the package, which is
+strictly better than guarding a wrong file. See "Updating the kernel".
+
+Two things `rhodep-protect-files` deliberately does **not** cover:
+
+- **A unit's enabled state.** `chattr +i` on a `.service` stops it being
+  deleted or edited, but `systemctl disable` still works. Re-run the relevant
+  `install.sh` to re-enable it.
+- **Symlinks.** The store keeps a *content* snapshot, so restoring a symlink
+  from one would replace it with a copy of its target. That is why the
+  `multi-user.target.wants/*` links and the FastRPC soname links are left out;
+  `rhodep-ssc-links` recreates the latter on every start.
 
 Each installer calls `release` on its files before overwriting and `register`
 after, so re-running any of them still works — verified by running them a second

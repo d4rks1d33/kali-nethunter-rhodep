@@ -311,6 +311,36 @@ support at all**, so the "automatic brightness" switch in that shell is not
 reading any sensor. Turning it on and finding the screen at full brightness in a
 dark room is that, not a miscalibrated sensor.
 
+### It obeys that switch, and the reason it has to is a trap
+
+Because PowerDevil's ambient support does not exist, the switch in Settings is
+wired to nothing — while this daemon, which *is* moving the brightness, used to
+ignore it completely. The result was the worst kind of bug: a user turns
+automatic brightness **off**, sets the brightness to maximum by hand, and about
+45 seconds later the screen dims on its own, with the setting still showing
+"off" and nothing in any UI to explain it. The 45 seconds are this daemon's own
+`--yield-seconds` back-off expiring:
+
+	brightness set elsewhere (9528, we asked 2675), backing off 45s
+	settled at 28% (82.1 lux)
+
+The switch is real, though: KWin keeps it per output in
+`~/.config/kwinoutputconfig.json` as `automaticBrightness`, and
+`kscreen-doctor -o` reports it. So `evaluate()` reads it and stays completely
+out of the way while it is off, re-checking on the file's mtime so that
+toggling it in Settings takes effect without restarting anything. On the way
+back it forgets its previous target, so it resumes from wherever the user left
+the brightness rather than snapping to a stale one.
+
+`--ignore-desktop-setting` restores the old behaviour if you want it. If the
+file is missing or unparseable the daemon carries on as before, since being
+unable to read the switch is not the same as being told to stop.
+
+Note when testing this: **KWin rewrites that file from its own in-memory state**,
+so editing it by hand does not stick for long. The daemon does see the edit --
+that part is worth knowing, because it means the toggle in Settings works
+immediately -- but the authoritative copy is KWin's.
+
 `rhodep-autobrightness` fills the gap. Three things about it are not obvious and
 each came out of getting it wrong first.
 

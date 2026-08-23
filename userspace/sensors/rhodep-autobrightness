@@ -42,6 +42,7 @@ lines across the screen while the level is moving.
 
 import argparse
 import glob
+import json
 import math
 import os
 import sys
@@ -66,6 +67,57 @@ PD_IFACE = "org.kde.Solid.PowerManagement.Actions.BrightnessControl"
 # deliberately low: the smoothness comes from PowerDevil's own animation, not
 # from us sending many small steps.
 DEFAULT_INTERVAL = 0.25
+
+# Where Plasma keeps the per-output "Adjust automatically" switch. PowerDevil
+# has no ambient-light support at all on this release, so that switch in the
+# Settings app is wired to a feature that does not exist -- which means this
+# daemon, the thing that *is* moving the brightness, was overriding a user who
+# had explicitly asked for manual control and had every reason to think they had
+# got it. Reading the switch is what makes the toggle honest.
+KWIN_OUTPUT_CONFIG = "~/.config/kwinoutputconfig.json"
+
+
+class DesktopAutoSetting:
+    """Is 'automatic brightness' switched on for the internal panel?
+
+    Returns True, False, or None when it cannot be determined. Cached on the
+    file's mtime, because evaluate() runs several times a second and this must
+    not turn into a re-parse per tick.
+    """
+
+    def __init__(self, path=KWIN_OUTPUT_CONFIG):
+        self.path = os.path.expanduser(path)
+        self._mtime = None
+        self._value = None
+
+    def get(self):
+        try:
+            mtime = os.stat(self.path).st_mtime
+        except OSError:
+            return None                     # no file: cannot tell
+        if mtime != self._mtime:
+            self._mtime = mtime
+            self._value = self._parse()
+        return self._value
+
+    def _parse(self):
+        try:
+            with open(self.path) as fh:
+                doc = json.load(fh)
+        except Exception:
+            return None
+        # The file is a list of setups; each has a "data" list of outputs. Any
+        # entry for the internal DSI panel will do, and they agree in practice.
+        for setup in doc if isinstance(doc, list) else []:
+            for out in setup.get("data", []) if isinstance(setup, dict) else []:
+                if not isinstance(out, dict):
+                    continue
+                if "automaticBrightness" not in out:
+                    continue
+                name = str(out.get("connectorName", ""))
+                if name.startswith("DSI") or len(setup.get("data", [])) == 1:
+                    return bool(out["automaticBrightness"])
+        return None
 
 
 class PowerDevilBackend:
@@ -150,6 +202,8 @@ class AutoBrightness:
         self.prev_obs = None        # for spotting a settled external change
         self.ext_hits = 0
         self.moving = False
+        self.desktop = DesktopAutoSetting()
+        self.idle_logged = False
         self.t_last = self.now()
         print("backend %s, range %d..%d" % (backend.name, backend.min, backend.max),
               flush=True)
@@ -178,6 +232,24 @@ class AutoBrightness:
 
     def evaluate(self):
         """Advance the filter and, if the target has really moved, act once."""
+        # The desktop's own switch wins. Checked here rather than at startup so
+        # that toggling it in Settings takes effect without restarting anything.
+        if not self.a.ignore_desktop_setting and self.desktop.get() is False:
+            if not self.idle_logged:
+                print("automatic brightness is off in the desktop settings, "
+                      "leaving the brightness alone", flush=True)
+                self.idle_logged = True
+            # Forget where we were: when it is switched back on we should start
+            # from whatever the user left, not from a stale target.
+            self.cur = None
+            self.last_raw = None
+            self.prev_obs = None
+            self.moving = False
+            return True
+        if self.idle_logged:
+            print("automatic brightness switched back on, resuming", flush=True)
+            self.idle_logged = False
+
         if self.raw_lux is None:
             return True
         t = self.now()
@@ -332,6 +404,9 @@ def main():
     p.add_argument("--yield-seconds", type=int, default=45)
     p.add_argument("--backend", choices=["auto", "powerdevil", "sysfs"],
                    default="auto")
+    p.add_argument("--ignore-desktop-setting", action="store_true",
+                   help="drive the brightness even if the desktop has "
+                        "automatic brightness switched off")
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args()
     AutoBrightness(args, pick_backend(args.backend)).run()

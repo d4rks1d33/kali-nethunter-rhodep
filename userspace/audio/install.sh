@@ -116,4 +116,8 @@ if [ -x "$PROTECT" ]; then
 		/etc/wireplumber/wireplumber.conf.d/51-rhodep-no-acp.conf \
 		/etc/udev/rules.d/90-rhodep-wcd937x-jack.rules \
 		/etc/systemd/user/pipewire.service.d/10-rhodep-wait-card.conf 2>/dev/null || true
+	# The enabled state as well: the route unit is what enables a mixer path
+	# before PipeWire opens the sink, and without it PipeWire gives up for good.
+	"$PROTECT" register-units audio \
+		rhodep-audio-route.service rhodep-jack-watch.service 2>/dev/null || true
 fi

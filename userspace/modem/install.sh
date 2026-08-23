@@ -134,6 +134,10 @@ if [ -x "$PROTECT" ]; then
 else
 	echo "note: userspace/apt/apply-holds.sh has not run yet, so these files are"
 	echo "      not protected. Run it and they will be."
+	# And their enabled state, which chattr cannot protect.
+	"$PROTECT" register-units modem \
+		rhodep-rfs-populate.service rhodep-uim-provision.service \
+		rhodep-memshare.service 2>/dev/null || true
 fi
 
 # systemctl is not usable in the build chroot; enabling by symlink is.

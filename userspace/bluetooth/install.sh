@@ -77,4 +77,8 @@ if [ -x "$PROTECT" ]; then
 	"$PROTECT" register bluetooth 0755 /usr/local/sbin/rhodep-bt-address 2>/dev/null || true
 	"$PROTECT" register bluetooth-conf 0644 \
 		/etc/systemd/system/rhodep-bt-address.service 2>/dev/null || true
+	# bluetooth.service is included because this port found it masked: the
+	# enabled state is the whole point of that half of the fix.
+	"$PROTECT" register-units bluetooth \
+		rhodep-bt-address.service bluetooth.service 2>/dev/null || true
 fi

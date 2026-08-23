@@ -1155,15 +1155,49 @@ first — the same friction as the DKMS drivers, for the same reason.
 locally built too, but the fix could simply be put *into* the package, which is
 strictly better than guarding a wrong file. See "Updating the kernel".
 
-Two things `rhodep-protect-files` deliberately does **not** cover:
+### The enabled state, which the immutable bit cannot protect
 
-- **A unit's enabled state.** `chattr +i` on a `.service` stops it being
-  deleted or edited, but `systemctl disable` still works. Re-run the relevant
-  `install.sh` to re-enable it.
-- **Symlinks.** The store keeps a *content* snapshot, so restoring a symlink
-  from one would replace it with a copy of its target. That is why the
-  `multi-user.target.wants/*` links and the FastRPC soname links are left out;
-  `rhodep-ssc-links` recreates the latter on every start.
+`chattr +i` on a `.service` stops the file being deleted or edited. It does
+nothing about `systemctl disable`, which still works and leaves everything
+*looking* present — the file is there, the package is held, `status` says
+`protected`. On this port that would mean losing the below-0C battery cutoff,
+or the sensors listener that keeps the ADSP from asserting on suspend, with no
+error anywhere.
+
+So components can register units as well:
+
+	rhodep-protect-files register-units <component> <unit>...
+
+and the enforcer re-enables any that has gone to `disabled`. It is deliberately
+the narrowest thing that closes the gap:
+
+- it only ever runs `systemctl enable`, which writes a symlink. It **never**
+  starts, stops or restarts anything — restoring a file must not be able to
+  bounce audio or drop the network.
+- it acts only on exactly `disabled`. **`masked` is left alone**, because
+  masking is always deliberate here (`droid-juicer`, `systemd-repart`,
+  `phosh.service` under GDM), and `static`, `indirect` and `enabled` are
+  already right.
+- system units only; user units live in a session and cannot be enabled from
+  here.
+
+Re-running the component's `install.sh` was the other option, and it was
+rejected on blast radius: those scripts restart PipeWire, WirePlumber and
+`iio-sensor-proxy`, touch udev and query apt. Having that fire unattended every
+30 minutes because one file went missing is worse than the missing file, and it
+contradicts the rule the enforcer is built on — fail open, always.
+
+Verified by attacking it: `systemctl disable rhodep-battery-jeita` is caught on
+the next enforce (`ALERT: rhodep-battery-jeita.service had been disabled,
+re-enabling it`), the unit comes back `enabled` and **stays `active`**, because
+nothing restarted it. A masked unit is left masked, a run with nothing wrong
+logs nothing, and a unit that does not exist exits 0.
+
+**Symlinks are the other deliberate omission.** The store keeps a *content*
+snapshot, so restoring a symlink from one would replace it with a copy of its
+target. That is why the `multi-user.target.wants/*` links and the FastRPC
+soname links are left out; `rhodep-ssc-links` recreates the latter on every
+start.
 
 Each installer calls `release` on its files before overwriting and `register`
 after, so re-running any of them still works — verified by running them a second

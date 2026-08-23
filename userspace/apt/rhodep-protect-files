@@ -21,10 +21,34 @@
 #
 #	rhodep-protect-files release  <path>...            # before overwriting
 #	rhodep-protect-files register <component> <mode> <path>...
+#	rhodep-protect-files register-units <component> <unit>...
 #
 # and then, from the enforcer:
 #
 #	rhodep-protect-files enforce
+#
+# register-units covers the one thing the immutable bit cannot: a unit's
+# *enabled* state. chattr +i on a .service stops it being deleted or edited,
+# and `systemctl disable` still works — which on this port means losing the
+# below-0C battery cutoff, or the sensors listener that keeps the ADSP from
+# asserting on suspend, silently and with everything still looking present.
+#
+# It is deliberately the narrowest thing that closes that gap:
+#
+#   - it only ever runs `systemctl enable`, which writes a symlink. It never
+#     starts, stops or restarts anything. Restoring a file must not be able to
+#     bounce audio or drop the network.
+#   - it only acts when the unit reports exactly `disabled`. `masked` is left
+#     alone, because masking is always deliberate here (droid-juicer,
+#     systemd-repart, phosh.service under GDM); `static`, `indirect`,
+#     `generated` and `enabled` are all already correct.
+#   - system units only. User units live in a session and cannot be enabled
+#     from here.
+#
+# Re-running the component's install.sh was the other option and is rejected on
+# blast radius: those scripts restart PipeWire, WirePlumber and
+# iio-sensor-proxy, touch udev and query apt, and having that fire unattended
+# every 30 minutes because one file went missing is worse than the missing file.
 #
 # Fails open everywhere. Protecting files must never be able to stop the phone
 # from booting or an installer from running.
@@ -70,6 +94,23 @@ register)
 	exit 0
 	;;
 
+register-units)
+	shift
+	comp=${1:-}; shift 2>/dev/null || { echo "usage: register-units <component> <unit>..." >&2; exit 1; }
+	[ -n "$comp" ] || { echo "a component name is required" >&2; exit 1; }
+	install -d -m 0755 "$MANIFEST" 2>/dev/null || exit 0
+	list=$MANIFEST/$comp.units
+	for u in "$@"; do
+		[ -n "$u" ] || continue
+		if [ -e "$list" ]; then
+			grep -vx "$u" "$list" > "$list.tmp" 2>/dev/null || : > "$list.tmp"
+			mv "$list.tmp" "$list"
+		fi
+		printf '%s\n' "$u" >> "$list"
+	done
+	exit 0
+	;;
+
 enforce)
 	[ -d "$MANIFEST" ] || exit 0
 	for list in "$MANIFEST"/*.list; do
@@ -90,6 +131,20 @@ enforce)
 			chattr +i "$f" 2>/dev/null
 		done < "$list"
 	done
+
+	# The enabled state of the units those files belong to. Only `disabled`
+	# is acted on, and only ever with `enable` -- see the header.
+	if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+		for list in "$MANIFEST"/*.units; do
+			[ -e "$list" ] || continue
+			while read -r u; do
+				[ -n "${u:-}" ] || continue
+				[ "$(systemctl is-enabled "$u" 2>/dev/null)" = disabled ] || continue
+				log "ALERT: $u had been disabled, re-enabling it"
+				systemctl enable "$u" >/dev/null 2>&1 || log "could not re-enable $u"
+			done < "$list"
+		done
+	fi
 	exit 0
 	;;
 
@@ -106,12 +161,28 @@ status)
 			else st="not immutable"; fi
 			printf '  %-12s %s\n' "$st" "$f"
 		done < "$list"
+		ulist=${list%.list}.units
+		[ -e "$ulist" ] || continue
+		while read -r u; do
+			[ -n "${u:-}" ] || continue
+			printf '  %-12s %s (unit)\n' "$(systemctl is-enabled "$u" 2>/dev/null || echo unknown)" "$u"
+		done < "$ulist"
+	done
+	# Components that registered units but no files.
+	for ulist in "$MANIFEST"/*.units; do
+		[ -e "$ulist" ] || continue
+		[ -e "${ulist%.units}.list" ] && continue
+		echo "[$(basename "$ulist" .units)]"
+		while read -r u; do
+			[ -n "${u:-}" ] || continue
+			printf '  %-12s %s (unit)\n' "$(systemctl is-enabled "$u" 2>/dev/null || echo unknown)" "$u"
+		done < "$ulist"
 	done
 	exit 0
 	;;
 
 *)
-	echo "usage: rhodep-protect-files [release <path>... | register <component> <mode> <path>... | enforce | status]" >&2
+	echo "usage: rhodep-protect-files [release <path>... | register <component> <mode> <path>... | register-units <component> <unit>... | enforce | status]" >&2
 	exit 1
 	;;
 esac

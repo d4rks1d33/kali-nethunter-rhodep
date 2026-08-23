@@ -166,6 +166,12 @@ if [ -x "$PROTECT" ]; then
 	"$PROTECT" register adsp-suspend 0755 \
 		/usr/lib/systemd/system-sleep/rhodep-adsp \
 		2>/dev/null || true
+	# The enabled state too: chattr +i stops a unit file being deleted, and
+	# `systemctl disable` still works. Losing rhodep-sscrpcd means no sensors
+	# and an ADSP that asserts on the next suspend.
+	"$PROTECT" register-units sensors \
+		rhodep-sscrpcd.service rhodep-ssc-populate.service \
+		2>/dev/null || true
 fi
 
 # The registry tree under /var/lib/rhodep-ssc is deliberately NOT protected:

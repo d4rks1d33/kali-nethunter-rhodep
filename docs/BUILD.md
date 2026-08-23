@@ -157,7 +157,7 @@ sudo chroot /tmp/rootfs sh /srv/login/install.sh kali
   Worth baking in: it is the only link that survives a modem restart, since the
   WLAN protection domain lives inside the modem, so it is what makes modem
   debugging possible at all.
-- **apt holds** (`userspace/apt/apply-holds.sh`, 43 packages): keeps an upgrade
+- **apt holds** (`userspace/apt/apply-holds.sh`, 51 packages): keeps an upgrade
   from replacing the kernel, the WiFi firmware, the modem stack, the audio stack
   or the on-screen keyboard. It also installs `rhodep-apt-guard`, an apt hook
   that refuses to remove a held package, because a hold does **not** stop
@@ -167,6 +167,15 @@ sudo chroot /tmp/rootfs sh /srv/login/install.sh kali
   `Protected` field so that `dpkg -r`/`dpkg -P` are refused as well (dpkg
   ignores apt holds entirely), and releasing a hold on purpose goes through
   `rhodep-hold-override`, which wants a reason and refuses to run unattended. See README "A hold does not stop `apt purge`".
+
+  **Run it last, and note it does three things beyond the holds.** It registers
+  the port's own `.deb`s (`rhodep-battery-jeita`, `rhodep-modem-support`,
+  `rhodep-usb-otg`) with `rhodep-protect-files` as well, because those exist
+  only in `/var/lib/dpkg/status` — apt cannot re-fetch them, so a hold does
+  nothing against `rm` of one of their files and there is nowhere to restore
+  from. It registers the *enabled state* of the units that matter, which the
+  immutable bit cannot cover. And it protects every file the installers above
+  laid down.
 - **Modem** (`userspace/modem/install.sh`): the whole reason the radio works.
   Populates the modem's remote file system from the stock `modem`/`fsg`/
   `persist` partitions at first boot (without the Hexagon objects under

@@ -116,6 +116,66 @@ install -D -m 0644 "$here/apply-holds.sh" /usr/share/doc/rhodep-apt/apply-holds.
 	/etc/systemd/system/rhodep-holds-enforce.timer \
 	/usr/local/share/rhodep/apt-holds.txt 2>/dev/null || true
 
+# --- the port's own .debs, which a hold does NOT fully cover ------------------
+# rhodep-battery-jeita, rhodep-modem-support and rhodep-usb-otg are built here
+# and exist only in /var/lib/dpkg/status: no repo, no cached archive. apt says
+# so outright --
+#
+#	# apt-get install --reinstall rhodep-battery-jeita
+#	Reinstallation of rhodep-battery-jeita is not possible, it cannot be downloaded.
+#
+# -- so while the hold stops an upgrade and dpkg's Protected stops the package
+# being removed, nothing at all stops `rm` of one of their files, and there is
+# nowhere to restore it from. Losing /usr/local/sbin/rhodep-battery-jeita means
+# losing the below-0C charge cutoff, permanently and silently, on a package
+# that still looks installed, held and protected.
+#
+# So these get the file layer as well. The cost is that `dpkg -i` of a newer
+# version of one of these packages fails on the immutable files and needs a
+# `rhodep-protect-files release` first -- the same friction as the DKMS
+# drivers, for the same reason. Distro packages are deliberately NOT treated
+# this way: apt can always re-fetch those, so immutability would only break
+# their upgrades.
+#
+# register skips paths that do not exist, so this is safe when a package is not
+# installed. The multi-user.target.wants/* entries are symlinks and are left
+# out on purpose: the store keeps a content snapshot, and restoring a symlink
+# from one would replace it with a copy of its target.
+/usr/local/sbin/rhodep-protect-files register battery-jeita 0755 \
+	/usr/local/sbin/rhodep-battery-jeita 2>/dev/null || true
+/usr/local/sbin/rhodep-protect-files register battery-jeita-conf 0644 \
+	/usr/lib/systemd/system/rhodep-battery-jeita.service 2>/dev/null || true
+
+/usr/local/sbin/rhodep-protect-files register modem-support 0755 \
+	/usr/local/sbin/rhodep-fw-symlinks.sh \
+	/usr/local/sbin/rhodep-wait-modem 2>/dev/null || true
+/usr/local/sbin/rhodep-protect-files register modem-support-conf 0644 \
+	/usr/lib/modprobe.d/ath10k-late.conf \
+	/usr/lib/systemd/system/ModemManager.service.d/10-rhodep-wait-modem.conf \
+	/usr/lib/systemd/system/ath10k-late.service \
+	/usr/lib/systemd/system/readonly-firmware.mount \
+	/usr/lib/systemd/system/rhodep-modem-fw.service \
+	/usr/lib/systemd/system/rmtfs.service.d/10-rhodep.conf \
+	/usr/lib/tmpfiles.d/rhodep-modem.conf \
+	/usr/lib/udev/rules.d/99-rhodep-fsg-alias.rules 2>/dev/null || true
+
+/usr/local/sbin/rhodep-protect-files register usb-otg 0755 \
+	/usr/local/sbin/otg 2>/dev/null || true
+/usr/local/sbin/rhodep-protect-files register usb-otg-conf 0644 \
+	/usr/lib/systemd/system/otg-default-charge.service 2>/dev/null || true
+
+# The enabled state, which the immutable bit cannot protect: `systemctl
+# disable` still works on a file that cannot be deleted. Only `disabled` is
+# ever acted on and only with `enable`, so nothing here restarts a service.
+/usr/local/sbin/rhodep-protect-files register-units battery-jeita \
+	rhodep-battery-jeita.service 2>/dev/null || true
+/usr/local/sbin/rhodep-protect-files register-units modem-support \
+	rhodep-modem-fw.service ath10k-late.service readonly-firmware.mount 2>/dev/null || true
+/usr/local/sbin/rhodep-protect-files register-units usb-otg \
+	otg-default-charge.service 2>/dev/null || true
+/usr/local/sbin/rhodep-protect-files register-units apt \
+	rhodep-holds-enforce.timer 2>/dev/null || true
+
 # apt holds mean nothing to dpkg: `dpkg -P <held>` removes the package without
 # a word. dpkg's own Protected field stops it. This is done in the build chroot
 # too, because there the status file IS the image's, so the flags ship with it.

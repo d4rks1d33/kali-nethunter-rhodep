@@ -91,6 +91,43 @@ also absent from the boot-time path, where IPA loads at ~15 s and the modem
 comes up after it; that path resets too, and its final message has not been
 captured yet.
 
+## Already fixed, and still broken: read 0042 and 0048 first
+
+Before theorising, read `0042-net-ipa-sm6375-fix-imem-address.patch` and
+`0048-net-ipa-sm6375-own-sram-layout.patch`. Both were written against this
+exact bug and both are already in the build.
+
+0042 found that `ipa_data_v4_11_sm6375` was reusing SC7280's `imem_addr` of
+0x146a8000, which is not IMEM on this SoC, and repointed it at 0x0c123000 --
+taken from the region downstream identity maps into IPA's AP context bank in
+blair.dtsi. It has the SMMU fault that used to be produced:
+
+```
+arm-smmu c600000.iommu: Unhandled context fault: fsr=0x402,
+    iova=0x0c123080, fsynr=0x370002, cbfrsynra=0x4a0, cb=7
+androidboot.bootreason=watchdog
+```
+
+0048 gave the SoC its own `ipa_mem_local_data_sm6375` rather than SC7280's
+SRAM layout.
+
+Two things follow, and both were established the slow way in this session by
+rediscovering the above from scratch:
+
+- The IMEM address and the SRAM layout are **not** the remaining problem. Both
+  were already checked against the vendor and corrected.
+- **The failure has changed shape.** The 0042-era reset announced itself with
+  an unhandled SMMU context fault. The reset today produces no fault, from any
+  context bank, in any capture. Whatever is left is not IPA reading through its
+  AP context bank at an unmapped address.
+
+Checked again this session and confirmed still correct, so nobody has to redo
+it: the endpoint and channel numbering matches the vendor for all seven
+endpoints that matter (`APPS_CMD_PROD` ep 7 ch 5, `APPS_WAN_PROD` ep 2 ch 2,
+`APPS_LAN_CONS` ep 9 ch 14, `APPS_WAN_CONS` ep 16 ch 7, and the Q6 side), and
+`qcom,ipa-q6-smem-size` in holi.dtsi is 36864, the 0x9000 the driver already
+uses.
+
 ## The strongest lead
 
 From the commit message of `0026-arm64-dts-qcom-rhodep-enable-ipa.patch`,
@@ -104,17 +141,22 @@ has already hit this failure mode once, from a wrong offset into IPA's shared
 SRAM, and fixed it by moving the window to +0x10000 for IPA v4.5 and later.
 
 So the hypothesis worth testing next is that something else in the IPA or GSI
-memory description is still wrong for v4.11, and only gets touched once the
-modem sets up its own channels -- which is why it needs LTE attach and not
-merely a loaded driver. Candidates:
+description is still wrong, and only gets touched once the modem sets up its
+own channels -- which is why it needs LTE attach and not merely a loaded
+driver. With the AP context bank ruled out by the absence of any fault, the
+remaining candidates are:
 
-- The `ipa_mem` region table for this hardware version against downstream's
-  `ipa_4_11` layout. A region at the wrong offset would be written the first
-  time the modem claims it.
+- The **uC context bank, stream 0x4a2**. 0042 fixed what the AP bank reaches;
+  the microcontroller's bank has not been checked against downstream's
+  `ipa_smmu_uc` mapping the same way. A uC access outside its bank would not
+  necessarily reach the SMMU driver's fault handler before the SoC goes down.
 - GSI channel and event ring counts, and the per-channel scratch offsets.
-- The two SMMU stream IDs (0x4a0 AP, 0x4a2 uC). A DMA from the wrong context
-  bank would fault, and on this SoC an SMMU fault against a TZ-protected range
-  is a plausible instant reset.
+- Whether the reset comes from the modem side at all rather than from IPA:
+  `qcom_q6v5_pas` never reports a fatal error, but a modem-initiated system
+  reset would look exactly like this from the AP.
+- The local SRAM layout in 0048 against `ipa_4_11_mem_part` in the vendor's
+  `ipa_utils.c`, region by region. 0048 exists, but it was not diffed field by
+  field during this session.
 
 ## What did not explain it
 

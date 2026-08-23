@@ -382,11 +382,46 @@ directly: `/sys/devices/system/cpu/cpu0/cpuidle/` does not exist.
 	CPUidle PSCI: CPU 0 failed to PSCI idle
 	CPUidle PSCI: Failed to create psci-cpuidle device
 
-The firmware advertises OSI mode, Linux tries to use it, `set PC mode` fails
-with NOT_SUPPORTED, and the CPU PM domains never resolve their deferred probe.
-No patch in this port touches `idle-states`, so this comes from mainline's
-`sm6375.dtsi`. The vendor tree does declare them —
-`blair.dtsi` gives every CPU `cpu-idle-states = <&SLVR_PC &SLVR_RAIL_OFF>`.
+**Diagnosed since, and it is neither a missing device tree nor a missing
+config.** Everything is present and correct: `sm6375.dtsi` has the
+`idle-states`, the CPUs have `power-domain-names = "psci"`, the `psci` node
+carries all nine power domains, and `CONFIG_ARM_PSCI_CPUIDLE`,
+`CONFIG_ARM_PSCI_CPUIDLE_DOMAIN` and `CONFIG_QCOM_MPM` are all `=y`. What kills
+it is a **race between two initcalls**, and the timestamps make it plain:
+
+	[0.109751] CPUidle PSCI: failed to create CPU PM domains ret=-517
+	[0.373495] CPUidle PSCI: CPU 0 failed to PSCI idle
+	[0.373539] CPUidle PSCI: Failed to create psci-cpuidle device
+	[0.424671] CPUidle PSCI: Initialized CPU PM domain topology using OSI mode
+
+`-517` is `-EPROBE_DEFER`. The `psci-cpuidle-domain` platform driver
+(`core_initcall`) cannot build the domain topology on its first attempt,
+because the CPU cluster domain's parent is the MPM node —
+`power-domain-cpu-cluster0` has `power-domains = <&mpm>`, and `mpm` is a
+`#power-domain-cells = <0>` provider that has not probed yet. That is an
+ordinary deferral and it resolves correctly at 0.4247.
+
+The problem is who loses the race. `psci_idle_init()` is a `device_initcall`,
+so it runs at 0.3735 — **51 ms before the domains exist**. `psci_dt_attach_cpu()`
+→ `dev_pm_domain_attach_by_name()` returns `-EPROBE_DEFER`, which surfaces as
+"CPU 0 failed to PSCI idle", and then:
+
+	fdev = faux_device_create("psci-cpuidle", NULL, &psci_cpuidle_ops);
+
+**a faux device has no deferred-probe support**, so nothing ever retries and
+cpuidle is lost for the whole boot. The domain topology coming up 51 ms later
+is of no use to anyone.
+
+This is an upstream bug rather than a rhodep one: any SoC whose CPU cluster
+domain has a parent that probes late loses cpuidle entirely, silently, with
+every relevant config option enabled. Fixing it means touching generic
+`drivers/cpuidle/cpuidle-psci.c` — retry on `-EPROBE_DEFER` rather than give up,
+or go back to a platform device, which supports deferral — and since
+`ARM_PSCI_CPUIDLE` is built in, that is a new kernel Image and a fastboot flash,
+not a module swap.
+
+For the record the vendor declares its own states differently: `blair.dtsi`
+gives every CPU `cpu-idle-states = <&SLVR_PC &SLVR_RAIL_OFF>`.
 
 Unrelated to the reset, but it means the cores never enter a low power state,
 which costs battery continuously. It is its own piece of work.

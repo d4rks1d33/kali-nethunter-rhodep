@@ -1835,7 +1835,28 @@ it is either not started or a research project.
    which is still unexplained. It costs a wakeup-capable interrupt 4 times a
    second on a device that is trying to idle, so it is worth understanding even
    though it no longer hurts debugging.
-9. **After a successful `deep` sleep, systemd tries `s2idle` once more.** It
+9. **cpuidle never initialises, so the cores only ever WFI.** Not a missing
+   device tree and not a missing config -- `sm6375.dtsi` has the `idle-states`,
+   the `psci` node carries all nine CPU power domains, and
+   `ARM_PSCI_CPUIDLE`, `ARM_PSCI_CPUIDLE_DOMAIN` and `QCOM_MPM` are all `=y`.
+   It is a race between two initcalls, decided by 51 milliseconds:
+
+	[0.109751] CPUidle PSCI: failed to create CPU PM domains ret=-517
+	[0.373495] CPUidle PSCI: CPU 0 failed to PSCI idle
+	[0.373539] CPUidle PSCI: Failed to create psci-cpuidle device
+	[0.424671] CPUidle PSCI: Initialized CPU PM domain topology using OSI mode
+
+   The domain driver defers because the cluster domain's parent is the MPM
+   node, which has not probed yet; that resolves fine at 0.4247. But
+   `psci_idle_init()` is a `device_initcall` and runs at 0.3735, gets
+   `-EPROBE_DEFER` from `dev_pm_domain_attach_by_name()`, and creates its
+   device with `faux_device_create()` -- **which has no deferred-probe
+   support**, so nothing retries. Upstream bug, not a rhodep one. The fix is in
+   generic `drivers/cpuidle/cpuidle-psci.c` and `ARM_PSCI_CPUIDLE` is built in,
+   so it needs a new boot image rather than a module swap. Worth doing: with no
+   cpuidle the cores never power-collapse, which costs battery continuously.
+   `docs/interconnect-sm6375-wip/GNSS-SM6375.md` has the full analysis.
+10. **After a successful `deep` sleep, systemd tries `s2idle` once more.** It
    returns in about 3 ms, so the write to `/sys/power/state` is reporting an
    error even when the sleep worked — systemd only moves to the next state in
    `SuspendState=` when the previous one fails. Purely cosmetic, but it makes a

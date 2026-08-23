@@ -720,24 +720,27 @@ Nothing here auto-migrates. After building and flashing a new kernel version:
    The udev LED-off rule and the DKMS source in `/usr/src/rtw88-0.6` are not
    kernel-specific and carry over as-is.
 
-   **The same applies to `snd-q6dsp-common.ko`**, registered as the
-   `kernel-suspendfix` component. That one is a file *inside* the held
-   `linux-image-<KVER>` package rather than a DKMS build, so the immutable bit
-   is doing something slightly different: it is what stops
-   `apt-get install --reinstall linux-image-<KVER>` from silently putting the
-   unpatched module back and taking suspend/resume down with it. A hold does
-   not stop a reinstall. Release it before any deliberate kernel package
-   operation, and re-register afterwards:
-   ```sh
-   rhodep-protect-files release /usr/lib/modules/<KVER>/kernel/sound/soc/qcom/qdsp6/snd-q6dsp-common.ko
-   # ... install the new kernel package ...
-   rhodep-protect-files register kernel-suspendfix 0644 /usr/lib/modules/<KVER>/kernel/sound/soc/qcom/qdsp6/snd-q6dsp-common.ko
-   ```
-   The durable answer is to stop carrying it as a loose file at all: rebuild
-   the `linux-image` .deb from an apk that already has patch 0059 in `source=`
-   (see "Turning the kernel apk into a Debian `linux-image` .deb"), and the
-   packaged module *is* the fixed one. Until then, `dpkg -V linux-image-<KVER>`
-   reporting `??5??????` on that path is expected and is the fix, not damage.
+   **`snd-q6dsp-common.ko` needs none of this, and the reason is worth
+   copying.** It was briefly protected the same way, as a `kernel-suspendfix`
+   component, because it is a file *inside* the held `linux-image-<KVER>`
+   package and a hold does not stop `apt-get install --reinstall`. That was a
+   guard around the real problem rather than a fix for it. The fix was to
+   rebuild the `linux-image` .deb from an apk that already carries patch 0059
+   (see "Turning the kernel apk into a Debian `linux-image` .deb") so that the
+   packaged module *is* the corrected one; the component was then unregistered,
+   because immutability on a package-owned file only buys friction once the
+   package is right.
+
+   **Do the same for any future module-only fix.** Carrying it as a loose file
+   is how the tree drifted in the first place: before this was done,
+   `dpkg -V linux-image-7.2.0-rc5` reported **1685 modified files** --
+   essentially every module -- and `fan53870.ko` and `lpasscc-sm6115.ko` were
+   loaded and working while belonging to no package at all. A `--reinstall`
+   would have rolled the whole tree back to the previous build: no camera PMIC,
+   no LPASS clock controller, no 0059. Repackaging costs 18 seconds and brought
+   that count to 6, all of them depmod's own generated indexes
+   (`modules.dep`, `modules.alias`, ...), which differ on any system with DKMS
+   and always will.
 5. **Reapply the userspace and audio blobs** if you reinstalled the rootfs (the
    AW88261 ACF, the modules under `/lib/modules/<KVER>`, `userspace/*/install.sh`).
 6. **Re-run `userspace/apt/apply-holds.sh`** so the holds and the immutable
@@ -1116,24 +1119,27 @@ Nothing reinstalls those. One `rm -rf` and they are gone with no trace.
 `rhodep-protect-files` gives them the same two layers: `chattr +i` on the live
 file, and a canonical copy under `/usr/local/share/rhodep/files` that
 `rhodep-holds-enforce` restores from if the live one goes missing **or is
-modified**. It is up to **27 components** — `apt`, `apt-conf`, `modem`,
+modified**. It is up to **26 components** — `apt`, `apt-conf`, `modem`,
 `modem-conf`, `audio`, `audio-conf`, `bluetooth`, `bluetooth-conf`,
 `usb-net-conf`, the sensor ones (`sensors`, `sensors-lib`, `sensors-conf`,
-`adsp-suspend`), `kernel-suspendfix`, `gpu-opencl`, `rtl8821au`, `cleanup` and
-the `extra-tools` ones (`keyboard`, `keyboard-conf`, `keyboard-layouts`,
-`clipboard`, `claude-free`, `claude-free-conf`, `claude-local`). The list grows
-as installers are added, so read it from the device rather than from here:
+`adsp-suspend`), `gpu-opencl`, `rtl8821au`, `cleanup` and the `extra-tools`
+ones (`keyboard`, `keyboard-conf`, `keyboard-layouts`, `clipboard`,
+`claude-free`, `claude-free-conf`, `claude-local`). The list grows as installers
+are added, so read it from the device rather than from here:
 
 	rhodep-protect-files status
 
-**One of them is not like the others.** Every component above protects a file
-that belongs to no package, which is why nothing would ever put it back.
-`kernel-suspendfix` is the exception: `snd-q6dsp-common.ko` *is* owned by
-`linux-image-7.2.0-rc5`, and the copy in the package is the unpatched one. The
-hold stops an upgrade and dpkg's `Protected` stops a removal, but neither stops
-`apt-get install --reinstall`, which would put the broken module back and take
-suspend/resume with it, silently. The immutable bit turns that into a loud
-failure instead. See "Updating the kernel" for how to release it on purpose.
+**Every component here protects a file that belongs to no package**, which is
+why nothing would ever put it back, and that boundary is worth keeping sharp. A
+file that *is* package-owned belongs to the other mechanism — the hold plus
+dpkg's `Protected` flag — and making it immutable as well only means the next
+legitimate package operation fails. The one time this port crossed that line,
+for the patched `snd-q6dsp-common.ko`, the right answer turned out to be fixing
+the package instead; see "Updating the kernel".
+
+**What protect-files does not cover is a unit's enabled state.** `chattr +i` on
+a `.service` stops it being deleted or edited, but `systemctl disable` still
+works. Re-running the relevant `install.sh` re-enables it.
 
 Each installer calls `release` on its files before overwriting and `register`
 after, so re-running any of them still works — verified by running them a second

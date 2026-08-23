@@ -304,7 +304,11 @@ the next boot if the phone was off (`Persistent=true`). Run it by hand with
   measured at ~24 Mbit/s, calls connect and SMS arrives. What blocks day-to-day
   use is a separate bug reachable only now that the radio works: with `ipa.ko`
   loaded **and** the modem attached to LTE, the SoC watchdog-resets every 3 to
-  10 minutes, silently. Either condition alone is stable (22 and 16.5 minutes
+  10 minutes, silently. It is reproducible in under a minute by hand and the
+  last kernel message before it is now known -- see
+  `docs/watchdog-ipa-lte-wip/`, which also has the strongest lead: this port has
+  already seen an instant reset with no exception and no log once before, from a
+  wrong offset into IPA's shared SRAM. Either condition alone is stable (22 and 16.5 minutes
   observed). So `userspace/modem/install.sh` ships
   `/etc/modprobe.d/rhodep-ipa-hold.conf`, and `rhodep-icc-hold.conf` for the
   interconnect provider, which keeps both drivers out of the boot. The cost is

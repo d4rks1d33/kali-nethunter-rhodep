@@ -1932,17 +1932,37 @@ already done.
    So a working tile needs a small C++/QML plugin against libkscreen, which is a
    project rather than an afternoon.
 
-2. **Synchronise the panel's DCS brightness write to a frame boundary.** This
-   is the cause of the horizontal lines that flash for a second or two when the
-   brightness moves a long way at once, and it is in this port's own driver:
-   `nt37701_bl_update_status()` calls
-   `mipi_dsi_dcs_set_display_brightness_large()` on the same DSI link that
-   carries the frames, and in command mode that write can land mid-transfer.
+2. **The glitched lines while the brightness ramps down.** Still open, but no
+   longer a guess -- the measurements below are the useful part, because the
+   obvious explanation has already been tried and is wrong.
 
-   `userspace/sensors/rhodep-autobrightness` worked around it by capping how far
-   one command may move the level, but KWin's native ambient brightness does not
-   and the artefact is visible there. Fixing it in the driver fixes it for every
-   consumer instead of one.
+   It is not simply "the DCS write lands mid-frame". Patch 0062 added `bl_lpm`,
+   which sends the brightness in LP escape mode so the host must leave the HS
+   burst first and the write lands between frames by construction. Tested
+   against the real workload -- KWin's ambient brightness with a torch on the
+   sensor -- **the lines are identical with `bl_lpm=1` and `bl_lpm=0`**.
+
+   What is known, from `scripts/rhodep-bl-capture` sampling the backlight at
+   20 Hz while the user drove it with a torch:
+
+   - **It is asymmetric.** KWin ramps *up* in ~13 writes over 0.8 s and *down*
+     in 60-180 writes over 3.5-7.2 s, and only the long downward ramp shows it.
+   - **Synthetic writes do not reproduce it at all** -- not 2 writes/s with
+     3200-step jumps, and not KWin's own 14 writes/s sustained for seconds.
+   - Those synthetic writes happen against a **static screen**, and on a command
+     mode panel a static screen means there are no frame transfers to collide
+     with. So the trigger appears to need brightness writes *concurrent with the
+     compositor repainting*, which is also why the artefact only shows up under
+     KWin and never under a script.
+   - `dsi_err_worker: status=5` does fire during the real workload, but under
+     synthetic load it does not track the mode or the rate (0 errors at 14/s, 3
+     at 4/s), so it is not yet a usable proxy.
+
+   The next thing to try is therefore a reproducer that repaints while the
+   brightness moves, and then synchronising the write to the panel's TE signal
+   rather than merely to a link-state boundary. `userspace/sensors/rhodep-autobrightness`
+   used to hide this by capping how far one command could move the level; KWin
+   does not cap it, which is why it became visible.
 
 3. **Give the FAN53870 node a `vin-supply`.** Linux currently believes PM6125's
    S6 is off and unused (`s6 = disabled, users=0`) while it is physically

@@ -1,0 +1,26 @@
+#!/bin/bash
+# Captura de alta frecuencia del brillo + errores del panel, para correlacionar
+# con lo que se ve. NO lee actual_brightness: eso genera trafico DSI propio y
+# perturbaria justo lo que queremos medir.
+L=/var/log/rhodep-bl-capture.log
+SECS=${1:-150}
+exec >>"$L" 2>&1
+BL=/sys/class/backlight/5e94000.dsi.0/brightness
+P=/sys/module/panel_novatek_nt37701/parameters/bl_lpm
+echo; echo "############ CAPTURA $(date -Is)  ${SECS}s  bl_lpm=$(cat $P) ############"
+KM=$(dmesg | wc -l)
+END=$(( $(date +%s) + SECS ))
+prev=""; t0=$(date +%s.%N)
+while [ "$(date +%s)" -lt "$END" ]; do
+  v=$(cat $BL)
+  if [ "$v" != "$prev" ]; then
+    printf '%8.3f  %5s\n' "$(echo "$(date +%s.%N) - $t0" | bc)" "$v"
+    prev=$v
+  fi
+  sleep 0.05
+done
+echo "---- mensajes del kernel durante la captura ----"
+dmesg | tail -n +$((KM+1)) | grep -viE "Handover signaled" | tail -40
+echo "---- resumen ----"
+echo "bl_lpm al final: $(cat $P)"
+echo "############ FIN ############"

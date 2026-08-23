@@ -1958,11 +1958,27 @@ already done.
      synthetic load it does not track the mode or the rate (0 errors at 14/s, 3
      at 4/s), so it is not yet a usable proxy.
 
-   The next thing to try is therefore a reproducer that repaints while the
-   brightness moves, and then synchronising the write to the panel's TE signal
-   rather than merely to a link-state boundary. `userspace/sensors/rhodep-autobrightness`
-   used to hide this by capping how far one command could move the level; KWin
-   does not cap it, which is why it became visible.
+   **Three fixes have been built, flashed and disproven.** Each was plausible,
+   each cost a flash, and none changed the artefact at all. They are listed so
+   that nobody spends another cycle on them:
+
+   | tried | patch | result |
+   | --- | --- | --- |
+   | brightness in LP instead of HS | 0062 | lines identical with `bl_lpm` 1 and 0 |
+   | DSI clock 100% -> 230% of minimum | cmdline | identical, and `clk_scale=230` costs nothing either way |
+   | wait for `CMD_MODE_MDP_BUSY` to clear before a command DMA | 0063 | identical, and the wait never once timed out |
+   | DCS *reads* (`actual_brightness`, which needs a BTA) | -- | 2 errors in 200 reads, against 70-79 in one real run. A contributor at most |
+
+   So it is not the link state, not link bandwidth, and not a simple collision
+   with an in-flight frame. What is left and untested is the raw content of
+   `REG_DSI_TIMEOUT_STATUS` and `REG_DSI_FIFO_STATUS`: `dsi_err_worker()`
+   collapses them into one bit each and clears them without ever printing the
+   values, so "status=5" is all anyone has. Logging those two registers is the
+   obvious next step, and it is a diagnostic rather than another guess.
+
+   `userspace/sensors/rhodep-autobrightness` used to hide the artefact by
+   capping how far one command could move the level; KWin does not cap it,
+   which is why it became visible.
 
 3. **Give the FAN53870 node a `vin-supply`.** Linux currently believes PM6125's
    S6 is off and unused (`s6 = disabled, users=0`) while it is physically

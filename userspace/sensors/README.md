@@ -332,6 +332,20 @@ toggling it in Settings takes effect without restarting anything. On the way
 back it forgets its previous target, so it resumes from wherever the user left
 the brightness rather than snapping to a stale one.
 
+While it is off the daemon also **releases the ambient light sensor** and drops
+its own tick from 0.3 s to `--idle-interval` (5 s), instead of holding a stream
+open and waking up three times a second to decide it has nothing to do.
+Claiming that sensor is not free: iio-sensor-proxy asks the ADSP's sensor core
+for a stream and every sample arrives on the AP as a glink interrupt.
+
+Be careful measuring that, though, because it is easy to overstate. The SSC
+ambient sensor is **on-change**, so its traffic depends entirely on whether the
+light is moving. Measured with the screen off and steady, releasing the claim
+took glink+ipcc from 1.6/s to 0.9/s -- real, but small. An earlier figure of
+~32/s was taken with the screen *on*, where the panel lights the sensor and
+every UI change modulates it; that number says something about the screen, not
+about this daemon, and the two must not be compared.
+
 `--ignore-desktop-setting` restores the old behaviour if you want it. If the
 file is missing or unparseable the daemon carries on as before, since being
 unable to read the switch is not the same as being told to stop.

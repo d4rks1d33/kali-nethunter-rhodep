@@ -204,6 +204,9 @@ class AutoBrightness:
         self.moving = False
         self.desktop = DesktopAutoSetting()
         self.idle_logged = False
+        self.sensor = None       # set in run()
+        self.claimed = False
+        self.tick_id = None
         self.t_last = self.now()
         print("backend %s, range %d..%d" % (backend.name, backend.min, backend.max),
               flush=True)
@@ -235,20 +238,27 @@ class AutoBrightness:
         # The desktop's own switch wins. Checked here rather than at startup so
         # that toggling it in Settings takes effect without restarting anything.
         if not self.a.ignore_desktop_setting and self.desktop.get() is False:
-            if not self.idle_logged:
-                print("automatic brightness is off in the desktop settings, "
-                      "leaving the brightness alone", flush=True)
-                self.idle_logged = True
             # Forget where we were: when it is switched back on we should start
             # from whatever the user left, not from a stale target.
             self.cur = None
             self.last_raw = None
             self.prev_obs = None
             self.moving = False
+            self.raw_lux = None
+            if not self.idle_logged:
+                self.set_claim(False)
+                print("automatic brightness is off in the desktop settings; "
+                      "released the light sensor and idling", flush=True)
+                self.idle_logged = True
+                # Nothing to do until the switch moves, so stop waking up 3
+                # times a second to find that out.
+                return self.retime(self.a.idle_interval)
             return True
         if self.idle_logged:
             print("automatic brightness switched back on, resuming", flush=True)
             self.idle_logged = False
+            self.set_claim(True)
+            return self.retime(self.a.interval)
 
         if self.raw_lux is None:
             return True
@@ -309,6 +319,30 @@ class AutoBrightness:
         self.ext_hits = 0
         self.prev_obs = None
 
+    # ------------------------------------------- holding the sensor or not
+    # Claiming the ambient light sensor is not free: iio-sensor-proxy asks the
+    # ADSP's sensor core for a stream, and the samples come back over glink as
+    # interrupts on the application processor -- measured at ~7/s of glink+ipcc
+    # traffic that drops to ~0.6/s the moment this daemon lets go. Holding that
+    # open while the desktop has automatic brightness switched off is pure
+    # waste, so the claim follows the switch.
+    def set_claim(self, want):
+        if self.sensor is None or want == self.claimed:
+            return
+        try:
+            self.sensor.call_sync("ClaimLight" if want else "ReleaseLight",
+                                  None, Gio.DBusCallFlags.NONE, -1, None)
+        except Exception as e:
+            print("  cannot %s the light sensor: %s"
+                  % ("claim" if want else "release", e), flush=True)
+            return
+        self.claimed = want
+
+    def retime(self, seconds):
+        """Swap the mainloop tick. Returns False so the caller's source ends."""
+        self.tick_id = GLib.timeout_add(int(seconds * 1000), self.evaluate)
+        return False
+
     # ------------------------------------------------- manual override
     def check_external(self):
         """Has someone else set the brightness?
@@ -360,7 +394,9 @@ class AutoBrightness:
         # updates, which is why this cannot be a shell loop around busctl. It is
         # also polkit-gated on an active seat session, so this must run inside
         # the session and not from an ssh shell.
+        self.sensor = sensor
         sensor.call_sync("ClaimLight", None, Gio.DBusCallFlags.NONE, -1, None)
+        self.claimed = True
 
         def on_props(_p, changed, _inv):
             if "LightLevel" in changed.keys():
@@ -374,7 +410,7 @@ class AutoBrightness:
         # The sensor is on-change, so it can go quiet for a long time with the
         # light steady. Running the filter on our own clock keeps it converging
         # regardless of when readings arrive.
-        GLib.timeout_add(int(self.a.interval * 1000), self.evaluate)
+        self.tick_id = GLib.timeout_add(int(self.a.interval * 1000), self.evaluate)
         GLib.MainLoop().run()
 
 
@@ -404,6 +440,9 @@ def main():
     p.add_argument("--yield-seconds", type=int, default=45)
     p.add_argument("--backend", choices=["auto", "powerdevil", "sysfs"],
                    default="auto")
+    p.add_argument("--idle-interval", type=float, default=5.0,
+                   help="how often to re-check the desktop switch while "
+                        "automatic brightness is off (default 5 s)")
     p.add_argument("--ignore-desktop-setting", action="store_true",
                    help="drive the brightness even if the desktop has "
                         "automatic brightness switched off")

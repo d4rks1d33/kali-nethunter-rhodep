@@ -2012,6 +2012,17 @@ already done.
    capping how far one command could move the level; KWin does not cap it,
    which is why it became visible.
 
+   **This is now characterised.** The asymmetry above is a red herring: a long
+   downward ramp simply means more writes, and it is the writes that matter,
+   not the direction. Every occurrence is `DLN0..3_HS_FIFO_UNDERFLOW` with the
+   MDP mid-transfer and the command DMA idle, so a DCS write is landing on the
+   pixel stream. `dsi_ctrl_enable()` already asks the controller to keep command
+   DMAs out of a frame but never programs the window it may use instead, because
+   that register is not in the map mainline generates its headers from. Four
+   attempts at supplying it, two of which left a black screen, are written up in
+   `docs/display-cmd-dma-window-wip/` with the dead ends and where to pick it
+   up. Read that before trying a fifth.
+
 3. **Give the FAN53870 node a `vin-supply`.** Linux currently believes PM6125's
    S6 is off and unused (`s6 = disabled, users=0`) while it is physically
    powering the camera PMIC's low group. Nothing breaks today, but a rail the
@@ -2024,7 +2035,33 @@ already done.
    populated. Cosmetic, so it is worth batching with the next reflash.
    `AUDIO-SM6375.md` §6.
 
-5. **Stop needing the codec kept awake for jack detection.** A udev rule pins
+5. **Behave like a phone with the screen locked.** Press the power button on a
+   stock phone and it keeps working: the radio stays associated, background
+   services keep running, notifications arrive overnight, and a job started an
+   hour ago is still going. Here the session idles out, the phone suspends and
+   the link drops, so anything depending on the network dies with the screen --
+   a script that takes hours, an agent that has to stay online, or simply a
+   messaging app that should have told you something arrived.
+
+   The goal is ordinary phone behaviour on a mainline Linux stack, which is the
+   whole point of the port; it is listed here rather than under what does not
+   work because nothing is blocked by it today.
+
+   There is a working stopgap in the meantime: `systemd-inhibit
+   --what=idle:sleep --mode=block <command>` holds the phone awake for exactly
+   as long as the command runs, which is what `scripts/rhodep-idle-power-ab`
+   relies on to measure anything at all. What is missing is the normal
+   behaviour -- suspend while keeping the radio associated and able to wake the
+   host -- rather than choosing between "suspends and drops the link" and "never
+   sleeps at all".
+
+   Worth checking first whether the ath10k path supports wake-on-wlan here:
+   `iw phy0 info` for the WoWLAN triggers, and whether the SNOC glue wires an
+   interrupt that can wake the SoC. If the triggers are there this is a
+   NetworkManager and systemd configuration job; if they are not it is a driver
+   one and considerably larger.
+
+6. **Stop needing the codec kept awake for jack detection.** A udev rule pins
    the soundwire TX slave on because MBHC detects nothing while it is
    suspended. The real fix is for the codec driver to keep that block alive
    across runtime suspend, which would also stop the port burning power to hold

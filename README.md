@@ -1532,21 +1532,33 @@ later. It had slept 1229.7 s in `deep`, the `pm8941_pwrkey` interrupt is what
 woke it, and there was no ADSP crash, no oops, and the sound card, the sensors
 and the display were all still there.
 
-One note for whoever measures this again, and one warning about measuring it
-at all. `deep` suspend works. Of the three cycles in that boot, the 20-minute
-one above went straight into `deep`; the other two aborted in ~0.6 s and fell
-back to `s2idle`, which then slept properly too (119.6 s against a 120 s RTC
-alarm). Both aborts have mundane explanations rather than a defect: one ran 40
-seconds after boot with the system still settling, and the other is that
-somebody picked the phone up and pressed the power button in the middle of the
-test. After a successful `deep` sleep systemd also tries `s2idle` once more
-anyway and it returns in milliseconds, which is cosmetic.
+### How to measure a suspend, because the obvious way is wrong
 
-**The warning is that last part.** A suspend test on a phone somebody is
-holding measures the person, not the kernel. Two separate conclusions in this
-file were wrong for exactly that reason before anyone noticed. Log the wake
-source rather than the duration: `/sys/kernel/debug/wakeup_sources` and the
-`pm8941_pwrkey` count in `/proc/interrupts` say who did it.
+**`PM: suspend entry` and `PM: suspend exit` do not tell you how long the phone
+slept.** printk timestamps come from `sched_clock`, which is frozen across
+suspend, so the gap between those two lines is *awake* time and excludes the
+sleep entirely. Measured on the device with `rhodep-clock-test`, one 30-second
+RTC alarm:
+
+	BOOTTIME (/proc/uptime)   83.83 s   <- includes the sleep
+	MONOTONIC                 55.20 s   <- excludes it
+	printk (dmesg)            55.04 s   <- tracks MONOTONIC
+	slept = BOOTTIME - MONOTONIC = 28.63 s      (alarm was 30 s)
+
+So the duration is `BOOTTIME - MONOTONIC`, and nothing else. Confirmed twice:
+28.63 s against a 30 s alarm and ~59 s against a 60 s alarm.
+
+**Every "it slept N seconds" figure derived from printk deltas is therefore
+unverified**, including the 20.5-minute one this section used to quote for the
+power-button wake. What that test does establish, and what still stands, is
+everything that is not a duration: it suspended, it woke on `pm8941_pwrkey`,
+and the display, sound card and sensors were all intact afterwards.
+
+Two more warnings for whoever measures this again. A suspend test on a phone
+somebody is holding measures the person, not the kernel — one conclusion here
+was wrong for exactly that reason. And log the wake *source* rather than the
+duration: `/sys/kernel/debug/wakeup_sources` and the `pm8941_pwrkey` count in
+`/proc/interrupts` say who did it.
 And **do not trust `dmesg`**: the ADSP emits `Handover signaled, but it already
 happened` about 4.2 times a second, for ever, which wraps the kernel ring buffer
 every six minutes or so. Use `journalctl -k -b`, which keeps it all.

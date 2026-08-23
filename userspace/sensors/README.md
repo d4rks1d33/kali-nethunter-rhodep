@@ -77,6 +77,7 @@ So the job was a build, a file tree and three systemd units.
 	rhodep-ssc-links          /vendor and /mnt/vendor/persist symlinks
 	rhodep-ssc-wait           blocks until the sensor core really has sensors
 	udev/81-rhodep-ssc.rules  iio-sensor-proxy tags + the mount matrix
+	systemd/rhodep-adsp-*     the suspend hook (see "Suspend" below)
 	patches/0001-*.patch      our two changes to quic/fastrpc
 
 ### The file tree, and why the first attempt crashed the ADSP
@@ -257,6 +258,43 @@ sensortek **stk3a5x**.
   audio is missing after a boot, check `qrtr-lookup` for node 5 before
   suspecting the audio stack, and reboot.
 
+## Suspend: this listener is why the phone used to never wake up
+
+`systemd/rhodep-adsp-sleep-hook`, installed as
+`/usr/lib/systemd/system-sleep/rhodep-adsp`, stops `rhodep-sscrpcd` before a
+suspend and starts it again afterwards. It is not an optimisation, and it is
+worth knowing why, because the failure it prevents looks like a display bug and
+is not one.
+
+A suspend freezes all of userspace, this listener included. The sensors PD
+inside the ADSP goes on making FastRPC calls into it, gets no answer, and
+asserts:
+
+	qcom_q6v5_pas a400000.remoteproc: fatal error received:
+	  err_qdi.c:1045:EX:sensor_process:0x1:frpc_dsp:0xc4:PC=0xb203dab0
+	remoteproc remoteproc1: crash detected in adsp: type fatal error
+
+A sensors-PD assertion is fatal to the **whole** ADSP, so it restarts and takes
+audio with it — the same failure mode as a missing registry, just triggered by
+the freeze instead. And until kernel patch 0059 the restart did worse than that:
+re-registering the LPASS clocks oopsed the kernel inside `__clk_register()`,
+which runs holding the global clk `prepare_lock`. The dying worker never
+released it, so **every `clk_prepare_enable()` on the system blocked forever**
+and the display could not be turned back on. SSH kept working, because nothing
+in the network path asks for a clock at runtime. That is the "screen stays black
+after a long screen-off, but the phone is otherwise alive" bug.
+
+Measured on the device, in this order:
+
+| | |
+| --- | --- |
+| stop the listener while awake | the ADSP does **not** assert — so the hook is safe |
+| suspend without the hook, 40 s | ADSP asserts, restarts; with patch 0059 the system survives but the sound card is gone and `iio-sensor-proxy` segfaults |
+| suspend with the hook, 120 s | no assert, no oops, sound card, sensors and display all intact |
+
+Do not try to solve this by making the listener unfreezable. It would still have
+to answer the DSP while the AP is asleep, which is exactly what it cannot do.
+
 ## Automatic brightness
 
 The ambient light sensor works and reports correct lux -- 6.6 in a dark room,
@@ -395,6 +433,7 @@ none of it belongs to a package and dpkg would never put any of it back:
 	sensors        the four /usr/local/sbin programs, 0755
 	sensors-lib    libadsprpc.so.1.0.0, libadsp_default_listener.so.1.0.0, 0755
 	sensors-conf   the udev rule, the two units and the iio-sensor-proxy drop-in
+	adsp-suspend   /usr/lib/systemd/system-sleep/rhodep-adsp, 0755
 
 Each gets the immutable bit and a snapshot that `rhodep-holds-enforce` restores
 from, at boot, after every apt transaction, and on a 30-minute timer — and it

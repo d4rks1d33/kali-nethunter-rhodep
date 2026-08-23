@@ -41,6 +41,7 @@ if [ -x "$PROTECT" ]; then
 		/etc/systemd/system/rhodep-ssc-populate.service \
 		/etc/systemd/system/iio-sensor-proxy.service.d/10-rhodep-ssc.conf \
 		/etc/systemd/user/rhodep-autobrightness.service \
+		/usr/lib/systemd/system-sleep/rhodep-adsp \
 		2>/dev/null || true
 fi
 
@@ -73,6 +74,12 @@ install -D -m 0644 "$here/systemd/10-rhodep-ssc.conf" \
 # unless XDG_CURRENT_DESKTOP=KDE, so enabling it cannot break a Phosh session.
 install -D -m 0644 "$here/systemd/rhodep-autobrightness.service" \
 	/etc/systemd/user/rhodep-autobrightness.service
+# The suspend hook. Without it a suspend freezes this listener, the ADSP's
+# sensors PD asserts for want of an answer, and the whole ADSP restarts --
+# taking audio with it. See the comment at the top of the script.
+install -D -m 0755 "$here/systemd/rhodep-adsp-sleep-hook" \
+	/usr/lib/systemd/system-sleep/rhodep-adsp
+
 install -D -m 0644 "$here/README.md" \
 	/usr/share/doc/rhodep-sensors/README.md 2>/dev/null || true
 
@@ -155,6 +162,9 @@ if [ -x "$PROTECT" ]; then
 		/etc/systemd/system/rhodep-ssc-populate.service \
 		/etc/systemd/system/iio-sensor-proxy.service.d/10-rhodep-ssc.conf \
 		/etc/systemd/user/rhodep-autobrightness.service \
+		2>/dev/null || true
+	"$PROTECT" register adsp-suspend 0755 \
+		/usr/lib/systemd/system-sleep/rhodep-adsp \
 		2>/dev/null || true
 fi
 

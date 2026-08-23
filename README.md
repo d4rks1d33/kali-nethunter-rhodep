@@ -455,7 +455,7 @@ docs/                       extra notes
 
 # The kernel (shared with the pmOS port)
 
-## The 54 patches (`kernel/patches/`, applied in this order)
+## The 55 patches (`kernel/patches/`, applied in this order)
 
 The order below is the aport's `source=` order, which is what `patch` sees; it
 is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
@@ -516,6 +516,7 @@ is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
 0062 panel-nt37701-brightness-in-lp-mode  brightness DCS in LP; no effect on the glitch
 0063 dsi-wait-mdp-idle-before-cmd-xfer   waits for MDP idle; the wait never fires
 0065 rhodep-display-interconnect-paths   mdss had no icc paths, so it never voted
+0067 rhodep-ramoops-ecc-and-firmware-regions  crash logs came back unreadable
 ```
 
 0062 and 0063 are kept but neither changes the glitched lines they were written

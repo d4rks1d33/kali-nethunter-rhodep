@@ -83,6 +83,7 @@ source="
 	0062-drm-panel-nt37701-brightness-in-lp-mode.patch
 	0063-drm-msm-dsi-wait-mdp-idle-before-cmd-xfer.patch
 	0065-arm64-dts-qcom-rhodep-display-interconnect-paths.patch
+	0067-arm64-dts-qcom-rhodep-ramoops-ecc-and-firmware-regions.patch
 "
 options="!check !strip !tracedeps pmb:cross-native"
 _carch="arm64"
@@ -135,7 +136,7 @@ package() {
 }
 sha512sums="
 f88a468a9b68ac28de925b092b4ce6fc0be558928f8a0e7474a90426e05793007e441740d494a4d504efe4ed216aec9627ee3a4982ab0da89d8a3a15448b227f  linux-motorola-rhodep-7.2_rc5.tar.gz
-c3aaecb962e8e1a5e7ed4a5a15f8d87a96dff109ef963a61a2f5837d8122d38a7d5c561d674fae3d0e77cc18fdea5ecc0f4ce4e08f8064d5914e53c2064faf6c  config-motorola-rhodep.aarch64
+825be98d3368e409b76365b1c0ca5de995d98e72ec4351c90f0dba9923f4047c47820b6cca121d843ec3bb9cbbb398b5072546abe35e7270aa71810cc571efc6  config-motorola-rhodep.aarch64
 50d91ef0efbd9c6279244d3041d43f76a9fa663bbe37c320fc0377d561c84ade61e8385eeb68a1805b26ba9c2cb5903c5c288e8df00599342d377ce27524b3d0  0001-arm64-dts-qcom-add-Motorola-Moto-G82-5G.patch
 476ade0233afb67abe1bcbc95829d732354ffbaa21fe43317d0a8bcc281fae0515a767a71764398dce11cd938d29ca0bd41ab13499468c86fc360ed141dd99ca  0002-drm-msm-dsi-fix-pclk-for-dsc-without-widebus.patch
 88c109343e5068fe81554c5b8fdac93a5848d8cd784b4d7cfafc35c8db1310a0091b5d10170fff0291e3e988b75ceb5892f6e35ea8fd09c44f09f720b87e7cc2  0003-drm-panel-add-novatek-nt37701.patch
@@ -190,4 +191,5 @@ f4bd2e95fd4d5b184529abb29a93c0c0d914148e4c8b11eeca570e62be4c1b7a947a6bbc63bd762f
 52feb0eb0b7f783a46a685b7ca34cc23dd3df7b1f341ce74037e37d0714dffbca900313d58c8747ac35bfe2e678225c1c20b4978db05f77d8b2e8bfcd4cd495f  0062-drm-panel-nt37701-brightness-in-lp-mode.patch
 b30ef03c84025e573c9dbf31dbaf8efbff72694726b7273cab35d634258cb5ed483b39df435e2c84cc894b459006bccc575d87eae99c5c4709404b5d3a4dfa11  0063-drm-msm-dsi-wait-mdp-idle-before-cmd-xfer.patch
 777d877278a67d318f07a6c1511ee99fbf07c40fc9b459242d7bb9e0b119a65323b2ef12cfdfa6edefcfd3dc167e1b35413699248be888228a4dae7fdc05a741  0065-arm64-dts-qcom-rhodep-display-interconnect-paths.patch
+e2f05f00941fa556645ffb694655e60c0e3e41a3cd57593b6820531a0ca646b7c2beead39b3b6f545b6c5c52eaccf469ff07c20a7fbf5daaefaba1793591fe4a  0067-arm64-dts-qcom-rhodep-ramoops-ecc-and-firmware-regions.patch
 "

@@ -303,12 +303,20 @@ the next boot if the phone was off (`Persistent=true`). Run it by hand with
 - **Mobile data**: the modem itself is finished. It registers on LTE, data was
   measured at ~24 Mbit/s, calls connect and SMS arrives. What blocks day-to-day
   use is a separate bug reachable only now that the radio works: with `ipa.ko`
-  loaded **and** the modem attached to LTE, the SoC watchdog-resets every 3 to
-  10 minutes, silently. It is reproducible in under a minute by hand and the
-  last kernel message before it is now known -- see
-  `docs/watchdog-ipa-lte-wip/`, which also has the strongest lead: this port has
-  already seen an instant reset with no exception and no log once before, from a
-  wrong offset into IPA's shared SRAM. Either condition alone is stable (22 and 16.5 minutes
+  loaded **and** the modem attached to LTE, the SoC resets, silently and within
+  seconds. **It is specific to LTE.** With the modem restricted to GSM
+  (`qmicli -d qrtr://0 --nas-set-system-selection-preference="gsm"`) the same
+  configuration registers, attaches, is managed by ModemManager, receives SMS
+  and does not reset. So the AP side -- the driver, the memory layout, the QMI
+  handshake, the endpoint configuration -- is right, and what breaks is
+  specific to an LTE attach. `docs/watchdog-ipa-lte-wip/` has the measurements
+  and what they rule out.
+
+  That also means voice and SMS are reachable today at the cost of data: the
+  "no dialer, no SMS UI" part of this limitation came from ModemManager
+  refusing a modem with no net port, and on GSM with IPA loaded there is one.
+  It is not the default here because the mode preference lives in the modem's
+  own NV, and anything putting it back to LTE brings the reset back. Either condition alone is stable (22 and 16.5 minutes
   observed). So `userspace/modem/install.sh` ships
   `/etc/modprobe.d/rhodep-ipa-hold.conf`, and `rhodep-icc-hold.conf` for the
   interconnect provider, which keeps both drivers out of the boot. The cost is

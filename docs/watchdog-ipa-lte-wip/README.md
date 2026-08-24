@@ -1,7 +1,82 @@
 # The watchdog reset with IPA loaded and the modem on LTE
 
-Status: **reproducible on demand, last kernel message now known, cause not
-found.** This is the bug that keeps mobile data switched off, via
+Status: **narrowed to LTE.** The reset does not happen on GSM. With the modem
+restricted to 2G and IPA loaded, the phone registers, ModemManager manages it,
+SMS works and nothing resets.
+
+## The finding
+
+Everything in this document below this section was written while assuming the
+trigger was "the modem reaches the network". It is narrower than that.
+
+Set the modem's mode preference to GSM and the whole failure disappears:
+
+```
+qmicli -d qrtr://0 --nas-set-system-selection-preference="gsm"
+```
+
+```
+Registration state: 'registered'   Description: 'PERSONAL'   RSSI: -93 dBm
+state: connected      access tech: gsm, gprs
+packet service state: attached
+ipa=1     uptime 748s and counting
+Messaging | supported storages: sm, me
+  /org/freedesktop/ModemManager1/SMS/0 (receiving)
+```
+
+Registered, attached, IPA loaded, ModemManager managing the modem, an SMS
+arriving, and no reset for as long as it was left running. On LTE the same
+sequence kills the SoC within ten seconds of the radio coming online.
+
+3G was tried first and never registered -- `not-registered` throughout, and a
+network scan fails with QMI error 3 -- so it says nothing either way. GSM is
+the one that answers the question.
+
+## What this rules out, which is most of this document
+
+The AP side was never the problem. Everything below that was checked and found
+correct -- the SRAM layout, the IMEM address, the endpoint and channel
+numbering, the register windows, the SMEM size, the QMI handshake completing,
+the absence of IPA and GSI errors, the watchdog not barking -- was correct
+because it *is* correct. The same driver, the same tables, the same handshake
+and the same hardware configuration carry a working GSM attach.
+
+Whatever breaks is specific to what the modem does when it attaches on LTE, and
+the AP's IPA configuration is a precondition rather than a cause: without IPA
+the modem will not register at all, on any technology.
+
+## Where to look now
+
+LTE attach differs from GSM attach in what the modem sets up on its side. The
+obvious candidates, none yet examined:
+
+- The LTE data path uses IPA's accelerated pipes and GSI channels in a way
+  GPRS does not. GSI channel and event ring configuration is still the one part
+  of the IPA description never compared field by field against downstream.
+- LTE bands. Personal Argentina runs LTE on bands this port may not have
+  described correctly, and RF front-end configuration is entirely unexamined.
+- Carrier aggregation and the higher power classes LTE uses.
+
+## A usable workaround, with its cost
+
+With `mode preference = gsm` the modem is stable with IPA loaded, which means
+ModemManager creates the modem and **voice and SMS work**. That is a real
+change to what the port can do: the README's "no dialer, no SMS UI" limitation
+came from ModemManager refusing a modem with no net port, and there is a net
+port here.
+
+The cost is that there is no usable data -- GPRS only, and the data call did
+not complete in testing, failing with `call-already-present` from the modem.
+
+The risk is that anything setting the mode back to LTE brings the reset back,
+and the setting lives in the modem's own NV rather than anywhere this port
+controls. It survives reboots on its own, which cuts both ways.
+
+Making this the default would mean dropping `rhodep-ipa-hold.conf` and forcing
+GSM instead, and that trade has not been made here.
+
+(The status line above supersedes this one, kept for the history of how the
+search went.) This is the bug that keeps mobile data switched off, via
 `/etc/modprobe.d/rhodep-ipa-hold.conf`.
 
 Everything here was gathered after `0067` made crash logs survive. Before that

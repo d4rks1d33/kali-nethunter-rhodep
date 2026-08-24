@@ -32,6 +32,54 @@ sequence kills the SoC within ten seconds of the radio coming online.
 network scan fails with QMI error 3 -- so it says nothing either way. GSM is
 the one that answers the question.
 
+## A caveat on "GSM works" that has to be stated
+
+The GSM run registered, attached, was managed by ModemManager and received an
+SMS, and it did not reset. What it never did was complete a **data call**.
+Every attempt failed, and the reason turned out to be mundane: on a by-hand
+`modprobe ipa` the QMI handshake does not redo itself, so `ipa_modem_start()`
+never runs, `rmnet_ipa0` does not exist, and ModemManager reports
+
+```
+Failed to add link with mux id 1: rmnet_ipa0 interface is not available
+```
+
+So the comparison is not yet like for like. LTE was killed at registration,
+before any data. GSM survived registration. But GSM was never put through the
+part where the modem actually drives IPA's channels for traffic.
+
+That leaves two readings and the evidence does not separate them:
+
+- The fault is specific to LTE, and GSM would survive a data call too.
+- The fault is in the data path, and GSM survived only because its data call
+  never came up.
+
+**The test that decides it has not been run**: boot with IPA loading first so
+the handshake completes and `rmnet_ipa0` exists, mode forced to GSM, then bring
+up a GPRS data call and pass traffic. If that survives, LTE-specific is
+confirmed. If it resets, the whole framing moves back to the data path and the
+LTE finding becomes a coincidence of what GSM never got to do.
+
+## Checked in this round and matching
+
+- The one LTE-specific endpoint mainline declares, `MODEM_DL_NLO_TX`, is
+  channel 2 endpoint 8, and downstream's `Q6_DL_NLO_DATA_PROD` for IPA_4_11 is
+  `{ 8, 2, ... }`. Identical.
+- The filter endpoint bitmap. Mainline marks three endpoints `filter_support`
+  -- 2, 5 and 8 -- and downstream marks exactly the same three `support_flt`.
+- Mainline describes three modem endpoints where downstream has eight. The
+  extra five sit at endpoints 10 to 13 on channels 3 to 6 of the Q6 execution
+  environment and collide with nothing mainline uses.
+
+Band-by-band testing is not available: the modem answers a single-band
+restriction with QMI error 25, DeviceUnsupported, through either qmicli or
+ModemManager.
+
+For the record, the firmware in play is
+`MPSS.HI.4.3.4-00494-MANNAR_GEN_PACK-1.24452.133`, and the modem carries an
+initial EPS bearer for `datos.personal.com` with `ue mode of operation:
+csps-1`.
+
 ## What this rules out, which is most of this document
 
 The AP side was never the problem. Everything below that was checked and found

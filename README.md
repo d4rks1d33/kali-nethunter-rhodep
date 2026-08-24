@@ -308,8 +308,10 @@ the next boot if the phone was off (`Persistent=true`). Run it by hand with
   (`qmicli -d qrtr://0 --nas-set-system-selection-preference="gsm"`) the same
   configuration registers, attaches, is managed by ModemManager, receives SMS
   and does not reset. So the AP side -- the driver, the memory layout, the QMI
-  handshake, the endpoint configuration -- is right, and what breaks is
-  specific to an LTE attach. `docs/watchdog-ipa-lte-wip/` has the measurements
+  handshake, the endpoint configuration -- is right. What is not yet settled is
+  whether the fault is specific to LTE or to the data path: the GSM run
+  registered and received SMS but never completed a data call, so it was never
+  put through the part where the modem drives IPA's channels for traffic. `docs/watchdog-ipa-lte-wip/` has the measurements
   and what they rule out.
 
   That also means voice and SMS are reachable today at the cost of data: the

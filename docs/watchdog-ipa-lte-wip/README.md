@@ -195,6 +195,31 @@ modem watchdog interrupt stays at zero and no fatal ever arrives.
 That makes the next question concrete: which GSI channel does the modem get
 stuck on, and what is different about its configuration.
 
+### Also checked in the ten second window, all clean
+
+**GSI errors.** Mainline enables `ERROR_INT` in `CNTXT_GLOB_IRQ_EN` and
+`BUS_ERROR | CMD_FIFO_OVRFLOW | MCS_STACK_OVRFLOW` in `CNTXT_GSI_IRQ_EN`, and
+`gsi_isr_glob_chan_err()` prints the offending EE, so an error on the *modem's*
+channels would be reported too, not just the AP's. Nothing is printed.
+
+**rmtfs and tqftpserv.** The modem depends on both for EFS and NV, and LTE
+needs more of that than GSM does, so a stalled storage service blocking a modem
+task was a good fit for a ten second watchdog. Piped both journals into the
+kernel log so they land in ramoops. Across the window the only output is two
+`got del_client` lines at the instant of the mode switch, which is the modem
+closing sessions. No errors, no stalls.
+
+**Modem channel allocation.** Mainline allocates GSI channels on the modem's
+behalf only as a v4.2 hardware workaround -- `modem_alloc = gsi->version ==
+IPA_VERSION_4_2` -- so on v4.11 it leaves them to the modem, which is what
+downstream does.
+
+The list of things the AP can see and has been checked is now long: the data
+path, runtime PM, QMI, GSI errors, IPA error interrupts, rmtfs, the reserved
+memory map, CX and MX voting, the battery, the AP watchdog, modem fatal and
+modem watchdog as delivered to the AP. All clean. Whatever expires after ten
+seconds is not visible from this side of the chip.
+
 ## A caveat on "GSM works" that has to be stated
 
 The GSM run registered, attached, was managed by ModemManager and received an

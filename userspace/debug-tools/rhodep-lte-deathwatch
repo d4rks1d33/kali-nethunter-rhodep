@@ -28,6 +28,14 @@ for d in /sys/class/remoteproc/remoteproc*; do
 	[ "$(cat "$d/name" 2>/dev/null)" = "modem" ] && MODEM_RPROC=$d && break
 done
 
+# The modem asks the AP over smp2p whether the IPA clock is running before it
+# touches IPA registers, and the AP answers on ipa-clock-enabled-valid and
+# ipa-clock-enabled. If that exchange goes wrong the modem reads a register on
+# a gated block, the bus transaction never completes and the system dies with
+# nothing to say -- which is the shape of this bug. On GSM the query never
+# fires at all, so watch it.
+IPA_PM=$(ls -d /sys/devices/platform/soc@0/*.ipa/power 2>/dev/null | head -1)
+
 echo "DW: start rproc=${MODEM_RPROC:-none}" > $KMSG
 
 i=0
@@ -40,7 +48,9 @@ while [ "$(cut -d. -f1 /proc/uptime)" -lt "$end" ]; do
 	f=$(irq "smp2p-modem.*q6v5 fatal"); r=$(irq "smp2p-modem.*q6v5 ready")
 	h=$(irq "smp2p-modem.*q6v5 handover"); w=$(irq "339.*q6v5 wdog")
 	ipa=$(irq "Edge +ipa$"); gsi=$(irq "Level +gsi$")
-	echo "DW $i t=$up $st f=$f r=$r h=$h w=$w ipa=$ipa gsi=$gsi" > $KMSG
+	cq=$(irq "ipa-clock-query"); sr=$(irq "ipa-setup-ready")
+	pm=$(cut -c1-3 "$IPA_PM/runtime_status" 2>/dev/null)
+	echo "DW $i t=$up $st f=$f r=$r h=$h w=$w ipa=$ipa gsi=$gsi cq=$cq sr=$sr pm=$pm" > $KMSG
 	sleep 0.25
 done
 echo "DW: end clean" > $KMSG

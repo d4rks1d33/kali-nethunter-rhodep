@@ -152,6 +152,49 @@ only drops a reference, and something else holds the modem booted, so it did
 nothing and said nothing. Testing the escalation theory needs a way to make the
 modem crash for real.
 
+## It is a ten second timeout, and it is not QMI
+
+Three runs, measuring from the last GSI interrupt to the moment the machine
+stops answering:
+
+```
+run 1   last GSI t=660.17   death ~669.9   9.7 s
+run 2   last GSI t=140.36   death  150.26  9.9 s
+run 3   last GSI t=58.30    death ~67.0    8.7 s
+```
+
+The shape is the same every time. The modem attaches, IPA wakes, GSI takes on
+the order of a dozen interrupts while the channels are programmed, everything
+goes quiet, and about ten seconds later the SoC is gone. A constant interval
+is a timeout expiring. It is not a race and it is not a rail sagging.
+
+Runtime PM was the first suspect, since the AP suspends IPA immediately after
+the attach and downstream never does while the modem is up. It is not that:
+with `power/control` forced to `on` and `pm=act` held across the whole window,
+it still died, at nine point nine seconds.
+
+QMI was the second, and a better one. Mainline's IPA answers exactly two
+requests, `IPA_QMI_INDICATION_REGISTER` and `IPA_QMI_DRIVER_INIT_COMPLETE`,
+where downstream implements a good deal more including filter rule
+installation. And `qmi_invoke_handler()` drops anything it has no handler for
+with a bare `return`, no message. So the silence this investigation kept
+hitting could have been a dropped request all along.
+
+Patch 0074 makes the generic QMI layer say so. It works -- ten messages get
+reported during a normal boot, all `msg_id=0x0023` indications -- and during
+the entire LTE window **not one further message is dropped**. The modem is not
+asking the AP for anything it fails to answer. QMI is out, and out on evidence
+rather than on absence.
+
+What is left fits the rest. The modem programs its GSI channels, blocks on IPA
+hardware that never answers, and its own Q6 watchdog -- ten seconds is the
+usual setting -- takes it down. Trust Zone handles that first and resets the
+chip rather than restarting the subsystem, which is why the AP's copy of the
+modem watchdog interrupt stays at zero and no fatal ever arrives.
+
+That makes the next question concrete: which GSI channel does the modem get
+stuck on, and what is different about its configuration.
+
 ## A caveat on "GSM works" that has to be stated
 
 The GSM run registered, attached, was managed by ModemManager and received an

@@ -85,7 +85,6 @@ source="
 	0065-arm64-dts-qcom-rhodep-display-interconnect-paths.patch
 	0067-arm64-dts-qcom-rhodep-ramoops-ecc-and-firmware-regions.patch
 	0068-arm64-dts-qcom-sm6375-add-apss-watchdog.patch
-	0069-DIAGNOSTIC-net-ipa-trace-qmi-handshake.patch
 	0070-remoteproc-qcom_q6v5-mask-handover-irq.patch
 "
 options="!check !strip !tracedeps pmb:cross-native"
@@ -196,6 +195,5 @@ b30ef03c84025e573c9dbf31dbaf8efbff72694726b7273cab35d634258cb5ed483b39df435e2c84
 777d877278a67d318f07a6c1511ee99fbf07c40fc9b459242d7bb9e0b119a65323b2ef12cfdfa6edefcfd3dc167e1b35413699248be888228a4dae7fdc05a741  0065-arm64-dts-qcom-rhodep-display-interconnect-paths.patch
 e2f05f00941fa556645ffb694655e60c0e3e41a3cd57593b6820531a0ca646b7c2beead39b3b6f545b6c5c52eaccf469ff07c20a7fbf5daaefaba1793591fe4a  0067-arm64-dts-qcom-rhodep-ramoops-ecc-and-firmware-regions.patch
 b7172fd6724f8af2093107e5744c7003d58b6ec1344ae823253b27b7b63436fcca2d83830c8d13b8b47d4b948ef1fc28247526d27d623851b523f834a4ee43be  0068-arm64-dts-qcom-sm6375-add-apss-watchdog.patch
-6032cdafa495004fe7d2c287967f6990446b4e09f1b80754a97f79031447926f13aa3322dec5554a8f363e81269056f3f791b0fffbc2634e7033d9f2e9e7aea8  0069-DIAGNOSTIC-net-ipa-trace-qmi-handshake.patch
 56a31ff3202e46dae28c4e87ceb573b8d7dc5f8048f9c9359deac7d6162e1cd1c070ae1aad35672c4dea919d4a5b9719fb47d53da13faa98f929d0a39eb66e91  0070-remoteproc-qcom_q6v5-mask-handover-irq.patch
 "

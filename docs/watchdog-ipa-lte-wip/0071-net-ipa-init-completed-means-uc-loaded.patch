@@ -1,0 +1,67 @@
+From: rhodep port <none@example.com>
+Date: Mon, 24 Aug 2026 00:35:00 -0300
+Subject: [PATCH] net: ipa: an INIT_COMPLETED response means the uC is loaded
+
+ipa_uc_response_hdlr() only sets uc_loaded when it also owns a power
+reference for the microcontroller. If the response arrives without one it
+warns and leaves the flag alone, which reads as bookkeeping and is not.
+
+ipa_qmi_init_driver() builds its request with
+
+	req.skip_uc_load = ipa->uc_loaded ? 1 : 0;
+
+so a false flag asks the modem to load the microcontroller. Bind IPA while
+the modem is already up -- as happens whenever the module is loaded by
+hand, and after any modem restart, since ipa_uc_power() guards its body
+with a file-scope static and runs once per module load -- and the uC has
+been running since long before this driver existed. It answers, nobody
+holds a reference, the flag stays false, and the AP then tells the modem
+to load a microcontroller that is already running.
+
+Observed on a Motorola rhodep. With the tracing patch on the QMI
+handshake:
+
+  ipa 5840000.ipa: unexpected init_completed response
+  ipa-qmi: -> INIT_DRIVER hdr=[0x688..0x8c7] v4rt=0x508 v6rt=0x608
+           v4flt=0x308 v6flt=0x408 modem=[0x27d8 +0x800] ctrl_ep=16
+           skip_uc=0
+
+Every address in that request is correct for this SoC; skip_uc is the one
+thing wrong with it.
+
+Set the flag from the response, which is what the response means, and
+keep the power handling conditional on actually holding the reference.
+The remaining warning is reworded to say what it now describes.
+
+Signed-off-by: rhodep port <none@example.com>
+---
+--- a/drivers/net/ipa/ipa_uc.c
++++ b/drivers/net/ipa/ipa_uc.c
+@@ -155,13 +155,25 @@
+ 	 */
+ 	switch (shared->response) {
+ 	case IPA_UC_RESPONSE_INIT_COMPLETED:
++		/*
++		 * The microcontroller is telling us it finished initialising,
++		 * so it is loaded. That is true whether or not this driver is
++		 * the one that powered it: when IPA is bound with the modem
++		 * already running, the uC came up long ago and reports here
++		 * without uc_powered ever having been set.
++		 *
++		 * The flag matters beyond bookkeeping. ipa_qmi_init_driver()
++		 * sends skip_uc_load = uc_loaded, so leaving it false asks the
++		 * modem to load a microcontroller that is already running.
++		 */
++		ipa->uc_loaded = true;
++
+ 		if (ipa->uc_powered) {
+-			ipa->uc_loaded = true;
+ 			ipa_power_retention(ipa, true);
+ 			(void)pm_runtime_put_autosuspend(dev);
+ 			ipa->uc_powered = false;
+ 		} else {
+-			dev_warn(dev, "unexpected init_completed response\n");
++			dev_warn(dev, "init_completed with no power reference held\n");
+ 		}
+ 		break;
+ 	default:

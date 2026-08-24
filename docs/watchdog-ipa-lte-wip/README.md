@@ -274,6 +274,81 @@ tree has now been diffed:
 | register windows | `gsi` identical to vendor's `gsi-base`; `ipa-reg` and `ipa-shared` are `ipa-base` + 0x40000 and + 0x50000 |
 | modem SSR wiring | complete |
 
+## The modem hangs on INIT_DRIVER, and why
+
+This is the concrete result of the session, and it corrects the section that
+follows it.
+
+`ipa_qmi_init_driver()` builds its request with
+
+```c
+req.skip_uc_load = ipa->uc_loaded ? 1 : 0;
+```
+
+`uc_loaded` is only set in `ipa_uc_response_hdlr()`, and only when the driver
+also holds the power reference it took in `ipa_uc_power()`. That function
+guards its body with a file-scope `static bool already`, so it runs once per
+module load. Bind IPA while the modem is already up -- by hand, or after any
+modem restart -- and the microcontroller has been running since long before
+this driver existed. Either it answers with nobody holding a reference, which
+takes the `else` branch and leaves the flag false, or it does not answer at all,
+which also leaves it false.
+
+Either way the AP then tells the modem to load a microcontroller that is
+already running, and **the modem never replies**:
+
+```
+ipa-qmi: -> INIT_DRIVER hdr=[0x688..0x8c7] v4rt=0x508 v6rt=0x608
+         v4flt=0x308 v6flt=0x408 modem=[0x27d8 +0x800] ctrl_ep=16 skip_uc=0
+ipa 5840000.ipa: error -110 awaiting init driver response
+```
+
+Sixty seconds of timeout, reproduced on three consecutive loads. Every address
+in that request is correct for this SoC; `skip_uc` is the one field that is
+wrong.
+
+Forcing `skip_uc = 1` changes the outcome immediately:
+
+```
+ipa-qmi: -> INIT_DRIVER ... skip_uc=1
+ipa-qmi: <- INDICATION_REGISTER from modem
+ipa-qmi: ready check: modem=0 uc=0 indication_requested=1 sent=0 initial_boot=1
+ipa-qmi: ready check: modem=1 uc=0 indication_requested=1 sent=0 initial_boot=1
+```
+
+The modem answers, `modem_ready` goes true and the handshake moves. No timeout.
+
+**It does not stop the reset.** With the handshake unstuck the SoC still goes
+down when the radio comes online. So the hang and the reset are two separate
+faults, and this one is now understood.
+
+The handshake still stalls at `uc=0`. `uc_ready` is set only in
+`ipa_server_driver_init_complete()`, from a DRIVER_INIT_COMPLETE the modem
+sends on first boot, so `ipa_qmi_ready()` returns early, `ipa_modem_start()`
+never runs and no rmnet netdev is created. That is where to pick this up.
+
+`0071-net-ipa-init-completed-means-uc-loaded.patch`, parked in this directory,
+sets `uc_loaded` from the response instead of from the power bookkeeping. It is
+right as far as it goes and it is not enough: on a re-load the microcontroller
+does not send INIT_COMPLETED at all, so there is no response to learn from. A
+real fix has to work out that the uC is up without being told -- reading its
+state, or treating "modem already running at probe" as implying it.
+
+## Two hours were spent reading an uninstrumented module
+
+Worth recording as a method failure. Kernel modules live in the rootfs, not in
+the boot image. Patch 0069 was built, packaged, and the boot image flashed four
+times, while the phone went on loading the `ipa.ko` already installed under
+`/lib/modules` -- which had none of the tracing in it.
+
+Every conclusion drawn from "no `ipa-qmi:` lines appear" during that stretch was
+worthless: the code was never there. The QMI handshake was assumed dead when it
+was simply unobserved. Installing the module from the freshly built apk, with
+`depmod -a`, produced the trace above within a minute.
+
+When a change is to a module, copy the `.ko`. Flashing a boot image does
+nothing for it.
+
 ## The AP does nothing between loading and dying
 
 With patch 0069 tracing every step of the QMI handshake and 0070 clearing the
@@ -287,14 +362,10 @@ handover noise out of the way, the log around the reset is finally legible:
                     reset
 ```
 
-**Not one `ipa-qmi:` line.** No INDICATION_REGISTER, no DRIVER_INIT_COMPLETE,
-no INIT_DRIVER, no readiness check. The handshake never happens at all, which
-also means `ipa_modem_start()` never runs and the AP never brings up its side.
-
-That has an explanation for the by-hand path: the modem is already running and
-already sent its INDICATION_REGISTER, back when there was no QMI server on the
-AP to receive it. It does not retry. So after `modprobe`, the AP is idle -- it
-initialises the hardware and then sits there.
+**Not one `ipa-qmi:` line** -- which turned out to mean nothing at all, because
+the module being loaded did not contain the tracing. See the section above. The
+handshake does happen; it hangs. Read this section only for the timing, which
+still holds: fourteen seconds pass between the last message and the reset.
 
 Which leaves one thing the AP did do: `ipa_probe()` reinitialises IPA while the
 modem is actively using it. The modem then reaches the network, touches state

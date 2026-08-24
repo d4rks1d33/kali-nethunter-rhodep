@@ -397,6 +397,9 @@ packages/
                            the Adreno 619 as FD619 (RUSTICL_ENABLE=freedreno)
   firmware-motorola-rhodep/ .deb template (blobs NOT included, see its README)
 userspace/
+  debug-tools/             the display and modem diagnostic tools, plus
+                           rhodep-pstore-keep, which copies pstore records
+                           aside each boot so a crash log survives the next one
   usb-net/            SSH over the USB cable (172.16.42.1), the only link that
                       survives a modem restart (install.sh)
   bluetooth/          unmasks bluetooth.service and programs the real

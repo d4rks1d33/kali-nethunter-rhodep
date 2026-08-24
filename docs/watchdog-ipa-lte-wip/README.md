@@ -274,6 +274,73 @@ tree has now been diffed:
 | register windows | `gsi` identical to vendor's `gsi-base`; `ipa-reg` and `ipa-shared` are `ipa-base` + 0x40000 and + 0x50000 |
 | modem SSR wiring | complete |
 
+## The boot path completes the handshake and dies anyway
+
+With the instrumented module actually installed -- copied to /lib/modules, not
+flashed -- the boot path finally showed itself. Two captures, both clean:
+
+```
+[   19.988692] ipa 5840000.ipa: received modem starting event
+[   24.200582] ipa 5840000.ipa: received modem running event
+[   30.747079] ipa-qmi: -> INIT_DRIVER ... modem=[0x27d8 +0x800] ctrl_ep=16
+                                            skip_uc=0
+[   31.099992] ipa-qmi: <- INDICATION_REGISTER from modem
+[   31.112575] ipa-qmi: <- DRIVER_INIT_COMPLETE from modem
+[   31.112587] ipa-qmi: ready check: modem=1 uc=0 ...
+[   31.113774] ipa-qmi: ready check: modem=1 uc=1 ...
+[   31.114594] ipa-qmi: both sides ready, starting modem netdev
+[   31.115583] ipa-qmi: both sides ready, starting modem netdev
+```
+
+Everything works. The modem answers, both flags go true, `ipa_modem_start()`
+runs. Then seventeen seconds later the SoC is gone, with nothing in between.
+
+Three things follow:
+
+- **The handshake is not the bug.** That whole line of investigation is closed.
+- `skip_uc` is 0 here too, and the modem answers anyway. The hang documented
+  below is specific to loading the module by hand, where the modem has been up
+  far longer. Worth fixing, not the cause.
+- "both sides ready" prints twice, so `ipa_qmi_ready()` reaches the end twice
+  and `ipa_modem_start()` is called twice. The second call returns early on its
+  own state check, so it is harmless, but it is not intended either.
+
+## IPA is not reporting an error
+
+`ipa_interrupt_process()` handles UC_0, UC_1 and TX_SUSPEND and sends the rest
+to "silently ignore (and clear) any other condition", and nothing ever unmasks
+the error conditions. So BAD_SNOC_ACCESS -- which is what an access the
+interconnect refuses looks like from inside IPA, and the obvious candidate for
+a reset with no other trace -- could not have been seen.
+
+`0072-DIAGNOSTIC-net-ipa-report-error-interrupts.patch` unmasks
+BAD_SNOC_ACCESS, RX_ERR, DEAGGR_ERR, TX_ERR, PROC_ERR and TX_HOLB_DROP and
+names whichever arrives. Reproduced with it in place: **none of them fire.**
+IPA reports nothing at all before the reset.
+
+That closes the other obvious line. Whatever refuses the access, IPA is not the
+one being told about it.
+
+## What is left, and it is thin
+
+The only thing that consistently precedes the reset is the ADSP handover storm:
+
+```
+q6v5_handover_interrupt: 252 callbacks suppressed
+qcom_q6v5_pas a400000.remoteproc: Handover signaled, but it already happened
+```
+
+It arrives in the last seconds before every reset, at the same suppressed count
+each time, from the ADSP rather than the modem, and 0070 does not stop it even
+though it masks the line after the first handover -- which means either the
+mask does not stick under IRQF_ONESHOT, or something re-enables it.
+
+Correlation is all this is so far. Counting across the saved captures does not
+separate it cleanly, because the "IPA driver initialized" line used to tell
+whether ipa was loaded is often scrolled out of the console ring, so several
+captures are unclassifiable. It is the strongest remaining thread and it is
+still only a thread.
+
 ## The modem hangs on INIT_DRIVER, and why
 
 This is the concrete result of the session, and it corrects the section that

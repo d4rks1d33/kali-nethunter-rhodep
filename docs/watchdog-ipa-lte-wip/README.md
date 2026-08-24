@@ -9,6 +9,40 @@ the console came back with 1-4% of its bytes altered and every compressed dmesg
 record died on `zlib_inflate() failed`, so there was nothing to read. Captures
 below are marker-verified and came back with `ECC: No errors detected`.
 
+## Capturing the boot path: how not to do it
+
+The by-hand path is the only one captured. The boot path -- where udev
+autoloads ipa at around 15 s, before the modem is up -- resets too, and its
+final messages are still unknown. One attempt cost a reset loop and produced
+nothing. What went wrong is worth writing down.
+
+`rhodep-holds-enforce.service` puts the hold back on every boot, which is why
+the boot after a crash comes up with ipa unloaded and stable. To let ipa load
+at boot it has to be neutralised, and `systemctl mask` **fails** on it: a real
+unit file already exists at `/etc/systemd/system/rhodep-holds-enforce.service`
+and masking wants to put a symlink there. The error was printed and not read
+before rebooting.
+
+The other half of the failure is ramoops itself. The console zone holds one
+boot, and systemd-pstore moves it aside on the next. The crashed boot's record
+was overwritten by the boots that followed while the phone was being rescued,
+so by the time anything was read it was a clean shutdown from the recovery
+reboot.
+
+For the next attempt:
+
+- Neutralise the enforcer by moving its unit file aside
+  (`mv /etc/systemd/system/rhodep-holds-enforce.service /root/` plus
+  `systemctl daemon-reload`), not by masking it, and verify it is gone before
+  rebooting.
+- Arrange the restore to happen on the *second* boot, and confirm the restoring
+  unit actually runs before udev autoloads ipa -- ordering `Before=
+  systemd-udev-trigger.service` was written but never verified to win that
+  race.
+- Read `/var/lib/systemd/pstore/console-ramoops-0` on the **first** boot after
+  the crash, before anything else reboots the phone. There is exactly one
+  chance.
+
 ## Reproducing it
 
 Takes under a minute with a SIM that registers:

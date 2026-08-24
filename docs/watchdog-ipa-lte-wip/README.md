@@ -274,6 +274,42 @@ tree has now been diffed:
 | register windows | `gsi` identical to vendor's `gsi-base`; `ipa-reg` and `ipa-shared` are `ipa-base` + 0x40000 and + 0x50000 |
 | modem SSR wiring | complete |
 
+## The modem cannot register without IPA, so the two cannot be separated
+
+The experiment that should have decomposed this does not exist, and it took a
+while to see why.
+
+With ModemManager disabled and IPA loaded at boot, the phone is **stable**: the
+handshake completes, `rmnet_ipa0` is created and sits DOWN, and nothing happens
+for as long as it is left alone. Switch the radio on by hand and it is gone
+within ten seconds, with an empty log. So registration is the trigger and
+nothing the AP does on its own matters.
+
+The obvious next question is whether registration alone does it, without IPA.
+It cannot be asked. ModemManager refuses a QMI modem with no net port, so
+without IPA it never manages the modem and the SIM is never provisioned.
+Provisioning the SIM by hand through qmicli works -- `Primary GW: slot '1',
+application '1'` -- and the modem still will not register: it sits in
+`not-registered-searching` indefinitely and answers a forced search with
+
+```
+error: couldn't force network search: QMI protocol error (52): 'DeviceNotReady'
+```
+
+Nine minutes of that, perfectly stable. The modem gates registration on its own
+data path being ready, which needs the QMI handshake, which needs IPA. So "IPA
+loaded" and "modem registered" are not independent variables on this device and
+no experiment can hold one while varying the other.
+
+That also reframes the original note. "With the radio on but not attached it
+runs for 22 minutes" was never a registered modem; it was a modem that could
+not register.
+
+One test was run and thrown away before this was understood: `rmmod ipa` on a
+boot where IPA had already loaded and completed the handshake, then radio on.
+It died immediately, which proves nothing -- the hardware was configured and the
+modem held references to a driver that had just been removed.
+
 ## The boot path completes the handshake and dies anyway
 
 With the instrumented module actually installed -- copied to /lib/modules, not

@@ -1,8 +1,12 @@
 # The watchdog reset with IPA loaded and the modem on LTE
 
-Status: **narrowed to LTE.** The reset does not happen on GSM. With the modem
-restricted to 2G and IPA loaded, the phone registers, ModemManager manages it,
-SMS works and nothing resets.
+Status: **narrowed to LTE, confirmed.** The reset does not happen on GSM. With
+the modem restricted to 2G and IPA loaded, the phone registers, ModemManager
+manages it, a GPRS bearer comes up, real traffic flows through IPA's channels
+with zero errors, SMS works, and nothing resets -- across reboots.
+
+`userspace/modem-gsm-only/` makes that configuration permanent for anyone who
+wants working voice, SMS and slow data today.
 
 ## The finding
 
@@ -31,6 +35,36 @@ sequence kills the SoC within ten seconds of the radio coming online.
 3G was tried first and never registered -- `not-registered` throughout, and a
 network scan fails with QMI error 3 -- so it says nothing either way. GSM is
 the one that answers the question.
+
+## Settled: the data path works, the fault is LTE
+
+The test that was missing has been run and it answers cleanly.
+
+Booted with IPA loading first so the QMI handshake completes and the netdev
+exists, mode pinned to GSM, ModemManager brought up a GPRS bearer on its own:
+
+```
+Bearer connected: yes    interface: qmapmux0.0
+  address: 100.93.125.209/30   gateway: 100.93.125.210
+  dns: 181.8.8.8, 181.9.194.73
+```
+
+Then two minutes of real traffic through it:
+
+```
+8 consecutive HTTP 204 over GPRS
+rx 11822 B / tx 6696 B, 83 rx packets / 88 tx packets
+rx_errors 0, tx_errors 0, dropped 0
+no IPA or GSI errors in dmesg
+```
+
+The modem drove IPA's channels with live traffic and nothing reset. So the two
+readings left open above are resolved: **the data path is fine and the fault is
+specific to LTE.** GSM did not survive because its data call never came up; it
+survives with the data call up and carrying packets.
+
+It also survives a reboot and comes back on its own -- data up within about
+forty seconds of boot, no intervention.
 
 ## A caveat on "GSM works" that has to be stated
 

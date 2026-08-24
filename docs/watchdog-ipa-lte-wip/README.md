@@ -128,6 +128,48 @@ endpoints that matter (`APPS_CMD_PROD` ep 7 ch 5, `APPS_WAN_PROD` ep 2 ch 2,
 `qcom,ipa-q6-smem-size` in holi.dtsi is 36864, the 0x9000 the driver already
 uses.
 
+## The AP watchdog did not do it
+
+Patch 0068 describes the APSS watchdog so qcom-wdt can bind to it, and
+`scripts/rhodep-wdt-arm` puts it to work: timeout 30 s, pretimeout 15 s, petted
+every 5 s, with the panic governor selected so a bark becomes a panic carrying
+every CPU's backtrace.
+
+Reproduced with that running. **No bark, no panic, no backtrace.** The console
+record is byte-identical to the ones taken without it, ECC reporting no errors,
+ending at the same `clearing disabled IPA interrupts` line.
+
+That is a real elimination rather than another silence. The watchdog was being
+fed up to the instant of the reset, so nothing on the AP side timed out: no CPU
+was wedged, no interrupt storm starved the pet, the kernel was alive and
+scheduling. Every hypothesis of the form "something hangs and the watchdog
+bites" is out, and `androidboot.bootreason=watchdog` is the bootloader's label
+for an abnormal reset rather than a description of what happened.
+
+Neither side signals anything. `qcom_q6v5_pas` never reports a fatal error, and
+the modem node has the full set wired -- wdog, fatal, ready, handover,
+stop-ack, shutdown-ack over smp2p, plus the stop state -- so the AP would hear
+about a modem crash if there were one to hear.
+
+What is left is a hardware-level abort: an access the interconnect or TrustZone
+refuses, escalated straight to a system reset with no chance for anyone to
+write a line. Which is exactly what 0026 describes running into.
+
+## Checked against the vendor and matching, so do not redo these
+
+Everything comparable between mainline's description of this IPA and the vendor
+tree has now been diffed:
+
+| what | result |
+| ---- | ------ |
+| SRAM region table (0048 vs `ipa_4_11_mem_part`) | all 22 regions identical, offsets and sizes |
+| IMEM address (0042) | 0x0C123000, matches `ipa_smmu_ap`'s additional-mapping exactly |
+| uC context bank 0x4a2 | vendor gives it no additional-mapping at all; nothing missing |
+| endpoint and channel numbering | all seven that matter match |
+| `qcom,ipa-q6-smem-size` | 36864, the 0x9000 already used |
+| register windows | `gsi` identical to vendor's `gsi-base`; `ipa-reg` and `ipa-shared` are `ipa-base` + 0x40000 and + 0x50000 |
+| modem SSR wiring | complete |
+
 ## The strongest lead
 
 From the commit message of `0026-arm64-dts-qcom-rhodep-enable-ipa.patch`,
@@ -146,17 +188,20 @@ own channels -- which is why it needs LTE attach and not merely a loaded
 driver. With the AP context bank ruled out by the absence of any fault, the
 remaining candidates are:
 
-- The **uC context bank, stream 0x4a2**. 0042 fixed what the AP bank reaches;
-  the microcontroller's bank has not been checked against downstream's
-  `ipa_smmu_uc` mapping the same way. A uC access outside its bank would not
-  necessarily reach the SMMU driver's fault handler before the SoC goes down.
-- GSI channel and event ring counts, and the per-channel scratch offsets.
-- Whether the reset comes from the modem side at all rather than from IPA:
-  `qcom_q6v5_pas` never reports a fatal error, but a modem-initiated system
-  reset would look exactly like this from the AP.
-- The local SRAM layout in 0048 against `ipa_4_11_mem_part` in the vendor's
-  `ipa_utils.c`, region by region. 0048 exists, but it was not diffed field by
-  field during this session.
+- **The TrustZone log.** 0067 reserves `tzlog_dump@aefa2000`, 192 KiB that TZ
+  writes on its own. If TZ is the one pulling the reset, its reason is
+  plausibly in there. Reading it needs `iomem=relaxed` on the cmdline, since
+  CONFIG_STRICT_DEVMEM refuses reserved ranges, and then somebody has to work
+  out the format. This is the most direct route left to a cause.
+- **`wdog_cpuctx@aefd2000`**, also reserved by 0067: the CPU context the
+  firmware dumps at watchdog time. If it is populated after one of these
+  resets, it says what each core was doing. Same access problem.
+- **GSI channel and event ring configuration**, which is the one part of the
+  IPA description not yet compared field by field, and the part the modem
+  touches when it brings up its channels.
+- **Qualcomm NoC error reporting.** An unclaimed or refused bus access is what
+  this looks like, and the SoC has error registers for it that mainline does
+  not read on this platform.
 
 ## What did not explain it
 

@@ -29,6 +29,15 @@ was overwritten by the boots that followed while the phone was being rescued,
 so by the time anything was read it was a clean shutdown from the recovery
 reboot.
 
+One more thing that attempt got wrong, on the reading side rather than the
+setup. The phone was declared to be in a reset loop and rescued with a
+blacklist image, and it was not: it reset twice, then ran 8, 12, 7 and 19
+minutes across the next four boots, accepting ssh logins throughout. It had
+stabilised on its own for the reason above -- ModemManager was down, so nothing
+brought the radio online. Two failed reset boots and a handful of unrelated ssh
+timeouts were read as a loop. Check `journalctl --list-boots` before concluding
+a phone is looping; the boot durations say it plainly.
+
 For the next attempt:
 
 - Neutralise the enforcer by moving its unit file aside
@@ -41,7 +50,14 @@ For the next attempt:
   race.
 - Read `/var/lib/systemd/pstore/console-ramoops-0` on the **first** boot after
   the crash, before anything else reboots the phone. There is exactly one
-  chance.
+  chance, and it was missed twice: once to the rescue reboots, once because the
+  boot in between never crashed and its clean record overwrote the interesting
+  one.
+- Boot from an image carrying `modprobe.blacklist=ipa` whenever ipa is not the
+  thing being tested. It makes the safe state a property of the kernel command
+  line instead of a race between udev and a userspace service, which is what
+  went wrong. `kali-boot-v130-RESCATE-sin-ipa.img` is exactly v128 plus that
+  one word.
 
 ## Reproducing it
 
@@ -190,6 +206,20 @@ refuses, escalated straight to a system reset with no chance for anyone to
 write a line. Which is exactly what 0026 describes running into.
 
 ## Registration is the trigger, not traffic
+
+Confirmed twice, from both directions.
+
+Stopped ModemManager so no bearer could exist, loaded ipa by hand, switched the
+radio on. The modem reached `Registration state: 'registered'` and the SoC went
+down within ten seconds of it. No data session, no packets.
+
+The other direction fell out of a boot that was not meant to be an experiment.
+udev autoloaded ipa at 14 s while ModemManager happened to still be stopped
+from an earlier run, so the radio never went online and the modem never
+registered. **That boot ran for eighteen minutes with ipa loaded and nothing
+happened.** IPA being loaded is harmless on its own; what it takes is the modem
+reaching the network, which is when the modem programs its own IPA pipes
+through its own execution environment.
 
 Stopped ModemManager so no bearer could be created, loaded ipa by hand and
 switched the radio on. The modem reached `Registration state: 'registered'`

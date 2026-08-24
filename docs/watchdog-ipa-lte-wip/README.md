@@ -155,6 +155,46 @@ What is left is a hardware-level abort: an access the interconnect or TrustZone
 refuses, escalated straight to a system reset with no chance for anyone to
 write a line. Which is exactly what 0026 describes running into.
 
+## Registration is the trigger, not traffic
+
+Stopped ModemManager so no bearer could be created, loaded ipa by hand and
+switched the radio on. The modem reached `Registration state: 'registered'`
+and the SoC went down within ten seconds of it.
+
+So a data session is not needed and neither is a single packet. What is needed
+is IPA loaded and the modem reaching the network, which is the point the modem
+programs its own IPA pipes through its own execution environment. The fault is
+on that side of the hardware, not in anything the AP's data path does.
+
+## TrustZone leaves nothing behind
+
+0067 reserves the three regions the vendor's memory map says firmware writes.
+With `iomem=relaxed` on the cmdline they can be read through /dev/mem -- by
+mmap, not read(), since they are `no-map` and `xlate_dev_mem_ptr()` returns
+NULL for those, which is an EFAULT.
+
+Dumped before a reset and after, all three came back **byte for byte
+identical**, and the content is uninitialised DRAM noise in both:
+
+| region | bytes | identical across the reset |
+| ------ | ----: | -------------------------- |
+| `tzlog_dump@aefa2000` | 196608 | 100% |
+| `wdog_cpuctx@aefd2000` | 188416 | 100% |
+| `mmi_annotate@aefa1800` | 2048 | 100% |
+
+Nothing writes them. TrustZone keeps no log backup here and no CPU context is
+dumped, so there is no firmware trace to read. Downstream populates these
+through its own drivers and SCM calls, which mainline has no equivalent of; the
+buffers alone are not enough.
+
+Incidentally this also shows DRAM survives the reset intact enough to compare
+byte for byte, which is consistent with ramoops working at around 1% corruption
+before ECC.
+
+A dump has to be synced. The reset is abrupt and a file left in the page cache
+does not survive it -- two runs were lost that way before `rhodep-fwdump`
+learned to fsync.
+
 ## Checked against the vendor and matching, so do not redo these
 
 Everything comparable between mainline's description of this IPA and the vendor
@@ -188,14 +228,16 @@ own channels -- which is why it needs LTE attach and not merely a loaded
 driver. With the AP context bank ruled out by the absence of any fault, the
 remaining candidates are:
 
-- **The TrustZone log.** 0067 reserves `tzlog_dump@aefa2000`, 192 KiB that TZ
-  writes on its own. If TZ is the one pulling the reset, its reason is
-  plausibly in there. Reading it needs `iomem=relaxed` on the cmdline, since
-  CONFIG_STRICT_DEVMEM refuses reserved ranges, and then somebody has to work
-  out the format. This is the most direct route left to a cause.
-- **`wdog_cpuctx@aefd2000`**, also reserved by 0067: the CPU context the
-  firmware dumps at watchdog time. If it is populated after one of these
-  resets, it says what each core was doing. Same access problem.
+- **`skip_uc_load` in the QMI handshake.** `ipa_qmi_init_driver()` sends
+  `skip_uc_load = ipa->uc_loaded ? 1 : 0`, and `uc_loaded` is left false by the
+  "unexpected init_completed response" path described above. So when IPA is
+  loaded after the modem is already up, the AP tells the modem to load a
+  microcontroller that is already running. That is a plausible way to get an
+  abort with no software trace, and it makes the warning a cause rather than a
+  symptom -- but only for the by-hand path. The boot path, where IPA loads
+  before the modem, resets too, and its last messages have never been captured.
+  **Capturing the boot-path crash is the cheapest next step** and it decides
+  whether this matters.
 - **GSI channel and event ring configuration**, which is the one part of the
   IPA description not yet compared field by field, and the part the modem
   touches when it brings up its channels.

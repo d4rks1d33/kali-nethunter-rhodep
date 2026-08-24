@@ -123,6 +123,35 @@ reg     clean reboot   lte reset
 Not yet decoded, but reproducible, and the only PMIC state that outlives the
 reset.
 
+### Checked and identical, do not redo
+
+**CX and MX voting for the modem.** The thought was that LTE clocks the Q6
+higher, so if mainline were missing a rail vote the Q6 could fail hard enough
+that it never gets to raise `fatal`. It is not that. Downstream's `pil_modem`
+proxies `vdd_cx-supply = <&S1E_LEVEL>` and nothing else; mainline's
+`remoteproc_mss` has `power-domains = <&rpmpd SM6375_VDDCX>` and nothing else.
+Neither side votes MX. The one difference left is downstream asking for 100 mA
+of load alongside the corner and holding the proxy for 10 s, where mainline
+releases at handover, and a load hint only steers the RPM regulator's mode.
+
+**The modem's watchdog interrupt is wired correctly.** Downstream routes it as
+`GIC_SPI 307`, mainline as `GIC_SPI 307`, and `/proc/interrupts` shows it
+landing at hwirq 339 as it should.
+
+But note what `w=0` does and does not prove. It counts the watchdog as
+delivered *to the AP*. If the modem's watchdog fires and Trust Zone takes it
+first and resets the whole chip instead of restarting just the subsystem, the
+AP's counter never moves and there is no fatal either, because TZ acted before
+any of it. That is consistent with every observation here, and it is not
+excluded.
+
+**Trying to cycle the modem to test that came out inconclusive.** Writing
+`stop` then `start` to `/sys/class/remoteproc/remoteproc0/state` left it
+`running` throughout with nothing in the kernel log. In mainline that write
+only drops a reference, and something else holds the modem booted, so it did
+nothing and said nothing. Testing the escalation theory needs a way to make the
+modem crash for real.
+
 ## A caveat on "GSM works" that has to be stated
 
 The GSM run registered, attached, was managed by ModemManager and received an

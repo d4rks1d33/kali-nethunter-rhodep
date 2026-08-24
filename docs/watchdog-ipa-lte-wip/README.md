@@ -274,6 +274,61 @@ tree has now been diffed:
 | register windows | `gsi` identical to vendor's `gsi-base`; `ipa-reg` and `ipa-shared` are `ipa-base` + 0x40000 and + 0x50000 |
 | modem SSR wiring | complete |
 
+## The AP does nothing between loading and dying
+
+With patch 0069 tracing every step of the QMI handshake and 0070 clearing the
+handover noise out of the way, the log around the reset is finally legible:
+
+```
+[  140.350985] ipa 5840000.ipa: IPA driver initialized
+[  140.399149] ipa 5840000.ipa: IPA driver setup completed successfully
+[  140.406083] ipa 5840000.ipa: unexpected init_completed response
+                    ... fourteen seconds of nothing ...
+                    reset
+```
+
+**Not one `ipa-qmi:` line.** No INDICATION_REGISTER, no DRIVER_INIT_COMPLETE,
+no INIT_DRIVER, no readiness check. The handshake never happens at all, which
+also means `ipa_modem_start()` never runs and the AP never brings up its side.
+
+That has an explanation for the by-hand path: the modem is already running and
+already sent its INDICATION_REGISTER, back when there was no QMI server on the
+AP to receive it. It does not retry. So after `modprobe`, the AP is idle -- it
+initialises the hardware and then sits there.
+
+Which leaves one thing the AP did do: `ipa_probe()` reinitialises IPA while the
+modem is actively using it. The modem then reaches the network, touches state
+the AP has just reset underneath it, and the SoC goes down. That fits every
+observation, including why registration is the trigger and why nothing on the
+AP side has anything to report.
+
+It also means **the by-hand reproduction may not be the same bug as the boot
+path**, where IPA initialises before the modem exists. The two have been
+treated as one throughout. The boot path still has no capture.
+
+## The handover interrupt storm, and what 0060 hid
+
+Tracing turned up something unrelated on the way. Seconds before each reset:
+
+```
+q6v5_handover_interrupt: 251 callbacks suppressed
+qcom_q6v5_pas a400000.remoteproc: Handover signaled, but it already happened
+```
+
+`q6v5_handover_interrupt()` does its work, sets `handover_issued` and returns
+with the interrupt still enabled, so every further transition on the line
+re-enters a threaded handler that only logs. Patch 0060 ratelimited the message
+-- around 26000 of them per boot -- and the storm was left running underneath.
+
+0070 masks the line after the first handover, keeping the enable in
+`qcom_q6v5_prepare()` balanced. Bursts drop from 251 to 4 and the boot goes
+from thousands of messages to three.
+
+**It does not fix the reset**, which was the honest expectation. And it does not
+fully stop the ADSP's messages either: a few still arrive per boot, from
+`a400000.remoteproc`, without the ADSP ever being restarted (no "powering up"
+in the log). Why that line keeps transitioning is unexplained.
+
 ## The strongest lead
 
 From the commit message of `0026-arm64-dts-qcom-rhodep-enable-ipa.patch`,

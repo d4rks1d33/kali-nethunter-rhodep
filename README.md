@@ -459,7 +459,7 @@ docs/                       extra notes
 
 # The kernel (shared with the pmOS port)
 
-## The 55 patches (`kernel/patches/`, applied in this order)
+## The 56 patches (`kernel/patches/`, applied in this order)
 
 The order below is the aport's `source=` order, which is what `patch` sees; it
 is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
@@ -521,6 +521,8 @@ is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
 0063 dsi-wait-mdp-idle-before-cmd-xfer   waits for MDP idle; the wait never fires
 0065 rhodep-display-interconnect-paths   mdss had no icc paths, so it never voted
 0067 rhodep-ramoops-ecc-and-firmware-regions  crash logs came back unreadable
+0068 sm6375-add-apss-watchdog            the watchdog was never described
+0070 qcom_q6v5-mask-handover-irq         one-shot IRQ left enabled forever
 ```
 
 0062 and 0063 are kept but neither changes the glitched lines they were written

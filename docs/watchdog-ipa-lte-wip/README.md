@@ -66,6 +66,63 @@ survives with the data call up and carrying packets.
 It also survives a reboot and comes back on its own -- data up within about
 forty seconds of boot, no intervention.
 
+## The data path is not involved at all
+
+`rhodep-lte-deathwatch` samples the modem's counters into the kernel log four
+times a second, so that whatever is still true one tick before the SoC dies
+survives in console-ramoops. Run across an LTE switch, with the ramoops ECC
+reporting no errors, the tail is this:
+
+```
+[  326.652625] CAMBIO-A-LTE-AHORA
+[  326.717242] DW 10 t=326.65 run f=0 r=3 h=3 w=0 ipa=1 gsi=18
+...
+[  339.817068] DW 50 t=339.75 run f=0 r=3 h=3 w=0 ipa=1 gsi=18
+
+ECC: No errors detected
+```
+
+Fifty samples, evenly spaced, no jitter and no final line. Then nothing.
+
+Read it field by field:
+
+* the heartbeat is a userspace loop and it was still being scheduled on time
+  250 ms before the end, so **the AP did not hang or panic**; it was cut off
+  mid-stride;
+* `f=0` and `w=0` across the whole window: the modem never raised its fatal
+  smp2p bit and its watchdog never fired, and `r`/`h` never moved, so it never
+  restarted either. Whatever happened, **the modem did not report dying**;
+* `ipa=1 gsi=18` never change. For thirteen seconds of LTE attach **the IPA and
+  GSI interrupts do not tick once.**
+
+That last line settles a question this whole investigation was built around.
+The data path is idle when the reset happens. IPA is a prerequisite for
+reaching the failure -- without it the modem refuses to register at all -- but
+it is not a participant in it. The endpoint configuration, the SRAM layout, the
+GSI rings, the uC: none of them are doing anything at the moment the phone
+dies, and the GSM run already showed they carry real traffic correctly.
+
+So the search moves off the IPA driver and onto what an LTE attach asks of the
+hardware that a GSM attach does not: RF front-end power. Supporting this, the
+bootloader's own bitmask separates the two cases cleanly --
+`powerup_reason=0x00004000` for a clean reboot against `0x00008000` for this
+reset -- and the battery was at 100% and full at 4.397 V, so a flat battery
+browning out under TX bursts is not the explanation.
+
+The PMIC's standard reason registers (0x808-0x810) are identical across both,
+because the bootloader reads and clears them, but three registers in the PON
+peripheral's spare area do survive and do differ:
+
+```
+reg     clean reboot   lte reset
+088d    00             01
+08c2    00             02
+08c4    80             40
+```
+
+Not yet decoded, but reproducible, and the only PMIC state that outlives the
+reset.
+
 ## A caveat on "GSM works" that has to be stated
 
 The GSM run registered, attached, was managed by ModemManager and received an

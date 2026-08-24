@@ -1,0 +1,46 @@
+#!/bin/sh
+# Sample the modem's liveness into the kernel log, fast, so that whatever is
+# still true one tick before the SoC dies survives in console-ramoops.
+#
+# The LTE reset leaves nothing behind: no panic, no exception, no fatal from
+# the modem, just tens of seconds of silence and then a watchdog-flagged
+# power-on. Silence is not evidence on its own, because it is equally what a
+# healthy idle system produces. This makes the silence speak: if the counters
+# keep moving right up to the last line, the system was alive and something
+# outside it pulled the plug. If they stop early, whatever stopped them first
+# is the thing to chase.
+#
+# Lines are kept short on purpose. console-ramoops here holds about 13 KB, and
+# the tail is the only part that matters.
+#
+# usage: rhodep-lte-deathwatch [seconds]
+set -u
+
+SECS=${1:-90}
+KMSG=/dev/kmsg
+
+# /proc/interrupts puts the controller before the name, and there are stray
+# numbers after the counts (the hwirq), so sum only the eight cpu columns.
+irq() { awk -v pat="$1" '$0 ~ pat {s=0; for (i=2; i<=9; i++) s+=$i; print s+0; exit}' /proc/interrupts; }
+
+MODEM_RPROC=
+for d in /sys/class/remoteproc/remoteproc*; do
+	[ "$(cat "$d/name" 2>/dev/null)" = "modem" ] && MODEM_RPROC=$d && break
+done
+
+echo "DW: start rproc=${MODEM_RPROC:-none}" > $KMSG
+
+i=0
+end=$(( $(cut -d. -f1 /proc/uptime) + SECS ))
+while [ "$(cut -d. -f1 /proc/uptime)" -lt "$end" ]; do
+	i=$((i + 1))
+	up=$(cut -d' ' -f1 /proc/uptime)
+	st=$(cat "$MODEM_RPROC/state" 2>/dev/null | cut -c1-3)
+	# modem smp2p lines, and the ipa/gsi pair
+	f=$(irq "smp2p-modem.*q6v5 fatal"); r=$(irq "smp2p-modem.*q6v5 ready")
+	h=$(irq "smp2p-modem.*q6v5 handover"); w=$(irq "339.*q6v5 wdog")
+	ipa=$(irq "Edge +ipa$"); gsi=$(irq "Level +gsi$")
+	echo "DW $i t=$up $st f=$f r=$r h=$h w=$w ipa=$ipa gsi=$gsi" > $KMSG
+	sleep 0.25
+done
+echo "DW: end clean" > $KMSG

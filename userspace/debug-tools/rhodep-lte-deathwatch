@@ -36,6 +36,12 @@ done
 # fires at all, so watch it.
 IPA_PM=$(ls -d /sys/devices/platform/soc@0/*.ipa/power 2>/dev/null | head -1)
 
+# The modem's own GSI channel states, if the diagnostic patch that exports them
+# is in. One hex digit per channel: 1 allocated, 2 started, 3 stopped,
+# 4 stopping, 0xf error. This is the only piece of modem-side state the AP can
+# read, and the ten seconds it takes to die are spent somewhere in there.
+IPA_MGS=$(ls -d /sys/devices/platform/soc@0/*.ipa/modem_gsi_state 2>/dev/null | head -1)
+
 echo "DW: start rproc=${MODEM_RPROC:-none}" > $KMSG
 
 i=0
@@ -50,7 +56,8 @@ while [ "$(cut -d. -f1 /proc/uptime)" -lt "$end" ]; do
 	ipa=$(irq "Edge +ipa$"); gsi=$(irq "Level +gsi$")
 	cq=$(irq "ipa-clock-query"); sr=$(irq "ipa-setup-ready")
 	pm=$(cut -c1-3 "$IPA_PM/runtime_status" 2>/dev/null)
-	echo "DW $i t=$up $st f=$f r=$r h=$h w=$w ipa=$ipa gsi=$gsi cq=$cq sr=$sr pm=$pm" > $KMSG
+	mgs=$(cat "$IPA_MGS" 2>/dev/null)
+	echo "DW $i t=$up $st f=$f r=$r h=$h w=$w ipa=$ipa gsi=$gsi cq=$cq pm=$pm mgs=$mgs" > $KMSG
 	sleep 0.25
 done
 echo "DW: end clean" > $KMSG

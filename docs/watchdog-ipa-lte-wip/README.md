@@ -243,6 +243,46 @@ Combined with everything else, the window has narrowed to the attach itself and
 the default bearer that comes with it -- which is also where the GSI
 programming happens, ten seconds before the end.
 
+## The modem's own GSI channels are healthy
+
+Patch 0075 exports the modem's channel states. GSI banks its registers per
+execution environment and mainline only ever addresses its own, so the modem's
+contexts are one 0x4000 stride further along and readable from here.
+
+Baseline on GSM with data up, one hex digit per channel:
+
+```
+2223333300000000     ch0-2 started, ch3-7 stopped
+```
+
+Across an LTE attach, with IPA pinned active so the reads do not perturb
+anything:
+
+```
+gsi=41  mgs=2223333300000000
+gsi=42  mgs=2222333300000000     ch3 starts
+gsi=42  mgs=2223333300000000     and stops
+gsi=42  mgs=2222333300000000     starts again
+gsi=42  mgs=2223333300000000     stops again
+gsi=45  mgs=2223333300000000
+        death, f=0, w=0
+```
+
+No channel is in error, none is stuck mid-transition, and at the moment the
+machine dies they are in the same state they hold on GSM. The modem's data
+path looks healthy right up to the end.
+
+The one thing that differs from GSM is that channel 3 starts and stops twice.
+The modem opens a channel for the LTE bearer and closes it again.
+
+A note on method, because the first run of this was contaminated and it would
+be easy to repeat the mistake. Reading the file takes a runtime PM reference,
+so sampling it four times a second wakes IPA four times a second: `pm`
+oscillated between suspended and active on every sample and the GSI counter
+climbed by about four per sample, none of which the modem was doing. Pinning
+IPA active first removes the observer entirely -- GSI moves 41 to 45 across the
+whole window instead of 93 to 225.
+
 ## A caveat on "GSM works" that has to be stated
 
 The GSM run registered, attached, was managed by ModemManager and received an

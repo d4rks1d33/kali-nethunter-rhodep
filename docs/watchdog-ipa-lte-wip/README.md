@@ -283,6 +283,31 @@ climbed by about four per sample, none of which the modem was doing. Pinning
 IPA active first removes the observer entirely -- GSI moves 41 to 45 across the
 whole window instead of 93 to 225.
 
+### A trap worth naming: the reference tree is not the port
+
+The kernel tree kept around for reading code is pristine upstream. It does not
+have the port's patches applied. That is fine for anything the port does not
+touch -- `qmi_interface.c`, `gsi.c` -- and misleading for anything it does.
+
+It cost a false alarm here. Reading `data/ipa_data-v4.11.c` straight out of
+that tree shows `MODEM_PROC_CTX` at size 0x200 against the vendor's 0xAC0, with
+everything after it shifted by 0x8C0 and the AP's regions landing inside what
+the modem believes is its own. That would have been a real bug and a good fit
+for the symptom, since LTE needs more header processing contexts than GSM.
+
+It is not there. Patch 0048 sets 0xAC0, and checked region by region against
+`ipa_4_11_mem_part`, all twenty comparable entries match exactly:
+
+```
+MODEM_PROC_CTX     0xad0/0xac0    0xad0/0xac0
+AP_PROC_CTX        0x1590/0x200   0x1590/0x200
+NAT_TABLE          0x17a0/0x500   0x17a0/0x500
+...                20 of 20 identical
+```
+
+Before comparing anything against downstream, check whether the file in hand is
+one the port patches.
+
 ## A caveat on "GSM works" that has to be stated
 
 The GSM run registered, attached, was managed by ModemManager and received an

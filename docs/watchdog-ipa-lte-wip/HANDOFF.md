@@ -557,6 +557,45 @@ varied independently on this device. The suspicion was already in this
 document; it is now measured with the mode preference verified rather than
 assumed.
 
+## It is not the band, and band restriction does work after all
+
+This document says band-by-band testing is unavailable because "the modem
+answers a single-band restriction with QMI error 25, DeviceUnsupported,
+through either qmicli or ModemManager". That is true of qmicli and
+ModemManager and false of the modem. The message they cannot send properly,
+`QMI_NAS_SET_SYSTEM_SELECTION_PREFERENCE` with the LTE band preference TLV,
+is a header and three TLVs, and the modem answers `result=0`:
+
+```
+TLV 0x11  u16  mode preference        0x0010   (LTE only)
+TLV 0x15  u64  lte band preference    bitmask, bit N-1 = band N
+TLV 0x17  u8   change duration        0        (this power cycle only)
+```
+
+`scripts/modem/rhodep-qmi-raw.py` sends it. Reading the current preference
+back also gives the modem's own supported-band mask,
+`0x000007e08a0f18df` = bands 1 2 3 4 5 7 8 12 13 17 18 19 20 26 28 32 38 39 40
+41 42 43, which matches the published figures for this handset.
+
+With that, the band hypothesis can be tested, and it is wrong:
+
+| band | range | registered | died after registering |
+| ---- | ----- | ---------- | ---------------------- |
+| 28 | 700 MHz, low | t+2 s | ~12 s |
+| 5 | 850 MHz, low | t+15 s | ~10 s |
+| 4 (twice) | AWS 1700/2100, high | t+3 s | **~5-7 s** |
+
+Three bands across both ranges, four runs, all fatal. Also worth having: the
+network here serves band 28 by default, and masking it out moves the modem to
+band 5 and then to band 4, so the restriction really is taking effect.
+
+**One correlation is worth keeping.** The more capable the band, the faster it
+dies: band 4 kills in five to seven seconds where band 28 takes twelve. A
+purely RF trigger would give the opposite, or nothing. Something that goes
+faster where there is more throughput available points downstream of the radio
+link -- at the data path, which is exactly the thing that cannot be removed,
+because without IPA the modem does not register at all.
+
 ## Ruled out on the LTE attach itself
 
 **Disabling the IMS profile.** The window between registration and death is

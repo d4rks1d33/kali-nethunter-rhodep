@@ -8,6 +8,10 @@ was written because the device was already usable and the next obstacle was no
 longer the hardware — it was the software assuming a desktop, a keyboard, or a
 paid API key.
 
+	modem-at/             an AT console for the modem, over glink rather than a
+	                      serial port — a third window onto the radio, working
+	                      when ModemManager is down and independent of the
+	                      DIAG debug fuses
 	terminal-keyboard/    Esc, Tab, Ctrl, Alt and the arrows on the on-screen
 	                      keyboard, in every language layout
 	terminal-clipboard/   copy and paste in the terminal, from the shell side,

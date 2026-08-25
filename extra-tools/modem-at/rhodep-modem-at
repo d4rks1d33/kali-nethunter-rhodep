@@ -1,0 +1,259 @@
+#!/usr/bin/python3
+"""rhodep-modem-at - an AT command console for the modem.
+
+The Moto G82's modem answers AT commands, and until this existed nothing on the
+port used them. They do not travel over a serial port: the modem's glink edge
+advertises channels named DS and DATA1..DATA11, none of which any driver binds,
+and two of them speak AT. An endpoint is created on one with rpmsg_ctrl and the
+result is an ordinary read/write file descriptor.
+
+    GLINK edge (6080000.remoteproc)
+      └── DS  /  DATA1
+           └── /dev/rpmsg_ctrl2 + RPMSG_CREATE_EPT_IOCTL
+                └── /dev/rpmsgN
+                     └── AT
+
+That path goes through neither QMI nor DIAG, so it keeps working when
+ModemManager is not running, and it does not depend on the debug fuses, which
+on this handset are closed.
+
+Usage:
+
+    sudo rhodep-modem-at                 interactive console
+    sudo rhodep-modem-at ATI             one command and exit
+    sudo rhodep-modem-at -c DATA1 ATI    the same, on the other channel
+    sudo rhodep-modem-at -l              list the channels the modem advertises
+
+In the console, "?" prints a crib sheet of useful commands, and Ctrl-D or
+"quit" exits. Anything else is sent verbatim, so you do not need to remember
+which commands this tool knows about -- it knows about none of them, it is a
+pipe.
+
+Two things that will confuse you if nobody says them:
+
+  * a write can fail with EBUSY. That is glink reporting that the modem has not
+    posted a receive buffer, not the port being dead. This tool opens the
+    endpoint blocking and bounds every operation with an alarm, which is why it
+    never hangs.
+  * the port echoes. Each command is drained first and then read until a final
+    result code, so what you see is the answer and not the echo of whatever you
+    typed before.
+"""
+
+import argparse
+import fcntl
+import glob
+import os
+import select
+import signal
+import struct
+import sys
+import time
+
+RPMSG_CREATE_EPT_IOCTL = (1 << 30) | (40 << 16) | (0xB5 << 8) | 0x01
+MODEM_CTRL = "/dev/rpmsg_ctrl2"
+MODEM_EDGE = "6080000.remoteproc"
+
+CRIB = """
+Every command below was tried against this modem and answers; the ones it does
+not support are called out, so the list is what works rather than what usually
+works.
+
+identity and firmware
+  ATI                     manufacturer, model, firmware revision, IMEI
+  AT+CGMR                 firmware revision on its own
+  AT+CGSN                 IMEI
+  AT+CIMI                 IMSI
+
+radio and registration
+  AT+CFUN?                1 = radio on, 0 = off, 4 = airplane
+  AT+COPS?                operator and access technology
+                          (the last field: 0 GSM, 2 UTRAN, 3 EDGE, 7 LTE)
+  AT+CEREG?               LTE registration:  0,1 registered  0,2 searching
+  AT+CGREG?               GPRS/EDGE registration
+  AT+CSQ                  signal: 0-31 and bit error rate; 99 means unknown
+  AT+CPAS                 activity status; 4 means a call is in progress
+  AT+CEER                 extended cause for the last failure
+  AT+CESQ                 NOT supported by this firmware, answers ERROR
+
+SIM
+  AT$QCSIMSTAT?           SIM init state
+  AT+CNUM                 own number, empty on this SIM
+
+data
+  AT+CGDCONT?             defined PDP contexts (APNs)
+  AT+CGACT?               which contexts are active
+  AT+CGCONTRDP            the live context: IP, gateway, DNS
+
+behaviour
+  AT+CMEE=2               verbose errors instead of a bare ERROR
+
+vendor
+  AT$QCDMG                would switch this port into DIAG mode and give the
+                          modem's own F3 log.  Answers ERROR on this firmware,
+                          which is why that log is out of reach --
+                          see docs/watchdog-ipa-lte-wip/HANDOFF.md
+
+Careful with AT+CFUN=0/1 and anything that writes: this is the real modem of a
+working phone, and some commands persist across reboots.
+"""
+
+
+class Timeout(Exception):
+    pass
+
+
+def _alarm(*_):
+    raise Timeout()
+
+
+signal.signal(signal.SIGALRM, _alarm)
+
+
+def list_channels():
+    out = []
+    for p in sorted(glob.glob("/sys/bus/rpmsg/devices/*")):
+        base = os.path.basename(p)
+        if base.startswith(MODEM_EDGE):
+            out.append(base.split("glink-edge.", 1)[-1].rsplit(".", 2)[0])
+    return out
+
+
+def open_channel(name):
+    """Create an endpoint on a named glink channel and return an fd."""
+    if not os.path.exists(MODEM_CTRL):
+        raise SystemExit("%s missing: is rpmsg_ctrl loaded and the modem up?"
+                         % MODEM_CTRL)
+    before = set(glob.glob("/dev/rpmsg[0-9]*"))
+    fd = os.open(MODEM_CTRL, os.O_RDWR)
+    try:
+        fcntl.ioctl(fd, RPMSG_CREATE_EPT_IOCTL,
+                    struct.pack("32sII", name.encode(), 0xFFFFFFFF, 0xFFFFFFFF))
+    finally:
+        os.close(fd)
+    for _ in range(20):
+        time.sleep(0.1)
+        new = sorted(set(glob.glob("/dev/rpmsg[0-9]*")) - before)
+        if new:
+            break
+    else:
+        raise SystemExit("no /dev/rpmsgN appeared for channel %s" % name)
+    dev = new[-1]
+    try:
+        # Blocking on purpose: a non-blocking write returns EBUSY whenever the
+        # modem has not posted a receive intent yet.
+        return os.open(dev, os.O_RDWR), dev
+    except OSError as e:
+        raise SystemExit("channel %s created %s but will not open: %s\n"
+                         "(the modem does not acknowledge that channel)"
+                         % (name, dev, e))
+
+
+def drain(fd, secs=0.3):
+    end = time.monotonic() + secs
+    while time.monotonic() < end:
+        r, _, _ = select.select([fd], [], [], 0.05)
+        if not r:
+            continue
+        try:
+            signal.alarm(2)
+            os.read(fd, 4096)
+        except (Timeout, OSError):
+            break
+        finally:
+            signal.alarm(0)
+
+
+def command(fd, cmd, wait=5.0):
+    drain(fd)
+    try:
+        signal.alarm(3)
+        os.write(fd, (cmd + "\r\n").encode())
+    except Timeout:
+        return "(write blocked: the modem posted no receive buffer)"
+    except OSError as e:
+        return "(write failed: %s)" % e
+    finally:
+        signal.alarm(0)
+
+    end = time.monotonic() + wait
+    buf = b""
+    while time.monotonic() < end:
+        r, _, _ = select.select([fd], [], [], 0.2)
+        if not r:
+            continue
+        try:
+            signal.alarm(2)
+            buf += os.read(fd, 4096)
+        except (Timeout, OSError):
+            break
+        finally:
+            signal.alarm(0)
+        tail = buf.strip()
+        if tail.endswith(b"OK") or tail.endswith(b"ERROR") or b"+CME ERROR" in buf:
+            break
+
+    text = buf.decode("ascii", "replace")
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    if lines and lines[0].strip().upper() == cmd.strip().upper():
+        lines = lines[1:]                       # drop the echo
+    return "\n".join(lines) if lines else "(no answer)"
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        description="AT console for the modem, over glink rather than a serial port.")
+    ap.add_argument("-c", "--channel", default="DS",
+                    help="glink channel to use (default DS; DATA1 also answers)")
+    ap.add_argument("-l", "--list", action="store_true",
+                    help="list the channels the modem advertises and exit")
+    ap.add_argument("cmd", nargs="*", help="a single command to run, then exit")
+    args = ap.parse_args()
+
+    if args.list:
+        chans = list_channels()
+        print("channels advertised by the modem edge:")
+        for c in chans:
+            print("  %s%s" % (c, "   <- answers AT" if c in ("DS", "DATA1") else ""))
+        if not chans:
+            print("  (none: is the modem running?)")
+        return
+
+    if os.geteuid() != 0:
+        print("needs root (the rpmsg control device is root-only)", file=sys.stderr)
+        return 1
+
+    fd, dev = open_channel(args.channel)
+
+    if args.cmd:
+        print(command(fd, " ".join(args.cmd)))
+        os.close(fd)
+        return
+
+    print("modem AT console on %s (%s). '?' for a crib sheet, Ctrl-D to quit."
+          % (args.channel, dev))
+    probe = command(fd, "AT")
+    print("AT -> %s" % probe)
+    if "OK" not in probe:
+        print("that channel does not look like an AT port; try -c DATA1")
+
+    while True:
+        try:
+            line = input("at> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        if not line:
+            continue
+        if line in ("quit", "exit"):
+            break
+        if line == "?":
+            print(CRIB)
+            continue
+        print(command(fd, line))
+
+    os.close(fd)
+
+
+if __name__ == "__main__":
+    sys.exit(main() or 0)

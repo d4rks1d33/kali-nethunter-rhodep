@@ -391,6 +391,64 @@ so it exercises nothing. The earlier note that 3G never registered was correct.
 Most likely the carrier rather than the port -- Personal has been retiring 3G --
 but either way it cannot be used to separate GSM from LTE.
 
+## The INIT_DRIVER message, checked field by field
+
+The modem hangs on something, so what the AP tells it at init is worth going
+through properly. Downstream's request and mainline's, compared field by field:
+
+```
+downstream                      mainline
+platform_type                   platform_type
+hdr_tbl_info                    hdr_tbl_info
+hdr_proc_ctx_tbl_info           hdr_proc_ctx_tbl_info
+v4/v6_route_tbl_info            v4/v6_route_tbl_info
+v4/v6_filter_tbl_start_addr     v4/v6_filter_tbl_start
+v4/v6_hash_route_tbl_info       v4/v6_hash_route_tbl_info
+v4/v6_hash_filter_tbl_start     v4/v6_hash_filter_tbl_start
+hw_stats_quota_base_addr+size   hw_stats_quota_base_addr+size
+hw_drop_stats_base_addr+size    hw_stats_drop_base_addr+size
+modem_mem_info                  modem_mem_info
+ctrl_comm_dest_end_pt           ctrl_comm_dest_end_pt
+zip_tbl_info                    -- (region is empty on 4.11)
+is_ssr_bootup                   -- (no equivalent concept)
+--                              skip_uc_load
+```
+
+Everything that matters is sent, with the same values from the same layout.
+
+One genuine difference came out of it, and it is an upstream bug rather than a
+port one:
+
+```c
+	req.hw_stats_quota_base_addr = ipa->mem_offset + mem->offset;	/* right */
+	req.hw_stats_quota_size      = ipa->mem_offset + mem->size;	/* wrong */
+```
+
+`mem_offset` is where IPA's local memory starts. It belongs in an address, not
+in a length, and the same mistake is repeated for the drop region. Downstream
+sends the plain size for both. Patch 0079 fixes it.
+
+It is not the cause here. `mem_offset` on this device reads `0x00000000`, now
+exported so it can be checked rather than assumed, so the wrong sum was adding
+zero. The patch is kept because it is correct and costs nothing, not because it
+changed anything.
+
+### Two mistakes in this section, both from reading part of a file
+
+`0078` was written on the belief that mainline never sends the hashed table
+locations. It does -- from line 347 of `ipa_qmi.c`, immediately after where the
+grep that produced the belief had stopped. The patch set the same fields a few
+lines earlier and the existing code overwrote them with the same values.
+
+Worse, with it installed an LTE attach showed the modem starting channels 4
+through 7, `2223222200000000`, which had not been seen before, and registering
+with an IP. That was read as the patch getting the modem further. It cannot
+have been: the patch changes nothing. It was run-to-run variation.
+
+Same root as the SRAM layout false alarm earlier: concluding from part of a
+file. Both are parked in `docs/qmi-hashed-tables-no-op/` and noted above rather
+than quietly dropped.
+
 ## A caveat on "GSM works" that has to be stated
 
 The GSM run registered, attached, was managed by ModemManager and received an

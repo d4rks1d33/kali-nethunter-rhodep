@@ -535,6 +535,36 @@ Diagnostic patches, all outside `source=` unless noted:
   statistics *sizes* where it belongs only in addresses. Harmless here because
   `mem_offset` reads `0x00000000`, but wrong, and worth sending upstream.
 
+## The experiment the README called decisive cannot be run, and now that is measured
+
+The root `README.md` has listed this for months as "the experiment that would
+settle it has never run": attach to LTE with `ipa.ko` never loaded. It has now
+been run, and the answer is that it is not runnable.
+
+With `blacklist ipa` in place from boot, `lsmod` showing no ipa, no
+`rmnet_ipa0`, ModemManager and the GSM guard both stopped, the radio set
+`online` and the mode preference read back as **`lte`**:
+
+```
+t+6s  ... t+96s   Registration state: 'not-registered-searching'
+uptime 375 s, ipa modules loaded: 0
+```
+
+Ninety-six seconds of searching, never registered, and the SoC survives. The
+modem gates registration on its own data path being ready, that needs the IPA
+QMI handshake, and so "IPA loaded" and "modem registered on LTE" cannot be
+varied independently on this device. The suspicion was already in this
+document; it is now measured with the mode preference verified rather than
+assumed.
+
+## Ruled out on the LTE attach itself
+
+**Disabling the IMS profile.** The window between registration and death is
+where the modem would bring up IMS, which needs a second PDN through IPA, so
+the `ims` APN looked like the LTE equivalent of the GNSS `cellid` bisection.
+`qmicli --wds-modify-profile="3gpp,2,disabled=yes"`, confirmed by the profile
+reading `APN disabled: 'yes'`: still dies, at fourteen seconds.
+
 ## The only thing the modem asks the AP for during an LTE attach
 
 Session 13d swept every QMI service id **at boot** and concluded that no
@@ -558,18 +588,33 @@ it always has; 40 appears only during the attach.
 
 **It is one occurrence in three attaches, so treat it as a lead and not a
 cause.** Runs two and three died at fifteen and twenty-four seconds without the
-modem ever contacting 40. The charitable reading is that 40 comes late in the
-attach and the modem sometimes dies before reaching it; the honest reading is
-that one correlation is one correlation.
+modem ever contacting 40.
 
-Two things to be careful about before building on it:
+Followed up by publishing **only** service 40, twice, which settles it:
 
-* the modem only sends this **because the sweep published 40**. Without the
-  probe the request does not exist, so this may be an artefact of offering a
-  service and then answering it with a bare success, which is almost certainly
-  malformed for whatever 40 is;
-* the reset happens with no sweep running at all, so the sweep is not the cause
-  of the bug.
+| run | published | answered | modem contacted 40 | died at |
+| --- | --- | --- | --- | --- |
+| A | 40 only | yes, bare success | **immediately, 8 s before LTE was forced** | t+28 s |
+| B | 40 only | no | immediately, same request | t+19 s |
+
+So the earlier reading was wrong: **40 is not attach-specific.** The modem has
+a client waiting and connects the instant the service appears, exactly as it
+does for memshare and for service 60. And neither answering it nor withholding
+the answer changes the outcome -- 28 s against 19 s is inside the 10 to 30 s
+spread this reset has always had.
+
+The payload differs every time, which is worth recording for whoever decodes
+this properly. Always `msg_id 0x0020` with three TLVs, `0x11` always zero, and
+`0x01` and `0x12` always equal to each other:
+
+```
+0x05e0ef00    0x00980700    0x0090bd00
+```
+
+**Conclusion: service 40 is a real hole -- an AP-side QMI service Android
+provides, that this port does not, and that the modem actively wants -- and it
+is not the cause of the reset.** Worth implementing for its own sake; not worth
+expecting anything from.
 
 `userspace/debug-tools/rhodep-svc-sweep-lte.sh` runs it. **Compute the id list
 before publishing, never after.** The first attempt published service 69, the

@@ -197,6 +197,21 @@ served. It is a false lead: mounting the real `fsg_a` partition shows it
 contains `mcfg_sw/` and no `mcfg_hw/` at all, so Android answers that request
 with ENOENT too.
 
+**The ADSP is not in the loop.** Qualcomm GNSS uses sensor assistance and the
+SSC lives inside the ADSP on this SoC, which made it a plausible third party.
+The ADSP cannot be stopped through `/sys/class/remoteproc/remoteproc1/state`
+for the same reason the modem cannot -- the write only drops a reference and
+`auto_boot` holds it -- but unbinding the device works:
+
+```sh
+echo a400000.remoteproc > /sys/bus/platform/drivers/qcom_q6v5_pas/unbind
+# remoteproc remoteproc1: stopped remote processor adsp
+# remoteproc remoteproc1: releasing adsp
+```
+
+With the ADSP stopped and released, `standalone` still resets the SoC. (Worth
+keeping as a technique: unbind is how you stop a remoteproc on this port.)
+
 **Modem-side DIAG is not reachable on this firmware.** Worth recording because
 it is the obvious way to get the modem's own log. The modem's glink edge
 advertises `DATA1-4`, `DATA11`, `DS`, `IPCRTR`, `LOOPBACK_CTL_MPSS`,

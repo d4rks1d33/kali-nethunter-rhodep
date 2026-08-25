@@ -22,12 +22,18 @@ Every step is written to /dev/kmsg as well as stdout, because on a watchdog
 reset stdout dies with the ssh session while the kernel console survives in
 /var/lib/systemd/pstore/. The last line there tells you which step died.
 
-Usage:  sudo ./rhodep-gnss-test.py [seconds] [mask-groups]
+Usage:  sudo ./rhodep-gnss-test.py [seconds] [mask-groups] [opmode=MODE]
 
   seconds       how long to listen after the session starts (default 120)
   mask-groups   comma separated, from: min,engine,inject,wifi (default: all)
                 'min' is NMEA + position report + satellite info, and is
                 enough on its own to trigger the reset.
+  opmode=MODE   default|msb|msa|standalone|cellid|wwan, set from this client
+
+*** opmode=cellid is the one configuration that SURVIVES. *** It runs a real
+session -- position reports and NMEA -- without ever bringing up the GNSS
+measurement engine, which is what the reset actually needs. Run it back to back
+against opmode=standalone on one boot and the mode is the only variable.
 
 Requires gir1.2-qmi-1.0 (not installed by default; it pulls in no held
 packages). The modem has to be out of low-power first:
@@ -51,6 +57,22 @@ BARE_START = "bare" in sys.argv
 NO_START = "nostart" in sys.argv
 NO_REGISTER = "noreg" in sys.argv
 STOP_NOW = "stopnow" in sys.argv
+#   opmode=NAME  set the operation mode from THIS client before starting.
+#                One of: default msb msa standalone cellid wwan.
+#                It has to happen here rather than through
+#                `qmicli --loc-set-operation-mode`, because qmicli releases its
+#                LOC client on exit and the setting goes with it: qmicli reports
+#                "Successfully set operation mode" and a following
+#                --loc-get-operation-mode still answers 'standalone'.
+#                'cellid' is the interesting one: the session runs to completion
+#                but the GNSS measurement engine is never brought up, which
+#                separates "the engine" from "the session state machine". It is
+#                what turned this from a trigger into a bisection.
+#                Always check the "operation mode set to ..." line in the
+#                output: a failed set falls through to standalone, and a
+#                survival that came from an unapplied mode means nothing.
+OPMODE = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("opmode=")),
+              None)
 SESSION_ID = 11
 
 loop = GLib.MainLoop()
@@ -178,6 +200,34 @@ def on_start(client, res, _u):
     GLib.timeout_add_seconds(DURATION, finish)
 
 
+def do_start(client):
+    """Build and send QMI_LOC_START."""
+    i = Qmi.MessageLocStartInput()
+    i.set_session_id(SESSION_ID)
+    if not BARE_START:
+        for setter, value in (("set_fix_recurrence_type", 1),
+                              ("set_intermediate_report_state", 1),
+                              ("set_minimum_interval_between_position_reports",
+                               1000)):
+            try:
+                getattr(i, setter)(value)
+            except Exception:
+                pass
+    else:
+        log("bare start: session id only, no optional TLVs")
+    client.start(i, 10, None, on_start, None)
+
+
+def on_opmode(client, res, _u):
+    try:
+        out = client.set_operation_mode_finish(res)
+        out.get_result()
+        log("operation mode set to %s" % OPMODE)
+    except Exception as e:
+        log("set_operation_mode(%s) failed: %s -- starting anyway" % (OPMODE, e))
+    do_start(client)
+
+
 def on_register(client, res, _u):
     if res is not None:
         try:
@@ -193,20 +243,21 @@ def on_register(client, res, _u):
         GLib.timeout_add_seconds(DURATION, finish)
         return
 
-    i = Qmi.MessageLocStartInput()
-    i.set_session_id(SESSION_ID)
-    if not BARE_START:
-        for setter, value in (("set_fix_recurrence_type", 1),
-                              ("set_intermediate_report_state", 1),
-                              ("set_minimum_interval_between_position_reports",
-                               1000)):
-            try:
-                getattr(i, setter)(value)
-            except Exception:
-                pass
-    else:
-        log("bare start: session id only, no optional TLVs")
-    client.start(i, 10, None, on_start, None)
+    if OPMODE:
+        try:
+            mode = getattr(Qmi.LocOperationMode, OPMODE.upper())
+        except AttributeError:
+            log("unknown opmode '%s'; known: %s" % (
+                OPMODE, [n for n in dir(Qmi.LocOperationMode)
+                         if n.isupper()]))
+            return bail("bad opmode")
+        i = Qmi.MessageLocSetOperationModeInput()
+        i.set_operation_mode(mode)
+        log("setting operation mode %s from this client" % OPMODE)
+        client.set_operation_mode(i, 10, None, on_opmode, None)
+        return
+
+    do_start(client)
 
 
 def on_client(device, res, _u):

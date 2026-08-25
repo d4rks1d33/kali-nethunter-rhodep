@@ -135,7 +135,7 @@ list; everything here is a from-scratch community port.
 | **In-call audio** | Calls connect but there is no sound. Not a modem problem: Qualcomm voice audio goes modem ↔ ADSP ↔ codec and mainline has no q6voice (MVM/CVS/CVP) at all. A new driver, not a bug. |
 | **Fingerprint** | Focaltech with a proprietary HAL (`fingerprint.focaltech.default.so`). No mainline driver. |
 | **NFC** | Samsung `sec-nfc` on i2c7. No mainline driver. |
-| **GPS** | **Starting a GNSS session watchdog-resets the SoC in under a second**, reproducibly, with `ipa.ko` not loaded. The location service (QMI 16) is there and answers every query — mode, NMEA types, XTRA servers, start, stop — but the moment a session runs with indications registered, the phone reboots. It was never an indoors problem. [`GNSS-SM6375.md`](docs/interconnect-sm6375-wip/GNSS-SM6375.md) |
+| **GPS** | **A satellite fix watchdog-resets the SoC in under a second**, reproducibly, with `ipa.ko` not loaded. It was never an indoors problem. Narrowed since: the trigger is the GNSS *measurement engine* coming up, so `standalone` mode kills the phone while **`cellid` positioning works** — a live session, fifty indications, position reports and NMEA, no reset (`scripts/rhodep-gnss-test.py 60 min opmode=cellid`). The same reproducer is now the fastest way to work on the LTE reset. [`GNSS-SM6375.md`](docs/interconnect-sm6375-wip/GNSS-SM6375.md) |
 | **Camera** | **Does not capture** — no photos, no video, no viewfinder. Only groundwork is done: the FAN53870 camera PMIC driver is written and running (all 7 LDOs registered, voltages verified against the chip's registers), and the rest is feasible because the ISP pipeline (`csid530` + `tfe530` + `tpg101`) is the *same silicon* mainline already drives on qcm2290, the 52 `gcc_camss_*` clocks are in mainline, and the 50 MP main sensor (Samsung S5KJN1) has a mainline driver. Still needed before any image: a `camss` entry for SM6375, the CSIPHY/CSID/TFE nodes and the sensor node. [`CAMERA-SENSORS-FEASIBILITY.md`](docs/CAMERA-SENSORS-FEASIBILITY.md) |
 | **Monitor mode on the internal WiFi** | Infeasible: the WCN3990 firmware reports `raw 0`. Use the external adapter, which does work. |
 
@@ -147,6 +147,18 @@ list; everything here is a from-scratch community port.
    the phone reboots, every time. The LTE reset needs `ipa.ko` plus an LTE
    attach plus 3 to 10 minutes of waiting, so if they share a cause the
    expensive bug now has an instant reproducer.
+
+   **Bisected one step further, and this is where to start.** Add
+   `opmode=cellid` and the identical session **survives** — twenty-five
+   seconds, fifty indications, position reports and NMEA. So the trigger is the
+   GNSS *measurement engine* being switched on, and not the session, the
+   indications, QMI or "the session staying alive" as this file used to say.
+   Put next to the LTE reset needing a *real attach* rather than merely LTE
+   selected, both look like the same thing: the modem switching on a hardware
+   engine, while the Q6 running software is demonstrably fine. Read
+   `docs/watchdog-ipa-lte-wip/HANDOFF.md` first — the leading candidate is now
+   QDSS/CoreSight, which is 110 device tree nodes downstream and zero in
+   mainline.
 
    Already bisected, on the device, one reboot per row: it is not the
    indications (an empty event mask still resets), not the optional start TLVs,
@@ -366,11 +378,14 @@ the next boot if the phone was off (`Persistent=true`). Run it by hand with
   `userspace/sensors/`. Still not done, each for want of a driver: NFC (Samsung
   `sec-nfc`), fingerprint (proprietary Focaltech HAL) and the camera (only the
   PMIC is up; it does not capture yet — see below).
-- **GPS is worse than "not done": using it reboots the phone.** The location
-  service answers every query, but a GNSS session with indications registered
-  watchdog-resets the SoC in under a second, `ipa.ko` or no `ipa.ko`. Same
-  silent signature as the mobile-data reset, which is why it is now the best
-  lead on that bug rather than a feature request.
+- **GPS: a satellite fix reboots the phone, cell-id positioning does not.** The
+  location service answers every query, and a session in `cellid` mode runs
+  indefinitely and reports positions. Ask for `standalone` — an actual GNSS fix
+  — and the SoC watchdog-resets in under a second, `ipa.ko` or no `ipa.ko`.
+  The trigger is the GNSS measurement engine being brought up, and nothing
+  else: not the session, not the indications, not QMI. Same silent signature as
+  the mobile-data reset, and since it needs no SIM and no LTE it is both the
+  best lead on that bug and a ninety-second reproducer for it.
   [`GNSS-SM6375.md`](docs/interconnect-sm6375-wip/GNSS-SM6375.md)
 - Single USB-C port + no mainline Type-C driver → charge vs OTG is not automatic
   (manual `otg on|off`, defaults to charging). See `packages/rhodep-usb-otg`.

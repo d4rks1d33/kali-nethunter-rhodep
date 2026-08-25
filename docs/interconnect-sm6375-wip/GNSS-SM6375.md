@@ -3,6 +3,77 @@
 **Result: starting a GNSS session watchdog-resets the SoC in under a second,
 reproducibly, with `ipa.ko` not loaded.**
 
+> ## Narrowed: it is the measurement engine, and `cellid` positioning works
+>
+> One operation mode changes the outcome completely. With the mode set to
+> `cellid` **from the same QMI client that opens the session**, a live GNSS
+> session runs to completion and the phone does not reset:
+>
+> ```
+> POS    session=2
+> NMEA   $PSTIS,*61
+> alive 24400 ms (indications so far: 50)
+> indications received: 50            <- survived, 25 s, uptime kept running
+> ```
+>
+> Fifty indications, real position reports and NMEA. In `standalone` the same
+> script kills the SoC within milliseconds of `QMI_LOC_START` returning.
+>
+> Run back to back **on one boot**, so that the operation mode is the only
+> variable — no reboot, no reload, same modem, same client code path:
+>
+> ```
+> uptime 366.8   opmode=cellid       survives 22 s, 16 NMEA indications
+> uptime 380.8   opmode=standalone   dead
+>
+> [  380.799731] AB-SAMEBOOT-STANDALONE
+> [  381.464682] rhodep-gnss: setting operation mode standalone from this client
+> [  381.469661] rhodep-gnss: operation mode set to standalone
+> [  381.477273] rhodep-gnss: session 11 started; listening 15 s
+> [  381.477725] rhodep-gnss: -----------------------------------------------
+> ECC: No errors detected
+> ```
+>
+> Fifteen milliseconds from `LOC_START` to the end of the console. Note the
+> `operation mode set to ...` line in both: the mode really was applied, which
+> is worth checking every time, because a failed set falls through to
+> `standalone` and would look like a survival that means nothing.
+>
+> So the trigger is not the session, not the indications, not QMI and not "the
+> session being allowed to stay alive" as this document concluded below — a
+> `cellid` session stays alive indefinitely. It is specifically **the GNSS
+> measurement engine being brought up**, which `standalone` does and `cellid`
+> never does.
+>
+> Two consequences:
+>
+> * **Cell-id positioning is a working feature today**, which is more than this
+>   port had before. `scripts/rhodep-gnss-test.py 60 min opmode=cellid`.
+> * The reproducer is now a *bisection* rather than just a trigger, and it costs
+>   about ninety seconds a round with no SIM, no LTE and no IPA.
+>
+> `qmicli --loc-set-operation-mode=cellid` **does not work** and fails in a way
+> that reads like success: it prints `Successfully set operation mode` and a
+> following `--loc-get-operation-mode` still answers `standalone`, because
+> qmicli releases its LOC client on exit and the setting goes with it. That is
+> why `rhodep-gnss-test.py` grew an `opmode=` flag that sends
+> `QMI_LOC_SET_OPERATION_MODE` from the client it then starts the session on.
+>
+> Everything ruled out since, each with an instrument, all on the reproducer:
+>
+> | suspect | how it was excluded |
+> | --- | --- |
+> | CPU frequency / an APSS current droop | every policy forced to `powersave` (300 MHz / 691 MHz) — still resets, unchanged |
+> | the modem wanting a file at engine start | `tqftpserv` + `rmtfs` journals bridged into `/dev/kmsg` (bridge verified live first) — **not one line** between the marker and the death |
+> | CX or MX corner starvation | both pinned at `RPM_SMD_LEVEL_TURBO_NO_CPR` with `kernel/diag-modules/rhodep_pdhold.c` for the whole run — still resets |
+> | binding the NoC provider (this file's "one untested cheap lead") | already true: `qnoc-sm6375` is built in since 0065 and `/sys/kernel/debug/interconnect/` is populated |
+> | a vendor `no-map` region mainline does not reserve | full re-derivation from `blair.dtsi`: the only one missing is `memshare_mem` (dynamic, 8 MB), and the daemon refuses the allocation so the modem never receives an address for it |
+>
+> And one non-result that must not be read as an elimination: the QDSS clock was
+> voted explicitly and nothing changed, but `clk_smd_rpm_handoff()` already
+> votes every RPM clock at probe, so the test changed nothing and **QDSS is not
+> excluded**. See `kernel/diag-modules/README.md`.
+
 Every revision of the root `README.md` before this one said GPS was the cheapest
 open item in the port — "the modem publishes the location service and
 `qmicli --loc-start` works, it has never emitted NMEA, but it has only ever been

@@ -2,6 +2,61 @@
 
 Read this first, then `README.md` in this directory for the full evidence trail.
 
+## Start here: there is a ninety-second reproducer, and it is not LTE
+
+Everything below was written while the only way to reach this reset was a SIM,
+an LTE attach and ten to thirty seconds of waiting, one reboot per data point.
+That is no longer true, and it changes how to work on this.
+
+`docs/interconnect-sm6375-wip/GNSS-SM6375.md` documents a second reset with the
+**same signature** — silent, whole-SoC, no panic, no oops, `bootreason=watchdog`
+with `powerup_reason=0x00008000` — reached by starting a GNSS session. It needs
+no SIM, no LTE, no ModemManager and no network, and it fires within
+milliseconds. Re-confirmed on the current build, with `ipa.ko` loaded and a
+GPRS data call up:
+
+```
+[ 591.190283] GNSS-TFTP-MARKER-D2
+[ 592.061491] rhodep-gnss: session 11 started; listening 20 s
+[ 592.061991] rhodep-gnss: ---------------------------------------
+ECC: No errors detected            -> bootreason=watchdog
+```
+
+And it has now been bisected one step further, which is the useful part. Set
+the operation mode to `cellid` from the same QMI client that opens the session
+and **it survives**: twenty-five seconds, fifty indications, real position
+reports and NMEA. So what kills the SoC is the **GNSS measurement engine being
+brought up**, not the session, not the indications and not QMI.
+
+Held next to the LTE finding — that it needs a *real attach*, not merely LTE
+selected, and that a SIM-less modem scans in LTE for two minutes and lives —
+the shape of the two is the same: **the modem switches on one of its hardware
+engines and the chip dies.** Not the Q6 running software: GSM registers,
+carries a GPRS call through IPA, sends SMS and places calls.
+
+Whether it is one bug is not proven. Two things argue that it is: identical
+signature down to the bootloader's bitmask, and both needing modem *hardware*
+rather than modem software. One thing argues against it: milliseconds versus
+nine seconds.
+
+**Use the GNSS reproducer to test anything that is not IPA-specific.** Every
+elimination in this document cost a reboot and an LTE attach; the same
+eliminations now cost ninety seconds each.
+
+## A correction to the timing reading below
+
+"It is a timeout, not a race" is stated below on the strength of 9.7 s, 9.9 s
+and 8.7 s from the last GSI interrupt to death, read as a ten second Q6
+watchdog. That spread is 1.2 s. **A hardware watchdog does not do that** — it
+would give 9.7, 9.7, 9.7. A process that takes about nine seconds to reach a
+particular step does.
+
+So the more likely reading, and the one the GNSS result supports, is that the
+modem is alive and working through the attach for those nine seconds and then
+does something that resets the chip instantly — exactly the GNSS shape. The
+"modem hangs, its watchdog bites ten seconds later" story is not required by
+the evidence and should not be leaned on.
+
 ## The problem in one paragraph
 
 Moto G82 5G (`motorola-rhodep`, SM6375), Kali NetHunter Pro on mainline
@@ -62,6 +117,54 @@ the modem's SMMU stream IDs (`0x4a0` and `0x4a2` both declared).
 3G cannot serve as a middle case: the network returns `registration-denied` on
 UMTS, most likely the carrier retiring 3G rather than the port.
 
+## Ruled out on the GNSS reproducer, which counts for this bug too
+
+None of these is IPA-specific, so a negative on the fast trigger is a negative
+here. Each is an instrument, not an absence.
+
+**The region size the AP declares to TrustZone.** `qcom_mdt_pas_init()` calls
+`qcom_scm_pas_mem_setup(pas_id, mem_phys, max_addr - min_addr)` — the extent of
+the loaded ELF, not the carveout — so a modem heap growing past the ELF would
+hit an XPU violation, which is exactly this signature. Parsed all 36 program
+headers of the device's own `modem.mdt`: `min=0x8b800000`, `max=0x9b800000`,
+extent `0x10000000`. **Exactly** the 256 MB of `pil_mpss_wlan_mem`. No gap.
+
+**CPU frequency and an APSS droop.** Every cpufreq policy forced to
+`powersave`, 300 MHz and 691 MHz: resets unchanged. Not a current or voltage
+interaction with what the AP is doing.
+
+**The modem wanting a file.** `tqftpserv` and `rmtfs` journals bridged into
+`/dev/kmsg` so they land in ramoops, with the bridge verified live before the
+run. **Not one line** between the marker and the death. The modem asks for
+nothing. (This closes the "next step 1" the GNSS document left open.)
+
+**CX and MX corners.** Both pinned at `RPM_SMD_LEVEL_TURBO_NO_CPR` for the
+whole window with `kernel/diag-modules/rhodep_pdhold.c`, confirmed in
+`/sys/kernel/debug/pm_genpd/{cx,mx}/perf_state`: resets unchanged. Rail corners
+the AP can vote for are out.
+
+**Binding the NoC provider**, which the GNSS document called its one remaining
+cheap lead: already true. `qnoc-sm6375` is built in since 0065 and
+`/sys/kernel/debug/interconnect/` is populated.
+
+**A vendor `no-map` region mainline fails to reserve.** Re-derived the whole
+`reserved-memory` block from `blair.dtsi` rather than trusting the earlier
+count. Every fixed `no-map` region is present in mainline; everything else in
+the vendor list is `reusable` (CMA) and harmless. The single exception is
+`memshare_mem` — dynamic, `no-map`, 8 MB — which mainline does not reserve, and
+which does not matter today because the daemon answers `MEM_QUERY_SIZE` with 0
+and refuses `MEM_ALLOC`, so the modem never holds an address in it.
+
+### Not an elimination, though it looks like one: QDSS
+
+The QDSS clock was voted explicitly with `kernel/diag-modules/rhodep_clkhold.c`
+and the reset was unchanged. **That proves nothing.**
+`clk_smd_rpm_handoff()` in `clk-smd-rpm.c` already writes an enable to RPM for
+every clock in the sm6375 table, active set and sleep set, at probe — so
+`qdss_clk` reads `enable Y` at 19.2 MHz in `clk_summary` with a prepare count of
+zero before the module is loaded. The vote was redundant and the run changed
+nothing about the machine. **QDSS is still open.**
+
 ## Traps that have already cost time
 
 **`/tmp/opencode/kernel/linux-7.2-rc5` is pristine upstream. The port's patches
@@ -87,6 +190,26 @@ active first and the same window gives 41 to 45.
 
 **Detect resets by uptime, never by the SSH stream dropping.** The stream
 closes on timeouts without the phone dying.
+
+**`/tmp` on the phone does not survive the reset you are causing.** A test run
+came back "SURVIVED" and the log said `sudo: /tmp/gnss.py: command not found` —
+the previous reset had wiped the script. Re-copy and re-check the md5 of every
+instrument after every reset, not once at the start.
+
+**rhodep is a `blair` board, and `blair.dtsi` is not `holi.dtsi`.** The board
+file is `blair-moto-rhodep-base.dts`, which includes `blair.dtsi`, which in turn
+includes the `holi-*.dtsi` subsystem files. So the platform really is holi, but
+anything defined *in* `blair.dtsi` must be read there — `holi.dtsi` is a
+different SoC with `pm6350`/`pm6150l` instead of this board's
+`pm6125`/`pmr735a`. This document quoted holi twice and both were wrong for
+rhodep:
+
+* `pil_modem` proxies `vdd_cx-supply = <&S2E_LEVEL>` on blair, not `S1E_LEVEL`.
+* On blair **`S1E` is VDD_MX**, `qcom,resource-name = "rwmx"` — and downstream
+  *does* vote it, just not from `pil_modem`: the regulator node itself carries
+  `qcom,init-voltage-level = <RPM_SMD_REGULATOR_LEVEL_TURBO>` and
+  `qcom,proxy-consumer-enable`. "Neither side votes MX" is wrong as written.
+  It is not the cause — MX pinned at maximum still resets — but the method was.
 
 **Modules live in the rootfs, not in the boot image.** `ipa.ko`,
 `qmi_helpers.ko`, `qcom_q6v5.ko` and `qcom_q6v5_pas.ko` are all modules, so
@@ -129,6 +252,21 @@ ipa-clock-query · `pm` IPA runtime PM · `mgs` the modem's GSI channel states,
 one hex digit each, 1 allocated 2 started 3 stopped 4 stopping f error · `cr`
 the modem's SMEM crash reason, `init` meaning still the placeholder.
 
+`kernel/diag-modules/` holds two out-of-tree modules that build **on the
+phone** in seconds against the installed headers package, so a clock or a rail
+corner can be tested without a device tree change, a kernel build or a flash:
+`rhodep_clkhold` (hold RPM clocks by index) and `rhodep_pdhold` (pin rpmpd
+domains at a performance state). Read that directory's README before believing
+a null result from `clkhold`.
+
+`scripts/rhodep-gnss-test.py` grew an `opmode=` flag, which is what produced
+the bisection at the top of this file:
+
+```
+sudo ./rhodep-gnss-test.py 60 min opmode=cellid    # survives, 50 indications
+sudo ./rhodep-gnss-test.py 20 min                  # standalone: resets
+```
+
 Diagnostic patches, all outside `source=` unless noted:
 
 * `0074` reports every QMI message dropped for want of a handler
@@ -140,22 +278,58 @@ Diagnostic patches, all outside `source=` unless noted:
 
 ## Where to go next
 
-The AP side is exhausted. Every piece of hardware whose clock, power or bus the
-AP votes for has been checked, and IPA answers the AP normally throughout the
-window in which the modem is already hung.
+Restated after the GNSS bisection, because the question has changed. It is no
+longer "what does the modem touch during an LTE attach". It is **"what does the
+modem touch when it switches on a hardware engine"**, and there are two of them
+that do it — the GNSS measurement engine and whatever LTE brings up at attach —
+against a Q6 running software that is demonstrably fine.
 
-1. **Modem-side tracing.** QRTR advertises service 51, CoreSight remote
-   tracing, at two instances. Mainline has the CoreSight drivers. If the
-   modem's ETM can be routed to a TMC-ETR buffer in DDR and that buffer read
-   after the reset, it would say which instruction it stopped on. This is the
-   only avenue left that can answer the question directly, and it is a large
-   piece of work.
-2. **Attach transmit power.** The no-SIM test rules out receiver bring-up but
-   not transmit. A way to make the modem attach at low power, or to observe
-   rail behaviour during the random access, would close that gap.
-3. **Compare against a working LineageOS boot on the same handset.** The modem
-   firmware and EFS are identical, so anything the downstream kernel does at
-   attach that mainline does not is by definition in the difference. The IPA
-   QMI exchange has been compared; the SSR and Trust Zone setup has not, and
-   the escalation from modem watchdog to full-chip reset is the part of this
-   that is squarely a configuration question.
+1. **QDSS and CoreSight, now the leading candidate.** It is by far the largest
+   piece of hardware mainline does not describe: a node-by-node diff of
+   `blair.dtsi` plus its `holi-*.dtsi` includes against `sm6375.dtsi` gives 146
+   nodes only the vendor has, and **about 110 of them are CoreSight** — `stm`,
+   `tmc`, `tpdm`, `tpda`, `funnel`, `replicator`, `cti`, `csr`, `etm`, `tgu`.
+   Mainline has none. Meanwhile the modem is plainly running its side of it:
+   `qrtr-lookup` shows **three** instances of service 51, CoreSight remote
+   tracing, on the modem and two more on the ADSP.
+
+   The mechanism fits the signature exactly. A hardware trace source that comes
+   up with its engine, pushing onto an ATB whose funnel is unconfigured, is a
+   bus transaction that never completes — instant, silent, and impossible for
+   the modem to record. It also explains why Q6 software never trips it.
+
+   The cheap half of the test is to describe the QDSS blocks and let mainline's
+   CoreSight drivers configure and *disable* the fabric properly, rather than
+   leaving it in whatever state XBL did. Do not repeat the mistake in "Not an
+   elimination" above: voting `qdss_clk` is already done for you at probe and
+   proves nothing on its own.
+
+2. **The modem's own hardware trace, as an instrument rather than a suspect.**
+   The same 110 nodes are what a TMC-ETR buffer in DDR would need. If the
+   modem's ETM can be routed there and the buffer read after the reset, it says
+   which instruction it stopped on. Large, but the GNSS reproducer makes it
+   affordable to iterate on now.
+
+3. **Compare against the working LineageOS build on this handset.** The device,
+   common and kernel trees are public
+   (`Motorola-SM6375-Devs/android_{device_motorola_rhodep,device_motorola_sm6375-common,kernel_motorola_sm6375}`)
+   and the kernel one is already checked out at `/tmp/opencode/vendor-kernel`
+   as a partial clone — widen it with `git sparse-checkout add <dir>` rather
+   than re-cloning. The modem firmware and EFS are identical on both, so
+   anything downstream does at engine bring-up that mainline does not is by
+   definition in the difference.
+
+4. **Make the reset legible instead of guessing at it.** Downstream registers a
+   dump table with TrustZone by writing its physical address into IMEM at
+   offset `0x10` — `qcom,msm-imem-mem_dump_table@10`, `init_memory_dump()` in
+   `drivers/soc/qcom/memory_dump_v2.c`, and it is a plain `memcpy_toio`, not an
+   SCM call. Mainline has no equivalent, which is exactly why `wdog_cpuctx`
+   came back byte-identical across a reset. The format is fully described in
+   `include/soc/qcom/memory_dump.h`. Registering it would say whether the reset
+   even goes through TrustZone's error path, and is a small module rather than
+   a driver.
+
+5. **Attach transmit power** remains open from before: the no-SIM test rules out
+   LTE receiver bring-up but not transmit. Note that GNSS is receive-only and
+   dies anyway, which makes a pure "TX power" explanation less attractive than
+   it was.

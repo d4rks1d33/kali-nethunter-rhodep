@@ -197,6 +197,29 @@ served. It is a false lead: mounting the real `fsg_a` partition shows it
 contains `mcfg_sw/` and no `mcfg_hw/` at all, so Android answers that request
 with ENOENT too.
 
+**The carrier configuration cannot be used to bisect the LTE attach.** The
+active `mcfg_sw` is `PERSONAL_ARG`, one of 25, all of them operator-specific --
+there is no generic one to fall back to. Deactivating it (`qmicli
+--pdc-deactivate-config`) leaves the modem unable to register on LTE at all,
+which is the uninformative outcome, since an unregistered modem already
+survives. Restored afterwards.
+
+**Answering QMI service 60 changes nothing.** The modem contacts it the instant
+it is published -- it does not look services up, it is told -- and asks:
+
+```
+service 60, msg_id 0x0020
+  TLV 0x10 (8): "msm_mpss"      TLV 0x11 (4): 0x1388 = 5000 ms
+```
+
+Nothing on this port answers that today, and Android does, which made it a
+candidate for the escalation question: a modem that believes the AP cannot
+restart it might reset the chip rather than assert. Published with
+`service-probe --answer 60 56`, confirmed in `qrtr-lookup`, confirmed the modem
+talks to it -- and `standalone` still resets. (A bare success may not be the
+answer that service wants, so this eliminates "the modem only needs to be
+acknowledged", not the whole idea.)
+
 **The ADSP is not in the loop.** Qualcomm GNSS uses sensor assistance and the
 SSC lives inside the ADSP on this SoC, which made it a plausible third party.
 The ADSP cannot be stopped through `/sys/class/remoteproc/remoteproc1/state`
@@ -223,6 +246,27 @@ but every `open()` then fails with `EINVAL`, which is
 `qcom_glink_create_ept()` finding no matching remote channel and
 `qcom_glink_create_local()` never getting an `OPEN_ACK`. The modem does not
 answer to any of those names.
+
+### The two failure modes on this SoC are not the same, and that matters
+
+Worth stating before the eliminations, because it reframes them. This port has
+now produced, three separate times, a failure where the application processor
+touches an address that does not answer:
+
+* patch 0046, writing a NoC QoS register on an unclocked port -- "a core that
+  will not take an NMI is a core parked on a bus transaction that never
+  completes";
+* reading the modem's live carveout at `0x8b800000` through `/dev/mem`;
+* reading past the end of the 4 KB IMEM window while chasing the TrustZone log.
+
+Every one of those **hangs the machine**. The CPU parks, sshd stops answering,
+and it takes a long power press. **None of them resets the SoC.**
+
+The bug does reset the SoC, instantly. So it is not "an access that never
+completes" -- that failure has a different, known signature here. It is
+something that is *actively escalated*: a violation that somebody decides to
+turn into a reset. That points at TrustZone or the PMIC rather than at a hung
+bus, and it is the reason the remaining candidates are what they are.
 
 ### QDSS and CoreSight: was the leading candidate, and it is dead
 

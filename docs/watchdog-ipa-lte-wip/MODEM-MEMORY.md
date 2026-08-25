@@ -115,6 +115,27 @@ only because at that point in the boot the modem had never been loaded.
 running.** The other addresses in that probe -- 0x8ca50000, 0x97000000,
 0xaefa2000, 0x80900000 -- were never reached, so nothing is known about them.
 
+## The control dump: the route is closed
+
+The validation in the section above was run. The dump was repeated on the boot
+after an **abrupt** reset with the modem loaded and running -- `echo b >
+/proc/sysrq-trigger`, so the firmware was in that memory and nothing shut the
+subsystem down in an orderly way:
+
+```
+dumping 0x8b800000+0x10000000 to /root/mpss-dumps/mpss-20260825-141230-reboot.bin
+dump complete, 0 of 65536 sampled pages non-zero
+```
+
+Also entirely zero. So the carveout reads as zeros whatever was in it, and the
+two explanations offered above collapse into the same conclusion for practical
+purposes: **this route gives nothing.** Either XBL clears the region on every
+boot or the read returns zeros for memory owned by another virtual machine, and
+either way there is nothing to recover from it.
+
+Distinguishing the two only matters if someone wants to revive the idea, and
+the way to do it is in step 2 below -- reassign the region to HLOS first.
+
 ## Where to pick this up
 
 1. **Settle whether the dump is meaningful**, without touching the live

@@ -557,6 +557,98 @@ varied independently on this device. The suspicion was already in this
 document; it is now measured with the mode preference verified rather than
 assumed.
 
+## There is an AT command interface to the modem, and nobody knew
+
+The modem's glink edge advertises `DS`, `DATA1` through `DATA4` and `DATA11`,
+and no driver on this port binds any of them. Opening them through
+`/dev/rpmsg_ctrl2` with `RPMSG_CREATE_EPT_IOCTL` works -- unlike DIAG, which
+fails with `EINVAL` because the modem never acks the open -- and **`DS` and
+`DATA1` answer AT commands**:
+
+```
+>>> ATI
+Manufacturer: Motorola Mobility
+Model: 334
+Revision: MPSS.HI.4.3.4-00494-MANNAR_GEN_PACK-1.24452.133  1  [Sep 13 2024]
+IMEI: 351287971159510
++GCAP: +CGSM,+DS
+OK
+>>> AT$QCSIMSTAT?
+$QCSIMSTAT: 0,SIM INIT COMPLETED
+```
+
+Qualcomm vendor commands work too, so this is a real modem console and a path
+that does **not** go through QMI and does not depend on the debug fuses.
+`scripts/modem/rhodep-modem-at.py` drives it.
+
+One trap: a non-blocking write returns `EBUSY`, which is glink saying there is
+no remote intent to put the data in, not the port being dead. Open blocking and
+bound the wait with an alarm.
+
+**`AT$QCDMG` returns `ERROR`.** That was the prize -- on Qualcomm modems it
+switches the AT port into DIAG mode, which would have given the modem's own F3
+log. This firmware refuses, consistently with advertising no DIAG channel and
+with the trace fuses being closed.
+
+### What the AT port says while the SoC is dying
+
+Polled continuously across an LTE attach on band 4, logging into `/dev/kmsg`,
+the port answers every single command until 200 ms before the machine
+disappears:
+
+```
+ATW: 29 t=524.53 CEREG AT+CEREG? +CEREG: 0,1 OK
+<end of console, SoC gone>
+```
+
+`+CEREG: 0,1` is registered on the home network, and `+CEER` reports `No GPRS
+context`, which is the benign "nothing to report" answer rather than a cause.
+
+Put together with the fast deathwatch below, **both processors report
+themselves healthy right up to the instant of the reset**, through two
+independent paths. That is very hard to reconcile with a software fault on
+either side.
+
+## The fast deathwatch: IPA sees nothing, and neither does the modem
+
+Rebuilt `ipa.ko`, `qmi_helpers.ko` and `qcom_q6v5_pas.ko` with the diagnostic
+patches 0072, 0074, 0075 and 0076 all in `source=`, installed by copying the
+`.ko` files and running `depmod` -- no flashing, modules live in the rootfs --
+and sampled at **10 Hz** with IPA pinned active so the observer cannot
+contaminate the GSI counter. Band 4 was chosen because it kills five to seven
+seconds after registering, so the window is small and repeatable.
+
+The full sequence, at last:
+
+```
+t=156.2   band 4 forced
+t=172.01  mgs 2222333300000000    ch3 starts
+t=172.98  mgs 2223222200000000    ch3 stops, ch4-7 start
+t=175.04  mgs 2222222200000000    ch3-7 all started
+t=175.87  gsi 49 -> 53            four GSI interrupts in the whole window
+t=176.16  mgs 2223333300000000    everything back to the GSM baseline
+          ... 7 seconds of complete silence ...
+t=183.03  dead
+```
+
+A second run with the modem's own signals added, 167 samples at 10 Hz:
+
+```
+LTEW2 167 t=281.91 ipa=1 gsi=20 w=0 f=0 mgs=2223333300000000 cr=[SFR Init: wdog or kernel]
+```
+
+* `w=0` and `f=0` to the last sample: the modem's watchdog never reaches the AP
+  and it never raises its fatal bit.
+* `cr` is the Qualcomm placeholder, **sampled 63 times during the silent
+  window** at 2.5x the rate the earlier captures used. The modem never writes a
+  reason.
+* `ipa` and `gsi` never move, no IPA error interrupt fires with 0072 unmasking
+  all six, and no QMI message is dropped with 0074 watching.
+
+So the modem brings its LTE channels up, takes them back down to the GSM
+baseline, goes completely quiet, and seven to nine seconds later the chip is
+gone -- with every observable on both processors reading healthy.
+
 ## It is not the band, and band restriction does work after all
 
 This document says band-by-band testing is unavailable because "the modem

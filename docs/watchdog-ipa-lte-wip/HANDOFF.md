@@ -458,6 +458,14 @@ against a Q6 running software that is demonstrably fine.
    modem's own `modem.mdt` program headers say which segment each address falls
    in.
 
+   Two outside comparisons were tried and neither helps, so nobody has to
+   repeat them. Mainline has a **second** SM6375 device with the modem enabled,
+   `sm6375-sony-xperia-murray-pdx225.dts`, which would settle whether this is a
+   board problem or an SoC-level gap — but its postmarketOS wiki page lists
+   modem, calls, SMS, mobile data and GPS all as **Untested**, so there is no
+   data point there. And a search of linux-arm-msm for `sm6375` turns up only
+   unrelated SM7250 work; there is no upstream discussion of this.
+
 2. **Compare against the working LineageOS build on this handset.** The device,
    common and kernel trees are public
    (`Motorola-SM6375-Devs/android_{device_motorola_rhodep,device_motorola_sm6375-common,kernel_motorola_sm6375}`)

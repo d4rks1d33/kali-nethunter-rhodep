@@ -268,6 +268,59 @@ something that is *actively escalated*: a violation that somebody decides to
 turn into a reset. That points at TrustZone or the PMIC rather than at a hung
 bus, and it is the reason the remaining candidates are what they are.
 
+### mainline disables the TrustZone debug image on every boot, and it does not matter
+
+A real divergence from downstream, found in `qcom_scm_probe()`:
+
+```c
+qcom_scm_set_download_mode(download_mode);
+/* Disable SDI if indicated by DT that it is enabled by default. */
+if (of_property_read_bool(pdev->dev.of_node, "qcom,sdi-enabled") || !download_mode)
+	qcom_scm_disable_sdi();
+```
+
+`download_mode` is zero unless `CONFIG_QCOM_SCM_DOWNLOAD_MODE_DEFAULT` is set,
+which this port does not set, so `!download_mode` is true and **mainline calls
+`qcom_scm_disable_sdi()` on every boot**. Downstream calls it only from
+`qcom_scm_shutdown()`, on a clean poweroff. SDI is the System Debug Image: the
+TrustZone code that runs on a watchdog bite or a fatal error, saves context and
+then resets. With it off, the same event is an immediate reset with nothing
+saved -- which is exactly the shape of this bug, and would explain why no
+capture has ever contained anything.
+
+It can be tested without arming download mode at all, which is the neat part.
+This SoC has no mechanism to write the dload cookie -- `qcom_scm` says so
+outright, `No available mechanism for setting download mode` -- so setting the
+parameter changes nothing except that the `if` above becomes false. **There is
+no EDL risk.** Boot with the parameter on the kernel command line, since
+`CONFIG_QCOM_SCM=y` makes it built in:
+
+```
+qcom_scm.download_mode=full
+```
+
+Confirmed live: `/sys/module/qcom_scm/parameters/download_mode` reads `full`,
+dmesg still says `No available mechanism`, and the modem comes up normally.
+Then the reproducer:
+
+* it still resets, and
+* `tzlog_dump@aefa2000` and `wdog_cpuctx@aefd2000` come back **byte for byte
+  identical**, same md5 as before the run.
+
+So SDI writes nothing even when mainline is told not to disable it. Either it
+is off for another reason -- most likely the same production debug fuses that
+turn out to disable CoreSight, see below -- or the reset does not go through
+TrustZone's error path at all. Either way this is not the cause, and
+`wdog_cpuctx` being empty is not explained by the AP disabling SDI.
+
+Keep the finding anyway: disabling SDI on every boot is a real behavioural
+difference from downstream and is worth raising upstream on its own terms.
+
+The current `boot_a` carries that command line, added by patching the 512-byte
+cmdline field of the boot image in place -- 28 bytes changed, kernel, DTB and
+ramdisk untouched, and the header `id[8]` is a SHA1 over the kernel and ramdisk
+only, so it stays valid. `boot_a-backup.img` reverts it.
+
 ### QDSS and CoreSight: was the leading candidate, and it is dead
 
 It was a good candidate on paper. A node-by-node diff of `blair.dtsi` plus its

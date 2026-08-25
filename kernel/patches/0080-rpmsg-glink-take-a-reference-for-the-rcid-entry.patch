@@ -1,0 +1,93 @@
+From: postmarketOS rhodep port
+Subject: [PATCH] rpmsg: glink: take a reference for the rcid entry too
+
+qcom_glink_native_remove() releases one reference per channel for the lcids
+idr and one more for the rcids idr:
+
+	idr_for_each_entry(&glink->lcids, channel, cid)
+		kref_put(&channel->refcount, qcom_glink_channel_release);
+
+	idr_for_each_entry(&glink->rcids, channel, cid)
+		kref_put(&channel->refcount, qcom_glink_channel_release);
+
+but only one of those two insertions ever takes a reference.
+qcom_glink_send_open_req() does a kref_get() before adding the channel to
+lcids. qcom_glink_rx_open() adds it to rcids and takes a reference only when
+it allocated the channel itself, which its own error path spells out:
+
+	free_channel:
+		/* Release the reference, iff we took it */
+		if (create_device)
+			kref_put(&channel->refcount, qcom_glink_channel_release);
+
+For a channel the remote opened that is fine: the reference from
+qcom_glink_alloc_channel() covers the rcids entry, and the later
+qcom_glink_send_open_req() adds the one for lcids. Two references, two puts.
+
+For a channel opened from this side it is not. A local open allocates the
+channel, qcom_glink_send_open_req() takes the second reference for lcids, and
+when the remote answers with its own OPEN, qcom_glink_rx_open() finds the
+channel in lcids and inserts it into rcids taking nothing. Two references, and
+qcom_glink_native_remove() then puts three times.
+
+Locally opened channels are what userspace gets through rpmsg_ctrl's
+RPMSG_CREATE_EPT_IOCTL, so this is reachable from an unprivileged-looking
+sequence: open an endpoint on a glink channel the remote also opens, then let
+the remote be torn down. On a modem crash that path runs as
+
+	rproc_crash_handler_work -> rproc_trigger_recovery -> rproc_boot_recovery
+	-> rproc_stop -> glink_subdev_stop -> qcom_glink_smem_unregister
+	-> qcom_glink_native_remove
+
+and it lands exactly as advertised:
+
+	refcount_t: underflow; use-after-free.
+	WARNING: lib/refcount.c:28 at refcount_warn_saturate+0xd8/0x13c,
+	         CPU#6: kworker/u32:5/128
+	Workqueue: rproc_recovery_wq rproc_crash_handler_work
+	Call trace:
+	 refcount_warn_saturate+0xd8/0x13c (P)
+	 qcom_glink_native_remove+0x160/0x268
+	 qcom_glink_smem_unregister+0x28/0x934 [qcom_glink_smem]
+	 glink_subdev_stop+0x1c/0x30 [qcom_common]
+	 rproc_stop+0xb4/0x144
+	 rproc_boot_recovery+0x30/0xc4
+	 rproc_trigger_recovery+0x70/0x84
+	 rproc_crash_handler_work+0xa8/0xe0
+
+Observed on a Motorola Moto G82 5G (SM6375) with an AT console open on the
+modem's DS glink channel when the modem crashed.
+
+Take the reference when the rcids entry is created rather than only when the
+channel is allocated, and release it unconditionally on the error path, which
+is correct for both cases: in the create_device case the allocation reference
+is the one being dropped, and otherwise it is the one just taken.
+
+--- a/drivers/rpmsg/qcom_glink_native.c
++++ b/drivers/rpmsg/qcom_glink_native.c
+@@ -1652,6 +1652,13 @@ static int qcom_glink_rx_open(struct qcom_glink *glink, unsigned int rcid,
+ 
+ 		/* The opening dance was initiated by the remote */
+ 		create_device = true;
++	} else {
++		/*
++		 * The channel is already in lcids and holds a reference for
++		 * that entry. qcom_glink_native_remove() puts one reference
++		 * per idr, so the rcids entry needs one of its own.
++		 */
++		kref_get(&channel->refcount);
+ 	}
+ 
+ 	trace_qcom_glink_cmd_open_rx(glink->label, name, channel->lcid, rcid);
+@@ -1706,9 +1713,8 @@ rcid_remove:
+ 	channel->rcid = 0;
+ 	spin_unlock_irqrestore(&glink->idr_lock, flags);
+ free_channel:
+-	/* Release the reference, iff we took it */
+-	if (create_device)
+-		kref_put(&channel->refcount, qcom_glink_channel_release);
++	/* Release the rcids reference, whichever of the two it was */
++	kref_put(&channel->refcount, qcom_glink_channel_release);
+ 
+ 	return ret;
+ }

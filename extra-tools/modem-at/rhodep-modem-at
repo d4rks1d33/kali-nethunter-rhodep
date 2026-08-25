@@ -51,7 +51,7 @@ import sys
 import time
 
 RPMSG_CREATE_EPT_IOCTL = (1 << 30) | (40 << 16) | (0xB5 << 8) | 0x01
-MODEM_CTRL = "/dev/rpmsg_ctrl2"
+RPMSG_DESTROY_EPT_IOCTL = (0xB5 << 8) | 0x02          # _IO(0xb5, 0x2)
 MODEM_EDGE = "6080000.remoteproc"
 
 CRIB = """
@@ -99,6 +99,57 @@ working phone, and some commands persist across reboots.
 """
 
 
+
+# Every command below came from this modem's own AT+CLAC, which lists 256 of
+# them. They are grouped by what they do to the device, not by what they are
+# called, because that is the distinction that matters when you are poking at
+# the radio of a phone you need to keep working.
+
+# Read-only. Verified against this modem: safe to fire at will.
+SAFE = [
+    "ATI", "AT+CGMI", "AT+CGMM", "AT+CGMR", "AT+CGSN", "AT+CIMI", "AT+ICCID",
+    "AT+GCAP", "AT+CNUM", "AT+CPAS", "AT+CFUN?", "AT+COPS?", "AT+CREG?",
+    "AT+CGREG?", "AT+CEREG?", "AT+C5GREG?", "AT+CSQ", "AT+CEER", "AT+CBC",
+    "AT+CGDCONT?", "AT+CGACT?", "AT+CGATT?", "AT+CGPADDR", "AT+CGCONTRDP",
+    "AT+CPIN?", "AT+CLCC", "AT+CIND?", "AT+CSCA?", "AT+CPMS?", "AT+CMGF?",
+    "AT+CCLK?", "AT+CTZU?", "AT+WS46?", "AT+CEMODE?", "AT+CGCLASS?",
+    "AT$QCSIMSTAT?", "AT$QCPINSTAT?", "AT$QCSYSMODE?", "AT$QCHWREV",
+    "AT$QCBOOTVER", "AT$QCSQ", "AT$QCRSRP", "AT$QCRSRQ", "AT$QCRSCP",
+    "AT$QCECNO", "AT$QCBANDPREF?", "AT$QCDRX?", "AT$QCMSISDN?", "AT$QCCLAC",
+    "AT^SYSINFO", "AT^SPN", "AT^CARDMODE", "AT+CLAC",
+]
+
+# Changes state. Reversible, but it is a live radio.
+CONFIG = [
+    "AT+CFUN=", "AT+COPS=", "AT+CGDCONT=", "AT+CGATT=", "AT+CMEE=",
+    "AT+CMGF=", "AT+CNMI=", "AT+CTZU=", "AT+WS46=", "AT+CEMODE=",
+    "AT$QCBANDPREF=", "AT$QCDRX=", "AT$QCPDPP=", "AT$QCAPNE=",
+    "AT^SYSCONFIG", "AT^PREFMODE",
+]
+
+# Do not send these casually. Each one either drops the radio, writes something
+# that survives a reboot, or -- for the last group -- is simply unknown and one
+# of the batch that wedged this phone hard enough to need the power button.
+DANGEROUS = {
+    "AT$QCPWRDN":   "powers the modem down",
+    "AT+CFUN=0":    "drops the radio",
+    "AT+CFUN=1,1":  "resets the modem",
+    "AT+CRES":      "restores SMS settings from the SIM",
+    "AT+CSAS":      "saves SMS settings to the SIM",
+    "AT+CPWD":      "changes a SIM password",
+    "AT+CLCK":      "locks or unlocks the SIM",
+    "AT+CPIN=":     "burns a PIN attempt if it is wrong",
+    "AT$QCCLR":     "clears something -- semantics unknown",
+    "AT$QCACQDBC":  "clears the acquisition database, costs a slow re-scan",
+    "AT$QCDGEN":    "traffic generator",
+    "AT$QCRMCALL":  "brings up a data call behind ModemManager's back",
+    "AT$QCVOLT":    "UNKNOWN. In the batch that wedged the AP; see the README",
+    "AT$QCDMR":     "UNKNOWN. DM/DIAG related; $QCDMG is not even in this "
+                    "firmware's strings, so it is unlikely to open DIAG",
+    "AT$QCTER":     "UNKNOWN. Also in the batch that wedged the AP",
+}
+
+
 class Timeout(Exception):
     pass
 
@@ -119,18 +170,91 @@ def list_channels():
     return out
 
 
+def modem_ctrl():
+    """Find the rpmsg control device belonging to the modem's glink edge.
+
+    Do not hardcode /dev/rpmsg_ctrlN. The number depends on the order the
+    remoteprocs probe and really does move between boots -- the modem was
+    rpmsg_ctrl2 on one boot and rpmsg_ctrl3 on the next, which made this tool
+    fail with a bare ENOENT.
+    """
+    for c in sorted(glob.glob("/sys/class/rpmsg/rpmsg_ctrl*")):
+        try:
+            target = os.path.realpath(c)
+        except OSError:
+            continue
+        if MODEM_EDGE in target:
+            dev = "/dev/" + os.path.basename(c)
+            if os.path.exists(dev):
+                return dev
+    return None
+
+
+def endpoint_name(dev):
+    """Channel name behind a /dev/rpmsgN, from sysfs."""
+    try:
+        with open("/sys/class/rpmsg/%s/name" % os.path.basename(dev)) as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
+def existing_endpoints(name=None):
+    out = []
+    for dev in sorted(glob.glob("/dev/rpmsg[0-9]*")):
+        n = endpoint_name(dev)
+        if n and (name is None or n == name):
+            out.append((dev, n))
+    return out
+
+
+def destroy(dev):
+    """Release an endpoint so the channel can be opened again."""
+    try:
+        fd = os.open(dev, os.O_RDWR)
+    except OSError:
+        return False
+    try:
+        fcntl.ioctl(fd, RPMSG_DESTROY_EPT_IOCTL)
+        return True
+    except OSError:
+        return False
+    finally:
+        os.close(fd)
+
+
 def open_channel(name):
-    """Create an endpoint on a named glink channel and return an fd."""
-    if not os.path.exists(MODEM_CTRL):
-        raise SystemExit("%s missing: is rpmsg_ctrl loaded and the modem up?"
-                         % MODEM_CTRL)
+    """Return (fd, device, we_created_it) for a named glink channel.
+
+    An endpoint left behind by a previous run keeps the channel busy: glink
+    will not create a second one and open() then fails with EINVAL, which reads
+    exactly like the modem refusing the channel. So reuse one if it is there,
+    and destroy whatever we create on the way out.
+    """
+    ctrl = modem_ctrl()
+    if not ctrl:
+        raise SystemExit(
+            "no rpmsg control device for %s.\n"
+            "Is rpmsg_ctrl loaded and the modem running?\n"
+            "  lsmod | grep rpmsg_ctrl\n"
+            "  cat /sys/class/remoteproc/remoteproc0/state" % MODEM_EDGE)
+
+    for dev, _ in existing_endpoints(name):
+        try:
+            return os.open(dev, os.O_RDWR), dev, False
+        except OSError:
+            destroy(dev)                       # stale and unopenable: clear it
+
     before = set(glob.glob("/dev/rpmsg[0-9]*"))
-    fd = os.open(MODEM_CTRL, os.O_RDWR)
+    fd = os.open(ctrl, os.O_RDWR)
     try:
         fcntl.ioctl(fd, RPMSG_CREATE_EPT_IOCTL,
                     struct.pack("32sII", name.encode(), 0xFFFFFFFF, 0xFFFFFFFF))
-    finally:
+    except OSError as e:
         os.close(fd)
+        raise SystemExit("cannot create an endpoint on %s: %s" % (name, e))
+    os.close(fd)
+
     for _ in range(20):
         time.sleep(0.1)
         new = sorted(set(glob.glob("/dev/rpmsg[0-9]*")) - before)
@@ -138,15 +262,18 @@ def open_channel(name):
             break
     else:
         raise SystemExit("no /dev/rpmsgN appeared for channel %s" % name)
+
     dev = new[-1]
     try:
         # Blocking on purpose: a non-blocking write returns EBUSY whenever the
         # modem has not posted a receive intent yet.
-        return os.open(dev, os.O_RDWR), dev
+        return os.open(dev, os.O_RDWR), dev, True
     except OSError as e:
-        raise SystemExit("channel %s created %s but will not open: %s\n"
-                         "(the modem does not acknowledge that channel)"
-                         % (name, dev, e))
+        destroy(dev)
+        raise SystemExit(
+            "channel %s created %s but will not open: %s\n"
+            "The modem does not acknowledge that channel. DS and DATA1 answer;\n"
+            "DIAG never does." % (name, dev, e))
 
 
 def drain(fd, secs=0.3):
@@ -200,6 +327,96 @@ def command(fd, cmd, wait=5.0):
     return "\n".join(lines) if lines else "(no answer)"
 
 
+def kmsg(text):
+    """Leave a trace that survives a reset, in ramoops."""
+    try:
+        with open("/dev/kmsg", "w") as k:
+            k.write("modem-at: %s\n" % text)
+    except OSError:
+        pass
+
+
+def uptime():
+    try:
+        with open("/proc/uptime") as f:
+            return float(f.read().split()[0])
+    except OSError:
+        return -1.0
+
+
+def danger(cmd):
+    up = cmd.strip().upper()
+    for k, why in DANGEROUS.items():
+        if up.startswith(k.upper()):
+            return why
+    return None
+
+
+def probe(fd, cmd, force=False):
+    """Send one command, having first written it where a reset cannot erase it.
+
+    This exists because ten Qualcomm vendor commands were once sent in a batch
+    with no trace, one of them wedged the application processor hard enough to
+    need the power button, and there was no way afterwards to tell which. A
+    marker in /dev/kmsg lands in the ramoops console record, so the last thing
+    tried is always recoverable from the next boot.
+    """
+    why = danger(cmd)
+    if why and not force:
+        print("%s is on the do-not-send list: %s" % (cmd, why))
+        print("re-run with --force if you mean it, and read the console record")
+        print("afterwards with:  sudo rhodep-pstore-keep ; less /root/pstore-history/*")
+        return
+
+    before = uptime()
+    kmsg("sending %s (uptime %.2f)" % (cmd, before))
+    print("marker written; sending %s" % cmd)
+    answer = command(fd, cmd)
+    after = uptime()
+    kmsg("survived %s (uptime %.2f)" % (cmd, after))
+    print(answer)
+    print("--- still alive, uptime %.2f -> %.2f" % (before, after))
+
+
+def list_commands(fd):
+    """Ask the modem for its own command set and classify it."""
+    listing = command(fd, "AT+CLAC", wait=10.0)
+    names = []
+    for line in listing.splitlines():
+        line = line.strip()
+        if not line or line in ("OK", "ERROR"):
+            continue
+        names.append(line if line.startswith("AT") else "AT" + line)
+    if not names:
+        print("AT+CLAC returned nothing usable:")
+        print(listing)
+        return
+    print("the modem implements %d commands\n" % len(names))
+
+    def group(pred):
+        return sorted(n for n in names if pred(n))
+
+    risky = group(lambda n: danger(n))
+    vendor = group(lambda n: (n.startswith("AT$") or n.startswith("AT^")) and not danger(n))
+    std = group(lambda n: n.startswith("AT+") and not danger(n))
+    basic = group(lambda n: not n.startswith(("AT+", "AT$", "AT^")))
+
+    for title, items in (("do not send casually", risky),
+                         ("vendor ($ and ^)", vendor),
+                         ("standard (+)", std),
+                         ("basic / S-registers", basic)):
+        print("%s: %d" % (title, len(items)))
+        line = "  "
+        for i in items:
+            if len(line) + len(i) > 96:
+                print(line); line = "  "
+            line += i.replace("AT", "", 1) + " "
+        if line.strip():
+            print(line)
+        print()
+    print("Nothing above was executed. Use --probe to try one, with a marker.")
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="AT console for the modem, over glink rather than a serial port.")
@@ -207,6 +424,16 @@ def main():
                     help="glink channel to use (default DS; DATA1 also answers)")
     ap.add_argument("-l", "--list", action="store_true",
                     help="list the channels the modem advertises and exit")
+    ap.add_argument("--commands", action="store_true",
+                    help="ask the modem for its own command list and classify it, "
+                         "executing nothing")
+    ap.add_argument("--probe", metavar="CMD",
+                    help="send one command with a marker in /dev/kmsg first, so "
+                         "that if it takes the phone down the ramoops record says which")
+    ap.add_argument("--force", action="store_true",
+                    help="allow --probe to send a command on the do-not-send list")
+    ap.add_argument("--cleanup", action="store_true",
+                    help="release endpoints left behind by earlier runs and exit")
     ap.add_argument("cmd", nargs="*", help="a single command to run, then exit")
     args = ap.parse_args()
 
@@ -217,42 +444,66 @@ def main():
             print("  %s%s" % (c, "   <- answers AT" if c in ("DS", "DATA1") else ""))
         if not chans:
             print("  (none: is the modem running?)")
+        print("\nmodem rpmsg control device: %s" % (modem_ctrl() or "NOT FOUND"))
+        held = existing_endpoints()
+        if held:
+            print("\nendpoints currently open:")
+            for dev, n in held:
+                print("  %s -> %s" % (dev, n))
         return
 
     if os.geteuid() != 0:
         print("needs root (the rpmsg control device is root-only)", file=sys.stderr)
         return 1
 
-    fd, dev = open_channel(args.channel)
-
-    if args.cmd:
-        print(command(fd, " ".join(args.cmd)))
-        os.close(fd)
+    if args.cleanup:
+        held = existing_endpoints()
+        if not held:
+            print("nothing to release")
+            return
+        for dev, n in held:
+            print("%s (%s): %s" % (dev, n, "released" if destroy(dev) else "would not release"))
         return
 
-    print("modem AT console on %s (%s). '?' for a crib sheet, Ctrl-D to quit."
-          % (args.channel, dev))
-    probe = command(fd, "AT")
-    print("AT -> %s" % probe)
-    if "OK" not in probe:
-        print("that channel does not look like an AT port; try -c DATA1")
+    fd, dev, mine = open_channel(args.channel)
+    try:
+        if args.commands:
+            list_commands(fd)
+            return
+        if args.probe:
+            probe(fd, args.probe, args.force)
+            return
+        if args.cmd:
+            print(command(fd, " ".join(args.cmd)))
+            return
 
-    while True:
-        try:
-            line = input("at> ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            break
-        if not line:
-            continue
-        if line in ("quit", "exit"):
-            break
-        if line == "?":
-            print(CRIB)
-            continue
-        print(command(fd, line))
+        print("modem AT console on %s (%s). '?' for a crib sheet, Ctrl-D to quit."
+              % (args.channel, dev))
+        hello = command(fd, "AT")
+        print("AT -> %s" % hello)
+        if "OK" not in hello:
+            print("that channel does not look like an AT port; try -c DATA1")
 
-    os.close(fd)
+        while True:
+            try:
+                line = input("at> ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                break
+            if not line:
+                continue
+            if line in ("quit", "exit"):
+                break
+            if line == "?":
+                print(CRIB)
+                continue
+            print(command(fd, line))
+    finally:
+        os.close(fd)
+        # Leaking an endpoint keeps the channel busy for every later run, which
+        # is how this tool broke itself the first time.
+        if mine:
+            destroy(dev)
 
 
 if __name__ == "__main__":

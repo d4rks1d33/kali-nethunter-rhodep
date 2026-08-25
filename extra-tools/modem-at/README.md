@@ -81,6 +81,60 @@ will the modem switch an AT port into DIAG mode: `AT$QCDMG` answers `ERROR`.
 So the modem's own F3 log is not reachable on this firmware, and this console
 is the closest thing to it.
 
+## The command list comes from the modem
+
+`AT+CLAC` makes the modem enumerate what it implements, and it does: **256
+commands**, 54 of them Qualcomm or Huawei-style vendor ones. That list is the
+authority, not a crib sheet written from memory.
+
+```sh
+sudo rhodep-modem-at --commands
+```
+
+prints it grouped, and **executes nothing**:
+
+```
+the modem implements 256 commands
+
+do not send casually: 12
+  $QCACQDBC $QCCLR $QCDGEN $QCDMR $QCPWRDN $QCRMCALL $QCTER $QCVOLT
+  +CLCK +CPWD +CRES +CSAS
+vendor ($ and ^): 54
+standard (+): 150
+basic / S-registers: 40
+```
+
+## Probing something unknown
+
+Do not send unknown vendor commands in a batch. Ten of them were once sent in
+one go, one wedged the application processor hard enough to need the power
+button, and because nothing was written down first there was no way afterwards
+to tell which. That is what `--probe` is for:
+
+```sh
+sudo rhodep-modem-at --probe 'AT$QCSYSMODE?'
+```
+
+It writes the command into `/dev/kmsg` **before** sending it, so it lands in
+the ramoops console record and survives a reset, then reports whether the
+machine is still alive:
+
+```
+modem-at: sending AT$QCSYSMODE? (uptime 330.42)
+modem-at: survived AT$QCSYSMODE? (uptime 330.57)
+```
+
+If the phone goes down, the next boot tells you exactly what was in flight:
+
+```sh
+sudo bash -c 'f=$(ls -t /root/pstore-history/*console* | head -1); grep -a modem-at "$f"'
+```
+
+Commands on the do-not-send list are refused unless you add `--force`. Three of
+them -- `$QCVOLT`, `$QCDMR`, `$QCTER` -- are refused because they are *unknown*
+and were in the batch that wedged the phone, not because they are known to be
+bad. Someone will have to find out which one it was, one `--probe` at a time.
+
 ## What it is good for
 
 Poking at the radio without ModemManager in the way:
@@ -89,6 +143,11 @@ Poking at the radio without ModemManager in the way:
 * `AT+CEREG?` and `AT+COPS?` for registration and access technology
 * `AT+CEER` for a cause when something fails
 * `AT+CGDCONT?` to see the APNs the modem actually has
+
+It found a use-after-free in mainline's glink, too --
+`kernel/patches/0080-rpmsg-glink-take-a-reference-for-the-rcid-entry.patch` --
+because using this console and then having the modem crash is exactly the
+sequence that trips it.
 
 It was also used to establish something about the LTE reset that nothing else
 could: polled continuously across an attach, **the modem answers every command

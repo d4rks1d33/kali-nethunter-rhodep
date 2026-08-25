@@ -10,6 +10,11 @@ install -D -m 0755 "$here/rhodep-modem-at" /usr/local/sbin/rhodep-modem-at
 # directory sudo does search, rather than making everyone type the full path.
 ln -sf /usr/local/sbin/rhodep-modem-at /usr/sbin/rhodep-modem-at
 
+# Flush it. On a phone that is being made to reset on purpose, a file still in
+# the page cache does not survive, and you are left with a zero-byte tool that
+# exits 0 and prints nothing. That has happened here three times.
+sync
+
 # rpmsg_ctrl is what exposes /dev/rpmsg_ctrl2. It is normally already loaded as
 # a dependency of rpmsg_char, but make it explicit so the tool works on a boot
 # where nothing else pulled it in.

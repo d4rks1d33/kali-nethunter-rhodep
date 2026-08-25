@@ -1,0 +1,46 @@
+From: rhodep port <none@example.com>
+Date: Mon, 24 Aug 2026 23:55:00 -0300
+Subject: [PATCH] net: ipa: run the v4.11 core clock at the nominal tier
+
+Downstream scales the IPA core clock across four tiers and picks one from
+measured throughput:
+
+	IPA_V4_0_CLK_RATE_SVS2		 60 MHz
+	IPA_V4_0_CLK_RATE_SVS		125 MHz
+	IPA_V4_0_CLK_RATE_NOMINAL	220 MHz
+	IPA_V4_0_CLK_RATE_TURBO		250 MHz
+
+Mainline has one number and it is 60 MHz, the bottom tier, held forever.
+
+That is enough for GPRS, which is what works here. The open question is an
+LTE attach, where the modem programs its channels and then hangs hard enough
+that it never records a reason, and its Q6 watchdog takes the chip down about
+ten seconds later. A GSI command that does not complete would look exactly
+like that.
+
+This is a test of that idea, not a considered fix. The right shape is what
+downstream does -- scale with demand -- and pinning the nominal tier costs
+power for no benefit on a link that never needs it.
+---
+--- a/drivers/net/ipa/data/ipa_data-v4.11.c
++++ b/drivers/net/ipa/data/ipa_data-v4.11.c
+@@ -387,7 +387,18 @@
+ 
+ /* Clock and interconnect configuration data for an SoC having IPA v4.11 */
+ static const struct ipa_power_data ipa_power_data = {
+-	.core_clock_rate	= 60 * 1000 * 1000,	/* Hz */
++	/* Downstream scales this with throughput across four tiers, and only
++	 * the lowest of them is 60 MHz:
++	 *
++	 *	IPA_V4_0_CLK_RATE_SVS2		 60 MHz
++	 *	IPA_V4_0_CLK_RATE_SVS		125 MHz
++	 *	IPA_V4_0_CLK_RATE_NOMINAL	220 MHz
++	 *	IPA_V4_0_CLK_RATE_TURBO		250 MHz
++	 *
++	 * Mainline pins the lowest one and never moves. GPRS never notices.
++	 * An LTE attach might, so run at the nominal tier and see.
++	 */
++	.core_clock_rate	= 220 * 1000 * 1000,	/* Hz */
+ 	.interconnect_count	= ARRAY_SIZE(ipa_interconnect_data),
+ 	.interconnect_data	= ipa_interconnect_data,
+ };

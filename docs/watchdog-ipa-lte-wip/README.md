@@ -356,6 +356,41 @@ that does not answer? It has to be hardware whose clock or power the AP
 controls, since that is the only thing that differs from downstream, and it has
 to be something GSM and its data path never reach.
 
+### What the modem touches that the AP controls: checked, none of it
+
+The reading above says the modem hangs on something that does not answer, and
+the only candidates are hardware whose clock, power or bus the AP votes for.
+All of it has now been looked at.
+
+**The IPA core clock.** A real divergence. Downstream scales across four tiers
+and mainline pins the bottom one, 60 MHz, forever. Built at the nominal tier,
+220 MHz: GPRS still carries traffic and the attach still takes the SoC down on
+the same schedule. Parked in `docs/ipa-clock-tier-wip/`, worth revisiting for
+throughput but not the cause.
+
+**The NoC paths.** Downstream votes three, and 0044 votes the same three --
+`memory`, `imem`, `config` -- so none is left unvoted, including the one to
+IMEM where the modem's IPA tables live. Bandwidth figures differ from
+downstream's tiers, but a path with bandwidth is not a path that stalls.
+
+**The clock handshake over SMP2P.** `ipa_smp2p_notify()` runs in exactly two
+places, the modem's clock query interrupt and an AP panic. The query never
+fires here -- `cq=0` across every run -- so the valid bit is never set in
+normal operation and the modem is plainly not using this mechanism.
+
+**IPA itself is responsive while the modem is hung.** Reading the modem's
+channel states is a register read against IPA, and the deathwatch does it four
+times a second right up to the last sample before the machine dies. IPA answers
+every time. Whatever the modem is stuck on, the AP's path to IPA is not it.
+
+### 3G is not available as a middle case
+
+Worth recording because it was expected to be one. Forced to UMTS the modem
+sits at `registration-denied` for two and a half minutes and never attaches,
+so it exercises nothing. The earlier note that 3G never registered was correct.
+Most likely the carrier rather than the port -- Personal has been retiring 3G --
+but either way it cannot be used to separate GSM from LTE.
+
 ## A caveat on "GSM works" that has to be stated
 
 The GSM run registered, attached, was managed by ModemManager and received an

@@ -161,3 +161,22 @@ This is the real modem of a working phone. Reads are harmless; writes are not
 necessarily. `AT+CFUN=0` will drop the radio, and some vendor commands persist
 across reboots. If the phone is your only way in, remember that WiFi does not
 depend on the modem but mobile data does.
+
+## What each command does
+
+    rhodep-modem-at --explain +CEREG     # no modem needed, no root needed
+    rhodep-modem-at --explain csq        # bare names resolve to +CSQ
+    at> help $QCVOLT                     # same thing inside the console
+
+All 256 commands the modem reports through `AT+CLAC` have an entry. Where the
+meaning of a vendor command is not actually known, the entry says UNKNOWN
+rather than guessing, because a confident wrong description is worse than
+none: `$QCVOLT`, `$QCDMR`, `$QCTER`, `$QCCLR` and `+CCMMD` are all marked that
+way. Entries for commands on the do-not-send list repeat the reason they are
+refused.
+
+The lookup normalises what you type, so `+CEREG`, `cereg`, `AT+CEREG?` and
+`at+cereg=?` all find the same entry, and a query that only partly matches
+gets suggestions instead of a wrong answer. It deliberately refuses to guess:
+`help zzz` says there is no entry rather than matching `ATZ`, which is a modem
+reset.

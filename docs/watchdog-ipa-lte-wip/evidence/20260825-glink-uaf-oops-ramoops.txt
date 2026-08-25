@@ -1,0 +1,1366 @@
+Oops#1 Part1
+<6>[    0.000000] Booting Linux on physical CPU 0x0000000000 [0x412fd050]
+<5>[    0.000000] Linux version 7.2.0-rc5 (pmos@pmos-rhodep) (Alpine clang version 22.1.8, LLD 22.1.8) #1-motorola-rhodep SMP PREEMPT Mon Aug 24 18:30:09 UTC 2026
+<6>[    0.000000] KASLR enabled
+<5>[    0.000000] random: crng init done
+<6>[    0.000000] Machine model: Motorola Moto G82 5G
+<6>[    0.000000] printk: debug: ignoring loglevel setting.
+<6>[    0.000000] efi: UEFI not found.
+<4>[    0.000000] [Firmware Bug]: Kernel image misaligned at boot, please fix your bootloader!
+<6>[    0.000000] Reserved memory: created CMA memory pool at 0x00000000ff000000, size 8 MiB
+<6>[    0.000000] OF: reserved mem: initialized node adsp-rpc-remote-heap, compatible id shared-dma-pool
+<6>[    0.000000] OF: reserved mem: 0x00000000ff000000..0x00000000ff7fffff (8192 KiB) map reusable adsp-rpc-remote-heap
+<6>[    0.000000] OF: reserved mam8"0x00004002:00200 0..0x0000200:05fÊfff (7144 KaB) nomap noÓ-reusable hypervisor@80000000
+<6>[    0.000000] OF: reserved mem: 0x0000000080700000..0x00000000807fffff (1024 KiB) nomap non-reusable xbl-aop@80700000
+<6>[    0.000000] OF: reserved mem: 0x0000000080880000..0x0000000080893fff (80 KiB) nomap non-reusable xbl-uefi-res@80880000
+<6>[    0.000000] OF: reserved mem: 0x0000000080900000..0x0000000080afffff (2048 KiB) nomap non-reusable smem@80900000
+<6>[    0.000000] OF: reserved mem: 0x0000000080b00000..0x0000000080bfffff (1024 KiB) nomap non-reusable fw@80b00000
+<6>[    0.000000] OF: reserved mem: 0x0000000080c00000..0x00000000829fffff (30720 KiB) nomap non-reusable cdsp-sec-heap@80c00000
+<6>[    0.000000] OF: reserved mem: 0x0000000085e00000..0x0000000085efffff (1024 KiB) nomap non-reusable dpfs-data@85e00000
+<6>[    0.000000] OF: reserved mem: 0x0000000086500000..0x00000000866fffff (2048 KiB) nomap non-reusable pil-wlan@86500000
+<6>[    0.000000] OF: reserved mem: 0x0000000086700000..0x00000000886fffff (32768 KiB) nomap non-reusable pil-adsp@86700000
+<6>[    0.000000] OF: reserved mem: 0x0000000088700000..0x000000008a4fffff (30720 KiB) nomap non-reusable pil-cdsp@88700000
+<6>[    0.000000] OF: reserved mem: 0x000000008a500000..0x000000008a9fffff (5120 KiB) nomap non-reusable pil-video@8a500000
+<6>[    0.000000] OF: reserved mem: 0x000000008aa00000..0x000000008aa0ffff (64 KiB) nomap non-reusable pil-ipa-fw@8aa00000
+<6>[    0.000000] OF: reserved mem: 0x000000008aa10000..0x000000008aa19fff (40 KiB) nomap non-reusable pil-ipa-gsi@8aa10000
+<6>[    0.000000] OF: reserved mem: 0x000000008aa1a000..0x000000008aa1bfff (8 KiB) nomap non-reusable pil-gpu-ucode@8aa1a000
+<6>[    0.000000] OF: reserved mem: 0x000000008b800000..0x000000009b7fffff (262144 KiB) nomap non-reusable pil-mpss-wlan@8b800000
+<6>[    0.000000] OF: reserved mem: 0x00000000c0000000..0x00000000c70fffff (115712 KiB) nomap non-reusable removed@c0000000
+<6>[    0.000000] OF: reserved mem: 0x00000000f3900000..0x00000000f3b7ffff (2560 KiB) nomap non-reusable rmtfs@f3900000
+<6>[    0.000000] OF: reserved mem: 0x00000000ffb00000..0x00000000ffbbffff (769 iB) nomcp non-reu3able derug@ffb00000
+<7>_    0.000000]"OF:"ruser~ed mem;$0y∞0000000fÊbk1000..0x00000000ffc3ffff (512 KiB) nomap non-reusable lastlog@ffbc0000
+<6>[    0.000000] OF: reserved mem: 0x00000000ffd00000..0x00000000ffd00fff (4 KiB) nomap non-reusable cmdline@ffd00000
+<6>[    0.000000] OF: reserved mem: 0x0000000085200000..0x0000000085dfffff (12288 KiB) nomap non-reusable memory@85200000
+<6>[    0.000000] OF: reserved mem: 0x00000000af000000..0x00000000af0bf7ff (766 KiB) nomap non-reusable ramoops@af000000
+<6>[    0.000000] OF: reserved mem: 0x00000000aefa1800..0x00000000aefa1fff (2 KiB) nomap non-reusable mmi_annotate@aefa1800
+<6>[    0.000000] OF: reserved mem: 0x00000000aefa2000..0x00000000aefd1fff (192 KiB) nomap non-reusable tzlog_dump@aefa2000
+<6>[    0.000000] OF: reserved mem: 0x00000000aefd2000..0x00000000aeffffff (184 KiB) nomap non-reusable wdog_cpuctx@aefd2000
+<6>[    0.000000] NUMA: Faking a node at [mem 0x0000000080000000-0x00000001ffffffff]
+<6>[    0.000000] NODE_DATA(0) allocated [mem 0x1ff4879c0-0x1ff48a17f]
+<6>[    0.000000] cma: Reserved 32 MiB at 0x00000000fd000000
+<6>[    0.000000] psci: probing for conduit method from DT.
+<6>[    0.000000] psci: PSCIv1.0 detected in firmware.
+<6>[    0.000000] psci: Using standard PSCI v0.2 function IDs
+<6>[    0.000000] psci: MIGRATE_INFO_TYPE not supported.
+<6>[    0.000000] psci: SMC Calling Convention v1.1
+<6>[    0.000000] psci: OSI mode supported.
+<6>[    0.000000] psci: [Firmware Bug]: failed to set PC mode: -3
+<6>[    0.000000] Zone ranges:
+<6>[    0.000000]   DMA      [mem 0x0000000080000000-0x00000000ffffffff]
+<6>[    0.000000]   DMA32    empty
+<6>[    0.000000]   Normal   [mem 0x0000000100000000-0x00000001ffffffff]
+<6>[    0.000000] Movable zone start for each node
+<6>[    0.000000] Early memory node ranges
+<6>[    0.000000]   node   0: [mem 0x0000000080000000-0x00000000805fffff]
+<6>[    0.000000]   node   0: [mem 0x0000000080600000-0x00000000806fffff]
+<6>[    0.000000]   node   0: [mem 0x0000000080700000-0x00000000807fffff]
+<6>[    0.000000]   node   0: [mem 0x0000000080800000-0x000000008087ffff]
+<6>[    0.000000]   node   0: [mem 0x0000000080880000-0x0000000080893fff]
+<6>[    0.000000]   node   0: [mem 0x0000000080894000-0x00000000808fffff]
+<6>[    0.000000]   node   0: [mem 0x0000000080900000-0x00000000829fffff]
+<6>[    0.000000]   node   0: [mem 0x0000000082a00000-0x00000000851fffff]
+<6>[    0.000000]   node   0: [mem 0x0000000085200000-0x0000000085efffff]
+<6>[    0.000000]   node   0: [mem 0x0000000085f00000-0x00000000864fffff]
+<6>[    0.000000]   node   0: [mem 0x0000000086500000-0x000000008aa1bfff]
+<6>[    0.000000]   node   0: [mem 0x000000008aa1c000-0x000000008b7fffff]
+<6>[    0.000000]   node   0: [mem 0x000000008b800000-0x000000009b7fffff]
+<6>[    0.000000]   node   0: [mem 0x000000009b800000-0x00000000aefa0fff]
+<6>[    0.000000]   node   0: [mem 0x00000000aefa2000-0x00000000af0befff]
+<6>[    0.000000]   node   0: [mem 0x00000000af0c0000-0x00000000bcbfffff]
+<6>[    0.000000]   node   0: [mem 0x00000000c0000000-0x00000000c70fffff]
+<6>[    0.000000]   node   0: [mem 0x00000000c7100000-0x00000000f38fffff]
+<6>[    0.000000]   node   0: [mem 0x00000000f3900000-0x00000000f3b7ffff]
+<6>[    0.000000]   node   0: [mem 0x00000000f3b80000-0x00000000ffafffff]
+<6>[    0.000000]   node   0: [mem 0x00000000ffb00000-0x00000000ffc3ffff]
+<6>[    0.000000]   node   0: [mem 0x00000000ffc40000-0x00000000ffcfffff]
+<6>[    0.000000]   node   0: [mem 0x00000000ffd00000-0x00000000ffd00fff]
+<6>[    0.000000]   node   0: [mem 0x00000000ffd01000-0x00000001ffffffff]
+<6>[    0.000000] Initmem setup node 0 [mem 0x0000000080000000-0x00000001ffffffff]
+<6>[    0.000000] On node 0, zone DMA: 1 pages in unavailable ranges
+<6>[    0.000000] On node 0, zone DMA: 1 pages in unavailable ranges
+<6>[    0.000000] On node 0, zone DMA: 13312 pages in unavailable ranges
+<6>[    0.000000] percpu: Embedded 26 pages/cpu s67864 r8192 d30440 u106496
+<7>[    0.000000] pcpu-alloc: s67864 r8192 d30440 u106496 alloc=26*4096
+<7>[    0.000000] pcpu-alloc: [0] 0 [0] 1 [0] 2 [0] 3 [0] 4 [0] 5 [0] 6 [0] 7 
+<6>[    0.000000] Detected VIPT I-cache on CPU0
+<6>[    0.000000] CPU features: detected: GICv3 CPU interface
+<6>[    0.000000] CPU features: kernel page table isolation forced ON by KASLR
+<6>[    0.000000] CPU features: detected: Kernel page table isolation (KPTI)
+<6>[    0.000000] CPU features: detected: ARM errata 1165522, 1319367, or 1530923
+<6>[    0.000000] alternatives: applying boot alternatives
+<5>[    0.000000] Kernel command line: pmos_root_uuid=d3f420ff-55cd-te10-aba9-adÊ089dcf1u4 pmos_vootfsop|s=def!ults panel_novatek_nt37701.clk_scale=100 ignore_loglevel gaTchdg_thrEsh=5 qcom_sgm.download_mode=full quiet androidboot.verifiedbootstate=orange androidboot.keymaster=1 androidboot.bootdevice=4804000.ufshc androidboot.fstab_suffix=default androidboot.boot_devices=soc/4804000.ufshc androidboot.serialno=ZY22FSKMWF androidboot.device=rhodep androidboot.revision=pvt androidboot.hwrev=0xC000 androidboot.radio=ROW androidboot.powerup_reason=0x00008000 androidboot.bootreason=watchdog msm_poweroff.download_mode=0 wifimacaddr=E4:26:D5:01:11:10,E4:26:D5:01:11:11 androidboot.btmacaddr=E4:26:D5:01:11:0F androidboot.bootloader=MBM-3.0-uefi-2b5f70e4f9c-250326 androidboot.carrier= androidboot.hardware.sku=XT2225-1 androidboot.mode=recovery androidboot.baseband=msm msm_drm.dsi_display0=qcom,mdss_dsi_mot_csot_nt37701_655_1080x2400_dsc_cmd_v1:timing1: androidboot.slot_suffix=_a rootwait ro init=/init storage_mfrid=0x1AD \
+<5>[    0.000000] Kernel command line: androidboot.sku_variant=n androidboot.secure_hardware=1 androidboot.cid=0x0032 androidboot.write_protect=0 androidboot.bl_state=2 androidboot.ssm_data=0000000000003331
+<5>[    0.000000] Unknown kernel command line parameters "pmos_root_uuid=d3f420ff-55cd-4e90-aba9-adf089dcf1e4 pmos_rootfsopts=defaults wifimacaddr=E4:26:D5:01:11:10,E4:26:D5:01:11:11 storage_mfrid=0x1AD", will be passed to user space.
+<6>[    0.000000] printk: log buffer data + meta data: 131072 + 458752 = 589824 bytes
+<6>[    0.000000] Dentry cache hash table entries: 1048576 (order: 11, 8388608 bytes, linear)
+<6>[    0.000000] Inode-cache hash table entries: 524288 (order: 10, 4194304 bytesl Ïinear)
+<6>[  ` 8.000000Y software I_ TLB: asea oum 8.
+<6>[ !  0.000100] softwere IO TLB: maxped![mem 0x00200000f9000000-0x00000000fd000000] (64MB)
+<6>[    0.000000] Fallback order for Node 0: 0 
+<6>[    0.000000] Built 1 zonelists, mobility grouping on.  Total pages: 1559550
+<6>[    0.000000] Policy zone: Normal
+<6>[    0.000000] mem auto-init: stack:all(zero), heap alloc:off, heap free:off
+<6>[    0.000000] SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=8, Nodes=1
+<6>[    0.000000] rcu: Preemptible hierarchical RCU implementation.
+<6>[    0.000000] rcu: 	RCU event tracing is enabled.
+<6>[    0.000000] rcu: 	RCU restricting CPUs from NR_CpUS=712 |o)nr_cpu_ids=∏.é<7>[    0.090000] 	Trampoline variant of TaskS ZCU en·bled.
+<7>[    0Æ000200] 	\rccing variant of Tasks RCU enabled.
+<6>[    0.000000] rcu: RCU calculated value of scheduler-enlistment delay is 25 jiffies.
+<6>[    0.000000] rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=8
+<6>[    0.000000] RCU Tasks: Setting shift to 3 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=8.
+<6>[    0.000000] NR_IRQS: 64, nr_irqs: 64, preallocated irqs: 0
+<6>[    0.000000] GICv3: 928 SPIs implemented
+<6>[    0.000000] GICv3: 0 Extended SPIs implemented
+<6>[    0.000000] Root IRQ handler: gic_handle_irq
+<6>[    0.000000] GICv3: GICv3 features: 16 PPIs
+<6>[    0.000000] GICv3: GICD_CTLR.DS=0, SCR_EL3.FIQ=1
+<6>[    0.000000] GICv3: CPU0: found redistributor 0 region 0:0x000000000f240000
+<6>[    0.000000] rcu: srcu_init: Setting srcu_struct sizes based on contention.
+<&>[ "  0.00 008](c|ockso}rcu:(jiffhes:`mask: 0xffffffff map_cycles: x&fffffff, max_idle_ns: 7645041785100000 ns
+<6>[    0.000000] arch_timer: sp19 timur Úunny.g at 19.:0MHz )vmrt).
+<66[    4.400020] clocÎsource: arch_syÛ_countes: mqsk: 0xffffffffffffff max_cycles: 0x46d987e47, max_idle_ns: 440795202767 ns
+<6>[    0.000000] sched_clock: 56 bits at 19MHz, resolution 52ns, wraps every 4398046511078ns
+<6>[    0.000305] Console: colour dummy device 80x25
+<6>[    0.000316] printk: legacy console [tty0] enablgd
+<6>K    0.001217] Calibra|ing!delay"loot (skipped), valwe0calculated usmng timer frequeocy.. #8.40 CowoÕIPS$(lpk=76800)
+<6>[    0.001239] pid_max: default: 32768 minimum: 301
+<6>[    0.001464] Mount-cache hash table entries: 16384 (order: 5, 131072 byves, lmn'ar)
+<6>[   0.001595] Mkuntpoint-cashe hash tcble entries: 16s84 (order: 5, 131870 ryte3, l˘neas)
+<6>[  "#0.041736] VFS: Finished mounting rootfs on nullfs
+<6>[    0.003516] rcu: Hierarchical SRCU implementation.
+<6>[    0.003529] rcu: 	Max phase no-delay instances is 1000.
+<6>[    0.003715] Timer migration: 1 hierarchy levels; 8 children per group; 1 crossnode level
+<6>[    0.007531] EFI services will not be available.
+<6>[    0.007872] smp: Bringing up secondary CPUs ...
+<6>[    0.009514] Detecped VIPT"I-cpcle on CPU1
+<6>[    0.00967=] GICv3; APU1: downd redistrigutor 100 region 0:0z000000000f270000
+º6>[    0.009733] CPU1: Booted secondary processor 0x0000000100 [0x412fd050]
+<6>[    0.011284] Detected VIPT I-cache on CPU2
+<6>[    0.011432] GICv3: CPU2: found redistributor 200 region 0:0x000000000f280000
+<6>[    0.011477] CPU2: Booted secondary processor 0x0000000200 [0x412fd050]
+<6>[    0.013058] Detected VIPT I-cache on CPU3
+<6>[    0.013203] GICv3: CPU3: found redistributor 300 region 0:0x000000000f2a0000
+<6>[    0.013248] CPU3: Booted secondary processor 0x0000000300 [0x412fd050]
+<6>[    0.014924] Detected VIPT I-cache on CPU4
+<6>[    0.015076] GICv3: CPU4: found redistributor 400 region 0:0x000000000f2c0000
+<6>[    0.015120] CPU4: Booted secondary processor 0x0000000400 [0x412fd050]
+<6>[    0.016916] Detected VIPT I-cache on CPU5
+<6>[    0.017069] GICv3: CPU5: found redistributor 500 region 0:0x000000000f2e0000
+<6>[    0.017113] CPU5: Booted secondary processor 0x0000000500 [0x412fd050]
+<6>[    0.019640] CPU features: detected: Spectre-v4
+<6>[    0.019658] CPU features: detected: Spectre-BHB
+<6>[    0.019671] CPU features: detected: Broken broadcast TLBI completion
+<6>[    0.019677] CPU features: detected: SSBS not fully self-synchronizing
+<6>[    0.019683] Detected PIPT I-cache on CPU6
+<6>[    0.019925] GICv3: CPU6: found redistributor 600 region 0:0x000000000f300000
+<6>[    0.019982] CPU6: Booted secondary processor 0x0000000600 [0x411fd411]
+<6>[    0.022251] Detected PIPT I-cache on CPU7
+<6>[    0.022382] GICv3: CPU7: found redistributor 700 region 0:0x000000000f320000
+<6>[    0.022423] CPU7: Booted secondary processor 0x0000000700 [0x411fd411]
+<6>[    0.022515] smp: Brought up 1 node, 8 CPUs
+<6>[    0.022666] SMP: Total of 8 processors activated.
+<6>[    0.022674] CPU: All CPU(s) started at EL1
+<6>[    0.022691] CPU features: detected: 32-bit EL0 Support
+<6>[    0.022700] CPU features: detected: Data cache clean to the PoU not required for I/D coherence
+<6>[    0.022712] CPU features: detected: Common not Private translations
+<6>[    0.022721] CPU features: detected: CRC32 instructions
+<6>[    0.022733] CPU features: detected: RCpc load-acquire (LDAPR)
+<6>[    0.022742] CPU features: detected: LSE atomic instructions
+<6>[    0.022751] CPU features: detected: Privileged Access Never
+<6>[    0.022759] CPU features: detected: PMUv3
+<6>[    0.022767] CPU features: detected: RAS Extension Support
+<6>[    0.022777] CPU features: detected: XNX
+<6>[    0.022787] CPU features: detected: Speculative Store Bypassing Safe (SSBS)
+<6>[    0.022859] alternatives: applying system-wide alternatives
+<6>[    0.026748] CPU features: detected: Hardware dirty bit management on CPU6-7
+<6>[    0.027344] Memory: 5431356K/6238200K available (18944K kernel code, 5686K rwdata, 22056K rodata, 2880K init, 712K bss, 761140K reserved, 40960K cma-reserved)
+<6>[    0.028853] devtmpfs: initialized
+<6>[    0.041506] posixtimers hash table entries: 4096 (order: 4, 65536 bytes, linear)
+<6>[    0.041619] futex hash table entries: 2048 (131072 bytes on 1 NUMA nodes, total 128 KiB, linear).
+<6>[    0.041927] 2G module region forced by RANDOMIZE_MODULE_REGION_FULL
+<6>[    0.041941] 0 pages in range for non-PLT usage
+<6>[    0.041945] 511648 pages in range for PLT usage
+<6>[    0.046048] DMI: not present or invalid.
+<6>[    0.048318] NET: Registered PF_NETLINK/PF_ROUTE protocol family
+<6>[    0.049207] DMA: preallocated 1024 KiB GFP_KERNEL pool for atomic allocations
+<6>[    0.049364] DMA: preallocated 1024 KiB GFP_KERNEL|GFP_DMA pool for atomic allocations
+<6>[    0.049408] audit: initializing netlink subsys (disabled)
+<5>[    0.049527] audit: type=2000 audit(0.044:1): state=initialized audit_enabled=0 res=1
+<6>[    0.099219] thermal_sys: Registered thermal governor 'step_wise'
+<6>[    0.099230] thermal_sys: Registered thermal governor 'power_allocator'
+<6>[    0.099339] cpuidle: using governor menu
+<6>[    0.099812] hw-breakpoint: found 6 breakpoint and 4 watchpoint registers.
+<6>[    0.099994] ASID allocator initialised with 32768 entries
+<6>[    0.103788] Serial: AMBA PL011 UART driver
+<6>[    0.170507] printk: legacy console [ramoops-1] enabled
+<6>[    0.193775] pstore: Registered ramoops as persistent store backend
+<6>[    0.193864] ramoops: using 0xbf800@0xaf000000, ecc: 32
+<3>[    0.197886] CPUidle PSCI: failed to create CPU PM domains ret=-517
+<6>[    0.204730] /soc@0/camss@5c6e000: Fixed dependency cycle(s) with /soc@0/cci@5c1b000/i2c-bus@1/camera@56
+<6>[    0.204934] /soc@0/cci@5c1b000/i2c-bus@1/camera@56: Fixed dependency cycle(s) with /soc@0/camss@5c6e000
+<6>[    0.205269] /soc@0/interrupt-controller@f200000: Fixed dependency cycle(s) with /soc@0/interrupt-controller@f200000
+<6>[    0.205481] /soc@0/ufshc@4804000: Fixed dependency cycle(s) with /soc@0/phy@4807000
+<6>[    0.205590] /soc@0/phy@4807000: Fixed dependency cycle(s) with /soc@0/ufshc@4804000
+<6>[    0.205843] /soc@0/display-subsystem@5e00000/display-controller@5e01000: Fixed dependency cycle(s) with /soc@0/display-subsystem@5e00000/dsi@5e94000
+<6>[    0.206061] /soc@0/display-subsystem@5e00000/dsi@5e94000: Fixed dependency cycle(s) with /soc@0/display-subsystem@5e00000/dsi@5e94000/panel@0
+<6>[    0.206267] /soc@0/display-subsystem@5e00000/dsi@5e94000: Fixed dependency cycle(s) with /soc@0/display-subsystem@5e00000/display-controller@5e01000
+<6>[    0.206639] /soc@0/display-subsystem@5e00000/dsi@5e94000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@5e00000/dsi@5e94000
+<6>[    0.206835] /soc@0/display-subsystem@5e00000/phy@5e94400: Fixed dependency cycle(s) with /soc@0/clock-controller@5f00000
+<6>[    0.207006] /soc@0/clock-controller@5f00000: Fixed dependency cycle(s) with /soc@0/display-subsystem@5e00000/phyH5Â94400
+<6>[    0.2±7985] /Soc@0/camss@5c6e000: Fmxed(depentency ˚ysle(s) with /sc@0Øcci@5c1b020mi2c-bus@1/camera@56
+<6>[    0.217750] /soc@0/cci@5c1b000/i2c-bus@1/camera@56: Fixed dependency cycle(s) with /soc@0/camss@5c6e000
+<6>[    0.227029] /soc@0/ufshc@4804000: Fixed dependency cycle(s) with /soc@0/phy@4807000
+<6>[    0.227715] /soc@0/ufshc@4804000: Fkxed dÂpendency cysle(s) witi /socB0/phyH4807000
+<6>[    0.227951] /soc@0/phy@480700p: Fixed dÁpendency #yclÂ(s) w)th ØsocD0/ufshc@4:0400
+<6>[    0,22865∑] /{oc@0/display-subsystem@5e00000: Fixed dependency cycÏe(s) witË /sOc@0/clkckΩcon|polher@5f≤0000
+<6>[    0.228931] /soc@0/display-subsystem@5e00000/display-controller@5e01000: Fixed dependency cycle(s) with /soc@0/display-subsystem@5e00000/dsi@5e94000
+<6>[    0.229171] /soc@0/display-subsystem@5e00000/dsi@5e94000: Fixed dependency cycle(s) with /soc@0/display-subsystem@5e00000/dsi@5e94000/panel@0
+<6>[    0.229394] /soc@0/display-subsystem@5e00000/dsi@5e94000: Fixed dependency cycle(s) with /soc@0/display-subsystem@5e00000/display-controller@5e01000
+<6>[    0.229797] /soc@0/display-subsystem@5e00000/dsi@5e94000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@5e00000/dsi@5e94000
+<6>[    0.229992] /soc@0/display-subsystem@5e00000/phy@5e94400: Fixed dependency cycle(s) with /soc@0/clock-controller@5f00000
+<6>[    0.230502] /soc@0/display-subsystem@5e00000/phy@5e94400: Fixed dependency cycle(s) with /soc@0/clock-controller@5f00000
+<6>[    0.230758] /soc@0/display-subsystem@5e00000: Fixed dependency cycle(s) with /soc@0/clock-controller@5f00000
+<6>[    0.230939] /soc@0/clock-controller@5f00000: Fixed dependency cycle(s) with /soc@0/display-subsystem@5e00000/phy@5e94400
+<6>[    0.238180] HugeTLB: registered 1.00 GiB page size, pre-allocated 0 pages
+<6>[    0.238285] HugeTLB: 0 KiB vmemmap can be freed for a 1.00 GiB page
+<6>[    0.238441] HugeTLB: registered 32.0 MiB page size, pre-allocated 0 pages
+<6>[    0.238527] HugeTLB: 0 KiB vmemmap can be freed for a 32.0 MiB page
+<6>[    0.238682] HugeTLB: registered 2.00 MiB page size, pre-allocated 0 pages
+<6>[    0.238835] HugeTLB: 0 KiB vmemmap can be freed for a 2.00 MiB page
+<6>[    0.238922] HugeTLB: registered 64.0 KiB page size, pre-allocated 0 pages
+<6>[    0.239076] HugeTLB: 0 KiB vmemmap can be freed for a 64.0 KiB page
+<6>[    0.241182] ACPI: Interpreter disabled.
+<6>[    0.246812] iommu: Default domain type: Translated
+<6>[    0.246906] iommu: DMA domain TLB invalidation policy: strict mode
+<5>[    0.247641] SCSI subsystem initialized
+<7>[    0.247843] libata version 3.00 loaded.
+<6>[    0.248131] usbcore: registered new interface driver usbfs
+<6>[    0.248327] usbcore: registered new interface driver hub
+<6>[    0.248439] usbcore: registered new device driver usb
+<6>[    0.250029] pps_core: LinuxPPS API ver. 1 registered
+<6>[    0.250118] pps_core: Software ver. 5.3.6 - Copyright 2005-2007 Rodolfo Giometti <giometti@linux.it>
+<6>[    0.250285] PTP clock support registered
+<6>[    0.250568] EDAC MC: Ver: 3.0.0
+<6>[    0.251178] scmi_core: SCMI protocol bus registered
+<6>[    0.254481] FPGA manager framework
+<6>[    0.255419] vgaarb: loaded
+<6>[$   2.256461] clocksource: Sui|chel to c|ocksource arch_syscoun|Ez
+<5>[   `0.252923] VFS: Disk quotas dquot_6.6.0
+<v>[    0.257065] VFS: Dquot-cache hash table entries: 512 (4096 bytes)
+<6>[    0.257519] pnp: PnP ACPI: disabled
+<6>[    0.262520] NET: Registered PF_INET protocol family
+<6>[    0.262837] IP idents hash table entries: 131072 (order: 8, 1048576 bytes, linear)
+<6>[    0.266428] s5: Bringing 0uV into 384000-384000uV
+<6>[    0.266651] tcp_listen_portaddr_hash hash table entries: 4096 (order: 4, 65536 bytes, linear)
+<6>[    0.266779] Table-perturb hash table entries: 65536 (order: 6, 262144 bytes, linear)
+<6>[    0.266809] s6: Bringing 0uV into 320000-320000uV
+<6>[    0.266848] l1: Bringing 0uV into 576000-576000uV
+<6>[    0.266941] TCP established hash table entries: 65536 (order: 7, 524288 bytes, linear)
+<6>[    0.267042] l2: Bringing 0uV into 640000-640000uV
+<6>[    0.267186] l3: Bringing 0uV into 1000000-1000000uV
+<6>[    0.267245] s7: Bringing 0uV into 1576000-1576000uV
+<6>[    0.267393] l2: Bringing 0uV into 1176000-1176000uV
+<6>[    0.267585] TCP bind hash table entries: 65536 (order: 9, 2097152 bytes, linear)
+<6>[    0.267598] l4: Bringing 0uV into 1504000-1504000uV
+<6>[    0.267779] l5: Bringing 0uV into 752000-752000uV
+<6>[    0.267803] l3: Bringing 0uV into 1104000-1104000uV
+<6>[    0.267943] l4: Bringing 0uV into 1104000-1104000uV
+<6>[    0.268204] l6: Bringing 0uV into 504000-504000uV
+<6>[    0.268476] l5: Bringing 0uV into 1656000-1656000uV
+<6>[    0.268544] l7: Bringing 0uV into 2704000-2704000uV
+<6>[    0.268786] l6: Bringing 0uV into 1080000-1080000uV
+<6>[    0.268826] TCP: Hash tables configured (established 65536 bind 65536)
+<6>[    0.269018] l7: Bringing 0uV into 880000-880000uV
+<6>[    0.269168] UDP hash table entries: 4096 (order: 6, 262144 bytes, linear)
+<6>[    0.269182] l8: Bringing 0uV into 1104000-1104000uV
+<6>[    0.269543] l9: Bringing 0uV into 1504000-1504000uV
+<6>[    0.269554] NET: Registered PF_UNIX/PF_LOCAL protocol family
+<6>[    0.269802] PCI: CLS 0 bytes, default 64
+<6>[    0.269839] l10: Bringing 0uV into 1624000-1624000uV
+<6>[    0.270104] Unpacking initramfs...
+<6>[    0.270181] l11: Bringing 0uV into 1624000-1624000uV
+<6>[    0.270526] l12: Bringing 0uV into 1624000-1624000uV
+<6>[    0.270760] l13: Bringing 0uV into 1656000-1656000uV
+<6>[    0.271054] l14: Bringing 0uV into 1704000-1704000uV
+<6>[    0.271301] l15: Bringing 0uV into 1656000-1656000uV
+<6>[    0.271600] l16: Bringing 0uV into 1624000-1624000uV
+<6>[    0.271831] l18: Bringing 0uV into 832000-832000uV
+<6>[    0.272087] l19: Bringing 0uV into 1624000-1624000uV
+<6>[    0.272417] l20: Bringing 0uV into 1624000-1624000uV
+<6>[    0.272660] l21: Bringing 0uV into 3000000-3000000uV
+<6>[    0.272983] l22: Bringing 0uV into 2704000-2704000uV
+<6>[    0.273234] l23: Bringing 0uV into 3000000-3000000uV
+<6>[    0.273546] l24: Bringing 0uV into 2704000-2704000uV
+<6>[    0.276584] kvm [1]: HYP mode not available
+<5>[    0.277813] Initialise system trusted keyrings
+<6>[    0.278091] workingset: timestamp_bits=42 (anon: 37) max_order=21 bucket_order=0 (anon: 0)
+<6>[    0.278585] squashfs: version 4.0 (2009/01/31) Phillip Lougher
+<6>[    0.278957] NET: Registered PF_ALG protocol family
+<5>[    0.279113] Key type asymmetric registered
+<5>[    0.279197] Asymmetric key parser 'x509' registered
+<6>[    0.279328] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 242)
+<6>[    0.279485] io scheduler mq-deadline registered
+<6>[    0.279568] io scheduler kyber registered
+<6>[    0.279750] io scheduler bfq registered
+<6>[    0.304712] ledtrig-cpu: registered to indicate activity on CPUs
+<6>[    0.370637] Serial: 8250/16550 driver, 4 ports, IRQ sharing enabled
+<6>[    0.376489] msm_serial: driver initialized
+<6>[    0.377559] SuperH (H)SCI(F) driver initialized
+<6>[    0.378068] STM32 USART driver initialized
+<6>[    0.393037] loop: module loaded
+<6>[    0.393554] zram: Added device: zram0
+<6>[    0.396356] megasas: 07.734.00.00-rc1
+<6>[    0.403773] spmi_pmic_arb 1c40000.spmi: PMIC arbiter version v5 (0x50020000)
+<6>[    0.445437] tun: Universal TUN/TAP device driver, 1.6
+<6>[    0.446278] VFIO - User Level meta-driver version: 0.3
+<6>[    0.454320] usbcore: registered new interface driver usb-storage
+<3>[    0.460621] spmi spmi-0: disallowed SPMI write to sid=0, addr=0x6046
+<3>[    0.460795] rtc-pm8xxx 1c40000.spmi:pmic@0:rtc@6000: probe with driver rtc-pm8xxx failed with error -1
+<6>[    0.461770] rtc-pm8xxx 1c40000.spmi:pmic@6:rtc@6100: registered as rtc0
+<6>[    0.461919] rtc-pm8xxx 1c40000.spmi:pmic@6:rtc@6100: setting system clock to 1973-09-25T23:29:14 UTC (117847754)
+<6>[    0.463704] i2c_dev: i2c /dev entries driver
+<6>[    0.471764] input: pm8941_pwrkey as /devices/platform/soc@0/1c40000.spmi/spmi-0/0-00/1c40000.spmi:pmic@0:pon@800/1c40000.spmi:pmic@0:pon@800:pwrkey/input/input0
+<6>[    0.474320] input: pm8941_resin as /devices/platform/soc@0/1c40000.spmi/spmi-0/0-00/1c40000.spmi:pmic@0:pon@800/1c40000.spmi:pmic@0:pon@800:resin/input/input1
+<6>[    0.510313] clocksource: arch_mmio_counter: mask: 0xffffffffffffff max_cycles: 0x46d987e47, max_idle_ns; 4407953027∂7 ns
+<6>[`   2.510490_ arch-timermmio f420000.ti}er: mmio timeÚ runnyno et 19.00MHz (virt)
+<6>[    0.511332] usbcore: registered new interface driver usbhid
+<6>[    0.511433] usbhid: USB HID core driver
+<6>[    0.519193] hw perfevents: enabled with armv8_pmuv3 PMU driver, 7 (0,8000003f) counters available
+<6>[    0.520352] watchdog: NMI not fully supported
+<6>[    0.520538] watchdog: Hard watchdog permanently disabled
+<6>[    0.533277] NET: Registered PF_INET6 protocol family
+<6>[    0.534080] Segment Routing with IPv6
+<6>[    0.534198] In-situ OAM (IOAM) with IPv6
+<6>[    0.534323] NET: Registered PF_PACKET protocol family
+<5>[    0.534515] Bridge firewalling registered
+<5>[    0.534615] Key type dns_resolver registered
+<6>[    0.559871] registered taskstats version 1
+<5>[    0.560501] Loading compiled-in X.509 certificates
+<6>[    0.567679] Demotion targets for Node 0: null
+<6>[    0.571501] CPUidle PSCI: Initialized CPU PM domain topology using OSI mode
+<6>[    0.587791] qcom_scm: convention: smc arm 64
+<3>[    0.589803] qcom_scm firmware:scm: No available mechanism for setting download mode
+<6>[    0.589946] qcom_scm firmware:scm: qseecom: found qseecom with version 0x1402000
+<6>[    0.590115] qcom_scm firmware:scm: qseecom: untested machine, skipping
+<6>[    0.600007] Freeing initrd memory: 12976K
+<5>[    0.608169] arm-smmu 5940000.iommu: probing hardware configuration...
+<5>[    0.608278] arm-smmu 5940000.iommu: SMMUv2 with:
+<5>[    0.608474] arm-smmu 5940000.iommu: 	stage 1 translation
+<5>[    0.608562] arm-smmu 5940000.iommu: 	address translation ops
+<5>[    0.608712] arm-smmu 5940000.iommu: 	non-coherent table walk
+<5>[    0.608797] arm-smmu 5940000.iommu: 	(IDR0.CTTW overridden by FW configuration)
+<5>[    0.608948] arm-smmu 5940000.iommu: 	stream matching with 3 register groups
+<5>[    0.609112] arm-smmu 5940000.iommu: 	5 context banks (0 stage-2 only)
+<5>[    0.609216] arm-smmu 5940000.iommu: 	Supported page sizes: 0x61311000
+<5>[    0.609368] arm-smmu 5940000.iommu: 	Stage-1: 48-bit VA -> 36-bit IPA
+<5>[    0.609545] arm-smmu 5940000.iommu: 	preserved 0 boot mappings
+<6>[    0.610814] platform 5900000.gpu: Adding to iommu group 0
+<5>[    0.615926] arm-smmu c600000.iommu: probing hardware configuration...
+<5>[    0.616090] arm-smmu c600000.iommu: SMMUv2 with:
+<5>[    0.616186] arm-smmu c600000.iommu: 	stage 1 translation
+<5>[    0.616340] arm-smmu c600000.iommu: 	non-coherent table walk
+<5>[    0.616455] arm-smmu c600000.iommu: 	(IDR0.CTTW overridden by FW configuration)
+<5>[    0.616611] arm-smmu c600000.iommu: 	stream matching with 53 register groups
+<4>[    0.616707] arm-smmu c600000.iommu: SMMU address space size (0x80000) differs from mapped region size (0x100000)!
+<5>[    0.616861] arm-smmu c600000.iommu: 	48 context banks (0 stage-2 only)
+<5>[    0.617244] arm-smmu c600000.iommu: 	Supported page sizes: 0x61311000
+<5>[    0.617395] arm-smmu c600000.iommu: 	Stage-1: 36-bit VA -> 36-bit IPA
+<5>[    0.617534] arm-smmu c600000.iommu: 	preserved 0 boot mappings
+<6>[    0.618498] platform 4784000.mmc: Adding to iommu group 1
+<6>[    0.618703] platform 4a00000.dma-controller: Adding to iommu group 2
+<6>[    0.618978] platform 4ac0000.geniqup: Adding to iommu group 3
+<6>[    0.619184] platform 4c00000.dma-controller: Adding to iommu group 4
+<6>[    0.619450] platform 4cc0000.geniqup: Adding to iommu group 5
+<6>[    0.619671] platform 5c6e000.camss: Adding to iommu group 6
+<6>[    0.620025] platform c800000.wifi: Adding to iommu group 7
+<6>[    0.620238] platform 4804000.ufshc: Adding to iommu group 8
+<6>[    0.620522] platform 5e00000.display-subsystem: Adding to iommu group 9
+<6>[    0.620743] platform 5840000.ipa: Adding to iommu group 10
+<6>[    0.631590] platform 4e00000.usb: Adding to iommu group 11
+<6>[    0.642971] sdhci_msm 4784000.mmc: Got CD GPIO
+<6>[    0.677487] irq: IRQ116: trimming hierarchy from :soc@0:interrupt-controller@f200000-1
+<6>[    0.677722] mmc0: SDHCI controller on 4784000.mmc [4784000.mmc] using ADMA 64-bit
+<6>[    0.685559] 4a84000.serial: ttyHS0 at MMIO 0x4a84000 (irq = 117, base_baud = 0) is a MSM
+<6>[    0.685952] serial serial0: tty port ttyHS0 registered
+<6>[    0.720968] /soc@0/display-subsystem@5e00000/display-controller@5e01000: Fixed dependency cycle(s) with /soc@0/display-subsystem@5e00000/dsi@5e94000
+<6>[    0.723904] /soc@0/display-subsystem@5e00000/display-controller@5e01000: Fixed dependency cycle(s) with /soc@0/display-subsystem@5e00000/dsi@5e94000
+<6>[    0.724256] /soc@0/display-subsystem@5e00000/dsi@5e94000: Fixed dependency cycle(s) with /soc@0/display-subsystem@5e00000/dsi@5e94000/panel@0
+<6>[    0.724459] /soc@0/display-subsystem@5e00000/dsi@5e94000: Fixed dependency cycle(s) with /soc@0/display-subsystem@5e00000/display-controller@5e01000
+<6>[    0.724956] /soc@0/display-subsystem@%e00p00/dsi@5e84100/`anel@0: Fixed dependenc} #ycle(w) with /soc@0.dasplay=subsystem@5e00000/dsi5Â9µ080
+<3>[    0.740684] DSI PLL(0) lock failed, status=0x00000000
+<3>[    0.740803] PLL(0) lock failed
+<4>[    0.741198] ------------[ cut here ]------------
+<4>[    0.741296] dsi0_phy_pll_out_dsiclk already disabled
+<4>[    0.741506] WARNING: drivers/clk/clk.c:1188 at clk_core_disable+0x80/0xa0, CPU#2: kworker/u32:0/12
+<4>[    0.741619] Modules linked in:
+<4>[    0.741791] CPU: 2 UID: 0 PID: 12 Comm: kworker/u32:0 Not tainted 7.2.0-rc5 #1-motorola-rhodep PREEMPT 
+<4>[    0.741893] Hardware name: Motorola Moto G82 5G (DT)
+<4>{    0.742060] Wmrkqueue: events_ufbund dÂfdrredprobewÔrk_func
+<4>[    0.742165] rstave: 6049p0c5 (oZCv dqYG +PAN!-UAO -TCO -DIT -SSBS BTYPE=--)
+<4>[    0.742335] pc : clk_core_disable+0x80/0xa0
+<4>[    0.742432] lr : clk_core_disable+0x80/0xa0
+<4>[    0.742600] sp : ffff8000800b35c0
+<4>[    0.742691] x29: ffff8000800b35c0 x28: 000000007fffffff x27: ffffa7f313186000
+<4>[    0.742869] x26: ffff000080047e88 x25: 0000000000000000 x24: ffff00017f4df538
+<4>[    0.742974] x23: ffff0000801d9040 x22: ffffa7f31376f000 x21: ffffa7f31376f000
+<4>[    0.743150] x20: ffff000084e7c600 x19: 0000000000000000 x18: 0000000000000000
+<4>[    0.743325] x17: 0000000000000000 x16: 00000000000000c7 x15: 0000000000000003
+<4>[    0.743428] x14: ffffa7f3131bd5d0 x13: 0000000000000fff x12: 0000000000000003
+<4>[    0.743602] x11: 0000000000000003 x10: 0000000000000002 x9 : b64b36641c3cf500
+<4>[    0.743703] x8 : b64b36641c3cf500 x7 : 006100ca000e007d x6 : 00b9002c00510020
+<4>[    0.743876] x5 : ffff000080b171be x4 : ffff000080b171c0 x3 : 0000000000000000
+<4>[    0.744049] x2 : 0000000000000000 x1 : ffff8000800b3390 x0 : 0000000000000028
+<4>[    0.744152] Call trace:
+<4>[    0.744313]  clk_core_disable+0x80/0xa0 (P)
+<4>[    0.744413]  clk_core_disable_lock+0x88/0x10c
+<4>[    0.744514]  __clk_set_parent_after+0x50/0x7c
+<4>[    0.744684]  clk_core_reparent_orphans_nolock+0x84/0xc4
+<4>[    0.744784]  clk_core_reparent_orphans+0x6c/0xe8
+<4>[    0.744952]  of_clk_add_hw_provider+0x8c/0x130
+<4>[    0.745050]  devm_of_clk_add_hw_provider+0xb0/0xf4
+<4>[    0.745147]  dsi_phy_driver_probe+0x2f0/0x31c
+<4>[    0.745318]  platform_probe+0x5c/0x9c
+<4>[    0.745416]  really_probe+0x154/0x43c
+<4>[    0.745513]  __driver_probe_device+0xd0/0x174
+<4>[    0.745684]  driver_probe_device+0x40/0x228
+<4>[    0.745780]  __device_attach_driver+0x138/0x224
+<4>[    0.745949]  bus_for_each_drv+0xf4/0x14c
+<4>[    0.746046]  __device_attach+0xfc/0x1c0
+<4>[    0.746142]  device_initial_probe+0x38/0x54
+<4>[    0.746310]  bus_probe_device+0x8c/0xf8
+<4>[    0.746408]  device_add+0x22c/0x43c
+<4>[    0.746508]  of_platform_device_create_pdata+0xd0/0x184
+<4>[    0.746681]  of_platform_bus_create+0x268/0x4a4
+<4>[    0.746778]  of_platform_populate+0x6c/0x150
+<4>[    0.746947]  mdss_probe+0x30c/0x3ec
+<4>[    0.747049]  platform_probe+0x5c/0x9c
+<4>[    0.747148]  really_probe+0x154/0x43c
+<4>[    0.747245]  __driver_probe_device+0xd0/0x174
+<4>[    0.747416]  driver_probe_device+0x40/0x228
+<4>[    0.747512]  __device_attach_driver+0x138/0x224
+<4>[    0.747679]  bus_for_each_drv+0xf4/0x14c
+<4>[    0.747775]  __device_attach+0xfc/0x1c0
+<4>[    0.747870]  device_initial_probe+0x38/0x54
+<4>[    0.748037]  bus_probe_device+0x8c/0xf8
+<4>[    0.748132]  deferred_probe_work_func+0xa0/0x104
+<4>[    0.748229]  process_scheduled_works+0x178/0x2c8
+<4>[    0.748399]  worker_thread+0x2b0/0x3dc
+<4>[    0.748496]  kthread+0x10c/0x12c
+<4>[    0.748592]  ret_from_fork+0x10/0x20
+<4>[    0.748760] ---[ end trace 0000000000000000 ]---
+<4>[    0.748880] ------------[ cut here ]------------
+<4>[    0.749038] dsi0_phy_pll_out_dsiclk already unprepared
+<4>[    0.749159] WARNING: drivers/clk/clk.c:1048 at clk_core_unprepare+0xb0/0xe8, CPU#2: kworker/u32:0/12
+<4>[    0.749321] Modules linked in:
+<4>[    0.749412] CPU: 2 UID: 0 PID: 12 Comm: kworker/u32:0 Tainted: G        W           7.2.0-rc5 #1-motorola-rhodep PREEMPT 
+<4>[    0.749572] Tainted: [W]=WARN
+<4>[    0.749655] Hardware name: Motorola Moto G82 5G (DT)
+<4>[    0.749804] Workqueue: events_unbound deferred_probe_work_func
+<4>[    0.749896] pstate: 60400005 (nZCv daif +PAN -UAO -TCO -DIT -SSBS BTYPE=--)
+<4>[    0.750052] pc : clk_core_unprepare+0xb0/0xe8
+<4>[    0.750140] lr : clk_core_unprepare+0xb0/0xe8
+<4>[    0.750291] sp : ffff8000800b35d0
+<4>[    0.750375] x29: ffff8000800b35d0 x28: 000000007fffffff x27: ffffa7f313186000
+<4>[    0.750536] x26: ffff000080047e88 x25: 0000000000000000 x24: ffff00017f4df538
+<4>[    0.750632] x23: ffff00017f4e3dc0 x22: ffff0000801d9040 x21: ffffa7f31376f000
+<4>[    0.750792] x20: ffffa7f31376f000 x19: ffff000084e7c600 x18: 0000000000000000
+<4>[    0.750888] x17: 0000000000000000 x16: 00000000000000c7 x15: 0000000000000003
+<4>[    0.751049] x14: ffffa7f3131bd5d0 x13: 0000000000000fff x12: 0000000000000003
+<4>[    0.751208] x11: 0000000000000003 x10: 0000000000000002 x9 : b64b36641c3cf500
+<4>[    0.751303] x8 : b64b36641c3cf500 x7 : 004b001300da00dc x6 : 00d600a600840059
+<4>[    0.751463] x5 : ffff000080b171be x4 : ffff000080b171c0 x3 : 0000000000000000
+<4>[    0.751622] x2 : 0000000000000000 x1 : ffff8000800b33a0 x0 : 000000000000002a
+<4>[    0.751718] Call trace:
+<4>[    0.751802]  clk_core_unprepare+0xb0/0xe8 (P)
+<4>[    0.751956]  clk_core_unprepare_lock+0x74/0xf0
+<4>[    0.752047]  __clk_set_parent_after+0x58/0x7c
+<4>[    0.752201]  clk_core_reparent_orphans_nolock+0x84/0xc4
+<4>[    0.752289]  clk_core_reparent_orphans+0x6c/0xe8
+<4>[    0.752377]  of_clk_add_hw_provider+0x8c/0x130
+<4>[    0.752527]  devm_of_clk_add_hw_provider+0xb0/0xf4
+<4>[    0.752615]  dsi_phy_driver_probe+0x2f0/0x31c
+<4>[    0.752767]  platform_probe+0x5c/0x9c
+<4>[    0.752855]  really_probe+0x154/0x43c
+<4>[    0.752944]  __driver_probe_device+0xd0/0x174
+<4>[    0.753096]  driver_probe_device+0x40/0x228
+<4>[    0.753184]  __device_attach_driver+0x138/0x224
+<4>[    0.753272]  bus_for_each_drv+0xf4/0x14c
+<4>[    0.753424]  __device_attach+0xfc/0x1c0
+<4>[    0.753511]  device_initial_probe+0x38/0x54
+<4>[    0.753664]  bus_probe_device+0x8c/0xf8
+<4>[    0.753751]  device_add+0x22c/0x43c
+<4>[    0.753840]  of_platform_device_create_pdata+0xd0/0x184
+<4>[    0.753993]  of_platform_bus_create+0x268/0x4a4
+<4>[    0.754080]  of_platform_populate+0x6c/0x150
+<4>[    0.754167]  mdss_probe+0x30c/0x3ec
+<4>[    0.754321]  platform_probe+0x5c/0x9c
+<4>[    0.754409]  really_probe+0x154/0x43c
+<4>[    0.754497]  __driver_probe_device+0xd0/0x174
+<4>[    0.754651]  driver_probe_device+0x40/0x228
+<4>[    0.754740]  __device_attach_driver+0x138/0x224
+<4>[    0.754829]  bus_for_each_drv+0xf4/0x14c
+<4>[    0.754980]  __device_attach+0xfc/0x1c0
+<4>[    0.755068]  device_initial_probe+0x38/0x54
+<4>[    0.755220]  bus_probe_device+0x8c/0xf8
+<4>[    0.755307]  deferred_probe_work_func+0xa0/0x104
+<4>[    0.755394]  process_scheduled_works+0x178/0x2c8
+<4>[    0.755547]  worker_thread+0x2b0/0x3dc
+<4>[    0.755634]  kthread+0x10c/0x12c
+<4>[    0.755720]  ret_from_fork+0x10/0x20
+<4>[    0.755873] ---[ end trace 0000000000000000 ]---
+<3>[    0.761310] DSI PLL(0) lock failed,§status=0x000000∞0
+<3>[    0.761400]†P\L(0) lock failed
+<4>[    0.365800] -≠--≠Ω-)----[ „ut heÚe ]-≠---)/---/-
+44>[$ " 0.761887] dsi0_phy_pll_out_byteclk already disabled
+<4>[    0.762073] WARNING: drivers/clk/clk.c:1188 at clk_core_disable+0x80/0xa0, CPU#2: kworker/u32:0/12
+<4>[    0.762169] Modules linked in:
+<4>[    0.762320] CPU: 2 UID: 0 PID: 12 Comm: kworker/u32:0 Tainted: G        W           7.2.0-rc5 #1-motorola-rhodep PREEMPT 
+<4>[    0.762479] Tainted: [W]=WARN
+<4>[    0.762562] Hardware name: Motorola Moto G82 5G (DT)
+<4>[    0.762646] Workqueue: events_unbound deferred_probe_work_func
+<4>[    0.762801] pstate: 604000c5 (nZCv daIF +PAN -UAO -TCO -DIT -SSBS BTYPE=--)
+<4>[    0.762889] pc : clk_core_disable+0x80/0xa0
+<4>[    0.763039] lr : clk_core_disable+0x80/0xa0
+<4>[    0.763126] sp : ffff8000800b35c0
+<4>[    0.763207] x29: ffff8000800b35c0 x28: 000000007fffffff x27: ffffa7f313186000
+<4>[    0.763366] x26: ffff000080047e88 x25: 0000000000000000 x24: ffff00017f4df538
+<4>[    0.763525] x23: ffff0000801d9040 x22: ffffa7f31376f000 x21: ffffa7f31376f000
+<4>[    0.763619] x20: ffff000084e7ce00 x19: 0000000000000000 x18: 0000000000000000
+<4>[    0.763777] x17: 0000000000000000 x16: 00000000000002fc x15: 0000000000000003
+<4>[    0.763937] x14: ffffa7f3131bd5d0 x13: 0000000000000fff x12: 0000000000000003
+<4>[    0.764030] x11: 0000000000000003 x10: 0000000000000002 x9 : b64b36641c3cf500
+<4>[    0.764187] x8 : b64b36641c3cf500 x7 : 0072007800da00dc x6 : 006f00e0006a00aa
+<4>[    0.764344] x5 : ffff000080b171be x4 : ffff000080b171c0 x3 : 0000000000000000
+<4>[    0.764437] x2 : 0000000000000000 x1 : ffff8000800b3390 x0 : 0000000000040029
+<4>[  " 0.364595] Call trecÂ:
+<4>[0 ( 0.7646?5]" clk_core_dmsa‚le+0x( o0x!0(P)
+<4>[   0.7>4763]  clk_core_dksabdeﬂlock+0x88/0x10c
+<4>[    0.764916]  __clk_set_parent_after+0x50/0x7c
+<4>[    0.765004]  clk_core_reparent_orphans_nolock+0x84/0xc4
+<4>[    0n7v5158]  clk_core_repirenu_orpians+2x6c/0¸e8
+|4~[    0.w65245]  of_glk_addﬂhw_provider´0x8s/0x130
+<4>[    0.765331]  devm_of_clk_add_hw_provider+0xb0/0xf4
+º4æ[    0.765483]  dsi_phy_driver_rrobu+0x2f8/0x39c
+=4>[  † 0.76%575]  p|qtformpvobe+0h5c/0x9c
+<4>[    0.765724]  really_probe+0x154/0x43c
+<4>[    0.765813]  __driver_probe_device+0xd0/0x174
+<4>[    0.765902]  driver_probe_device+0x40/0x228
+<4>[    0.766056]  __device_attach_driver+0x138/0x224
+<4>[    0.766145]  bus_for_each_drv+0xf4/0x14c
+<4>[    0.766231]  __device_attach+0xfc/0x1c0
+<4>[    0.766384]  device_initial_probe+0x38/0x54
+<4>[    0.766472]  bus_probe_device+0x8c/0xf8
+<4>[    0.766560]  device_add+0x22c/0x43c
+<4>[    0.766714]  of_platform_device_create_pdata+0xd0/0x184
+<4>[    0.766804]  of_platform_bus_create+0x268/0x4a4
+<4>[    0.766956]  of_platform_populate+0x6c/0x150
+<4>[    0.767044]  mdss_probe+0x30c/0x3ec
+<4>[    0.767134]  platform_probe+0x5c/0x9c
+<4>[    0.767287]  really_probe+0x154/0x43c
+<4>[    0.767374]  __driver_probe_device+0xd0/0x174
+<4>[    0.767463]  driver_probe_device+0x40/0x228
+<4>[    0.767617]  __device_attach_driver+0x138/0x224
+<4>[    0.767704]  bus_for_each_drv+0xf4/0x14c
+<4>[    0.767792]  __device_attach+0xfc/0x1c0
+<4>[    0.767945]  device_initial_probe+0x38/0x54
+<4>[    0.768033]  bus_probe_device+0x8c/0xf8
+<4>[    0.768118]  deferred_probe_work_func+0xa0/0x104
+<4>[    0.768271]  process_scheduled_works+0x178/0x2c8
+<4>[    0.768360]  worker_thread+0x2b0/0x3dc
+<4>[    0.768514]  kthread+0x10c/0x12c
+<4>[    0.768601]  ret_from_fÚk+0x10/0¯≥∞
+=4æ[(   .768688] -o-{ end trace 40000004∞000000 ]---
+<4>[    0.768856] -----------/[ gUt here ]------------
+<4>[    0.768943] dsi0_phy_pll_out_byteclk already unprepared
+<4>[    0.769060] WARNING: drivers/clk/clk.c:1048 at clk_core_unprepare+0xb0/0xe8, CPU#2: kworker/u32:0/12
+<4>[    0.769220] Modules linked in:
+<4>[    0.769307] CPU: 2 UID: 0 PID: 12 Comm: kworker/u32:0 Tainted: G        W           7.2.0-rc5 #1-motorola-rhodep PREEMPT 
+<4>[    0.769468] Tainted: [W]=WARN
+<4>[    0.769616] Hardware name: Motorola Moto G82 5G (DT)
+<4>[    0.769702] Workqueue: events_unbound deferred_probe_work_func
+<4>[    0.769859] pstate: 60400005 (nZCv daif +PAN -UAO -TCO -DIT -SSBS BTYPE=--)
+<4>[    0.769948] pc : clk_core_unprepare+0xb0/0xe8
+<4>[    0.770101] lr : clk_core_unprepare+0xb0/0xe8
+<4>[    0.770189] sp : ffff8000800b35d0
+<4>[    0.770272] x29: ffff8000800b35d0 x28: 000000007fffffff x27: ffffa7f313186000
+<4>[    0.770433] x26: ffff000080047e88 x25: 0000000000000000 x24: ffff00017f4df538
+<4>[    0.770592] x23: ffff00017f4e3dc0 x22: ffff0000801d9040 x21: ffffa7f31376f000
+<4>[    0.770688] x20: ffffa7f31376f000 x19: ffff000084e7ce00 x18: 0000000000000000
+<4>[    0.770845] x17: 0000000000000000 x16: 00000000000002fc x15: 0000000000000003
+<4>[    0.770939] x14: ffffa7f3131bd5d0 x13: 0000000000000fff x12: 0000000000000003
+<4>[    0.771097] x11: 0000000000000003 x10: 0000000000000002 x9 : b64b36641c3cf500
+<4>[    0.771255] x8 : b64b36641c3cf500 x7 : 00f0003f0088000b x6 : 00a2008c00c10073
+<4>[    0.771349] x5 : ffff000080b171be x4 : ffff000080b171c0 x3 : 0000000000000000
+<4>[    0.771507] x2 : 0000000000000000 x1 : ffff8000800b33a0 x0 : 000000000000002b
+<4>[    0.771665] Call trace:
+<4>[    0.771748]  clk_core_unprepare+0xb0/0xe8 (P)
+<4>[    0.771838]  clk_core_unprepare_lock+0x74/0xf0
+<4>[    0.771992]  __clk_set_parent_after+0x58/0x7c
+<4>[    0.772080]  clk_core_reparent_orphans_nolock+0x84/0xc4
+<4>[    0.772168]  clk_core_reparent_orphans+0x6c/0xe8
+<4>[    0.772322]  of_clk_add_hw_provider+0x8c/0x130
+<4>[    0.772410]  devm_of_clk_add_hw_provider+0xb0/0xf4
+<4>[    0.772563]  dsi_phy_driver_probe+0x2f0/0x31c
+<4>[    0.772650]  platform_probe+0x5c/0x9c
+<4>[    0.772738]  really_probe+0x154/0x43c
+<4>[    0.772889]  __driver_probe_device+0xd0/0x174
+<4>[    0.772978]  driver_probe_device+0x40/0x228
+<4>[    0.773066]  __device_attach_driver+0x138/0x224
+<4>[    0.773219]  bus_for_each_drv+0xf4/0x14c
+<4>[    0.773306]  __device_attach+0xfc/0x1c0
+<4>[    0.773457]  device_initial_probe+0x38/0x54
+<4>[    0.773545]  bus_probe_device+0x8c/0xf8
+<4>[    0.773631]  device_add+0x22c/0x43c
+<4>[    0.773785]  of_platform_device_create_pdata+0xd0/0x184
+<4>[    0.773874]  of_platform_bus_create+0x268/0x4a4
+<4>[    0.773962]  of_platform_populate+0x6c/0x150
+<4>[    0.774114]  mdss_probe+0x30c/0x3ec
+<4>[    0.774204]  platform_probe+0x5c/0x9c
+<4>[    0.774293]  really_probe+0x154/0x43c
+<4>[    0.774446]  __driver_probe_device+0xd0/0x174
+<4>[    0.774534]  driver_probe_device+0x40/0x228
+<4>[    0.774622]  __device_attach_driver+0x138/0x224
+<4>[    0.774776]  bus_for_each_drv+0xf4/0x14c
+<4>[    0.774863]  __device_attach+0xfc/0x1c0
+<4>[    0.775015]  device_initial_probe+0x38/0x54
+<4>[    0.775102]  bus_probe_device+0x8c/0xf8
+<4>[    0.775188]  deferred_probe_work_func+0xa0/0x104
+<4>[    0.775340]  process_scheduled_works+0x178/0x2c8
+<4>[    0.775429]  worker_thread+0x2b0/0x3dc
+<4>[    0.775518]  kthread+0x10c/0x12c
+<4>[    0.775670]  ret_from_fork+0x10/0x20
+<4>[    0.775758] ---[ end trace 0000000000000000 ]---
+<6>[    0.779506] ufshcd-qcom 4804000.ufshc: ufshcd_populate_vreg: Unable to find vdd-hba-supply regulator, assuming enabled
+<6>[    0.779667] ufshcd-qcom 4804000.ufshc: ufshcd_populate_vreg: Unable to find vccq-supply regulator, assuming enabled
+<4>[    0.780542] ufshcd-qcom 4804000.ufshc: Disabling inline encryption support
+<6>[    0.786274] scsi host0: ufshcd
+<5>[    0.820187] scsi 0:0:0:49488: Well-known LUN    SKhynix  H9HQ15AECMBDAR   A043 PQ: 0 ANSI: 6
+<5>[    0.822181] scsi 0:0:0:49476: Well-known LUN    SKhynix  H9HQ15AECMBDAR   A043 PQ: 0 ANSI: 6
+<5>[    0.824038] scsi 0:0:0:49456: Well-known LUN    SKhynix  H9HQ15AECMBDAR   A043 PQ: 0 ANSI: 6
+<5>[    0.826268] scsi 0:0:0:0: Direct-Access     SKhynix  H9HQ15AECMBDAR   A043 PQ: 0 ANSI: 6
+<6>[    0.827761] input: gpio-keys as /devices/platform/gpio-keys/input/input2
+<5>[    0.828317] sd 0:0:0:0: [sda] 4096 4096-byte logical blocks: (16.8 MB/16.0 MiB)
+<5>[    0.828415] scsi 0:0:0:1: Direct-Access     SKhynix  H9HQ15AECMBDAR   A043 PQ: 0 ANSI: 6
+<5>[    0.828494] sd 0:0:0:0: [sda] Write Protect is off
+<7>[    0.828683] sd 0:0:0:0: [sda] Mode Sense: 00 32 00 10
+<5>[    0.828928] sd 0:0:0:0: [sda] Write cache: enabled, read cache: enabled, supports DPO and FUA
+<6>[    0.829072] clk: Disabling unused clocks
+<6>[    0.829143] sd 0:0:0:0: [sda] Preferred minimum I/O size 524288 bytes
+<6>[    0.829280] sd 0:0:0:0: [sda] Optimal transfer size 524288 bytes
+<5>[    0.830532] scsi 0:0:0:2: Direct-Access     SKhynix  H9HQ15AECMBDAR   A043 PQ: 0 ANSI: 6
+<5>[    0.832502] scsi 0:0:0:3: Direct-Access     SKhynix  H9HQ15AECMBDAR   A043 PQ: 0 ANSI: 6
+<5>[    0.832578] sd 0:0:0:2: [sdc] 2048 4096-byte logical blocks: (8.39 MB/8.00 MiB)
+<5>[    0.832756] sd 0:0:0:1: [sdb] 2048 4096-byte logical blocks: (8.39 MB/8.00 MiB)
+<5>[    0.832839] sd 0:0:0:2: [sdc] Write Protect is off
+<7>[    0.832970] sd 0:0:0:2: [sdc] Mode Sense: 00 32 00 10
+<5>[    0.832984] sd 0:0:0:1: [sdb] Write Protect is off
+<7>[    0.833175] sd 0:0:0:1: [sdb] Mode Sense: 00 32 00 10
+<5>[    0.833252] sd 0:0:0:2: [sdc] Write cache: enabled, read cache: enabled, supports DPO and FUA
+<6>[    0.833465] sd 0:0:0:2: [sdc] Preferred minimum I/O size 524288 bytes
+<5>[    0.833467] sd 0:0:0:1: [sdb] Write cache: enabled, read cache: enabled, supports DPO and FUA
+<6>[    0.833478] sd 0:0:0:2: [sdc] Optimal transfer size 524288 bytes
+<6>[    0.833544] sd 0:0:0:1: [sdb] Preferred minimum I/O size 524288 bytes
+<6>[    0.833933] sd 0:0:0:1: [sdb] Optimal transfer size 524288 bytes
+<3>[    0.834604] DSI PLL(0) lock failed, status=0x00000000
+<5>[    0.834658] scsi 0:0:0:4: Direct-Access     SKhynix  H9HQ15AECMBDAR   A043 PQ: 0 ANSI: 6
+<5>[    0.834688] sd 0:0:0:3: [sdd] 307200 4096-byte logical blocks: (1.26 GB/1.17 GiB)
+<3>[    0.834745] PLL(0) lock failed
+<5>[    0.834762] sd 0:0:0:3: [sdd] Write Protect is off
+<4>[    0.834894] ------------[ cut here ]------------
+<7>[    0.834901] sd 0:0:0:3: [sdd] Mode Sense: 00 32 00 10
+<5>[    0.835086] sd 0:0:0:3: [sdd] Write cache: enabled, read cache: enabled, supports DPO and FUA
+<4>[    0.835162] dsi0_phy_pll_out_dsiclk already disabled
+<6>[    0.835242] sd 0:0:0:3: [sdd] Preferred minimum I/O size 524288 bytgs
+<4>[   "0.835397] WASNIFG: driwERs/slk/clk.c:q188$at clk_core_disable+0x80/0x·0, CPU#1* swappevØ0+1
+=6>[   10.835441] sd 0z0:0:3: [sdd] Optioal ÙraÓsfer sizu 52¥288 bytes
+=4>[    0.835448] Modules linked io∫
+<4>[   †0.837974](CPU; 1 UID: 0 PID: 1 Comm: swapper/0 Tainted: G        W           7.2.0-rc5 #1-motorola-rhodep PREEMPT 
+<4>[    0.836104] Tainted: [W]=WARN
+<4>[    0.836179] Hardware name: Motorola Moto G82 5G (DT)
+<4>[    0.836311] pstate: 604000c5 (nZCv daIF +PAN -UAO -TCO -DIT -SSBS BTYPE=--)
+<4>[    0.836388] pc : clk_core_disable+0x80/0xa0
+<4>[    0.836524] lr : clk_core_disable+0x80/0xa0
+<4>[    0.836599] sp : ffff80008005b8c0
+<4>[    0.836671] x29: ffff80008005b8c0 x28: 0000000000000000 x27: 0000000000000000
+<5>[    0.836754] sd 0:0:0:4: [sde] 30615552 4096-byte logical blocks: (125 GB/117 GiB)
+<4>[    0.836810] x26: 0000000000000000
+<5>[    0.836836] scsi 0:0:0:5: Direct-Access     SKhynix  H9HQ15AECMBDAR   A043 PQ: 0 ANSI: 6
+<5>[    0.836885] sd 0:0:0:4: [sde] Write Protect is off
+<7>[    0.836888] sd 0:0:0:4: [sde] Mode Sense: 00 32 00 10
+<4>[    0.836937]  x25: 0000000000000000
+<5>[    0.837030] sd 0:0:0:4: [sde] Write cache: enabled, read cache: enabled, supports DPO and FUA
+<4>[    0.837144]  x24: 0000000000000000
+<6>[    0.837200] sd 0:0:0:4: [sde] Preferred minimum I/O size 524288 bytes
+<4>[    0.837219] 
+<6>[    0.837223] sd 0:0:0:4: [sde] Optimal transfer size 524288 bytes
+<4>[    0.837228] x23: ffff0000801c30c0 x22: ffffa7f31376f000 x21: ffffa7f31376f000
+<4>[    0.837998] x20: ffff000084e7c600 x19: 0000000000000000 x18: 0000000000000000
+<4>[    0.838081] x17: 37312e312f424720 x16: 36322e3128203a73 x15: 0000000000003031
+<4>[    0.838220] x14: 0000000000000000 x13: 003f00bc005b00ac x12: 0000000000000001
+<4>[    0.838358] x11: 0000000000000000 x10: 00000000fÊffffÊf x9 :†∏u7c355c235c∏900
+<4>[    0.838441] x8 : 8e7c355c235c89∞1 x7 : 00se002π00c280dπ"x6 : t06e001a00490017
+<4>[    0.838579] x5 : ffff000080b171be x4 : ffff000080b171c0 x3 : ffff000080b17180
+<4>[    0.838660] x2 : 000000000000003e x1 : 0000000000000000 x0 : 0000000000000028
+<4>[    0.838742] Call trace:
+<4>[    0.838815]  clk_core_disable+0x80/0xa0 (P)
+<5>[    0.838817] sd 0:0:0:5: [sdf] 307200 4096-byte logical blocks: (1.26 GB/1.17 GiB)
+<4>[    0.838827]  clk_core_disable_lock+0x88/0x10c
+<5>[    0.838914] sd 0:0:0:5: [sdf] Write Protect is off
+<4>[    0.838967]  clk_disable_unused_subtree+0x14c/0x198
+<7>[    p.83y046] sd 0:0:1:5: [Ûdf] Modu Sense:000 32 00 10
+<5>[    0.839198] sd 0;0∫0:5: [sdÊ] Write"cagxe:†enabled, reat cache: enabled, supports DPO and FUA
+<4>[    0.839240]  clk_disable_unused_subtree+0x30/0x198
+<6>[    0.839320] sd 0:0:0:5: [sdf] Preferred minimum I/O size 524288 bytes
+<4>[    0.839378]  clk_disable_unused_subtree+0x30/0x198
+<6>[    0.839387] sd 0:0:0:5: [sdf] Optimal transfer size 524288 bytes
+<4>[    0.839391]  clk_disable_unused_subtree+0x30/0x198
+<4>[    0.839397]  clk_disable_unused_subtree+0x30/0x198
+<4>[    0.840169]  clk_disable_unused_subtree+0x30/0x198
+<4>[    0.840248]  clk_disable_unused_subtree+0x30/0x198
+<4>[    0.840324]  clk_disable_unused_subtree+0x30/0x198
+<4>[    0.840457]  clk_disable_unused+0xbc/0x1f0
+<4>[    0.840532]  do_one_initcall+0xf8/0x22c
+<4>[    0.840667]  do_initcall_level+0xa0/0xd4
+<4>[    0.840744]  do_initcalls+0x54/0x94
+<4>[    0.840819]  do_basic_setup+0x20/0x2c
+<4>[    0.840953]  kernel_init_freeable+0xcc/0x154
+<4>[    0.841034]  kernel_init+0x20/0x12c
+<4>[    0.841112]  ret_from_fork+0x10/0x20
+<4>[    0.841249] ---[ end trace 0000000000000000 ]---
+<4>[    0.841370] ------------[ cut here ]------------
+<4>[    0.841450] dsi0_phy_pll_out_dsiclk already unprepared
+<4>[    0.841613] WARNING: drivers/clk/clk.c:1048 at clk_core_unprepare+0xb0/0xe8, CPU#1: swapper/0/1
+<4>[    0.841758] Modules linked in:
+<4>[    0.841840] CPU: 1 UID: 0 PID: 1 Comm: swapper/0 Tainted: G        W           7.2.0-rc5 #1-motorola-rhodep PREEMPT 
+<4>[    0.841982] Tainted: [W]=WARN
+<4>[    0.842054] Hardware name: Motorola Moto G82 5G (DT)
+<4>[    0.842130] pstate: 60400005 (nZCv daif +PAN -UAO -TCO -DIT -SSBS BTYPE=--)
+<4>[    0.842265] pc : clk_core_unprepare+0xb0/0xe8
+<4>[    0.842342] lr : clk_core_unprepare+0xb0/0xe8
+<4>[    0.842475] sp : ffff80008005b8d0
+<4>[    0.842548] x29: ffff80008005b8d0 x28: 0000000000000000 x27: 0000000000000000
+<4>[    0.842687] x26: 0000000000000000 x25: 0000000000000000 x24: 0000000000000000
+<4>[    0.842769] x23: 0000000000000000 x22: ffff0000801c30c0 x21: ffffa7f31376f000
+<4>[    0.842909] x20: ffffa7f31376f000 x19: ffff000084e7c600 x18: 0000000000003000
+<4>[    0.843048] x17: 0000000000000001 x16: 0000000000000000 x15: 0000000000000003
+<4>[    0.843132] x14: ffffa7f3131bd5d0 x13: 0000000000000fff x12: 0000000000000003
+<4>[    0.843271] x11: 0000000000000003 x10: 0000000000000002 x9 : 8e7c355c235c8900
+<4>[    0.843411] x8 : 8e7c355c235c8900 x7 : 00e60007007900c3 x6 : 00ec001500db008b
+<4>[    0.843493] x5 : ffff000080b171be x4 : ffff000080b171c0 x3 : 0000000000000000
+<4>[    0.843632] x2 : 0000000000000000 x1 : ffff80008005b6a0 x0 : 000000000000002a
+<4>[    0.843714] Call trace:
+<4>[    0.843842]  clk_core_unprepare+0xb0/0xe8 (P)
+<4>[    0.843920]  clk_core_unprepare_lock+0x74/0xf0
+<4>[    0.843997]  clk_disable_unused_subtree+0x154/0x198
+<4>[    0.844134]  clk_disable_unused_subtree+0x30/0x198
+<4>[    0.844212]  clk_disable_unused_subtree+0x30/0x198
+<4>[    0.844347]  clk_disable_unused_subtree+0x30/0x198
+<4>[    0.844424]  clk_disable_unused_subtree+0x30/0x198
+<4>[    0.844557]  clk_disable_unused_subtree+0x30/0x198
+<4>[    0.844634]  clk_disable_unused_subtree+0x30/0x198
+<4>[    0.844711]  clk_disable_unused_subtree+0x30/0x198
+<4>[    0.844845]  clk_disable_unused+0xbc/0x1f0
+<4>[    0.844920]  do_one_initcall+0xf8/0x22c
+<4>[    0.845056]  do_initcall_level+0xa0/0xd4
+<4>[    0.845133]  do_initcalls+0x54/0x94
+<4>[    0.845210]  do_basic_setup+0x20/0x2c
+<4>[    0.845286]  kernel_init_freeable+0xcc/0x154
+<4>[    0.845422]  kernel_init+0x20/0x12c
+<4>[    0.845500]  ret_from_fork+0x10/0x20
+<4>[    0.845578] ---[ end trace 0000000000000000 ]---
+<3>[    0.850839] DSI PLL(0) lock failed, status=0x00000000
+<3>[    0.850916] PLL(0) lock failed
+<4>[    0.851047] ------------[ cut here ]------------
+<4>[    0.851120] dsi0_phy_pll_out_byteclk already disabled
+<4>[    0.851225] WARNING: drivers/clk/clk.c:1188 at clk_core_disable+0x80/0xa0, CPU#1: swapper/0/1
+<4>[    0.851364] Modules linked in:
+<4>[    0.851443] CPU: 1 UID: 0 PID: 1 Comm: swapper/0 Tainted: G     (  W         * ó.2.0-rc5 21-motor?la-rhÔdup PREEMPT 
+<4>S    0.8%5581} Tcinted: {w]=WARÓ
+<4>[    0.851710] Hardrare oame: Motorola Moto G82 5G (DT)
+<4>[    0.851785] pstate: 604000c5 (nZCv daIF +PAN -UAO -TCO -DIT -SSBS BTYPE=--)
+<4>[    0.851919] pc : clk_core_disable+0x80/0xa0
+<4>[    0.851994] lr : clk_core_disable+0x80/0xa0
+<4>[    0.852070] sp : ffff80008005b8f0
+<4>[    0.852199] x29: ffff80008005b8f0 x28: 0000000000000000 x27: 0000000000000000
+<4>[    0.852281] x26: 0000000000000000 x25: 0000000000000000 x24: 0000000000000000
+<4>[    0.852420] x23: ffff0000801c30c0 x22: ffffa7f31376f000 x21: ffffa7f31376f000
+<4>[    0.852560] x20: ffff000084e7ce00 x19: 0000000000000000 x18: 0000000000003000
+<4>[    0.852642] x17: 0000000000000001 x16: 0000000000000000 x15: 0000000000000003
+<4>[    0.852777] x14: ffffa7f3131bd5d0 x13: 0000000000000fff x12: 0000000000000003
+<4>[    0.852916] x11: 0000000000000003 x10: 0000000000000002 x9 : 8e7c355c235c8900
+<4>[    0.852998] x8 : 8e7c355c235c8900 x7 : 00b6008b008100e2 x6 : 0089008e004a00af
+<4>[    0.853136] x5 : ffff000080b171be x4 : ffff000080b171c0 x3 : 0000000000000000
+<4>[    0.853218] x2 : 0000000000000000 x1 : ffff80008005b6c0 x0 : 0000000000000029
+<4>[    0.853358] Call trace:
+<4>[    0.853430]  clk_core_disable+0x80/0xa0 (P)
+<4>[    0.853564]  clk_core_disable_lock+0x88/0x10c
+<4>[    0.853643]  clk_disable_unused_subtree+0x14c/0x198
+<4>[    0.853722]  clk_disable_unused_subtree+0x30/0x198
+<4>[    0.853855]  clk_disable_unused_subtree+0x30/0x198
+<4>[    0.853931]  clk_disable_unuced_wubtrÂÂ+0¯30/0x198
+<4>[    0>854∞65›  clk_disable_unused_subtree+0x30/0x198
+<<>[  0†0.8551<3]` cÏk_disableunused_subtree+0x30/0x198
+<4>[    0.854278]  clk_disable_unused_subtree+0x30/0x198
+<4>[    0.854354]  clk_disable_unused+0xbc/0x1f0
+<4>[    0.854430]  do_one_initcall+0xf8/0x22c
+<4>[    0.854566]  do_initcall_level+0xa0/0xd4
+<4>[    0.854645]  do_initcalls+0x54/0x94
+<4>[    0.854722]  do_basic_setup+0x20/0x2c
+<4>[    0.854855]  kernel_init_freeable+0xcc/0x154
+<4>[    0.854932]  kernel_init+0x20/0x12c
+<4>[    0.855008]  ret_from_fork+0x10/0x20
+<4>[    0.855140] ---[ end trace 0000000000000000 ]---
+<4>[    0.855226] ------------[ cut here ]------------
+<4>[    0.855301] dsi0_phy_pll_out_byteclk already unprepared
+<4>[    0.855461] WARNING: drivers/clk/clk.c:1048 at clk_core_unprepare+0xb0/0xe8, CPU#1: swapper/0/1
+<4>[    0.855600] Modules linked in:
+<4>[    0.855677] CPU: 1 UID: 0 PID: 1 Comm: swapper/0 Tainted: G        W           7.2.0-rc5 #1-motorola-rhodep PREEMPT 
+<4>[    0.855815] Tainted: [W]=WARN
+<4>[    0.855887] Hardware name: Motorola Moto G82 5G (DT)
+<4>[    0.856020] pstate: 60400005 (nZCv daif +PAN -UAO -TCO -DIT -SSBS BTYPE=--)
+<4>[    0.856099] pc : clk_core_unprepare+0xb0/0xe8
+<4>[    0.856234] lr : clk_core_unprepare+0xb0/0xe8
+<4>[    0.856310] sp : ffff80008005b900
+<4>[    0.856383] x29: ffff80008005b900 x28: 0000000000000000 x27: 0000000000000000
+<4>[    0.856524] x26: 0000000000000000 x25: 0000000000000000 x24: 0000000000000000
+<4>[    0.856664] x23: 0000000000000000 x22: ffff0000801c30c0 x21: ffffa7f31376f000
+<4>[    0.856746] x20: ffffa7f31376f000 x19: ffff000084e7ce00 x18: 0000000000003000
+<4>[    0.856885] x17: 0000000000000001 x16: 0000000000000000 x15: 0000000000000003
+<4>[    0.856967] x14: ffffa7f3131bd5d0 x13: 0000000000000fff x12: 0000000000000003
+<4>[    0.857106] x11: 0000000000000003 x10: 0000000000000002 x9 : 8e7c355c235c8900
+<4>[    0.857245] x8 : 8e7c355c235c8900 x7 : 008e006100200034 x6 : 000400ff00f2002a
+<4>[    0.857327] x5 : ffff000080b171be x4 : ffff000080b171c0 x3 : 0000000000000000
+<4>[    0.857465] x2 : 0000000000000000 x1 : ffff80008005b6d0 x0 : 000000000000002b
+<4>[    0.857608] Call trace:
+<4>[    0.857681]  clk_core_unprepare+0xb0/0xe8 (P)
+<4>[    0.857760]  clk_core_unprepare_lock+0x74/0xf0
+<4>[    0.857899]  clk_disable_unused_subtree+0x154/0x198
+<4>[    0.857977]  clk_disable_unused_subtree+0x30/0x198
+<4>[    0.858054]  clk_disable_unused_subtree+0x30/0x198
+<4>[    0.858189]  clk_disable_unused_subtree+0x30/0x198
+<4>[    0.858266]  clk_disable_unused_subtree+0x30/0x198
+<4>[    0.858401]  clk_disable_unused_subtree+0x30/0x198
+<4>[    0.858479]  clk_disable_unused_subtree+0x30/0x198
+<4>[    0.858613]  clk_disable_unused+0xbc/0x1f0
+<4>[    0.858691]  do_one_initcall+0xf8/0x22c
+<4>[    0.858770]  do_initcall_level+0xa0/0xd4
+<4>[    0.858905]  do_initcalls+0x54/0x94
+<4>[    0.858981]  do_basic_setup+0x20/0x2c
+<4>[    0.859058]  kernel_init_freeable+0xcc/0x154
+<4>[    0.859191]  kernel_init+0x20/0x12c
+<4>[    0.859270]  ret_from_fork+0x10/0x20
+<4>[    0.859347] ---[ end trace 0000000000000000 ]---
+<6>[    0.859993] PM: genpd: Disabling unused power domains
+<6>[    0.862997]  sda: sda1 sda2
+<6>[    0.863110]  sdc: sdc1 sdc2
+<6>[    0.863892]  sde: sde1 sde2 sde3 sde4 sde5 sde6 sde7 sde8 sde9 sde10 sde11 sde12 sde13 sde14 sde15 sde16 sde17 sde18 sde19 sde20 sde21 sde22 sde23 sde24 sde25 sde26
+<5>[    0.863909] sd 0:0:0:0: [sda] Attached SCSI disk
+<5>[    0.864928] sd 0:0:0:2: [sdc] Attached SCSI disk
+<6>[    0.870967]  sdd: sdd1 sdd2 sdd3 sdd4 sdd5 sdd6 sdd7 sdd8 sdd9 sdd10 sdd11 sdd12 sdd13 sdd14 sdd15 sdd16 sdd17 sdd18 sdd19 sdd20
+<6>[    0.871157]  sdb: sdb1 sdb2
+<5>[    0.872252] sd 0:0:0:1: [sdb] Attached SCSI disk
+<6>[    0.876205]  sdf: sdf1 sdf2 sdf3 sdf4 sdf5 sdf6 sdf7 sdf8 sdf9 sdf10 sdf11 sdf12 sdf13 sdf14 sdf15 sdf16 sdf17 sdf18 sdf19 sdf20
+<5>[    0.876491] sd 0:0:0:3: [sdd] Attached SCSI disk
+<5>[    0.880564] sd 0:0:0:4: [sde] Attached SCSI disk
+<5>[    0.882532] sd 0:0:0:5: [sdf] Attached SCSI disk
+<6>[    0.883883] Freeing unused kernel memory: 28x0À
+<6>[   *0.884238] R}n /inÈt as init0process
+<7:[$   0Æ88t3vu]   with arouments:
+<7>[    0.884610]     /init
+<w>[    0n884733]   with environment:
+<7>[    0.884849]     HOME=/
+<7>[    0.885019]     TERM=linux
+<7>[    0.885140]     pmos_root_uuid=d3f420ff-55cd-4e90-aba9-adf089dcf1e4
+<7>[    0.885358]     pmos_rootfsopts=defaults
+<7>[    0.885477]     wifimacaddr=E4:26:D5:01:11:10,E4:26:D5:01:11:11
+<7>[    0.885691]     storage_mfrid=0x1AD
+<46>[    0.940791] syslogd started: BusyBox v1.38.0
+<14>[    0.y43s3› [pmOS-rd]:   ‚ù¨‚ù¨ PMOS STAGE 1%‚ù≠‚ù≠
+<14>[ †  0.943504] [pmOS-rl]; initramfs0version∫ 3.12>0-r0
+<16>[    0.9t3641] [pmOS-rd]:   ‚ù¨‚ù¨ PMOS STAGE 2 ‚ù≠‚ù≠
+<3>[    2.334232] module spi_geni_qcom: .gnu.linkonce.this_module section size must match the kernel's built struct module size at run time
+<14>[    2.565706] [pmOS-rd]:   Setting up USB gadget through configfs
+<6>[    2.575433] configfs-gadget.g1 gadget.0: HOST MAC 36:69:99:c5:de:f9
+<6>[    2.575581] configfs-gadget.g1 gadget.0: MAC 6e:fe:39:0c:36:a3
+<14>[    2.597362] [pmOS-rd]: Trying to start server with parameters: Server IP addr: 172.16.42.1:67, client IP addr: 172.16.42.2, interface: usb0
+<14>[    2.598988] [pmOS-rd]: couldn't open /dev/input/: No such file or directory
+<14>[    2.599335] [pmOS-rd]: couldn't open /dev/input/: No such file or directory
+<14>[    3.603289] [pmOS-rd]: Trying to mount subpartitions for 10 seconds...
+<14>[    4.578371] [pmOS-rd]: Mount subpartitions of /dev/sde26
+<6>[    4.580328] loop0: detected capacity change from 0 to 227893208
+<6>[    4.583711]  loop0: p1 p2
+<14>[    5.459485] [pmOS-rd]: Not resizing root partition (/dev/loop0p2): no free space left
+<14>[    5.464178] [pmOS-rd]: Auto-repair and check 'ext' filesystem (/dev/loop0p2)
+<14>[    5.468649] [pmOS-rd]: rootfs: recovering journal
+<14>[    5.822832] [pmOS-rd]: rootfs: clean, 1114550/7110656 files, 14837700/28420854 blocks
+<14>[    5.841626] [pmOS-rd]: Resize 'ext4' root filesystem (/dev/loop0p2)
+<14>[    5.846251] [pmOS-rd]: resize2fs 1.47.4 (6-Mar-2025)
+<14>[    5.847488] [pmOS-rd]: The filesystem is already 28420854 (4k) blocks long.  Nothing to do!
+<14>[    5.850460] [pmOS-rd]: Mount root partition (/dev/loop0p2) to /sysroot (read-write) with options defaults
+<6>[    5.874805] EXT4-fs (loop0p2): mounted filesystem d3f420ff-55cd-4e90-aba9-adf089dcf1e4 r/w with ordered data mode. Quota mode: none.
+<14>[    5.903619] [pmOS-rd]: Auto-repair and check 'vfat' filesystem (/dev/loop0p1)
+<14>[    5.904209] [pmOS-rd]: fsck.fat 4.2 (2021-01-31)
+<14>[    5.912986] [pmOS-rd]: /dev/loop0p1: 1 files, 0/65467 clusters
+<14>[    5.915080] [pmOS-rd]: Mount boot partition (/dev/loop0p1) to /sysroot/boot (read-write)
+<3>[    5.933256] FAT-fs (loop0p1): logical sector size too small for device (logical sector size = 512)
+<14>[    5.934377] [pmOS-rd]: mount: mounting /dev/loop0p1 on /sysroot/boot failed: I/O error
+<14>[    5.938702] [pmOS-rd]: Switching root
+<46>[    5.973773] syslogd exiting
+<30>[    6.222275] systemd[1]: System time advanced to timestamp on /var/lib/systemd/timesync/clock: Tue 2026-08-25 20:36:18 -03
+<30>[    6.729634] systemd[1]: systemd 261.1-2 running in system mode (+PAM +AUDIT +SELINUX +APPARMOR +IMA +IPE +SMACK +SECCOMP +GCRYPT -GNUTLS +OPENSSL +ACL +BLKID +CURL +ELFUTILS +FIDO2 +IDN2 +KMOD +LIBCRYPTSETUP +LIBCRYPTSETUP_PLUGINS +LIBFDISK +PCRE2 +PWQUALITY +P11KIT +QRENCODE +TPM2 +BZIP2 +LZ4 +XZ +ZLIB +ZSTD +BPF_FRAMEWORK +BTF -XKBCOMMON -UTMP +LIBARCHIVE)
+<30>[    6.731094] systemd[1]: Detected architecture arm64.
+<30>[    6.744804] systemd[1]: Hostname set to <kali>.
+<30>[    7.076243] systemd[1]: bpf-restrict-fs: BPF LSM hook not enabled in the kernel, BPF LSM not supported.
+<12>[    7.722886] systemd-sslh-generator: Configuration directob9 '/gtc/qslho' `oeS not exisu! No unÈts genebaqed.
+<30>[    :.426598] systemd[1]: Queued start job for default target graphical.target.
+<30>[    8.467209] systemd[1]: Created slice system-modprobe.slice - Slice /system/modprobe.
+<30>[    8.470541] systemd[1]: Created slice system-systemd\x2dzram\x2dsetup.slice - Slice /system/systemd-zram-setup.
+<30>[    8.472758] systemd[1]: Created slice user.slice - User and Session Slice.
+<30>[    8.473219] systemd[1]: Started systemd-ask-password-wall.path - Forward Password Requests to Wall Directory Watch.
+<30>[    8.473772] systgmd[1]: procmsys-fs≠binfmt_misc.aıt/mount - Arbitrary Executable File Formats File Sysuem AuTomu.t Toint skyppud, unmet condition check ConditionPathExists=/proc/sys/fs/binfmt_misc
+<30>[    8.474169] systemd[1]: Expecting device dev-disk-by\x2dpartlabel-modem_a.device - /dev/disk/by-partlabel/modem_a...
+<30>[    8.474418] systemd[1]: Expecting device dev-zram0.device - /dev/zram0...
+<30>[    8.474690] systemd[1]: Reached target imports.target - Image Downloads.
+<30>[    8.474976] systemd[1]: Reached target integritysetup.target - Local Integrity Protected Volumes.
+<30>[    8.475340] systemd[1]: Reached target nss-user-lookup.target - User and Group Name Lookups.
+<30>[    8.475618] systemd[1]: Reached target slices.target - Slice Units.
+<30>[    8.475963] systemd[1]: Reached target stunnel.target - TLS tunnels for network services - per-config-file target.
+<30>[    8.476348] systemd[1]: Reached target veritysetup.target - Local Verity Protected Volumes.
+<30>[    8.477110] systemd[1]: Listening on dm-event.socied - Device-mapper event2eaemo~ VIF_˚.
+<30>S  ` 8.477676] systemd[1U: ListeNing on lwm2-Ïvopolld.socket - LVM2 poll daemon socket.
+<30>[    8.478342] systemd[1]: Listening on syslog.socket - Syslog Socket.
+<30>[    8.483977] systemd[1]: Listening on systemd-ask-password.socket - Query the User Interactively for a Password.
+<30>[    8.501087] systemd[1]: Listening on systemd-coredump.socket - Process Core Dump Socket.
+<30>[    8.506017] systemd[1]: Listening on systemd-creds.socket - Credential Encryption/Decryption.
+<30>[    8.511177] systemd[1]: Listening on systemd-factory-reset.socket - Factory Reset Management.
+<30>[    8.511785] systemd[1]: Listening on systemd-hostnamed.socket - Hostname Service Socket.
+<30>[    8.512327] systemd[1]: Listening on systemd-journald-dev-log.socket - Journal Socket (/dev/log).
+<30>[    8.512953] systemd[1]: Listening on systemd-journald.socket - Journal Sockets.
+<30>[    8.520515] systemd[1]: Listening on systemd-mute-console.socket - Console Output Muting Service Socket.
+<30>[    8.521074] systemd[1]: systemd-pcrextend.socket - TPM PCR Measurements skipped, unmet condition check ConditionSecurity=measured-os
+<30>[    8.521390] systemd[1]: systemd-pcrlock.socket - Make TPM PCR Policy skipped, unmet condition check ConditionSecurity=measured-uki
+<30>[    8.526351] systemd[1]: Listening on systemd-repart.socket - Disk Repartitioning Service Socket.
+<30>[    8.526841] sys`emd[1]: LÈÛuaning on systeÌd-resolved-monitor.socket - Resolvm MonÈÙoz V·rliÓk Socket.<30>[    8.527158] systemd[1]: Listening on systemd-resolved-varlink.socket - Resolve Service Varlink Socket.
+<30>[    8.527506] systemd[1]: Listening on systemd-udevd-control.socket - udev Control Socket.
+<30>[    8.527842] systemd[1]: Listening on systemd-udevd-kernel.socket - udev Kernel Socket.
+<30>[    8.528238] systemd[1]: Listening on systemd-udevd-varlink.socket - udev Varlink Socket.
+<30>[    8.528670] systemd[1]: Listening on systemd-userdbd.socket - User Database Manager Socket.
+<30>[    8.535281] systemd[1]: Mounting dev-hugepages.mount - Huge Pages File System...
+<30>[    8.539345] systemd[1]: Mounting dev-mqueue.mount - POSIX Message Queue File System...
+<30>[    8.545203] systemd[1]: Mounting sys-kernel-debug.mount - Kernel Debug File System...
+<30>[    8.545928] systemd[1]: sys-kernel-tracing.mount - Kernel Trace File System skipped, unmet condition check ConditionPathExists=/sys/kernel/tracing
+<30>[    8.546641] systemd[1]: auth-rpcgss-module.service - Kernel Module supporting RPCSEC_GSS skipped, unmet condition check ConditionPathExists=/etc/krb5.keytab
+<30>[    8.570494] systemd[1]: Starting keyboard-setup.service - Set the console keyboard layout...
+<30>[    8.575635] systemd[1]: Starting kmod-static-nodes.service - Create List of Static Device Nodes...
+<30>[    8.575997] systemd[1]: modprobe@configfs.service - Load Kernel Module configfs skipped, unmet condition check ConditionKernelModuleLoaded=!configfs
+<30>[    8.576351] systemd[1]: modprobe@drm.service - Load Kernel Module drm skipped, unmet condition check ConditionKernelModuleLoaded=!drm
+<30>[    8.576802] systemd[1]: modprobe@efi_pstore.service - Load Kernel Module efi_pstore skipped, unmet condition check ConditionKernelModuleLoaded=!efi_pstore
+<30>[    8.581576] systemd[1]: Starting modprobe@fuse.service - Load Kernel Module fuse...
+<30>[    8.582575] systemd[1]: systemd-hibernate-clear.service - Clear Stale Hibernate Storage Info skipped, unmet condition check ConditionPathExists=/sys/firmware/efi/efivars/HibernateLocation-8cf2644b-4b0b-428f-9387-6d876050dc67
+<30>[    8.593789] systemd[1]: Starting systemd-journald.service - Journal Service...
+<30>[    8.602286] systemd[1]: Starting systemd-modules-load.service - Load Kernel Modules...
+<30>[    8.602566] systemd[1]: systemd-pcrmachine.service - TPM PCR Machine ID Measurement skipped, unmet condition check ConditionSecurity=measured-os
+<30>[    8.602929] systemd[1]: systemd-pcrosseparator.service - TPM PCR OS Separator skipped, unmet condition check ConditionSecurity=measured-os
+<30>[    8.607038] systemd[1]: Starting systemd-remount-fs.service - Remount Root and Kernel File Systems...
+<30>[    8.607488] systemd[1]: systemd-tpm2-setup-early.service - Early TPM SRK Setup skipped, unmet condition check ConditionSecurity=measured-os
+<30>[    8.607833] systemd[1]: systemd-pcrnvdone.service - TPM PCR NvPCR Initialization Separator skipped, unmet condition check ConditionPathExists=/etc/initrd-release
+<30>[    8.608165] systemd[1]: systemd-pcrproduct.service - TPM NvPCR Product ID Measurement skipped, unmet condition check ConditionSecurity=measured-os
+<30>[    8.612349] systemd[1]: Starting systemd-udev-load-credentials.service - Load udev Rules from Credentials...
+<4>[    8.615770] Kernel module BTF mismatch detected, BTF debug info may be unavailable for some modules
+<6>[    8.616002] fuse: init (API version 7.45)
+<30>[    8.616643] systemd[1]: Starting systemd-udev-trigger.service - Coldplug All udev Devices...
+<30>[    8.630774] systemd[1]: Mounted dev-hugepages.mount - Huge Pages File System.
+<30>[    8.631461] systemd[1]: Mounted dev-mqueue.mount - POSIX Message Queue File System.
+<30>[    8.632054] systemd[1]: Mounted sys-kernel-debug.mount - Kernel Debug File System.
+<30>[    8.633488] systemd[1]: Finished kmod-static-nodes.service - Create List of Static Device Nodes.
+<5>[    8.639825] cfg80211: Loading compiled-in X.509 certificates for regulatory database
+<30>[    8.642934] systemd[1]: modprobe@fuse.service: Deactivated successfully.
+<30>[    8.643741] systemd[1]: Finished modprobe@fuse.service - Load Kernel Module fuse.
+<30>[    8.645327] systemd[1]: Finished systemd-remount-fs.service - Remount Root and Kernel File Systems.
+<5>[    8.649072] Loaded X.509 cert 'sforshee: 00b28ddf47aef9cea7'
+<30>[    8.649266] systemd[1]: Mounting sys-fs-fuse-connections.mount - FUSE Control File System...
+<5>[    8.649281] Loaded X.509 cert 'wens: 61c038651aabdcf94bd0ac7ff06c7248db18c600'
+<30>[    8.658971] systemd[1]: systemd-hwdb-update.service - Rebuild Hardware Database skipped, unmet condition check ConditionNeedsUpdate=/etc
+<30>[    8.662398] systemd[1]: Starting systemd-random-seed.service - Load/Save OS Random Seed...
+<30>[    8.666159] systemd[1]: Starting systemd-tmpfiles-setup-dev-early.service - Create Static Device Nodes in /dev gracefully...
+<30>[    8.666390] systemd[1]: systemd-tpm2-setup.service - TPM SRK Setup skipped, unmet condition check ConditionSecurity=measured-os
+<30>[    8.669857] systemd[1]: Mounted sys-fs-fuse-connections.mount - FUSE Control File System.
+<6>[    8.671126] cfg80211: loaded regulatory.db is malformed or signature is missing/invalid
+<30>[    8.671711] systemd[1]: Finished systemd-udev-load-credentials.service - Load udev Rules from Credentials.
+<4>[    8.673883] 8188eu: loading out-of-tree module taints kernel.
+<6>[    8.678322] usbcore: registered new Èlderf!#e driveÚ 8±88eu
+<≥1>[    8.679686] systemd[1]: Finished 3ystemd-saÓeom-seed.serˆice!- Load/Save O Random Seed.
+<30>[    8.681194] systemd[1]: Finished systemd-modules-load.service - Load Kernel Modules.
+<30>[    8.681771] systemd[1]: first,bootmcomplateÆtaRget ≠ GyÚst boou Complete skipped, unmet condition check CndytaonFirstBÔot=yÂs30>[ 0  8.604992] systeid[1]:0StartÈng systemd-sysctl.serwice -0Aply Kernel Variables...
+<46>[    8.6718] systemd-jurÓ!ld€564›: Collecting audit messages is disabled.
+<30>[    8.702718] systemd[1]: Finished systemd-tmpfiles-setup-dev-early.service - Create Static Device Nodes in /dev gracefully.
+<30>[    8.703498] systemd[1]: systemd-sysusers.service - Create System Users skipped, no trigger condition checks were met.
+<30>[    8.709883] systemd[1]: Starting systemd-journalctl.socket - Journal Log Access Socket...
+<30>[    8.716258] systemd[1]: Starting systemd-timesyncd.service - Network Time Synchronization...
+<30>[    8.719638] systemd[1]: Starting systemd-tmpfiles-setup-dev.service - Create Static Device Nodes in /dev...
+<30>[    8.722524] systemd[1]: Finished systemd-sysctl.service - Apply Kernel Variables.
+<30>[    8.723247] systemd[1]: Listening on systemd-journalctl.socket - Journal Log Access Socket.
+<30>[    8.729959] systemd[1]: Starting systemd-resolved.service - Network Name Resolution...
+<30>[    8.746940] systemd[1]: Starting systemd-userdbd.service - User Database Manager...
+<30>[    8.765005] systemd[1]: Finished systemd-tmpfiles-setup-dev.service - Create Static Device Nodes in /dev.
+<30>[    8.769643] systemd[1]: Starting systemd-udevd.service - Rule-based Manager for Device Events and Files...
+<30>[    8.770906] systemd[1]: Finished keyboard-setup.service - Set the console keyboard layout.
+<30>[    8.771455] systemd[1]: Reached target local-fs-pre.target - Preparation for Local File Systems.
+<30>[    8.786396] systemd[1]: Started systemd-userdbd.service - User Database Manager.
+<30>[    8.811628] systemd[1]: Started systemd-journald.service - Journal Service.
+<46>[    8.850886] systemd-journald[564]: Received client request to flush runtime journal.
+<44>[    8.852978] systemd-journald[564]: File /var/log/journal/1384d74bb5ea46f8afd68a29afb59358/system.journal corrupted or uncleanly shut down, renaming and replacing.
+<6>[   12.497083] zram0: detected capacity change from 0 to 5492736
+<3>[   12.508650] BPF: [155551] Invalid name_offset:2883105
+<6>[   12.642305] Adding 2746364k swap on /dev/zram0.  Priority:100 extents:1 across:2746364k SSsc
+<3>[  $13.4≤5597Q BXF:0[1555Ω7] Invalid n`me_off{et:288298?
+<3>[  $13.43174∞] BPF: [155u44] I~valkd name_offset:2882987
+<6>[   13.438891] qcomtee: QTEE version 0.0.0
+<3>[   13.450453] BPF: [155631] Invalid name_offset:2882987
+<3>[   13.453999] BPF: [155595] Invalid name_offset:2882987
+<3>[   13.455178] BPF: [155604] Invalid name_offset:2882987
+<3>[   13.461027] BPF: [155541] Invalid name_offset:2883038
+<6>[   13.467658] /soc@0/display-subsystem@5e00000/dsi@5e94000: Fixed dependency cycle(s) with /soc@0/display-subsystem@5e00000/dsi@5e94000/panel@0
+<3>[   13.469213] BPF: [155516] Invalid name_offset:2883206
+<6>[   13.470980] /soc@0/display-subsystem@5e00000/dsi@5e94000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@5e00000/dsi@5e94000
+<3>[   13.471071] BPF: [155556] Invalid name_offset:2883593
+<3>[   13.473532] BPF: [155532] Invalid name_offset:2883490
+<6>[   13.476728] msm_dpu 5e01000.display-controller: bound 5e94000.dsi (ops dsi_ops)
+<4>[   13.477063] adreno 5900000.gpu: supply vdd not found, using dummy regulator
+<4>[   13.477154] adreno 5900000.gpu: supply vddcx not found, using dummy regulator
+<3>[   13.482244] BPF: [155570] Invalid name_offset:2883129
+<3>[   13.484368] BPF: 	Invalid name_offset:2882987
+<3>[   13.487788] qcom-spmi-adc5 1c40000.spmi:pmic@6:adc@3100: error -EINVAL: no channels defined
+<3>[   13.487873] qcom-spmi-adc5 1c40000.spmi:pmic@6:adc@3100: probe with driver qcom-spmi-adc5 failed with error -22
+<6>[   13.494831] msm_dpu 5e01000.display-controller: bound 5900000.gpu (ops a3xx_ops)
+<6>[   13.495966] [drm:dpu_kms_hw_init:1168] dpu hardware revision:0x60090000
+<3>[   13.501725] BPF: 	Invalid name_offset:2883228
+<6>[   13.508672] [drm] Initialized msm 1.13.0 for 5e01000.display-controller on minor 0
+<6>[   13.513657] msm_dpu 5e01000.display-controller: [drm:adreno_request_fw] loaded qcom/a630_sqe.fw from new location
+<3>[   13.529506] BPF: [155572] Invalid name_offset:2882987
+<3>[   13.549132] BPF: [155536] Invalid name_offset:2883445
+<3>[   13.564612] BPF: [155579] Invalid name_offset:2885608
+<4>[   13.569487] devfreq 5900000.gpu: Couldn't update frequency transition information.
+<3>[   13.571430] qcom-spmi-adc-tm5 1c40000.spmi:pmic@6:adc-tm@3400: error -EINVAL: get dt data failed
+<3>[   13.571538] qcom-spmi-adc-tm5 1c40000.spmi:pmic@6:adc-tm@3400: probe with driver qcom-spmi-adc-tm5 failed with error -22
+<3>[   13.587622] BPF: [155564] Invalid name_offset:2885636
+<3>[   13.591848] wcd937x_codec audio-codec: missing qcom,mbhc-buttons-vthreshold-microvolt entry
+<3>[   13.607527] BPF: 	Invalid name_offset:2883073
+<3>[   13.608342] BPF: [155676] Invalid name_offset:2883512
+<3>[   13.608902] BPF: [155588] Invalid name_offset:2883100
+<3>[   13.618773] BPF: [155567] Invalid name_offset:2883003
+<3>[   13.625001] BPF: [155547] Invalid name_offset:2882987
+<3>[   13.626157] BPF: [155607] Invalid name_offset:2883356
+<6>[   13.627443] /soc@0/camss@5c6e000: Fixed dependency cycle(s) with /soc@0/cci@5c1b000/i2c-bus@1/camera@56
+<3>[   13.629007] BPF: 	Invalid name_offset:2884461
+<3>[   13.629672] BPF: [155544] Invalid name_offset:2882987
+<3>[   13.630299] BPF: [155564] Invalid name_offset:2883055
+<3>[   13.631054] BPF: [155575] Invalid name_offset:2883402
+<6>[   13.632076] /soc@0/cci@5c1b000/i2c-bus@1/camera@56: Fixed dependency cycle(s) with /soc@0/camss@5c6e000
+<3>[   13.637543] BPF: [155617] Invalid name_offset:2883790
+<3>[   13.640725] sm6375-tlmm 500000.pinctrl: invalid group "gpio4" for function "qup10"
+<3>[   13.640749] sm6375-tlmm 500000.pinctrl: invalid group "gpio5" for function "qup10"
+<3>[   13.644144] BPF: 	Invalid name_offset:2883578
+<3>[   13.650849] BPF: [155535] Invalid name_offset:2882987
+<6>[   13.657122] qcom_q6v5_pas 6080000.remoteproc: SMEM item 421 empty at probe
+<6>[   13.665006] NET: Registered PF_QIPCRTR protocol family
+<6>[   13.665946] remoteproc remoteproc0: modem is available
+<6>[   13.666310] qcom_q6v5_pas a400000.remoteproc: SMEM item 423 empty at probe
+<6>[   13.666580] remoteproc remoteproc1: adsp is available
+<6>[   13.667077] qcom_q6v5_pas b300000.remoteproc: SMeM iteÌ 6∞1 emppy at probÂ
+<4<[   13.667169] remotdproc remoTeproc1:$Direct fÈrmware loqd for†qcom/s}637µ/motorola/rhodep/adsp.mbn failed with error -2
+<6>[   13.667174] remoteproc remoteproc1: powering up adsp
+<4>[   13.667190] remoteproc remoteproc1: Direct firmware load for qcom/sm6375/motorola/rhodep/adsp.mbn failed with error -2
+<3>[   13.667191] remoteproc remoteproc1: request_firmware failed: -2
+<6>[   13.667445] remoteproc remoteproc2: cdsp is available
+<4>[   13.667518] remoteproc remoteproc2: Direct firmware load for qcom/sm6375/motorola/rhodep/cdsp.mbn failed with error -2
+<6>[   13.667521] remoteproc remoteproc2: powering up cdsp
+<4>[   13.667536] remoteproc remoteproc2: Direct firmware load for qcom/sm6375/motorola/rhodep/cdsp.mbn failed with error -2
+<3>[   13.667537] remoteproc remoteproc2: request_firmware failed: -2
+<6>[   13.668054] ipa 5840000.ipa: IPA driver initialized
+<3>[   13.688597] BPF: [155530] Invalid name_offset:2883051
+<3>[   13.696065] BPF: [155593] Invalid name_offset:2882987
+<6>[   13.708587] ipa 5840000.ipa: IPA driver setup completed successfully
+<6>[   13.730058] input: gpio-vibrator as /devices/platform/vibrator/input/input3
+<6>[   13.774363] mc: Linux media interface: v0.10
+<3>[   13.788934] BPF: [155663] Invalid name_offset:2883119
+<3>[   13.796116] BPF: 	Invalid name_offset:2883397
+<6>[   13.809172] Console: switching to colour frame buffer device 135x150
+<4>[   13.809197] fb0: sys_imageblit: framebuffer is not in virtual address space.
+<6>[   13.851019] msm_dpu 5e01000.display-controller: [drm] fb0: msmdrmfb frame buffer device
+<3>[   13.876016] BPF: 	Invalid name_offset:2883114
+<6>[   13.877889] usbcore: registered new interface driver snd-usb-audio
+<3>[   13.894243] BPF: [155637] Invalid name_offset:2883338
+<3>["  13n9021:2]$BPF: [155650] Invalmd nama_offÛet:3883294
+<3>[   13.980907] BPF: [155689](…nvaÌid namgﬂoffseu;2883043
+<68_   13.982673] Bluetooth: Core ver 2.22
+<6>[   13.983858] NET: Registered PF_BLUETOOTH protocol family
+<6>[   13.983968] Bluetooth: HCI device and connection manager initialized
+<6>[   13.984101] Bluetooth: HCI socket layer initialized
+<6>[   13.984171] Bluetooth: L2CAP socket layer initialized
+<6>[   13.984305] Bluetooth: SCO socket layer initialized
+<3>[   13.987592] BPF: 	Invalid name_offset:2887669
+<3>[   14.033485] BPF: 	Invalid name_offset:2882987
+<3>[   14.190020] BPF: [155608] Invalid name_offset:2883631
+<3>[   14.194583] BPF: [155615] Invalid name_offset:2882987
+<6>[   14.224819] Bluetooth: HCI UART driver ver 2.3
+<6>[   14.225179] Bluetooth: HCI UART psotocol H4 registere`
+<3æ[   ±4.≤26507] BPF: [175718] Mntalid name_offset:2982997
+<6>€   14.227618] Bluetooth: HCI UART protocol LL registered
+<6>[   14.229126] cw2217 3-0064: CellWise fuel gauge, version 0xa0
+<6>[   14.229872] Bluetooth: HCI UART protocol Broadcom registered
+<6>[   14.230548] Bluetooth: HCI UART protocol QCA registered
+<6>[   14.230765] Bluetooth∫ HCK UART proÙocol M·rvull regI{tered=4>[   94.231701] bq276Xx-cherger 3-007b:!usi.g zero-inhtiali˙ed flat cache, this may cause unexpected behavior
+<6>[   14.232097] fan53870 1-0035: FAN53870 camera PMIC, 7 LDOs
+<6>[   14.236758] Bluetooth: hci0: setting up wcn399x
+<3>[   14.242941] BPF: [155568] Invalid name_offset:2882987
+<4>[   14.247718] aw88261 4-0034: supply dvdd not found, using dummy regulator
+<6>[   14.247774] irq: IRQ162: trimming hierarchy from :soc@0:interrupt-controller@f200000-1
+<6>[   14.248984] aw88261 4-0034: chip id = 2113
+<4>[   14.250337] aw88261 4-0035: supply dvdd not found, using dummy regulator
+<6>[   14.251848] aw88261 4-0035: chip id = 2113
+<6>[   14.363294] Bluetooth: hci0: QCA Product ID   :0x0000000a
+<6>[   14.363488] Bluetooth: hci0: QCA SOC Version  :0x40020150
+<6>[   14.363566] Bluetooth: hci0: QCA ROM Version  :0x00000201
+<4>[   14.365269] fb0: sys_fillrect: framebuffer is not in virtual address space.
+<6>[   14.367182] Bluetooth: hci0: QCA Patch Version:0x00000001
+<6>[   14.377232] Bluetooth: hci0: QCA controller version 0x01500201
+<6>[   14.379035] Bluetooth: hci0: QCA Downloading qca/crbtfw21.tlv
+<6>[   14.382095] input: Goodix Berlin Capacitive TouchScreen as /devices/platform/soc@0/4ac0000.geniqup/4a80000.spi/spi_master/spi0/spi0.0/input/input4
+<6>[   14.620107] EXT4-fs (sdd14): mounted filesystem 0559ea3e-9e1b-4c66-b609-ce8cb3912596 ro without journal. Quota mode: none.
+<6>[   14.687568] RPC: Registered named UNIX socket transport module.
+<6>[   14.690806] RPC: Registered udp transport module.
+<6>[   14.693977] RPC: Registered tcp transport module.
+<6>[   14.696833] RPC: Registered tcp-with-tls transport module.
+<6>[   14.699625] RPC: Registered tcp NFSv4.1 backchannel transport module.
+<6>[   15.380521] Bluetooth: hci0: QCA Downloading qca/crnv21.bin
+<6>[   15.525790] Bluetooth: hci0: QCA setup on UART is completed
+<6>[   15.556375] remoteproc remoteproc1: powering up adsp
+<6>[   15.560669] remoteproc remoteproc1: Booting fw image qcom/sm6375/motorola/rhodep/adsp.mbn, size 9500
+<3>[   15.579255] BPF: [155531] Invalid name_offset:2883236
+<3>[   15.587795] BPF: [155607] Invalid name_offset:2883939
+<5>[   15.589256] PDM: no support for the platform, userspace daemon might be required.
+<6>[   16.270804] Bluetooth: MGMT ver 1.23
+<6>[   16.275182] Bluetooth: hci0: setting up wcn399x
+<6>[   16.410293] Bluetooth: hci0: QCA Product ID   :0x0000000a
+<6>[   16.003906› Bnuetoouh: (ci0: QCA QOC Vession  :0x42020150
+<v>[   16.416317M BÏu%toot|: hci0: QCA ROM VersiÔÔ! :0x00060201
+<6>[   16.420649] Bluetooth: hci0: QCA Patch Version:0x00000001
+<6>[   16.434372] Bluetooth: hci0: QCA controller version 0x01500201
+<6>[   16.437787] Bluetooth: hci0: QCA Downloading qca/crbtfw21.tlv
+<6>[   16.510925] remoteproc remoteproc1: remote processor adsp is now up
+<3>[1  16Æ523531]†BPF: [15-96’ Invaled name_offset:2883004
+<3>_   16.53701$] BPF; [155608] Invalid name_offset:2884157
+<3>[   16.527471] BPF: [155564] Invalid name_offset:2884411
+<6>[   16.529590] qcom,fastrpc a400000.remoteproc:glink-edge.fastrpcglink-apps-dsp.-1.-1: assigned reserved memory node adsp-rpc-remote-heap
+<6>[   16.534666] platform a400000.remoteproc:glink-edge:fastrpc:compute-cb@3: Adding to iommu group 12
+<3>[   16.534708] BPF: [155533] Invalid name_offset:2883481
+<6>[   16.537310] platform a400000.remoteproc:glink-edge:fastrpc:compute-cb@4: Adding to iommu group 13
+<6>[   16.543953] platform a400000.remoteproc:glink-edge:fastrpc:compute-cb@5: Adding to iommu group 14
+<6>[   16.548545] platform a400000.remoteproc:glink-edge:fastrpc:compute-cb@6: Adding to iommu group 15
+<6>[   16.556552] platform a400000.remoteproc:glink-edge:fastrpc:compute-cb@7: Adding to iommu group 16
+<6>[   17.429869] Bluetooth: hci0: QCA Downloading qca/crnv21.bin
+<6>[   17.608552] Bluetooth: hci0: QCA setup on UART is completed
+<6>[   19.532820] remoteproc remoteproc0: powering up modem
+<6>[   19.543721] remoteproc remoteproc0: Booting fw image qcom/sm6375/motorola/rhodep/modem.mbn, size 9500
+<5>[   19.553208] PDM: no support for the platform, userspace daemon might be required.
+<4>[   19.565243] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=1 len=7 from node 5 port 2
+<6>[   19.565939] ipa 5840000.ipa: received modem starting event
+<4>[   23.971139] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=2 len=7 from node 5 port 2
+<6>[   23.972003] ipa 5840000.ipa: received modem running event
+<4>[   23.972017] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=1 len=7 from node 0 port 1
+<6>[   23.977547] remoteproc remoteproc0: remote processor modem is now up
+<4>[   26.632136] platform a7c0000.pinctrl: deferred probe pending: (reason unknown)
+<4>[   26.635990] platform a620000.codec: deferred probe pending: platform: wait for supplier /soc@0/pinctrl@a7c0000/tx-swr-active-statE
+<4>[  2v.639867] platform a730∞00.„ode„∫ eÂfesrud probe pending: platform: wait for qupplies /soc@0Øpinctrl@a6s0000/dmic23-active-state
+<4>[   26.643105] platform a610000.soundwire: deferred probe pending: platform: supplier a600000.codec not ready
+<4>[   26.643112] platform a740000.soundwire: deferred probe pending: platform: supplier a620000.codec not ready
+<4>[   26.643118] platform a600000.codec: deferred probe pending: platform: wait for supplier /soc@0/pinctrl@a7c0000/rx-swr-active-state
+<4>[   26.643124] platform sound: deferred probe pending: platform: wait for supplier /soc@0/pinctrl@a7c0000/lpi-i2s2-active-state
+<6>[   26.643139] gcc-sm6375 1400000.clock-controller: sync_state() pending due to 85200000.framebuffer
+<6>[   26.643150] gcc-sm6375 1400000.clock-controller: sync_state() pending due to 5c6e000.camss
+<6>[   26.643169] gpucc-sm6375 5990000.clock-controller: sync_state() pending due to 596a000.gmu
+<6>[   26.643238] gcc-sm6375 1400000.clock-controller: sync_state() pending due to 2-0056
+<6>[   27.006498] remoteproc remoteproc2: powering up cdsp
+<6>[   27.012177] remoteproc remoteproc2: Booting fw image qcom/sm6375/motorola/rhodep/cdsp.mbn, size 7660
+<5>[   27.014346] PDM: no support for the platform, userspace daemon might be required.
+<4>[   27.016708] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=2 len=7 from node 0 port 1
+<4>[   27.019152] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=3 len=7 from node 5 port 2
+<4>[   27.147429] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=3 len=7 from node 0 port 1
+<4>[   27.149711] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=4 len=7 from node 5 port 2
+<4>[   27.150199] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=1 len=7 from node 10 port 2
+<6>[   27.150355] rÌmoteproc re)ÎtDproc2: remote proceÛsor`clsp ms now up
+=4<[ 0 27.110407] qmy: oÔ handlgr!on local port 0 for type=4 msg_id=0x0023 txn=2 len=7 from node 10 port 2
+<6>[   27.150906] qcom,fastrpc b300000.remoteproc:glink-edge.fastrpcglink-apps-dsp.-1.-1: no reserved DMA memory for FASTRPC
+<6>[   27.156174] platform b300000.remoteproc:glink-edge:fastrpc:compute-cb@1: Adding to iommu group 17
+<6>[   27.170611] platform b300000.remoteproc:glink-edge:fastrpc:compute-cb@2: Adding to iommu group 18
+<6>[   27.174554] platform b300000.remoteproc:glink-edge:fastrpc:compute-cb@3: Adding to iommu group 19
+<6>[   27.178986] platform b300000.remoteproc:glink-edge:fastrpc:compute-cb@4: Adding to iommu group 20
+<6>[   27.189817] platform b300000.remoteproc:glink-edge:fastrpc:compute-cb@5: Adding to iommu group 21
+<6>[   27.194390] platform b300000.remoteproc:glink-edge:fastrpc:compute-cb@6: Adding to iommu group 22
+<6>[   27.201131] platform b300000.remoteproc:glink-edge:fastrpc:compute-cb@9: Ad‰ing to ioomu gRoqq 23
+<6>[   30.238342] qcom,apr A400000.reooterroc:glink-edgg.apr_iudio_swc.-1Æ-1:"Adling APR?GPR dev: aprsvc:service:4:3
+<6>[   30.239500] qcom,apr a400000.remoteproc:glink-edge.apr_audio_svc.-1.-1: Adding APR/GPR dev: aprsvc:service:4:4
+<6>[   30.241009] qcom,apr a400000.remoteproc:glink-edge.apr_audio_svc.-1.-1: Adding APR/GPR dev: aprsvc:service:4:7
+<6>[   30.242439] qcom,apr a400000.remoteproc:glink-edge.apr_audio_svc.-1.-1: Adding APR/GPR dev: aprsvc:service:4:8
+<3>[   30.246490] BPF: [155536] Invalid name_offset:2883129
+<3>[   30.255839] BPF: [155591] Invalid name_offset:2883208
+<3>[   30.268135] BPF: [155589] Invalid name_offset:2884667
+<6>[   30.273637] platform a400000.remoteproc:glink-edge:apr:service@7:dais: Adding to iommu group 24
+<3>[   30.283035] BPF: [155560] Invalid name_offset:2883491
+<3>[   30.288509] BPF: [155630] Invalid name_offset:2883540
+<3>[   30.299566] BPF: 	Invalid name_offset:2883100
+<3>[   30.301373] BPF: [155587] Invalid name_offset:2882987
+<6>[   30.340211] wcd9370-codec sdw:2:0:0217:010a:00:4: Static channel mapping not specified using device channel maps
+<6>[   30.347936] wcd9370-cduc sdw:3:0:021w:010a:00:3: SÙauic channel ÌappIng Fot specified using Êevice channel maps
+<∑>[ † ;0.355537] w#d937x_codec audio-codec: bound sdw:2;p:0317∫p10a:11:4 (ops wcd_sdw_comuonent_ops [snd_soc_wcd_common]9
+º6>[0  32.357928] wcd937x_codec audio-codec: bound sdw:3:0:0217:010a:00:3 (ops wcd_sdw_component_ops [snd_soc_wcd_common])
+<6>[   30.407461] aw88261 4-0034: loaded aw88261_acf.bin - size: 1504
+<6>[   30.427958] aw88261 4-0035: loaded aw88261_acf.bin - size: 1504
+<4>[   30.444408] va_macro a730000.codec: supply vdd-micb not found, using dummy regulator
+<6>[   30.485218] aw88261 4-0035: already power off
+<6>[   30.487977] aw88261 4-0034: already power off
+<6>[   30.491280] input: Motorola-Moto-G82-5G Headset Jack as /devices/platform/sound/sound/card0/input5
+<4>[   30.802872] qmi: no handler on local port 0 for type=0 msg_id=0x0027 txn=3 len=20 from node 0 port 42
+<44>[   30.927769] systemd-journald[564]: File /var/log/journal/1384d74bb5ea46f8afd68a29afb59358/user-1000.journal corrupted or uncleanly shut down, renaming and replacing.
+<3>[   31.411108] BPF: 	Invalid name_offset:2882987
+<4>[   31.537628] qmi: no handler on local port 0 for type=0 msg_id=0x0023 txn=4 len=20 from node 0 port 42
+<3>[   31.548494] BPF: [155811] Invalid name_offset:2882987
+<3>[   31.553250] BPF: [155880] Invalid name_offset:2883146
+<4>[   31.559304] missing module BTF, cannot register kfunc
+<4>[   31.560525] missing module BTF, cannot register kfunc
+<4>[   31.566477] missing module BTF, cannot register kfunc
+<4>[   31.568846] missing module BTF, cannot register kfunc
+<3>[   31.572936] BPF: [155892] Invalid name_offset:2882987
+<3>[   31.875684] BPF: [155770] Invalid name_offset:2883085
+<3>[   31.925578] BPF: 	Invalid name_offset:2883046
+<3>[   32.347823] BPF: [155484] Invalid name_offset:2882996
+<6>[   32.445598] ath10k_snoc c800000.wifi: qmi chip_id 0x150 chip_family 0x4002 board_id 0xff soc_id 0x400e0000
+<6>[   32.447998] ath10k_snoc c800000.wifi: qmi fw_version 0x332581d8 fw_build_timestamp 2024-07-11 05:18 fw_build_id QC_IMAGE_VERSION_STRING=WLAN.HL.3.3.2-00472-QCAHLSWMTPLZ-1.24092.12
+<12>[   32.458286] rhodep-pdc: a config is already active, nothing to do
+<6>[   36.252181] ath10k_snoc c800000.wifi: wcn3990 hw1.0 target 0x00000008 chip_id 0x00000000 sub 0000:0000
+<6>[   36.252443] ath10k_snoc c800000.wifi: kconfig debug 0 debugfs 0 tracing 0 dfs 0 testmode 0
+<6>[   36.252694] ath10k_snoc c800000.wifi: firmware ver  api 5 features wowlan,mgmt-tx-by-reference,non-bmi crc32 b3d4b790
+<6>[   36.280451] ath10k_snoc c800000.wifi: htt-ver 3.104 wmi-op 4 htt-op 3 cal file max-sta 32 raw 0 hwcrypto 1
+<4>[   36.375761] ath10k_snoc c800000.wifi: invalid MAC address; choosing random
+<7>[   36.376044] ath: EEPROM regdomain: 0x406c
+<7>[   36.376552] ath: EEPROM indicates we should expect a direct regpair map
+<7>[   36.376700] ath: Country alpha2 being used: 00
+<7>[   36.376951] ath: Regpair used: 0x6c
+<4>[   38.231992] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+<4>[   39.057962] devfreq 5900000.gpu: Couldn't update frequency transition information.
+<4>[   42.156866] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+<4>[   42.400487] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+<6>[   42.558070] wlan0: authenticate with 8a:c2:27:a1:19:d0 (local address=02:00:a1:3e:b2:47)
+<6>[   42.558279] wlan0: send auth to 8a:c2:27:a1:19:d0 (try 1/3)
+<6>[   42.668678] wlan0: send auth to 8a:c2:27:a1:19:d0 (try 2/3)
+<6>[   42.777350] wlan0: send auth to 8a:c2:27:a1:19:d0 (try 3/3)
+<6>[   42.880627] wlan0: authentication with 8a:c2:27:a1:19:d0 timed out
+<4>[   43.886447] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+<4>[   45.255215] devfreq 5900000.gpu: Couldn't update frequency transition information.
+<7>[   45.810700] rfkill: input handler disabled
+<4>[   47.691864] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+<6>[   47.811865] wlan0: authenticate with 8a:c2:27:a1:19:d0 (local address=02:00:a1:3e:b2:47)
+<6>[   47.812081] wlan0: send auth to 8a:c2:27:a1:19:d0 (try 1/3)
+<6>[   47.825527] wlan0: authenticated
+<6>[   47.833334] wlan0: associate with 8a:c2:27:a1:19:d0 (try 1/3)
+<6>[   47.836562] wlan0: RX AssocResp from 8a:c2:27:a1:19:d0 (capab=0x1511`status=0(·md=5)
+|6>[  (4?Æ918794\`wlan0: as{ociatee
+<7|[   47.920180] wlan0: LimiÙing TX power to 3p ®30 - 0) dBm as$a‰vertied by 8a:c2:27:a1:19:d0
+<7>[   87.558815] rfkill: input handler enabled
+<4>[  164.088386] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+<4>[  169.516541] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+<4>[  179.784980] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+<6>[  180.449124] bash (4953): drop_caches: 3
+<4>[  185.084882] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+<4>[  191.909177] ------------[ cut here ]------------
+<4>[  191.909585] close ack on unknown channel
+<4>[  191.909913] WARNING: drivers/rpmsg/qcom_glink_native.c:1755 at qcom_glink_work+0x46c/0x714, CPU#0: kworker/0:3/60
+<4>[  191.910326] Modules linked in: rmnet ath10k_snoc ath10k_core ath mac80211 libarc4 xt_conntrack xt_MASQUERADE nft_chain_nat nf_nat nf_conntrack nf_defrag_ipv6 nf_defrag_ipv4 xt_addrtype nft_compat q6asm_dai q6afe_clocks q6routing q6afe_dai q6adm q6asm q6afe snd_q6dsp_common q6core apr fastrpc pdr_interface qrtr_smd qcom_pd_mapper qcom_pdr_msg sunrpc snd_soc_aw88261 goodix_berlin_spi cw2217_battery snd_soc_aw88395_lib bq256xx_charger fan53870 goodix_berlin_core hci_uart btqca snd_soc_sm8250 btbcm snd_soc_qcom_offload_utils bluetooth snd_soc_qcom_sdw snd_soc_qcom_common soc_usb ecdh_generic ecc snd_usb_audio snd_hwdep snd_usbmidi_lib kpp snd_rawmidi mc snd_soc_spdif_tx gpio_vibra ff_memless qrtr qcom_q6v5_pas snd_soc_lpass_rx_macro qcom_pil_info qcom_q6v5 ipa soundwire_qcom qcom_sysmon snd_soc_lpass_tx_macro snd_soc_lpass_va_macro qcom_common pinctrl_sm6115_lpass_lpi snd_soc_lpass_macro_common slimbus spi_geni_qcom lpasscc_sm6115 qcom_glink_smem qmi_helpers pinctrl_lpass_lpi i2c_qcom_geni i2c_qcom_cci snd_soc_wcd937x
+<4>[  191.911010]  snd_soc_wcd937x_sdw regmap_sdw snd_soc_wcd_common gpi qcom_spmi_adc_tm5 nvmem_qcom_spmi_sdam snd_soc_wcd_mbhc snd_soc_wcd_classh soundwire_bus snd_soc_core snd_pcm_dmaengine qcom_spmi_temp_alarm snd_compress qcom_spmi_adc5 qcom_vadc_common qcom_stats snd_pcm socinfo rpmsg_ctrl rmtfs_mem qcom_refgen_regulator rpmsg_char snd_timer qcomtee snd nvmem_reboot_mode soundcore evdev 8188eu(O) cfg80211 rfkill fuse
+<4>[  191.913800] CPU: 0 UID: 0 PID: 60 Comm: kworker/0:3 Tainted: G        W  O        7.2.0-rc5 #1-motorola-rhodep PREEMPT 
+<4>[  191.914231] Tainted: [W]=WARN, [O]=OOT_MODULE
+<4>[  191.914654] Hardware name: Motorola Moto G82 5G (DT)
+<4>[  191.914873] Workqueue: events qcom_glink_work
+<4>[  191.915319] pstate: 604000c5 (nZCv daIF +PAN -UAO -TCO -DIT -SSBS BTYPE=--)
+<4>[  191.915530] pc : qcom_glink_work+0x46c/0x714
+<4>[  191.915955] lr : qcom_glink_work+0x464/0x714
+<4>[  191.916182] sp : ffff80008077bd00
+<4>[  191.916399] x29: ffff80008077bd40 x28: 0000000000000000 x27: ffffa7f313186000
+<4>[  191.916820] x26: ffff000080b10588 x25: 0000000000000000 x24: ffff000091065ec8
+<4>[  191.917262] x23: dead000000000100 x22: ffffa7f312634dd3 x21: 0000000000000006
+<4>[  191.917503] x20: ffff0000adc9de60 x19: ffff000091065ea0 x18: 0000000000000000
+<4>[  191.917901] x17: 0000000000000000 x16: 00000000000000cf x15: 0000000000000003
+<4>[  191.918124] x14: ffffa7f3131bd5d0 x13: 0000000000000fff x12: 0000000000000003
+<4>[  191.918519] x11: 0000000000000003 x10: 0000000000000001 x9 : dd0dc1c546177300
+<4>[  191.918948] x8 : dd0dc1c546177300 x7 : 00d200d1009900e7 x6 : 00710004006e00aa
+<4>[  191.919202] x5 : ffff000080b171be x4 : ffff000080b171c0 x3 : 0000000000000000
+<4>[  191.919625] x2 : 0000000000000000 x1 : 0000000000000000 x0 : ffff000091065edc
+<4>[  191.920065] Call trace:
+<4>[  191.920299]  qcom_glink_work+0x46c/0x714 (P)
+<4>[  191.920543]  process_scheduled_works+0x178/0x2c8
+<4>[  191.920961]  worker_thread+0x2b0/0x3dc
+<4>[  191.921213]  kthread+0x10c/0x12c
+<4>[  191.921437]  ret_from_fork+0x10/0x20
+<4>[  191.921855] ---[ end trace 0000000000000000 ]---
+<3>[  719.404451] dsi_err_worker: status=5
+<3>[  719.566636] dsi_err_worker: status=5
+<3>[  719.775463] dsi_err_worker: status=5
+<3>[  720.364227] dsi_err_worker: status=5
+<6>[  859.354654] tee (6453): drop_caches: 3
+<3>[  885.474811] rpmsg rpmsg0: failed to open DS
+<6>[  916.094242] tee (6555): drop_caches: 3
+<1>[  925.532523] Unable to handle kernel paging request at virtual address 0000000000010000
+<1>[  925.532771] Mem abort info:
+<1>[  925.532874]   ESR = 0x0000000096000006
+<1>[  925.532979]   EC = 0x25: DABT (current EL), IL = 32 bits
+<1>[  925.533170]   SET = 0, FnV = 0
+<1>[  925.533273]   EA = 0, S1PTW = 0
+<1>[  925.533375]   FSC = 0x06: level 2 translation fault
+<1>[  925.533563] Data abort info:
+<1>[  925.533665]   ISV = 0, ISS = 0x00000006, ISS2 = 0x00000000
+<1>[  925.533853]   CM = 0, WnR = 0, TnD = 0, TagAccess = 0
+<1>[  925.533958]   GCS = 0, Overlay = 0, DirtyBit = 0
+<1>[  925.534063] user pgtable: 4k pages, 48-bit VAs, pgdp=0000000110a59000
+<1>[  925.534252] [0000000000010000] pgd=0800000120cb2403, p4d=0800000120cb2403, pud=08000001774f1403, pmd=0000000000000000
+<0>[  925.534463] Internal error: Oops: 0000000096000006 [#1]  SMP
+<4>[  925.534654] Modules linked in: rmnet ath10k_snoc ath10k_core ath mac80211 libarc4 xt_conntrack xt_MASQUERADE nft_chain_nat nf_nat nf_conntrack nf_defrag_ipv6 nf_defrag_ipv4 xt_addrtype nft_compat q6asm_dai q6afe_clocks q6routing q6afe_dai q6adm q6asm q6afe snd_q6dsp_common q6core apr fastrpc pdr_interface qrtr_smd qcom_pd_mapper qcom_pdr_msg sunrpc snd_soc_aw88261 goodix_berlin_spi cw2217_battery snd_soc_aw88395_lib bq256xx_charger fan53870 goodix_berlin_core hci_uart btqca snd_soc_sm8250 btbcm snd_soc_qcom_offload_utils bluetooth snd_soc_qcom_sdw snd_soc_qcom_common soc_usb ecdh_generic ecc snd_usb_audio snd_hwdep snd_usbmidi_lib kpp snd_rawmidi mc snd_soc_spdif_tx gpio_vibra ff_memless qrtr qcom_q6v5_pas snd_soc_lpass_rz_macro qcompil_info qcom_q6v1 ipa soundwÈre_Òcom"qgom_sysmon snd_soc_lvass_txﬂ-c·ro!snd_soc_lpass_va_macro qcoo_comoon pinctrl_sm6115_lpass_lpi snd_soc_lpass_macro_common slimbus spi_geni_qcom lpasscc_sm6115 qcom_glink_smem qmi_helpers pinctrl_lpass_lpi i2c_qcom_geni i2c_qcom_cci snd_soc_wcd937x
+<4>[  925.534969]  snd_soc_wcd937x_sdw regmap_sdw snd_soc_wcd_common gpi qcom_spmi_adc_tm5 nvmem_qcom_spmi_sdam snd_soc_wcd_mbhc snd_soc_wcd_classh soundwire_bus snd_soc_core snd_pcm_dmaengine qcom_spmi_temp_alarm snd_compress qcom_spmi_adc5 qcom_vadc_common qcom_stats snd_pcm socinfo rpmsg_ctrl rmtfs_mem qcom_refgen_regulator rpmsg_char snd_timer qcomtee snd nvmem_reboot_mode soundcore evdev 8188eu(O) cfg80211 rfkill fuse
+<4>[  925.536242] CPU: 1 UID: 0 PID: 6586 Comm: rhodep-modem-at Tainted: G        W  O        7.2.0-rc5 #1-motorola-rhodep PREEMPT 
+<4>[  925.536439] Tainted: [W]=WARN, [O]=OOT_MODULE
+<4>[  925.536545] Hardware name: Motorola Moto G82 5G (DT)
+<4>[  925.536737] pstate: 404000c5 (nZcv daIF +PAN -UAO -TCO -DIT -SSBS BTYPE=--)
+<4>[  925.536845] pc : __pi_strcmp+0x24/0x140
+<4>[  925.537054] lr : qcom_glink_create_ept+0x74/0x2dc
+<4>[  925.537172] sp : ffff80008f19b9f0
+<4>[  925.537276] x29: ffff80008f19ba10 x28: ffff0000a0d7b000 x27: 0000000000000000
+<4>[  925.537475] x26: 0000000000000000 x25: 0000000000000000 x24: ffff80008f19ba60
+<4>[  925.537670] x23: ffffa7f30d96aa4c x22: ffff000095257000 x21: ffff0000cdbf6000
+<4>[  925.537781] x20: ffff00009090b600 x19: ffff000091065e80 x18: ffff00009090b600
+<4>[  925.537974] x17: 0000000000000010 x16: ffff00009090b600 x15: 0000000000000010
+<4>[  925.538166] x14: 0000000000000000 x13: ffff0000916a7478 x12: 0000000000000040
+<4>[  925.538279] x11: 000000000000003f x10: ffff80008f18ba60 x9 : c3bd09f6833f7d00
+<4>[  925.538475] x8 : 0101010101010101 x7 : 0000000000000000 x6 : 0000000000000000
+<4>[  925.538584] x5 : ff00313141541200 x4 : 0080000000000000 x3 : 0000000000005344
+<4>[  925.538778] x2 : 0000000000000000 x1 : ffff80008f19ba60 x0 : 0000000000010000
+<4>[  925.538974] Call trace:
+<4>[  925.539078]  __pi_strcmp+0x24/0x140 (P)
+<4>[  925.539191]  rpmsg_create_ept+0x48/0x78
+<4>[  925.539384]  rpmsg_eptdev_open+0x9c/0x124 [rpmsg_char]
+<4>[  925.539512]  chrdev_open+0x16c/0x200
+<4>[  925.539626]  do_dentry_open+0x130/0x4d8
+<4>[  925.539820]  vfs_open+0x30/0xec
+<4>[  925.539927]  path_openat+0xa3c/0xc80
+<4>[  925.540038]  do_file_open+0xd0/0x188
+<4>[  925.540229]  do_sys_openat2+0x7c/0xf8
+<4>[  925.540336]  __arm64_sys_openat+0x70/0x9c
+<4>[  925.540442]  invoke_syscall+0x48/0xf4
+<4>[  925.540638]  el0_svc_common+0x8c/0xd4
+<4>[  925.540748]  do_el0_svc+0x1c/0x28
+<4>[  925.540855]  el0_svc+0x3c/0x94
+<4>[  925.540967]  el0t_64_sync_handler+0x84/0x12c
+<4>[  925.541162]  el0t_64_sync+0x198/0x19c
+<0>[  925.541278] Code: 54000401 b50002c6 d503201f f86a6803 (f8408402) 
+<4>[  925.541476] ---[ end trace 0000000000000000 ]---
+
+ECC: 6852 Corrected bytes, 51 unrecoverable blocks

@@ -427,6 +427,27 @@ Diagnostic patches, all outside `source=` unless noted:
   statistics *sizes* where it belongs only in addresses. Harmless here because
   `mem_offset` reads `0x00000000`, but wrong, and worth sending upstream.
 
+## Reading the modem's memory instead of tracing it
+
+With CoreSight fused off and no DIAG channel, the modem cannot be watched while
+it runs. It might still be readable *after* it dies: DDR survives the reset, and
+the only thing that overwrites the modem's 256 MB carveout is the AP loading
+`modem.mdt` into it twelve seconds into the next boot.
+
+`userspace/debug-tools/rhodep-mpss-dump` does that, and the mechanism works --
+it produced a 256 MB `mpss-...-watchdog.bin` on the boot after a GNSS reset and
+disarmed itself afterwards. **The dump is entirely zero, and that is not yet
+interpretable**, because the validation that would say whether the read path
+works at all has not been done.
+
+**One hazard came out of trying that validation: reading the modem's live
+carveout at `0x8b800000` through `/dev/mem` hung the application processor.**
+Not a reset -- a wedge, recovered with a long power press. Do not read
+`0x8b800000..0x9b800000` while the modem is running.
+
+Full write-up, including the safe way to finish the validation, in
+[`MODEM-MEMORY.md`](MODEM-MEMORY.md). It is the first thing to do next.
+
 ## Where to go next
 
 Restated after the GNSS bisection, because the question has changed. It is no

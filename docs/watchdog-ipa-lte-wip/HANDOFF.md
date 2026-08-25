@@ -435,51 +435,65 @@ modem touch when it switches on a hardware engine"**, and there are two of them
 that do it — the GNSS measurement engine and whatever LTE brings up at attach —
 against a Q6 running software that is demonstrably fine.
 
-1. **The modem's own hardware trace, now as an instrument rather than a
-   suspect.** QDSS is ruled out as a *cause* (see above), but everything that
-   elimination measured is also what a working trace capture needs, and it all
-   answers: the fabric is powered, readable and inert, the modem's two funnels
-   and its TPDM are addressable from the AP, and the remote ETM can be turned on
-   over QMI 51 with `scripts/modem/rhodep-coresight-etm.py` without upsetting
-   anything. What is missing is the 110 device tree nodes and a sink.
+1. **Modem tracing is impossible on this handset, and that is now measured.**
+   This used to be direction 1, "the only avenue that can answer the question
+   directly". It is closed, and closing it cost one evening rather than the
+   large piece of work it was billed as.
 
-   The path is already mapped out of `holi-coresight.dtsi`, so nobody has to
-   re-derive it:
+   The whole path was built and validated. `scripts/modem/rhodep-modem-trace.py`
+   programs it by hand through `/dev/mem` -- mainline describes none of these
+   blocks, so there is no driver in the way -- following the graph in
+   `holi-coresight.dtsi`:
 
    ```
-   modem_etm1 (QMI inst 11) -> funnel_modem0@8804000 port 1
-   modem_etm0 (QMI inst 2)  -> funnel_modem1@880c000 port 0
-                            -> funnel_modem1_dup@880d000 port 1
-                            -> funnel_modem0@8804000 port 3
-   tpdm_modem0@8800000      -> tpda_modem@8803000 port 0
-                            -> funnel_modem0@8804000 port 0
-   funnel_modem0            -> funnel_in1@8042000 port 4
-   funnel_in1               -> funnel_merg@8045000 port 1
-   funnel_merg              -> tmc_etf@8047000 (put in hardware-FIFO mode)
-   tmc_etf                  -> replicator_qdss@8046000 port 0
-   replicator_qdss          -> tmc_etr@8048000  -> a DDR buffer
+   modem_etm1 (QMI 51 inst 11) -> funnel_modem0@8804000 port 1
+   modem_etm0 (QMI 51 inst 2)  -> funnel_modem1@880c000 port 0
+                               -> funnel_modem1_dup@880d000 port 1
+                               -> funnel_modem0@8804000 port 3
+   tpdm_modem0@8800000         -> tpda_modem@8803000 -> funnel_modem0 port 0
+   funnel_modem0               -> funnel_in1@8042000 port 4
+   funnel_in1                  -> funnel_merg@8045000 port 1
+   funnel_merg                 -> tmc_etf@8047000 -> replicator@8046000
+                               -> tmc_etr@8048000 -> DDR
    ```
 
-   `modem_etm1` is the short path: one funnel to the merge. All of these
-   registers are reachable from userspace through `/dev/mem` today — that is
-   how the elimination above was done — so the whole thing can be programmed by
-   hand before it is ever written as a device tree, and `tzlog_dump@aefa2000`
-   is a reserved, `no-map`, 192 KB region that patch 0067 already carves out
-   and that is known to survive a reset untouched, which makes it a ready-made
-   ETR buffer.
+   **The sink works.** Do not skip this validation, it is what makes the rest
+   mean anything: with the STM enabled as a source through `funnel_in0` port 7,
+   the ETF's write pointer moves and its SRAM fills with real CoreSight frames.
 
-   The honest caveat: the Q6's trace format is Hexagon, and decoding it
-   properly is a Qualcomm tool. Even undecoded it gives addresses, and the
-   modem's own `modem.mdt` program headers say which segment each address falls
-   in.
+   ```
+   etf RSZ=0x1000 (16384 bytes of SRAM)
+   etf RWP  00002220 -> 00002620   STS=0x00000001
+   etf SRAM: a468c0ec 8ea069c0 d0ca4426 24c0ed0c a8189c0e 010cab52 ...
+   ```
 
-   Two outside comparisons were tried and neither helps, so nobody has to
-   repeat them. Mainline has a **second** SM6375 device with the modem enabled,
-   `sm6375-sony-xperia-murray-pdx225.dts`, which would settle whether this is a
-   board problem or an SoC-level gap — but its postmarketOS wiki page lists
-   modem, calls, SMS, mobile data and GPS all as **Untested**, so there is no
-   data point there. And a search of linux-arm-msm for `sm6375` turns up only
-   unrelated SM7250 work; there is no upstream discussion of this.
+   **The modem emits nothing.** Same funnels, same sink, remote ETM reporting
+   `ENABLED` on instances 2 and 11 over QMI 51, six seconds: the write pointer
+   does not move by one byte.
+
+   **And here is why, from the hardware.** The CoreSight authentication status
+   register at offset `0xfb8` says which debug classes the fuses permit:
+
+   ```
+   stm            AUTHSTATUS=0xff  NSNID=enabled  NSID=enabled  SNID=enabled  SID=enabled
+   tpdm_modem0    AUTHSTATUS=0xaa  NSNID=DISABLED NSID=DISABLED SNID=DISABLED SID=DISABLED
+   etm0 (cpu0)    AUTHSTATUS=0x88  NSNID=n/i      NSID=DISABLED SNID=n/i      SID=DISABLED
+   ```
+
+   Every field of the modem's trace domain reads `0b10`, disabled. The CPUs'
+   own ETMs are disabled too. The STM is the exception because it is a software
+   source that needs no debug authentication -- which is exactly why the
+   validation above worked and the modem test did not.
+
+   So this is production silicon with trace fused off. No amount of device tree
+   or funnel programming will get an instruction trace out of the modem, or out
+   of the application processor for that matter. `PSTORE_FTRACE`, which the
+   GNSS investigation used, works because it is software.
+
+   This also retroactively settles the QDSS elimination on harder ground: with
+   trace authentication disabled, no hardware trace source in the modem can
+   emit anything at all, so "a trace source pushing into an unconfigured ATB"
+   was never possible in the first place.
 
 2. **Compare against the working LineageOS build on this handset.** The device,
    common and kernel trees are public

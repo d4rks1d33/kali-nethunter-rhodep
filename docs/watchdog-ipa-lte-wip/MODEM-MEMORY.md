@@ -47,13 +47,16 @@ disables its own unit in a `finally`, so the boot after is normal again. That
 worked exactly as intended -- the file appeared, named `-watchdog`, and the
 phone came back with the modem loaded.
 
-**It costs WiFi for that one boot, and this is not optional.** `ath10k_snoc`
-probes early and the WLAN protection domain lives inside the modem, so with the
-modem held back ath10k fails and does not retry. Loading `qcom_q6v5_pas`
-afterwards brings the modem up but not WiFi. Expect one boot with no network
-and plan the way back in: the dump unit finishes on its own, so a plain reboot
-is enough, and `ssh kali@172.16.42.1` over the USB cable is the link that does
-not depend on the modem.
+**It costs WiFi for that one boot unless the script puts it back.**
+`ath10k_snoc` probes early, the WLAN protection domain lives inside the modem,
+and having failed once it never retries -- so loading `qcom_q6v5_pas` at the
+end brings the modem up and leaves the phone with no network, which on a device
+reached over WiFi means no way back in. Two boots were spent finding that out.
+The script now waits for the modem to publish its services and then reloads
+`ath10k_snoc`, which is what actually restores the link. If it still comes up
+without a network, a plain reboot is enough -- the unit disarms itself -- and
+`ssh kali@172.16.42.1` over the USB cable is the link that does not depend on
+the modem.
 
 `TimeoutStartSec=600` matters as well. A 256 MB read plus a 256 MB write takes
 a while, and if systemd kills the unit the `finally` does not run, which leaves

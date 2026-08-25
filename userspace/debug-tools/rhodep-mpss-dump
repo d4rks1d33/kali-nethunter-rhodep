@@ -74,5 +74,17 @@ if __name__ == "__main__":
             except OSError:
                 pass
         subprocess.call(["/sbin/modprobe", "qcom_q6v5_pas"])
+
+        # ...and then make ath10k try again. Loading the modem is not enough:
+        # ath10k_snoc probes early, the WLAN protection domain lives inside the
+        # modem, and having failed once it never retries. Two boots were spent
+        # discovering that the phone comes up with no network at all, which on
+        # a device reached over WiFi means no way back in. Give the modem a
+        # moment to publish its services, then reload the driver.
+        time.sleep(20)
+        subprocess.call(["/sbin/modprobe", "-r", "ath10k_snoc"])
+        time.sleep(2)
+        subprocess.call(["/sbin/modprobe", "ath10k_snoc"])
+
         subprocess.call(["/bin/systemctl", "disable", "rhodep-mpss-dump.service"])
-        log("modem driver loaded, one-shot disarmed")
+        log("modem driver loaded, ath10k reloaded, one-shot disarmed")

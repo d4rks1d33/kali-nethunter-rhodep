@@ -402,6 +402,17 @@ PM reference, so sampling it four times a second wakes IPA four times a second:
 the GSI counter climbed 93 to 225 and almost none of it was the modem. Pin IPA
 active first and the same window gives 41 to 45.
 
+**`pkill -f` matches your own SSH session.** `pkill -f service-probe` run over
+ssh kills the shell running it, because that shell's command line contains the
+pattern. The command returns nothing and the connection dies, which looks
+exactly like the phone having crashed. Use `pkill -x` or a pidfile.
+
+**When the phone stops answering over WiFi, try the USB link before concluding
+anything.** An hour was lost to a phone that was perfectly healthy -- sshd
+listening, uptime climbing, the user's own ssh working -- while the container
+could not reach it over WiFi and got an alternating refused/timed-out pattern
+that reads like a boot loop. `ssh kali@172.16.42.1` worked throughout.
+
 **Detect resets by uptime, never by the SSH stream dropping.** The stream
 closes on timeouts without the phone dying.
 
@@ -523,6 +534,48 @@ Diagnostic patches, all outside `source=` unless noted:
 * `0079` is a real fix and is in `source=`: mainline adds `mem_offset` to two
   statistics *sizes* where it belongs only in addresses. Harmless here because
   `mem_offset` reads `0x00000000`, but wrong, and worth sending upstream.
+
+## The only thing the modem asks the AP for during an LTE attach
+
+Session 13d swept every QMI service id **at boot** and concluded that no
+missing service gates the modem. That sweep was never repeated in the window
+that actually matters. Doing it during an LTE attach, with the probe's output
+bridged into `/dev/kmsg` so it survives the reset, turns up one thing:
+
+```
+[  378.282474] SVCLTE: *** service 40: 28 bytes from node=0 port=148
+[  378.282639] SVCLTE:     QMI type=0x00 txn=1 msg_id=0x0020
+[  378.282926] SVCLTE:     raw 000100200015 0001040000efe005 1104000000000 012040000efe005
+[  378.283075] SVCLTE:     answered with success
+<end of console>
+```
+
+Decoded: a request, txn 1, `msg_id 0x0020`, 21 bytes of TLVs -- `0x01` =
+`0x05e0ef00`, `0x11` = `0`, `0x12` = `0x05e0ef00`. **Service 40 is IMSRTP** in
+libqmi's table, which fits: an LTE attach is exactly when the modem brings up
+IMS, and nothing on this port provides it. Service 60 still turns up at boot as
+it always has; 40 appears only during the attach.
+
+**It is one occurrence in three attaches, so treat it as a lead and not a
+cause.** Runs two and three died at fifteen and twenty-four seconds without the
+modem ever contacting 40. The charitable reading is that 40 comes late in the
+attach and the modem sometimes dies before reaching it; the honest reading is
+that one correlation is one correlation.
+
+Two things to be careful about before building on it:
+
+* the modem only sends this **because the sweep published 40**. Without the
+  probe the request does not exist, so this may be an artefact of offering a
+  service and then answering it with a bare success, which is almost certainly
+  malformed for whatever 40 is;
+* the reset happens with no sweep running at all, so the sweep is not the cause
+  of the bug.
+
+`userspace/debug-tools/rhodep-svc-sweep-lte.sh` runs it. **Compute the id list
+before publishing, never after.** The first attempt published service 69, the
+WLAN firmware service the modem itself provides and that `ath10k` binds to, and
+took the WiFi link down -- which on a phone reached over WiFi means losing the
+machine mid-experiment.
 
 ## Reading the modem's memory instead of tracing it
 

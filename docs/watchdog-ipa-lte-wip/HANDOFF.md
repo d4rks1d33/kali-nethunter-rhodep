@@ -557,6 +557,60 @@ varied independently on this device. The suspicion was already in this
 document; it is now measured with the mode preference verified rather than
 assumed.
 
+## The LTE reset and the GNSS reset are the same hardware path, measured
+
+The PMIC keeps three registers across the reset that the bootloader does not
+clear, and they can be read safely through the spmi driver's regmap debugfs --
+`/sys/kernel/debug/regmap/0-00/registers`, no `/dev/mem`, no chance of parking
+a CPU on an address that does not answer.
+`userspace/debug-tools/rhodep-pon-dump` dumps the PON peripheral.
+
+| register | clean reboot | after any of these resets |
+| -------- | ------------ | ------------------------- |
+| `0x88d` | `00` | `01` |
+| `0x8c2` | `00` | `02` |
+| `0x8c4` | `80` | `40` |
+
+And the result that matters:
+
+```
+GNSS standalone reset  vs  LTE band 4 reset   ->  IDENTICAL
+LTE band 4 reset       vs  LTE band 28 reset  ->  IDENTICAL
+```
+
+**Every one of these resets leaves the PMIC in exactly the same state.** So the
+GNSS reproducer and the LTE reset go through the same hardware path, which is
+the evidence that was missing when this document downgraded the GNSS
+reproducer to "probably the same bug, unconfirmed". It is confirmed, at the
+PMIC, and the ninety-second GNSS reproducer is a legitimate stand-in for the
+LTE reset.
+
+`0x8c0` also differs between a clean boot (`41`) and one watchdog boot (`80`),
+but it is **not** stable across two watchdog boots, so it tracks something else
+-- do not read it as a reset cause.
+
+### The controlled correlation
+
+| case | band | RSRP | RSRQ | SNR | outcome |
+| ---- | ---- | ---- | ---- | --- | ------- |
+| GSM + GPRS data | gsm-850 | -- | -- | -- | **stable indefinitely** |
+| LTE band 28 | 700 MHz, EARFCN 9360, 10 MHz | -100 dBm | -16 dB | 5.8 dB | reset |
+| LTE band 5 | 850 MHz | -- | -- | -- | reset |
+| LTE band 4 | AWS 1700/2100 | -117 dBm | -15 dB | 3.0 dB | reset |
+| GNSS standalone | -- | -- | -- | -- | reset, same PON |
+
+**A correction to this document.** An earlier round noted that the more capable
+the band, the faster it died, and suggested that pointed downstream of the
+radio link. More runs do not support it: band 28 with the *stronger* signal
+died almost immediately in one run and took twelve seconds in another, and
+band 4 with a much weaker signal took six to nine. Run-to-run variance
+dominates, and the correlation should not be leaned on.
+
+What remains true is that signal quality is poor in both cases -- RSRP -100 to
+-117 dBm -- and that the one test which would separate transmit power from
+everything else has not been run, because it needs the handset physically
+moved: **the same band at strong and at weak signal.**
+
 ## There is an AT command interface to the modem, and nobody knew
 
 The modem's glink edge advertises `DS`, `DATA1` through `DATA4` and `DATA11`,

@@ -42,7 +42,23 @@ IPA_PM=$(ls -d /sys/devices/platform/soc@0/*.ipa/power 2>/dev/null | head -1)
 # read, and the ten seconds it takes to die are spent somewhere in there.
 IPA_MGS=$(ls -d /sys/devices/platform/soc@0/*.ipa/modem_gsi_state 2>/dev/null | head -1)
 
-echo "DW: start rproc=${MODEM_RPROC:-none}" > $KMSG
+# The modem's crash reason out of SMEM, if the diagnostic patch that exports it
+# is in. The driver only reads this on a fatal interrupt, which never arrives
+# here, and after a reset the bootloader has already wiped SMEM. The only
+# window it can be caught in is while the machine is still running.
+CR=
+for d in /sys/devices/platform/soc@0/*.remoteproc; do
+	[ "$(cat "$d/remoteproc/remoteproc"*/name 2>/dev/null | head -1)" = "modem" ] || continue
+	[ -r "$d/crash_reason_text" ] && CR=$d/crash_reason_text && break
+done
+[ -n "$CR" ] || CR=$(ls /sys/devices/platform/soc@0/6080000.remoteproc/crash_reason_text 2>/dev/null)
+
+# The subsystem writes a placeholder into its SFR item at init and replaces it
+# only if it manages an orderly assert. Print the baseline once, then report
+# just the changes, so the line stays short and any real reason stands out.
+CR_BASE=$(cat "$CR" 2>/dev/null)
+
+echo "DW: start rproc=${MODEM_RPROC:-none} cr_base='$CR_BASE'" > $KMSG
 
 i=0
 end=$(( $(cut -d. -f1 /proc/uptime) + SECS ))
@@ -57,7 +73,9 @@ while [ "$(cut -d. -f1 /proc/uptime)" -lt "$end" ]; do
 	cq=$(irq "ipa-clock-query"); sr=$(irq "ipa-setup-ready")
 	pm=$(cut -c1-3 "$IPA_PM/runtime_status" 2>/dev/null)
 	mgs=$(cat "$IPA_MGS" 2>/dev/null)
-	echo "DW $i t=$up $st f=$f r=$r h=$h w=$w ipa=$ipa gsi=$gsi cq=$cq pm=$pm mgs=$mgs" > $KMSG
+	cr=$(cat "$CR" 2>/dev/null)
+	if [ "$cr" = "$CR_BASE" ]; then cr=init; fi
+	echo "DW $i t=$up $st f=$f r=$r h=$h w=$w ipa=$ipa gsi=$gsi cq=$cq pm=$pm mgs=$mgs cr=$cr" > $KMSG
 	sleep 0.25
 done
 echo "DW: end clean" > $KMSG

@@ -308,6 +308,54 @@ NAT_TABLE          0x17a0/0x500   0x17a0/0x500
 Before comparing anything against downstream, check whether the file in hand is
 one the port patches.
 
+## The modem never writes a reason, and that is the answer
+
+Patch 0076 exports the remote's SMEM crash reason so it can be read while the
+machine is still running, which is the only window it can hold anything --
+0073 read it at probe and after a reset, and the bootloader wipes SMEM on
+every boot.
+
+It is not empty. All three remotes carry the standard Qualcomm placeholder:
+
+```
+6080000.remoteproc (modem): 'SFR Init: wdog or kernel error suspected.'
+```
+
+A subsystem writes that at init and replaces it if it manages an orderly
+assert. So it is a live signal, and the text says what finding it intact
+means.
+
+Sampled four times a second across an LTE attach, fifty-nine samples, right up
+to the last one before the machine goes down:
+
+```
+DW 64 t=136.80 run f=0 r=3 h=1 w=0 ipa=1 gsi=73 cq=0 pm=act
+               mgs=2223333300000000 cr=init
+```
+
+`cr=init` throughout. **The modem never writes a reason.** It does not assert.
+
+Put together with everything else, one reading is left standing and it is
+self-consistent:
+
+* the modem hangs hard -- hard enough that it cannot even record why, which
+  rules out a software assert and points at a bus transaction that never
+  completes;
+* about ten seconds later its Q6 watchdog bites, which is the constant
+  interval measured across four runs;
+* Trust Zone takes that watchdog and resets the whole chip rather than handing
+  it to the AP for a subsystem restart, which is why the AP's copy of the modem
+  watchdog interrupt stays at zero, no fatal ever arrives, and the bootloader
+  labels the boot `watchdog` with `powerup_reason=0x00008000`.
+
+None of the earlier silence was a missing signal. There was nothing to signal:
+the modem was already stuck.
+
+So the question is now specific: what does the modem touch during an LTE attach
+that does not answer? It has to be hardware whose clock or power the AP
+controls, since that is the only thing that differs from downstream, and it has
+to be something GSM and its data path never reach.
+
 ## A caveat on "GSM works" that has to be stated
 
 The GSM run registered, attached, was managed by ModemManager and received an

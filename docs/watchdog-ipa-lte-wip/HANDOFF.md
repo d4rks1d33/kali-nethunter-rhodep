@@ -155,15 +155,63 @@ the vendor list is `reusable` (CMA) and harmless. The single exception is
 which does not matter today because the daemon answers `MEM_QUERY_SIZE` with 0
 and refuses `MEM_ALLOC`, so the modem never holds an address in it.
 
-### Not an elimination, though it looks like one: QDSS
+### QDSS and CoreSight: was the leading candidate, and it is dead
 
-The QDSS clock was voted explicitly with `kernel/diag-modules/rhodep_clkhold.c`
-and the reset was unchanged. **That proves nothing.**
-`clk_smd_rpm_handoff()` in `clk-smd-rpm.c` already writes an enable to RPM for
-every clock in the sm6375 table, active set and sleep set, at probe — so
-`qdss_clk` reads `enable Y` at 19.2 MHz in `clk_summary` with a prepare count of
-zero before the module is loaded. The vote was redundant and the run changed
-nothing about the machine. **QDSS is still open.**
+It was a good candidate on paper. A node-by-node diff of `blair.dtsi` plus its
+`holi-*.dtsi` includes against `sm6375.dtsi` gives 146 nodes only the vendor
+has, and **about 110 of them are CoreSight** — `stm`, `tmc`, `tpdm`, `tpda`,
+`funnel`, `replicator`, `cti`, `csr`, `etm`, `tgu` — against none at all in
+mainline. The modem publishes three instances of service 51, CoreSight remote
+tracing, and the ADSP and CDSP three more. A hardware trace source coming up
+with an engine and pushing onto an ATB nobody configured is a bus transaction
+that never completes, which is this signature exactly.
+
+It is not that, and three independent measurements say so.
+
+**The first attempt at testing it was a no-op and must not be counted.** The
+QDSS clock was voted explicitly with `kernel/diag-modules/rhodep_clkhold.c` and
+nothing changed — but `clk_smd_rpm_handoff()` in `clk-smd-rpm.c` already writes
+an enable to RPM for every clock in the sm6375 table, in both the active and
+the sleep set, at probe. `qdss_clk` reads `enable Y` at 19.2 MHz in
+`clk_summary` with a prepare count of zero before the module is loaded. The
+vote was redundant and the run changed nothing about the machine.
+
+**1. The remote ETM is disabled everywhere, and turning it on is harmless.**
+`scripts/modem/rhodep-coresight-etm.py` speaks the same two messages
+downstream's `coresight-remote-etm.c` does — service 51, `GET_ETM` `0x002B`,
+`SET_ETM` `0x002C`. All six instances answer, all six report `DISABLED`:
+
+```
+node   port   instance  result   state
+0      19     2         ok       DISABLED      <- modem
+0      21     11        ok       DISABLED      <- modem
+0      115    3         ok       DISABLED      <- modem
+5      6      5         ok       DISABLED      <- adsp
+5      13     12        ok       DISABLED      <- adsp
+10     6      13        ok       DISABLED      <- cdsp
+```
+
+Enabling two of the modem's instances and leaving them running: the phone stays
+up, the modem stays registered and its data call stays attached, for as long as
+it was left. A real trace source emitting into a fabric this kernel has never
+configured does **not** reset this SoC.
+
+**2. The AP can read the whole fabric, including the modem's own blocks.** Five
+blocks read through `/dev/mem` — `tmc@8048000`, `funnel@8041000`, `stm@8002000`
+and, from `holi-coresight.dtsi`, the two that carry the modem's trace,
+`tpdm_modem0@8800000` and `funnel_modem0@8804000`. Every one returns the
+standard CoreSight component id `0d 90 05 b1` and a sane `DEVTYPE`. Nothing
+stalls, nothing faults. So the fabric is powered, clocked and addressable, and
+this is not a repeat of the 0026 hole at `0x5847000`.
+
+**3. It is inert, not unconfigured-and-dangerous.** Every funnel reads
+`FUNCTL = 0x00000300`: the hold-time field set, and **all eight input port
+enables clear**. The TMC-ETF reads `CTL = 0`, the STM reads `CTL = 0`. Nothing
+is routing and nothing is capturing, which is what a disabled funnel is
+supposed to do — drop the ATB data, not back-pressure it into a hang.
+
+The 110 missing nodes are a real gap in the port and worth filling one day for
+tracing. They are not what resets the SoC.
 
 ## Traps that have already cost time
 
@@ -259,6 +307,22 @@ corner can be tested without a device tree change, a kernel build or a flash:
 domains at a performance state). Read that directory's README before believing
 a null result from `clkhold`.
 
+`scripts/modem/rhodep-coresight-etm.py` reads and sets the remote ETM state on
+the modem, the ADSP and the CDSP over QMI service 51, which is what ruled QDSS
+out. It is also a worked example of raw QMI over QRTR from Python, including
+the two constants that make or break it:
+
+```
+QRTR_TYPE_NEW_SERVER = 4    # not 2
+QRTR_TYPE_NEW_LOOKUP = 10   # not 8
+```
+
+Those come from `include/uapi/linux/qrtr.h`, and getting them wrong is
+completely silent — the name service simply never answers.
+`scripts/modem/memshare-probe.py` has 2 and 8, which is the likeliest reason
+its publish "appeared to succeed" and never appeared in `qrtr-lookup`, a
+mystery that file documents at length and never solved.
+
 `scripts/rhodep-gnss-test.py` grew an `opmode=` flag, which is what produced
 the bisection at the top of this file:
 
@@ -284,33 +348,21 @@ modem touch when it switches on a hardware engine"**, and there are two of them
 that do it — the GNSS measurement engine and whatever LTE brings up at attach —
 against a Q6 running software that is demonstrably fine.
 
-1. **QDSS and CoreSight, now the leading candidate.** It is by far the largest
-   piece of hardware mainline does not describe: a node-by-node diff of
-   `blair.dtsi` plus its `holi-*.dtsi` includes against `sm6375.dtsi` gives 146
-   nodes only the vendor has, and **about 110 of them are CoreSight** — `stm`,
-   `tmc`, `tpdm`, `tpda`, `funnel`, `replicator`, `cti`, `csr`, `etm`, `tgu`.
-   Mainline has none. Meanwhile the modem is plainly running its side of it:
-   `qrtr-lookup` shows **three** instances of service 51, CoreSight remote
-   tracing, on the modem and two more on the ADSP.
+1. **The modem's own hardware trace, now as an instrument rather than a
+   suspect.** QDSS is ruled out as a *cause* (see above), but everything that
+   elimination measured is also what a working trace capture needs, and it all
+   answers: the fabric is powered, readable and inert, the modem's two funnels
+   and its TPDM are addressable from the AP, and the remote ETM can be turned on
+   over QMI 51 with `scripts/modem/rhodep-coresight-etm.py` without upsetting
+   anything. What is missing is the 110 device tree nodes and a sink.
 
-   The mechanism fits the signature exactly. A hardware trace source that comes
-   up with its engine, pushing onto an ATB whose funnel is unconfigured, is a
-   bus transaction that never completes — instant, silent, and impossible for
-   the modem to record. It also explains why Q6 software never trips it.
+   Describe the QDSS blocks, route `modem_etm0` through `funnel_modem0` and
+   `funnel@8041000` into a TMC-ETR buffer in DDR, and the buffer says which
+   instruction the modem stopped on. That is the only avenue that answers the
+   question directly, and the groundwork for it is now measured rather than
+   assumed.
 
-   The cheap half of the test is to describe the QDSS blocks and let mainline's
-   CoreSight drivers configure and *disable* the fabric properly, rather than
-   leaving it in whatever state XBL did. Do not repeat the mistake in "Not an
-   elimination" above: voting `qdss_clk` is already done for you at probe and
-   proves nothing on its own.
-
-2. **The modem's own hardware trace, as an instrument rather than a suspect.**
-   The same 110 nodes are what a TMC-ETR buffer in DDR would need. If the
-   modem's ETM can be routed there and the buffer read after the reset, it says
-   which instruction it stopped on. Large, but the GNSS reproducer makes it
-   affordable to iterate on now.
-
-3. **Compare against the working LineageOS build on this handset.** The device,
+2. **Compare against the working LineageOS build on this handset.** The device,
    common and kernel trees are public
    (`Motorola-SM6375-Devs/android_{device_motorola_rhodep,device_motorola_sm6375-common,kernel_motorola_sm6375}`)
    and the kernel one is already checked out at `/tmp/opencode/vendor-kernel`
@@ -319,7 +371,7 @@ against a Q6 running software that is demonstrably fine.
    anything downstream does at engine bring-up that mainline does not is by
    definition in the difference.
 
-4. **Make the reset legible instead of guessing at it.** Downstream registers a
+3. **Make the reset legible instead of guessing at it.** Downstream registers a
    dump table with TrustZone by writing its physical address into IMEM at
    offset `0x10` — `qcom,msm-imem-mem_dump_table@10`, `init_memory_dump()` in
    `drivers/soc/qcom/memory_dump_v2.c`, and it is a plain `memcpy_toio`, not an
@@ -329,7 +381,7 @@ against a Q6 running software that is demonstrably fine.
    even goes through TrustZone's error path, and is a small module rather than
    a driver.
 
-5. **Attach transmit power** remains open from before: the no-SIM test rules out
+4. **Attach transmit power** remains open from before: the no-SIM test rules out
    LTE receiver bring-up but not transmit. Note that GNSS is receive-only and
    dies anyway, which makes a pure "TX power" explanation less attractive than
    it was.

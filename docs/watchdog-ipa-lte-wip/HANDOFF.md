@@ -919,3 +919,38 @@ against a Q6 running software that is demonstrably fine.
    LTE receiver bring-up but not transmit. Note that GNSS is receive-only and
    dies anyway, which makes a pure "TX power" explanation less attractive than
    it was.
+
+## A freeze is not always a hung bus access
+
+The taxonomy in this document said that a freeze needing the power button
+means an access to an address that does not answer, and that the bug under
+investigation resets instantly instead. That still holds for the three cases
+it was written from, but it is not the only way to reach a freeze, and
+assuming so would have sent the next person hunting a bus hang that is not
+there.
+
+On 2026-08-25 the phone froze twice while the AT console was being tested. The
+ramoops record shows a plain kernel Oops in a syscall, not a stalled
+transaction:
+
+    [ 191.909585] close ack on unknown channel
+                  qcom_glink_native.c:1755, x23: dead000000000100
+    [ 885.474811] rpmsg rpmsg0: failed to open DS
+    [ 925.532523] Unable to handle kernel paging request at 0x10000
+                  pc : __pi_strcmp   lr : qcom_glink_create_ept
+                  rpmsg_eptdev_open [rpmsg_char] / chrdev_open / openat
+
+This is the missing reference of kernel/patches/0080, reached without any
+modem crash at all: the channel is freed one put too early, the close ack no
+longer finds it, the dangling pointer stays in the rcids idr, and the next
+attempt to create an endpoint walks that idr and strcmp()s freed memory. x3
+holds 0x5344, the "DS" being looked for.
+
+So: read the ramoops record before classifying a freeze. `journalctl -b -1`
+also survives, and did here.
+
+The first stage reproduces on demand, which the teardown signature never did.
+`userspace/debug-tools/rhodep-glink-uaf-check` opens and releases an endpoint
+on DS and counts the warnings. Do not run it on a kernel without the patch
+unless a freeze is acceptable, because that loop is what froze the phone.
+

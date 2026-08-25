@@ -155,6 +155,60 @@ the vendor list is `reusable` (CMA) and harmless. The single exception is
 which does not matter today because the daemon answers `MEM_QUERY_SIZE` with 0
 and refuses `MEM_ALLOC`, so the modem never holds an address in it.
 
+### Also ruled out on the reproducer, second round
+
+**The AP being idle is not a precondition.** Every trace of this reset shows all
+eight cores in `do_idle` at the end, which invited a story about a system-wide
+low power transition. All eight cores pegged with `yes`, running at 1.80 and
+2.21 GHz, `opmode=standalone` applied and confirmed in the console record: it
+still dies.
+
+**Stale or corrupt GNSS assistance data.** Plausible because the port ran
+`rmtfs -r` for a long time, where the modem's EFS writes go to a RAM shadow and
+are answered successfully — so the modem could have been reading back its own
+lost state. `qmicli --loc-delete-assistance-data`, confirmed by
+`--loc-get-predicted-orbits-data-validity` dropping to `1980-01-06T00:00:00Z,
+valid for 0 hours`, then `standalone`: still dies. (The `-r` is also stale as
+documentation: the shipped unit's `ExecStart=` reset means rmtfs actually runs
+as `rmtfs -P -s`.)
+
+**The GDSCs.** All twelve match: `holi-gdsc.dtsi` and mainline's
+`gcc-sm6375.c` + `dispcc` + `gpucc` register the same set, and none of them is
+a modem GDSC.
+
+**The MPM window into RPM message RAM.** This one mattered because mainline's
+`irq-qcom-mpm` writes an enable and polarity array into RPM MSG RAM, where
+*every* master's votes live, so a wrong offset would corrupt the modem's own
+requests. It is right: the vendor's `qcom,mpm-gic-blair` has
+`reg = <0x45f01b8 0x1000>` and mainline's `apss_mpm: sram@1b8` sits at
+`0x45f0000 + 0x1b8`. Same address.
+
+**The rmtfs shared region.** Same size on both, `0x280000`, same client id, and
+mainline already carries `qcom,vmid = <QCOM_SCM_VMID_MSS_MSA QCOM_SCM_VMID_NAV>`
+— which is the vendor's `qcom,vm-nav-path`, the GNSS virtual machine. Nothing
+missing.
+
+**A file the modem asks for and does not get.** `tqftpserv -d` for a whole
+boot: 1489 lines, exactly three rejections —
+`/readwrite/ota_firewall/ruleset`, `/readwrite/datablock/id_01` and
+`/readonly/vendor/fsg/mcfg_hw/mbn_hw.dig`. The last one looked promising, since
+`mcfg_hw` is where RF and band configuration lives and `mcfg_sw/mbn_sw.dig` *is*
+served. It is a false lead: mounting the real `fsg_a` partition shows it
+contains `mcfg_sw/` and no `mcfg_hw/` at all, so Android answers that request
+with ENOENT too.
+
+**Modem-side DIAG is not reachable on this firmware.** Worth recording because
+it is the obvious way to get the modem's own log. The modem's glink edge
+advertises `DATA1-4`, `DATA11`, `DS`, `IPCRTR`, `LOOPBACK_CTL_MPSS`,
+`SSM_RTR_MODEM_APPS`, `apr_voice_svc`, `glink_ssr` and `rpmsg_ctrl` — no DIAG
+channel. Creating endpoints named `DIAG`, `DIAG_CTRL`, `DIAG_CNTL`, `DIAG_CMD`,
+`DIAG_DATA`, `DIAG_DCI_DATA` and `DIAG_DCI_CMD` through
+`/dev/rpmsg_ctrl2` succeeds — `rpmsg_ctrl` always creates the local device —
+but every `open()` then fails with `EINVAL`, which is
+`qcom_glink_create_ept()` finding no matching remote channel and
+`qcom_glink_create_local()` never getting an `OPEN_ACK`. The modem does not
+answer to any of those names.
+
 ### QDSS and CoreSight: was the leading candidate, and it is dead
 
 It was a good candidate on paper. A node-by-node diff of `blair.dtsi` plus its
@@ -243,6 +297,24 @@ closes on timeouts without the phone dying.
 came back "SURVIVED" and the log said `sudo: /tmp/gnss.py: command not found` —
 the previous reset had wiped the script. Re-copy and re-check the md5 of every
 instrument after every reset, not once at the start.
+
+**Copying out of `/tmp` is not enough either: `sync` before you trigger the
+reset.** The same script, put in `/home/kali` and md5-verified immediately after
+the copy, came back after the next reset as **12507 bytes of NUL** — the right
+size, no content. The copy was still in the page cache when the SoC went down.
+`file` said `data`, `sudo ./script` printed nothing at all, and the run was
+scored as a survival. Three test runs in this session were lost to a missing or
+zeroed instrument. The check that actually works:
+
+```sh
+scp instrument kali@phone:/home/kali/
+ssh kali@phone 'sync; sudo sh -c "echo 3 > /proc/sys/vm/drop_caches"
+                md5sum /home/kali/instrument; python3 -m py_compile /home/kali/instrument'
+```
+
+`drop_caches` is the part that matters — without it the md5 is computed from the
+same page cache that is about to be lost, so it always matches and proves
+nothing.
 
 **rhodep is a `blair` board, and `blair.dtsi` is not `holi.dtsi`.** The board
 file is `blair-moto-rhodep-base.dts`, which includes `blair.dtsi`, which in turn
@@ -356,11 +428,35 @@ against a Q6 running software that is demonstrably fine.
    over QMI 51 with `scripts/modem/rhodep-coresight-etm.py` without upsetting
    anything. What is missing is the 110 device tree nodes and a sink.
 
-   Describe the QDSS blocks, route `modem_etm0` through `funnel_modem0` and
-   `funnel@8041000` into a TMC-ETR buffer in DDR, and the buffer says which
-   instruction the modem stopped on. That is the only avenue that answers the
-   question directly, and the groundwork for it is now measured rather than
-   assumed.
+   The path is already mapped out of `holi-coresight.dtsi`, so nobody has to
+   re-derive it:
+
+   ```
+   modem_etm1 (QMI inst 11) -> funnel_modem0@8804000 port 1
+   modem_etm0 (QMI inst 2)  -> funnel_modem1@880c000 port 0
+                            -> funnel_modem1_dup@880d000 port 1
+                            -> funnel_modem0@8804000 port 3
+   tpdm_modem0@8800000      -> tpda_modem@8803000 port 0
+                            -> funnel_modem0@8804000 port 0
+   funnel_modem0            -> funnel_in1@8042000 port 4
+   funnel_in1               -> funnel_merg@8045000 port 1
+   funnel_merg              -> tmc_etf@8047000 (put in hardware-FIFO mode)
+   tmc_etf                  -> replicator_qdss@8046000 port 0
+   replicator_qdss          -> tmc_etr@8048000  -> a DDR buffer
+   ```
+
+   `modem_etm1` is the short path: one funnel to the merge. All of these
+   registers are reachable from userspace through `/dev/mem` today — that is
+   how the elimination above was done — so the whole thing can be programmed by
+   hand before it is ever written as a device tree, and `tzlog_dump@aefa2000`
+   is a reserved, `no-map`, 192 KB region that patch 0067 already carves out
+   and that is known to survive a reset untouched, which makes it a ready-made
+   ETR buffer.
+
+   The honest caveat: the Q6's trace format is Hexagon, and decoding it
+   properly is a Qualcomm tool. Even undecoded it gives addresses, and the
+   modem's own `modem.mdt` program headers say which segment each address falls
+   in.
 
 2. **Compare against the working LineageOS build on this handset.** The device,
    common and kernel trees are public

@@ -220,6 +220,29 @@ memory map, CX and MX voting, the battery, the AP watchdog, modem fatal and
 modem watchdog as delivered to the AP. All clean. Whatever expires after ten
 seconds is not visible from this side of the chip.
 
+## It needs a real attach, not just LTE
+
+With the SIM not answering -- `Card state: no-atr-received`, modem healthy and
+responding to QMI -- the mode was forced to LTE and left there:
+
+```
++5s   ... +130s   up, reg=not-registered-searching
+SURVIVED, uptime 292 s
+```
+
+Two minutes and a bit, where a working SIM gets ten to thirty seconds. So
+selecting LTE and scanning for cells is not what kills it. The modem has to
+actually attach.
+
+The honest limit of this test: without a SIM the modem scans and decodes but
+never does a random access, so it barely transmits. It rules out mode
+selection and receiver bring-up. It does not rule out something that only
+happens at attach transmit power.
+
+Combined with everything else, the window has narrowed to the attach itself and
+the default bearer that comes with it -- which is also where the GSI
+programming happens, ten seconds before the end.
+
 ## A caveat on "GSM works" that has to be stated
 
 The GSM run registered, attached, was managed by ModemManager and received an

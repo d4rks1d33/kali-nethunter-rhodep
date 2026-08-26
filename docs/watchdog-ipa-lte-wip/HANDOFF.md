@@ -1849,3 +1849,58 @@ still required, since removing ipa.ko is what makes the reset go away.
 
 This run also used the ipa.ko carrying patch 0081, which confirms again that
 0081 does nothing for the LTE reset.
+
+## Download mode changes nothing, and a protection violation looks exactly like the bug
+
+Point three, done without flashing anything: qcom_scm's download_mode is
+`module_param_cb(..., 0644)` and its setter calls
+qcom_scm_set_download_mode() straight away, so it can be turned on at runtime.
+
+    echo full > /sys/module/qcom_scm/parameters/download_mode
+
+With patch 0082 in place this succeeds silently -- before it, the same write
+produced "No available mechanism for setting download mode". So the mechanism
+now works.
+
+It changes nothing about the reset. The LTE attach still killed the machine,
+the phone still rebooted on its own rather than staying in download mode,
+pstore was still empty, and the PMIC still said PS_HOLD and Hard Reset. One
+thing did change: the three carveouts now read as all zeros instead of the
+uninitialised noise they held before, so something is clearing them, but there
+is still nothing in them.
+
+**The useful result came from a mistake.** To check whether the register write
+had really reached the hardware, rhodep_dbgmem was extended to ioremap the TCSR
+and read 0x3d3000 directly. That read takes the SoC down instantly:
+
+    [162.027111] rhodep_dbgmem: tcsr download-mode register at 0x3d3000
+    [162.027245] rhodep_dbgmem: 4 of 3 regions mapped
+                 ... cat the file, and the machine is gone
+
+    bootreason=watchdog, pstore empty, PS_HOLD, and not one kernel message
+    about the fault
+
+That is the signature of this bug, byte for byte, produced deliberately in one
+command. The application processor is not allowed to touch that register; the
+secure world is, which is why writing download_mode through qcom_scm's SCM
+io-rmw does not reset anything while a plain readl() does.
+
+What it establishes, and what it does not. It does not show that the LTE reset
+is a protection violation. It does show that a protection violation on this SoC
+ends exactly like the LTE reset does -- instantly, silently, with both
+processors healthy, nothing written anywhere, and the PMIC recording PS_HOLD --
+which is the first time any deliberate cause has been made to reproduce that
+signature. Every other reset mechanism tried here looks different: the APSS
+watchdog is programmed at thirty seconds, an Oops leaves a ramoops record, and
+a modem crash on its own leaves the SoC running.
+
+So the class of cause is now demonstrated rather than inferred, and the search
+narrows to: what does the modem or IPA touch, during an LTE attach, that it is
+not permitted to touch.
+
+The read is kept as an instrument, behind a module parameter that defaults to
+off, because a one-command way to produce the signature on demand is the
+control every other measurement here has lacked:
+
+    sudo insmod rhodep_dbgmem.ko allow_tcsr_read=1
+    sudo cat /sys/kernel/debug/rhodep_dbgmem/tcsr_dload

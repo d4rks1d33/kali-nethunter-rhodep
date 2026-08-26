@@ -37,6 +37,7 @@
  */
 
 #include <linux/debugfs.h>
+#include <linux/seq_file.h>
 #include <linux/fs.h>
 #include <linux/io.h>
 #include <linux/module.h>
@@ -58,12 +59,63 @@ static struct region regions[] = {
 
 static struct dentry *dir;
 
+/*
+ * The TCSR download-mode register, which patch 0082 taught qcom_scm about.
+ * Reading it is the only way to tell whether writing "full" to
+ * /sys/module/qcom_scm/parameters/download_mode actually reached the hardware:
+ * the write goes through an SCM io-rmw and reports success either way, and
+ * /dev/mem will not read it because CONFIG_STRICT_DEVMEM is set.
+ */
+#define TCSR_BASE	0x003c0000
+#define TCSR_DLOAD_OFF	0x13000
+static void __iomem *tcsr;
+
+/*
+ * READING THAT REGISTER RESETS THE PHONE. Off by default for that reason.
+ *
+ * The application processor is not allowed to touch it directly. A plain
+ * readl() of 0x3d3000 takes the SoC down instantly and in complete silence:
+ * no kernel message, an empty pstore, bootreason=watchdog and the PMIC
+ * recording PS_HOLD -- which is, byte for byte, the signature of the reset
+ * this whole directory is about.
+ *
+ * qcom_scm reaches the same register through an SCM io-rmw, which runs in the
+ * secure world and is permitted; writing "full" to
+ * /sys/module/qcom_scm/parameters/download_mode does not reset anything. That
+ * is exactly why patch 0082 hands the address to qcom_scm rather than poking
+ * it here.
+ *
+ * Kept, because a one-command way to produce that signature on demand is worth
+ * having: it is the control for "does a protection violation look like this".
+ *
+ *   sudo insmod rhodep_dbgmem.ko allow_tcsr_read=1
+ *   sudo cat /sys/kernel/debug/rhodep_dbgmem/tcsr_dload   # goodbye
+ */
+static bool allow_tcsr_read;
+module_param(allow_tcsr_read, bool, 0400);
+MODULE_PARM_DESC(allow_tcsr_read,
+		 "expose the TCSR download-mode register. Reading it resets the phone.");
+
+static int tcsr_dload_show(struct seq_file *m, void *unused)
+{
+	if (!tcsr)
+		return -ENODEV;
+	seq_printf(m, "%#010x\n", readl_relaxed(tcsr + TCSR_DLOAD_OFF));
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(tcsr_dload);
+
 static void rhodep_dbgmem_release(void)
 {
 	int i;
 
 	debugfs_remove_recursive(dir);
 	dir = NULL;
+
+	if (tcsr) {
+		iounmap(tcsr);
+		tcsr = NULL;
+	}
 
 	for (i = 0; i < ARRAY_SIZE(regions); i++) {
 		if (regions[i].va) {
@@ -104,6 +156,21 @@ static int __init rhodep_dbgmem_init(void)
 		pr_info("rhodep_dbgmem: %s at %pa, %zu bytes\n",
 			r->name, &r->base, r->size);
 		mapped++;
+	}
+
+	/* Registers, so ioremap rather than memremap. Only when asked for:
+	 * see the warning above.
+	 */
+	tcsr = allow_tcsr_read ? ioremap(TCSR_BASE, 0x40000) : NULL;
+	if (tcsr) {
+		debugfs_create_file("tcsr_dload", 0400, dir, NULL,
+				    &tcsr_dload_fops);
+		pr_warn("rhodep_dbgmem: tcsr download-mode register at %#x is "
+			"exposed; READING IT WILL RESET THE PHONE\n",
+			TCSR_BASE + TCSR_DLOAD_OFF);
+		mapped++;
+	} else if (allow_tcsr_read) {
+		pr_warn("rhodep_dbgmem: could not ioremap TCSR\n");
 	}
 
 	if (!mapped) {

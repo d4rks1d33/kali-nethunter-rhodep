@@ -1025,3 +1025,81 @@ boots:
 
     C=$(rhodep-modem-at -l | sed -n "s/.*control device: //p")
     sudo python3 rhodep-glink-hammer.py 1000 "$C"
+
+## The SoC dies when the modem comes back, not when it dies
+
+This is the shortest reproducer found so far, and it needs no SIM, no radio,
+no coverage and no LTE attach:
+
+    echo 1 > /sys/kernel/debug/remoteproc/remoteproc0/crash
+
+About three and a half seconds later the SoC resets, with bootreason=watchdog,
+nothing in pstore and PON 088d=01 08c2=02 08c4=40, which is the fingerprint of
+every death in this directory. Sampled at 200 ms with each line fsync'd:
+
+    [112.08] crashing the modem
+    [112.09] running -> crashed
+    [112.30] crashed -> offline
+    [115.52] offline -> running     <- the modem is back
+             ... reset within the next few seconds
+
+The timing was not a guess. Two glink hammer runs put it in the same place:
+
+    run A   recovery finished 130.74    reset before 135.3
+    run B   recovery finished 218.08    reset before 222
+
+and one control points the same way from the other side. When the modem was
+crashed and recovery hung forever inside ipa_modem_stop, the SoC was never
+reset at all:
+
+    INFO: task kworker/u32:6:130 blocked for more than 241 seconds
+     __gsi_channel_stop [ipa]
+     ipa_endpoint_disable_one / ipa_stop / ipa_modem_stop
+     ipa_modem_notify / ssr_notify_stop [qcom_common]
+     rproc_stop / rproc_boot_recovery / rproc_crash_handler_work
+
+The modem stayed 'crashed' and the machine stayed up. So: modem dies and comes
+back, SoC resets. Modem dies and never comes back, SoC lives. It is the
+bring-up that is fatal, not the crash.
+
+That reframes the whole investigation. An LTE attach is a bring-up of the data
+path, and so is GNSS standalone, and so is this. What they have in common is
+the modem starting to use something, not the modem failing.
+
+Two cautions worth keeping. It is not perfectly deterministic: the same
+debugfs write hung recovery once instead of completing it, and that run did
+not reset. And 'no reset while recovery is stuck' is consistent with the
+bring-up theory but does not prove it, since a stuck recovery also means the
+data path is never re-established.
+
+The hung recovery is a real bug in its own right and should be reported
+separately: ipa_modem_stop waits on a completion in __gsi_channel_stop that a
+dead modem never delivers, with no timeout, so the worker is stuck in D state
+forever. It also makes shutdown take fifteen minutes, because systemd waits
+for a task that cannot be killed.
+
+Tools:
+  userspace/debug-tools/rhodep-modem-restart-watch.py   the short reproducer
+  userspace/debug-tools/rhodep-glink-hammer.py          the longer one
+
+Next thing to try: IPA is the obvious suspect, since ipa_modem_notify runs on
+both halves of the transition and the hang is inside it. Compare a recovery
+with ipa.ko loaded against one without. Without ipa.ko the modem cannot
+register on LTE, but it can still be crashed and recovered, which is all this
+reproducer needs.
+
+## Patch 0080 verified, second version
+
+Flashed 2026-08-26 (kernel built Aug 26 00:28). Proof it is the running
+kernel, rather than the build date: the warning in qcom_glink_rx_close_ack
+moves with the patch, and forcing it deliberately printed
+
+    WARNING: drivers/rpmsg/qcom_glink_native.c:1782
+
+against 1755 unpatched and 1761 for the first version, which is exactly what
+the hunks insert. No refcount underflow and no Oops appeared in any run since.
+
+The leak measurement is still outstanding. Every attempt to run 500 cycles and
+compare slab counters was cut short by the reset described above, which is not
+the patch's doing but does mean the leak question is answered by reasoning
+rather than by measurement so far.

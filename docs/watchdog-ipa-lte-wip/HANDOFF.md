@@ -1482,3 +1482,72 @@ for anyone reading regmap dumps: a plain read() of that file returns about
 8 KB and stops, nowhere near 0x800. The dump is positional and every line is
 exactly nine bytes, "%04x: %02x\n", so seeking to addr*9 lands on that
 register. Seek to the block you want instead of reading from zero.
+
+## Eliminated after the PS_HOLD result
+
+With PS_HOLD known, the question became what asks TZ to pull it. The obvious
+shape is an access somewhere the AP cannot see, made by the modem rather than
+by IPA, since none of IPA's own error interrupts fire. Four candidates checked
+and all four closed.
+
+**IPA's SMMU stream IDs are complete.** The vendor declares four context banks
+for IPA in blair.dtsi: 0x04A0 for the AP with an IOVA pool of
+0x20000000+0x20000000, 0x04A1 for WLAN offload, 0x04A2 for the microcontroller,
+and 0x04A3 for 11ad. Our node declares 0x4A0 and 0x4A2, the two that mainline
+uses; WLAN offload and 11ad are features mainline's IPA does not implement, and
+this phone has no 60 GHz radio. There is no modem context bank, so the modem
+does not reach memory through IPA's stream IDs at all.
+
+**The AP does not hand the modem any DDR address.** init_modem_driver_req()
+fills the QMI request with IPA SRAM offsets only -- ipa->mem_offset plus each
+region's offset -- along with an endpoint number and the hardware statistics
+bases, which are also SRAM. There is no pointer into main memory for the AP to
+get wrong.
+
+**ipa->mem_offset comes from the hardware, not from the device tree.** It is
+read out of the IPA SHARED_MEM_SIZE register, MEM_BADDR field, times eight, and
+mainline then checks the regions fit inside what the same register reports as
+the size. So the offsets handed to the modem cannot be inconsistent with the
+hardware unless the driver complains, and it does not: the only things IPA says
+at boot are "IPA driver initialized" and "IPA driver setup completed
+successfully".
+
+**Patch 0079 is in and correct.** The one place in this path that really did
+add an offset to a size, req.hw_stats_quota_size and req.hw_stats_drop_size,
+is fixed in the running kernel.
+
+## Why nothing is ever dumped, and what would change that
+
+    qcom_scm firmware:scm: No available mechanism for setting download mode
+
+That line explains every empty pstore in this document. It is not that TZ
+declines to record anything; the AP has no way to ask it to.
+
+The earlier note here said mainline disables TrustZone's SDI every boot via
+`!download_mode` in qcom_scm_probe(). Re-reading that code, the condition is
+
+	if (of_property_read_bool(np, "qcom,sdi-enabled") || !download_mode)
+		qcom_scm_disable_sdi();
+
+and this port already boots with qcom_scm.download_mode=full, and sm6375.dtsi
+has no qcom,sdi-enabled. So SDI is *not* being disabled. The problem is the
+other half: qcom_scm_set_download_mode() needs either an SCM call this
+firmware does not offer, or a register to poke, and it finds neither.
+
+The register comes from `qcom,dload-mode = <&tcsr OFFSET>` on the scm node.
+Other SoCs have it -- agatti 0x13000, eliza 0x1a000, glymur 0x4000 -- and
+sm6375.dtsi has no general TCSR syscon at all, only tcsr_mutex at 0x340000.
+The vendor does it a different way again, through IMEM children like
+dload_type@1c with compatible "qcom,msm-imem-dload-type", which does not match
+the single masked register mainline writes.
+
+So the next step is a device tree one: add a TCSR syscon for SM6375 and point
+qcom,dload-mode at the boot-misc-detect register inside it. The missing piece
+is that register's address on this SoC, which is not in the vendor device tree
+and will have to come from somewhere else.
+
+Two warnings for whoever does it. Download mode means the phone stops rebooting
+after a crash and sits in EDL or the crash dumper instead, so recovery needs a
+PC with fastboot or EDL tooling every single time. And it changes what the
+reset does, so it is an instrument that alters the experiment: worth having for
+one careful look at what TZ recorded, not worth leaving on.

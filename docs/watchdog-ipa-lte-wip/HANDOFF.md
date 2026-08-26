@@ -1596,3 +1596,41 @@ instant before the machine goes down.
 
 The module stays, because it is the only way to read those regions at all and
 the next person will otherwise repeat the /dev/mem dead end.
+
+## Why nothing in DDR can ever survive this reset
+
+Patch 0082 works: the TCSR syscon is there, /proc/device-tree/soc@0/syscon@3c0000
+exists, and "No available mechanism for setting download mode" is gone. qcom_scm
+can now clear download mode and ask for a clean reset.
+
+It changed nothing about the evidence. pstore is still empty after the reset.
+
+The reason is in the PON registers, read together rather than one at a time:
+
+    powered on because: Hard Reset, CBL (external power supply)
+    POFF sequence ran, status 0002 -> PS_HOLD
+
+PS_HOLD deasserted is the SoC asking the PMIC to remove its power, and the
+following boot reports itself as a Hard Reset power-on. That is a power cycle,
+not a warm reset: DDR loses its contents. So ramoops cannot survive, the three
+Motorola carveouts cannot survive, and no amount of driver work will change
+that. It is not that something is wiping the evidence -- the memory holding it
+is unpowered.
+
+This closes the whole "read what survived" family of ideas, and it explains
+every empty pstore, every noise-filled carveout, and why the console record was
+there for an Oops (the kernel was alive to write it, and the reboot after was
+warm) and never for this.
+
+It also settles the instrument question. Anything that is to be read after the
+fact has to be on flash before the reset, which is what
+`userspace/debug-tools/rhodep-kmsg-tail` does with an fsync per line, and it is
+the only reason the last kernel lines before the LTE death are known at all.
+
+0082 keeps its value on its own terms: sm6375 could not touch download mode at
+all, mainline has the property for the rest of this family, and the reasoning
+in the qcm2290 commit applies here word for word. It just does not help this
+hunt. Entering download mode rather than clearing it -- putting
+qcom_scm.download_mode=full back with the register now present -- would leave
+the phone in EDL after each reset, which needs a PC and a firehose loader every
+time, and is the one remaining way to ask TZ anything.

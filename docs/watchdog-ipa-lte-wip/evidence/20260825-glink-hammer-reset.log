@@ -1,0 +1,45 @@
+dev=/dev/rpmsg0 N=1000 uptime=566.18  RAPID open/close, no delay
+cycle 0 ok=1 fail=0 uptime=566.20
+cycle 20: [Errno 22] Invalid argument: '/dev/rpmsg0'
+cycle 25 ok=25 fail=1 uptime=571.37
+cycle 50 ok=50 fail=1 uptime=571.39
+cycle 75 ok=75 fail=1 uptime=571.40
+cycle 100 ok=100 fail=1 uptime=571.42
+cycle 125 ok=125 fail=1 uptime=571.43
+cycle 150 ok=150 fail=1 uptime=571.45
+cycle 175 ok=175 fail=1 uptime=571.46
+cycle 200 ok=200 fail=1 uptime=571.47
+cycle 225 ok=225 fail=1 uptime=571.49
+cycle 250 ok=250 fail=1 uptime=571.50
+cycle 275 ok=275 fail=1 uptime=571.51
+cycle 300 ok=300 fail=1 uptime=571.53
+cycle 325 ok=325 fail=1 uptime=571.55
+cycle 350 ok=350 fail=1 uptime=571.56
+cycle 375 ok=375 fail=1 uptime=571.58
+cycle 400 ok=400 fail=1 uptime=571.59
+cycle 425 ok=425 fail=1 uptime=571.60
+cycle 450 ok=450 fail=1 uptime=571.61
+cycle 475 ok=475 fail=1 uptime=571.62
+cycle 500 ok=500 fail=1 uptime=571.63
+cycle 525 ok=525 fail=1 uptime=571.64
+cycle 532: [Errno 22] Invalid argument: '/dev/rpmsg0'
+cycle 533: [Errno 2] No such file or directory: '/dev/rpmsg0'
+cycle 550 ok=531 fail=20 uptime=581.87
+cycle 575 ok=531 fail=45 uptime=581.88
+cycle 600 ok=531 fail=70 uptime=581.92
+cycle 625 ok=531 fail=95 uptime=581.95
+cycle 650 ok=531 fail=120 uptime=581.97
+cycle 675 ok=531 fail=145 uptime=581.98
+cycle 700 ok=531 fail=170 uptime=581.98
+cycle 725 ok=531 fail=195 uptime=581.99
+cycle 750 ok=531 fail=220 uptime=581.99
+cycle 775 ok=531 fail=245 uptime=581.99
+cycle 800 ok=531 fail=270 uptime=582.00
+cycle 825 ok=531 fail=295 uptime=582.01
+cycle 850 ok=531 fail=320 uptime=582.01
+cycle 875 ok=531 fail=345 uptime=582.02
+cycle 900 ok=531 fail=370 uptime=582.03
+cycle 925 ok=531 fail=395 uptime=582.03
+cycle 950 ok=531 fail=420 uptime=582.04
+cycle 975 ok=531 fail=445 uptime=582.05
+SURVIVED 1000 ok=531 fail=469 uptime=582.05

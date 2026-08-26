@@ -496,8 +496,24 @@ def existing_endpoints(name=None):
     return out
 
 
+def destroy_fd(fd):
+    """Release an endpoint through the descriptor already held for it.
+
+    Reopening the device to destroy it means rpmsg_eptdev_open() builds a whole
+    second glink channel, handshake and all, purely to tear it down again. That
+    churn is what produced one 'close ack on unknown channel' warning per run,
+    while plain open/close cycles produced none. The ioctl works perfectly well
+    on the descriptor that is already open, so do that instead.
+    """
+    try:
+        fcntl.ioctl(fd, RPMSG_DESTROY_EPT_IOCTL)
+        return True
+    except OSError:
+        return False
+
+
 def destroy(dev):
-    """Release an endpoint so the channel can be opened again."""
+    """Release an endpoint we have no descriptor for, i.e. one left behind."""
     try:
         fd = os.open(dev, os.O_RDWR)
     except OSError:
@@ -900,10 +916,12 @@ def main():
                 continue
             print(command(fd, line))
     finally:
-        os.close(fd)
-        # Leaking an endpoint keeps the channel busy for every later run, which
-        # is how this tool broke itself the first time.
+        # Destroy through this descriptor, then close it: no second channel is
+        # built, and the endpoint does not survive to trip up the next run.
         if mine:
+            destroy_fd(fd)
+        os.close(fd)
+        if mine and os.path.exists(dev):
             destroy(dev)
 
 

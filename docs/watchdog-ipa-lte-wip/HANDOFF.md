@@ -954,3 +954,74 @@ The first stage reproduces on demand, which the teardown signature never did.
 on DS and counts the warnings. Do not run it on a kernel without the patch
 unless a freeze is acceptable, because that loop is what froze the phone.
 
+## Patch 0080 verified on the device, and what it did not fix
+
+Flashed 2026-08-25 (kernel built Aug 25 23:30, the one before it Aug 24
+18:30; the WARN line number also moved 1755 -> 1761, which is exactly the six
+lines the patch inserts, so the running kernel is definitely the patched one).
+
+Fixed, with evidence:
+
+  * The freeze is gone. Creating an endpoint on DS and reopening it is what
+    froze the phone twice on the unpatched kernel, once within three cycles.
+    Eight cycles of exactly that pattern now pass with no Oops and continuous
+    uptime, and 200 rapid open/close cycles complete in 1.3 s.
+  * No refcount underflow appeared at any point.
+
+Not fixed, and it was never the same bug:
+
+  * 'close ack on unknown channel' at qcom_glink_native.c:1761 still fires.
+    The explanation written into the patch was wrong: a merely freed channel
+    would leave a dangling pointer in lcids, and idr_find would return it, not
+    NULL. NULL means something removed the lcid first. It turned out to be
+    this tool's fault, not the kernel's. destroy() reopened the device to
+    issue RPMSG_DESTROY_EPT_IOCTL, and rpmsg_eptdev_open() builds a whole
+    second glink channel, handshake and all, just to tear it down. One warning
+    per run, and none at all from plain open/close cycles. Issuing the ioctl
+    on the descriptor already held removes it: three runs, count unchanged.
+
+Patch 0080 is incomplete and should not go upstream as it stands. There is
+exactly one kref_get() in qcom_glink_native.c, at send_open_req, so the
+premise written into the commit message -- one reference per idr entry -- is
+not the design. For a locally-created channel the accounting is alloc 1, plus
+send_open_req 1 for lcids, and the two puts at close (rx_close_ack for lcids,
+rx_close for rcids) reach zero only by consuming the reference that belongs to
+the endpoint. That is why it crashes when the endpoint outlives the channel,
+and why adding a reference for rcids stops the crash. But nothing then drops
+the endpoint's own reference: qcom_glink_device_release() only covers channels
+that have an rpdev, which locally-created ones do not. So the patch most
+likely trades a use-after-free for a leak of one channel per open. That is a
+better trade and it is measurably safer, but the complete fix needs a matching
+put, probably in qcom_glink_destroy_ept(), and that has to be worked out for
+rpdev-backed channels too before anyone sends it anywhere.
+
+## A faster way to kill the SoC than LTE, seen twice
+
+Hammering the DS glink channel with open/close resets the phone the same way
+LTE does. Second occurrence, with the log kept in evidence/:
+
+    cycle 20:  EINVAL on /dev/rpmsg0
+    cycle 532: EINVAL
+    cycle 533: /dev/rpmsg0 no longer exists
+    ... every later cycle fails; SoC resets seconds afterwards
+
+An eptdev only disappears when its parent destroys it, which means the glink
+edge went down: the modem died. Then the SoC followed. Boot afterwards:
+bootreason=watchdog, pstore empty, PON 088d=01 08c2=02 08c4=40 -- the same
+fingerprint as the LTE and GNSS deaths.
+
+Be careful about how much this is worth. That fingerprint appears after any
+abnormal reset, so it says 'same class of death', not 'same cause'. It is not
+deterministic either: the identical 200-cycle pattern reset the phone once and
+then survived twice, and 1000 cycles were needed the second time. What makes
+it worth chasing is the shape -- modem dies first, SoC follows immediately,
+nothing written anywhere -- which is precisely the shape of the bug this
+directory exists for, reachable in about ten seconds with no SIM, no LTE and
+no radio involved at all.
+
+userspace/debug-tools/rhodep-glink-hammer.py is the reproducer. It needs the
+modem's rpmsg control device passed in, because that number changes between
+boots:
+
+    C=$(rhodep-modem-at -l | sed -n "s/.*control device: //p")
+    sudo python3 rhodep-glink-hammer.py 1000 "$C"

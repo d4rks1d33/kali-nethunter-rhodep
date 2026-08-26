@@ -1103,3 +1103,50 @@ The leak measurement is still outstanding. Every attempt to run 500 cycles and
 compare slab counters was cut short by the reset described above, which is not
 the patch's doing but does mean the leak question is answered by reasoning
 rather than by measurement so far.
+
+## IPA is required for the reset
+
+The reproducer is short enough to A/B properly now, so it was. One debugfs
+write per round, the modem crashes and comes back, and the only question is
+whether the SoC survives the bring-up.
+
+    ipa.ko loaded at boot     4 resets in 5 bring-ups
+                              (the fifth was the run where recovery hung
+                              inside ipa_modem_stop and the modem never
+                              returned, so there was no bring-up to survive)
+
+    ipa.ko removed            0 resets in 6 bring-ups, uptime continuous
+                              from 683 to 920, four rounds in one run and two
+                              in another
+
+    ipa.ko modprobe'd back    0 resets in 2 bring-ups -- and this one does not
+                              count, see below
+
+The last line is not a control and must not be read as one. Loading ipa while
+the modem is already running is not the same state as loading it at boot: it
+never performs the modem setup handshake it normally does during probe, so
+there is no data path for the bring-up to touch. It is recorded because it was
+run, not because it proves anything.
+
+The control that does count is a clean reboot, where ipa loads normally, and
+that reset on the first round:
+
+    [72.02] round 1: crashing the modem
+    [72.23] crashed -> offline
+    [74.85] offline -> running
+            log ends here; next boot has bootreason=watchdog
+
+So the reset needs the modem to come back up, and it needs IPA to be there in
+the state its own probe leaves it in. That is now a four second experiment
+with two variables, on a machine with no SIM in it.
+
+What this does not say: that IPA is the bug. Removing ipa.ko removes the
+entire modem data path, so it is a large hammer. It could be IPA's GSI channel
+setup that is fatal, or it could be anything the modem only does when it has
+somewhere to send traffic. The next cut has to be inside IPA rather than
+around it: the modem endpoints and GSI channel setup at ipa_modem_start, and
+the config the modem receives during ipa_modem_notify, are where to start.
+
+It does explain why every previous elimination round kept coming back to LTE.
+An attach is the one thing that makes the modem bring the data path up, and
+the data path is IPA.

@@ -1,0 +1,9 @@
+[78.77] === new run, 1 round(s), kernel 7.2.0-rc5
+[78.78] round 1: state=running, crashing the modem
+[78.78] round 1: interfaces at the start: docker0,lo,rmnet_ipa0,usb0,wlan0 (rmnet_ipa present: True)
+[78.78] round 1: running -> crashed
+[78.78] round 1: still watching, state=crashed
+[78.98] round 1: crashed -> offline
+[78.99] round 1: rmnet_ipa went away -- the modem finished setting up the data path
+[79.79] round 1: offline -> running
+[79.80] round 1: modem is up; the next few seconds are the ones that matter

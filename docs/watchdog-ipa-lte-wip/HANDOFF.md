@@ -1419,3 +1419,66 @@ So whatever kills the machine is not an access that IPA itself sees refused.
 Combined with the AP staying responsive through the silence and writing
 nothing, the remaining shapes are an access refused somewhere IPA cannot
 observe, or something outside the AP entirely deciding to pull the SoC down.
+
+## The PMIC says PS_HOLD: the SoC asks to be shut down
+
+The PON registers have been read here for a long time as raw bytes compared
+between runs -- 088d 00 -> 01, 08c2 00 -> 02, 08c4 80 -> 40 -- which was enough
+to tell one reset from another and nothing more. Mainline has no decoder for
+them. The vendor has one, in drivers/input/misc/qpnp-power-on.c, and
+`userspace/debug-tools/rhodep-pon-reason` is that logic and those tables.
+
+For this PMIC generation the registers are
+
+    PON_REASON1        0x8C0    why it powered on
+    WARM_RESET_REASON1 0x8C2
+    PON_OFF_REASON     0x8C7    which of three sequences ran
+    POFF_REASON1       0x8C5      if bit 7 set
+    FAULT_REASON1      0x8C8      if bit 6, two bytes, table index + 16
+    S3_RESET_REASON    0x8CA      if bit 5, table index + 32
+
+The decoder was checked against a known answer first: after the phone was
+brought back with a long power-button hold it said "KPDPWR_N (long power key
+hold)", which is exactly what had happened.
+
+Then, on the reset after a modem restart with the unpatched ipa.ko:
+
+    off reason register 80
+    POFF sequence ran, status 0002
+    -> PS_HOLD (the SoC asked to be shut down)
+    warm reset reason1: 02
+
+PS_HOLD deasserted means the SoC itself asked to go down. It was not the PMIC
+watchdog (that is POFF bit 2), not a fault sequence, not UVLO or OVLO, not
+over-temperature, not stage 3. So a whole class of explanation is gone: this is
+not the power management hardware deciding the SoC has misbehaved, and it is
+not electrical.
+
+Something inside the chip pulls PS_HOLD, and it is not Linux: the AP keeps
+answering and writes nothing right up to the moment it stops. That leaves the
+secure world. TZ deasserting PS_HOLD is how a controlled system reset is done
+on these parts, and it fits everything else -- instant, silent, no crash
+reason, no ramoops, and a bootloader that reports the class as "watchdog".
+
+Two limits on this. It was measured on the modem-restart reset, not the LTE
+one; confirming the LTE reset reports PS_HOLD too needs the data SIM back in.
+And PS_HOLD says who pulled the switch, not why: a subsystem fatal error
+escalated by TZ, or a memory protection violation, both end here.
+
+## Two ways this tool broke things before it worked
+
+Both are mine and both are worth knowing.
+
+Its first version looked for the PON block by globbing every regmap in
+/sys/kernel/debug/regmap and reading each one. That froze the phone hard enough
+to need the power button, because the glob matched i2c devices -- 0-0035,
+3-003b, 4-0034, 4-0035 -- and dumping the registers of an i2c device that is
+asleep is exactly the "access something that does not answer" hazard this
+document opens with. It now asks /sys/bus/spmi/devices which devices exist and
+reads only those.
+
+Then it could not find the block at all, and the reason is worth writing down
+for anyone reading regmap dumps: a plain read() of that file returns about
+8 KB and stops, nowhere near 0x800. The dump is positional and every line is
+exactly nine bytes, "%04x: %02x\n", so seeking to addr*9 lands on that
+register. Seek to the block you want instead of reading from zero.

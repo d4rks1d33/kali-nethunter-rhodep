@@ -1551,3 +1551,48 @@ after a crash and sits in EDL or the crash dumper instead, so recovery needs a
 PC with fastboot or EDL tooling every single time. And it changes what the
 reset does, so it is an instrument that alters the experiment: worth having for
 one careful look at what TZ recorded, not worth leaving on.
+
+## The three Motorola carveouts are empty, and that says something
+
+patch 0067 already reserves the three regions blair keeps below ramoops, so
+their contents survive a reset untouched by Linux:
+
+    mmi_annotate@aefa1800    2 KiB
+    tzlog_dump@aefa2000    192 KiB   backup of TrustZone's log
+    wdog_cpuctx@aefd2000   184 KiB   per-CPU context saved on a watchdog bite
+
+The addresses check out against the vendor's own header,
+include/dt-bindings/moto/moto-mem-reserve.h: WDOG_CPUCTX_BASE is
+RAMOOPS_BASE_ADDR 0xaf000000 minus 0x5c00 * 8, which is 0xaefd2000, exactly
+what is reserved here.
+
+They cannot be read through /dev/mem: CONFIG_STRICT_DEVMEM is set and a read
+returns zero bytes with no error at all, which is easy to mistake for an empty
+region. kernel/diag-modules/rhodep_dbgmem.c memremaps all three and exposes
+them read-only under /sys/kernel/debug/rhodep_dbgmem. It builds on the phone in
+seconds and all three regions map without trouble.
+
+All three contain uninitialised DRAM, not data. The byte distribution settles
+it: across 64 KiB of tzlog the commonest values are ff, fd, fb, f7 and fe, all
+bits-mostly-set, which is what unwritten cells look like. Encrypted content --
+and this platform's TZ log is encrypted, the vendor driver has an
+enc_tzlog_info for it -- would be flat. A log would have structure.
+wdog_cpuctx contains two kernel-looking pointers in 64 KiB, so it is not saved
+CPU context, and mmi_annotate has no readable boot text.
+
+Which is consistent, and worth the trouble to establish:
+
+  * mmi_annotate and tzlog_dump are filled by downstream Motorola drivers this
+    port does not have. Reserving the memory keeps it safe; nothing writes it.
+  * wdog_cpuctx is filled by TZ when the APSS watchdog bites. It is empty,
+    which is independent confirmation of the earlier finding that the APSS
+    watchdog is not what fires: its bite is programmed at thirty seconds and
+    the reset comes four seconds after bring-up.
+
+So this route is closed: there is no stored account of what TZ saw, because
+nothing on this system stores one. Reading TZ's log live needs an SCM call, and
+the log does not survive the reset anyway, so it would have to be read in the
+instant before the machine goes down.
+
+The module stays, because it is the only way to read those regions at all and
+the next person will otherwise repeat the /dev/mem dead end.

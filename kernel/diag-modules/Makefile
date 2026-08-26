@@ -13,6 +13,7 @@
 # modules built with a different toolchain still load.
 obj-m += rhodep_clkhold.o
 obj-m += rhodep_pdhold.o
+obj-m += rhodep_dbgmem.o
 
 KDIR ?= /lib/modules/$(shell uname -r)/build
 

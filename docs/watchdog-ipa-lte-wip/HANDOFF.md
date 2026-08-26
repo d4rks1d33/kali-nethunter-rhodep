@@ -1948,3 +1948,68 @@ tool was wrong, not the phone.
 
 So whatever is being touched is not in the reserved map. That leaves the things
 a map does not cover: an address the SMMU translates, a register, or IMEM.
+
+## TrustZone's log can be read now, and it says nothing either
+
+Following "an address the SMMU translates, a register, or IMEM" led to the one
+participant never heard from. blair.dtsi has
+
+    qcom_tzlog: tz-log@c125720 { compatible = "qcom,tz-log"; reg = <0xc125720 0x3000>; }
+
+so TZ's log is in IMEM, not in the DDR carveout checked earlier. Two things had
+to be got right to read it.
+
+First, the window. Mainline describes IMEM as sram@c125000 with size 0x1000,
+and the log is declared 0x3000 from +0x720, so it runs two pages past the end.
+Reading the declared size froze the phone -- which is what HANDOFF already
+warned about as "reading past the end of the 4 KB IMEM window", now confirmed
+with a boundary: 0xc125720 to 0xc126000, 0x8e0 bytes, is readable and anything
+past it hangs the AP.
+
+Second, that window holds only a header, some subsystem names and a block of
+flags. The header's first word is a pointer, 0x0c116000, and that is where the
+diagnostic structure actually lives. Mapping it works and does not hang:
+
+    tzlog body 0xc116000: 747a6461 00090003 00000008 0000002c  (magic 'tzda')
+
+0x747a6461 is TZBSP_DIAG_MAGIC. The structure is real, version 0x00090003,
+eight CPUs, and the offsets that follow are the usual tzdbg ones: vmid info at
+0x2c, boot info at 0xb0, reset info at 0x1f0, interrupt info at 0x234, and the
+log ring around 0x1034 and 0x1074. Its interrupt names read out in plain text:
+
+    CPUWakeUp  SGITAWDog  SGIFtlErr  SGITeeNotifier  SGIReset
+    SWDogBark  NSWDogBite  RPMWDogBite  RPMErrInd  SPI VMIDMT ERR
+
+"SPI VMIDMT ERR" is a VMID mapping table error, which is precisely the
+access-control violation this hunt has been circling.
+
+So the structure was watched at 50 ms while LTE was switched on, and it caught
+the whole run up to the moment the machine stopped. What changed, continuously,
+were counters in the boot-info block at 0xb0:
+
+    [121.63] now 13590000 13590000 14590000 ... 23590000
+    [121.71] now 22590000 22590000 23590000 ... 32590000
+    [121.81] now 33590000 33590000 34590000 ... 43590000
+             ... and the machine is gone
+
+Steadily incrementing timestamps, nothing else. **reset_info at 0x1f0 never
+changed**, and the log ring showed no text. TrustZone recorded nothing unusual
+before it deasserted PS_HOLD -- at least not in the 8 KiB that can be read, and
+not within 50 ms of the end.
+
+That is a real negative and it constrains things further. Every participant has
+now been asked and all three say nothing is wrong: Linux prints nothing, the
+modem answers AT commands normally, and TZ's own diagnostic structure ticks its
+counters as if it were an ordinary second. Whatever pulls the switch either
+does not go through TZ's logging at all, or records it somewhere outside the
+readable window.
+
+Tools from this: `userspace/debug-tools/rhodep-tzlog-watch.py` takes --source
+so it can watch either region, and rhodep_dbgmem gained the body mapping behind
+allow_tzlog_body=1, off by default because it is outside the described IMEM
+node.
+
+One practical note found the hard way: module unload does not work on this
+kernel. rmmod returns EBUSY with a refcount of zero even though
+CONFIG_MODULE_UNLOAD is set, and rmmod -f leaves the ioremaps behind so the
+next insmod fails too. Changing this module means rebooting.

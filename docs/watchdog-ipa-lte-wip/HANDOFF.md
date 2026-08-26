@@ -1904,3 +1904,47 @@ control every other measurement here has lacked:
 
     sudo insmod rhodep_dbgmem.ko allow_tcsr_read=1
     sudo cat /sys/kernel/debug/rhodep_dbgmem/tcsr_dload
+
+## The memory map is not the problem: all fifteen regions match
+
+If the modem or IPA is touching something it may not touch, the reserved memory
+map is the first place to look, and it is clean. Every reserved region blair
+declares, compared against what this kernel actually reserved at boot rather
+than against the device tree source:
+
+    hyp            0x80000000  0x600000     OK
+    xbl_aop        0x80700000  0x100000     OK
+    xbl_uefi       0x80880000  0x14000      OK
+    smem           0x80900000  0x200000     OK
+    fw_mem         0x80b00000  0x100000     OK
+    dfps           0x85e00000  0x100000     OK
+    pil_wlan       0x86500000  0x200000     OK
+    pil_adsp       0x86700000  0x2000000    OK
+    pil_cdsp       0x88700000  0x1e00000    OK
+    pil_video      0x8a500000  0x500000     OK
+    pil_ipa_fw     0x8aa00000  0x10000      OK
+    pil_ipa_gsi    0x8aa10000  0xa000       OK
+    pil_gpu_ucode  0x8aa1a000  0x2000       OK
+    pil_mpss_wlan  0x8b800000  0x10000000   OK
+    removed        0xc0000000  0x7100000    OK
+
+Fifteen for fifteen, address and size. The modem's own carveout is identical,
+and so are both IPA regions.
+
+`removed_mem` deserves a note because it looked like a find at first:
+sm6375.dtsi upstream says 0x5100000 and blair says 0x7100000, a 32 MiB
+difference, which would have meant Linux using memory that belongs to the
+secure world. It is already fixed here by patch 0049, and the running kernel
+reserves the full 0x7100000, with /proc/iomem showing System RAM resuming at
+0xc7100000. Checking the live reservation rather than the upstream source is
+what showed that; the source alone would have sent me chasing a bug that this
+port fixed months ago.
+
+One caution about the checking rather than the result. The first pass of this
+comparison reported eleven regions missing, and all eleven were an artifact: the
+pattern used to parse the boot log accepted only letters and underscores in a
+node name, and this port names them with dashes -- pil-ipa-fw@8aa00000. The
+tool was wrong, not the phone.
+
+So whatever is being touched is not in the reserved map. That leaves the things
+a map does not cover: an address the SMMU translates, a register, or IMEM.

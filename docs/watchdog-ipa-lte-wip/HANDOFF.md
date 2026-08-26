@@ -1801,3 +1801,51 @@ as the last kernel line before a PS_HOLD reset. So a failed glink open can end
 in a reset too. The control device must be matched on 6080000.remoteproc in the
 sysfs path, which the AT console already learnt the hard way and this tool then
 repeated by guessing.
+
+## Both processors are healthy in the instant before the SoC is switched off
+
+The modem has now been asked, which was the one thing never tried, and its
+answer is that nothing is wrong. rhodep-modem-lastwords.py held the AT channel
+open and polled it while LTE was switched on, fsync'ing every answer. The tail
+is in evidence/20260826-lte-death-modem-lastwords.log and it ends like this:
+
+    [154.65] AT$QCSYSMODE?  -> LTE | OK
+    [154.65] AT+CEREG?      -> +CEREG: 0,1 | OK
+    [154.66] AT+CFUN?       -> +CFUN: 1 | OK
+    [154.66] AT+CSQ         -> +CSQ: 23,99 | OK
+    [154.67] AT$QCSYSMODE?  -> LTE | OK
+    [154.67] AT+CEREG?      -> +CEREG: 0,1 | OK
+    [154.68] AT+CFUN?       -> +CFUN: 1 | OK
+
+Registered at home on LTE, full functionality, a signal of 23, answering four
+different commands in rotation faster than a millisecond apart, and then the
+machine is gone. 5702 answers across the run, about 1500 of them in the ten
+seconds it spent on LTE. No error, no degradation, no last word.
+
+The kernel log for the same run contains one line: the header
+rhodep-kmsg-tail writes when it starts. Nothing else was printed at all.
+
+So both processors are working normally at the moment they are switched off.
+The AP answers a userspace sampler and prints nothing; the modem answers AT
+commands and reports itself healthy. Whatever deasserts PS_HOLD does it without
+either operating system noticing anything is wrong, which rules out the whole
+family of explanations where one of them detects a problem and reacts badly.
+
+## The trigger is the attach, not the bearer
+
+Worth correcting an assumption carried through this file. The bearer was never
+brought up in this run -- the machine died while the modem was merely
+registered:
+
+    [143.27] the modem reports LTE
+    [144.23] +CEREG: 0,1, registered
+    [154.68] dead, 10.5 s later
+
+The earlier run that died when `nmcli con up` was issued had been sitting
+registered on LTE for about twenty seconds while commands were typed, so the
+bearer was coincidence, not cause. What matters is the attach itself, which is
+when the modem installs its filter and routing tables through IPA -- and IPA is
+still required, since removing ipa.ko is what makes the reset go away.
+
+This run also used the ipa.ko carrying patch 0081, which confirms again that
+0081 does nothing for the LTE reset.

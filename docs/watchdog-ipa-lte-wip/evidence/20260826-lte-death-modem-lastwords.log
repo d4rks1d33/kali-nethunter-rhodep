@@ -1,0 +1,400 @@
+[151.98] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[151.98] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[151.99] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[151.99] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.00] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.00] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.00] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.01] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.01] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.02] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.03] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.04] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.05] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.06] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.07] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.08] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.08] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.09] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.10] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.11] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.12] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.13] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.13] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.14] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.15] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.15] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.16] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.17] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.17] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.18] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.19] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.20] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.21] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.21] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.22] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.23] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.24] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.24] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.25] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.26] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.27] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.27] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.28] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.29] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.29] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.30] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.31] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.31] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.32] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.32] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.33] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.34] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.34] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.35] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.36] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.37] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.38] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.38] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.39] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.40] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.41] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.42] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.43] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.43] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.44] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.45] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.45] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.46] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.47] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.47] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.48] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.49] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.50] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.50] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.51] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.52] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.53] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.53] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.54] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.55] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.56] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.57] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.58] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.58] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.59] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.60] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.61] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.62] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.62] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.63] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.63] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.64] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.64] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.65] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.66] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.67] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.68] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.68] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.69] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.71] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.72] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.72] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.73] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.74] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.74] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.75] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.76] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.76] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.77] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.77] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.78] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.78] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.79] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.80] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.81] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.81] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.82] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.83] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.84] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.85] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.86] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.87] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.87] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.88] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.89] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.90] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.91] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.92] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.92] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.93] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.94] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.94] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.95] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.95] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.96] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[152.96] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[152.97] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[152.98] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[152.99] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.00] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.00] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.01] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.02] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.03] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.04] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.05] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.05] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.06] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.07] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.08] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.08] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.09] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.10] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.11] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.12] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.13] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.14] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.15] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.16] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.17] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.18] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.18] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.19] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.20] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.21] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.22] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.23] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.23] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.24] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.24] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.25] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.25] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.26] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.27] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.27] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.28] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.29] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.30] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.30] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.31] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.32] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.33] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.34] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.34] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.35] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.36] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.37] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.37] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.38] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.39] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.40] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.41] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.41] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.42] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.43] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.43] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.44] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.45] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.46] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.47] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.48] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.49] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.50] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.51] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.52] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.53] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.54] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.55] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.55] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.56] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.57] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.57] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.58] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.58] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.59] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.59] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.60] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.60] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.61] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.62] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.62] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.63] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.64] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.65] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.66] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.67] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.67] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.68] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.69] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.70] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.71] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.71] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.72] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.73] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.74] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.74] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.75] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.76] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.77] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.77] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.78] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.79] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.80] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.81] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.81] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.82] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.83] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.84] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.85] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.85] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.86] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.87] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.88] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.88] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.89] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.90] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.90] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.90] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.91] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.91] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.92] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.92] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.93] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.94] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.95] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.96] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[153.96] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[153.97] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[153.98] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[153.99] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.00] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.00] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.01] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.02] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.03] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.04] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.05] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.06] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.07] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.07] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.08] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.09] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.10] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.10] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.11] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.12] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.13] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.14] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.15] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.16] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.16] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.17] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.18] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.19] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.20] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.21] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.21] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.22] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.23] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.23] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.24] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.24] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.25] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.25] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.26] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.26] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.27] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.27] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.28] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.29] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.29] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.30] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.30] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.31] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.31] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.32] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.32] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.33] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.33] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.34] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.34] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.35] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.35] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.36] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.36] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.37] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.37] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.38] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.38] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.39] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.39] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.39] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.40] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.40] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.41] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.41] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.42] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.42] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.43] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.43] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.43] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.44] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.44] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.44] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.45] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.45] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.45] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.46] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.46] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.46] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.47] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.47] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.47] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.47] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.47] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.48] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.48] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.48] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.49] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.49] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.49] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.50] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.50] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.51] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.51] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.52] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.52] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.53] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.53] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.54] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.54] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.55] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.55] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.56] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.56] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.57] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.57] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.58] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.58] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.58] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.59] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.60] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.60] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.61] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.61] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.61] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.62] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.62] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.63] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.63] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.63] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.64] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.64] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.65] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.65] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.66] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK
+[154.66] AT+CSQ         -> AT+CSQ | +CSQ: 23,99 | OK
+[154.67] AT$QCSYSMODE?  -> AT$QCSYSMODE? | LTE | OK
+[154.67] AT+CEREG?      -> AT+CEREG? | +CEREG: 0,1 | OK
+[154.68] AT+CFUN?       -> AT+CFUN? | +CFUN: 1 | OK

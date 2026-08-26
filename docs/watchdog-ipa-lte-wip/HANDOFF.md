@@ -1759,3 +1759,45 @@ commit message must not claim it. There is at least one more over-put in the
 teardown path that this accounting does not cover, and finding it needs a run
 where the channels' states at teardown are known rather than the result of 500
 failed opens.
+
+## Asking the modem: the right instrument, the wrong reproducer
+
+The AP has nothing to say in the fatal window, so the modem is the only
+participant left to ask, and it does answer on the AT channel -- during the LTE
+work it was still returning +CEREG about 200 ms before the machine died.
+`userspace/debug-tools/rhodep-modem-lastwords.py` crashes the modem, waits for
+it to come back, opens the AT channel once and then polls it, fsync'ing every
+answer, until the machine stops.
+
+It does not work on the modem-restart reproducer, and the reason is worth
+recording because it also measures how short that window is:
+
+    [ 89.30] crashing the modem
+    [ 90.43] rproc offline -> running
+             ... dead before the channel could be created
+
+    [115.34] crashing the modem
+    [118.40] no /dev/rpmsgN appeared for DS
+
+With no settling delay at all, three seconds of waiting for the endpoint to
+appear is already too long. The modem's glink channels are not up yet when the
+SoC is switched off, so there is nothing to ask. The window between "remote
+processor modem is now up" and the machine going down is shorter than the modem
+takes to expose its channels.
+
+The LTE reset is the opposite case: the channel is already open and answering
+when the bearer is brought up, so the tool's --no-crash mode fits it exactly --
+start polling, bring LTE data up, and the last answer in the file is the
+modem's own account. That needs the SIM with a data plan back in the phone.
+
+One incident worth keeping from this. The first version of the tool guessed at
+the modem's rpmsg control device and got /dev/rpmsg_ctrl0, which belongs to a
+different edge. It created a DS endpoint there, left it behind, and the next
+run's cleanup-and-recreate ended with
+
+    rpmsg rpmsg0: failed to open DS
+
+as the last kernel line before a PS_HOLD reset. So a failed glink open can end
+in a reset too. The control device must be matched on 6080000.remoteproc in the
+sysfs path, which the AT console already learnt the hard way and this tool then
+repeated by guessing.

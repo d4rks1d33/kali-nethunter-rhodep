@@ -1634,3 +1634,81 @@ hunt. Entering download mode rather than clearing it -- putting
 qcom_scm.download_mode=full back with the register now present -- would leave
 the phone in EDL after each reset, which needs a PC and a firehose loader every
 time, and is the one remaining way to ask TZ anything.
+
+# Where this stands, and what to do next
+
+## What is known now, in order of how much it constrains the search
+
+**The SoC asks the PMIC to cut its power.** POFF_REASON1 says PS_HOLD, and the
+next boot reports Hard Reset. Not the PMIC watchdog, not a fault, not UVLO,
+OVLO, thermal or stage 3. Not the APSS watchdog either, whose bite is
+programmed at thirty seconds when the reset comes four seconds after bring-up,
+and whose CPU-context carveout is empty.
+
+**It is not Linux doing it.** The AP answers a userspace sampler right up to
+the moment it stops, and writes nothing: the last kernel lines are always
+"received modem running event" and "remote processor modem is now up", or for
+LTE an IPA TX_SUSPEND that belongs to the bearer being torn down. No error, no
+warning, no complaint.
+
+**It is not an access IPA sees refused.** Patch 0072 unmasks every IPA error
+interrupt precisely because BAD_SNOC_ACCESS is what a refused access looks like
+from in there. None of them fire.
+
+**Nothing in DDR can survive to be read.** PS_HOLD means a power cycle, so
+ramoops, the tzlog backup and the wdog context are all unpowered, which is why
+every one of them holds uninitialised noise. Anything to be read afterwards has
+to reach flash before the reset.
+
+**There are two resets, not one.** A modem restart with ipa loaded resets the
+SoC about four seconds after the modem comes back, and patch 0081 stops that
+completely: four resets in five bring-ups became none in four. The LTE reset is
+a different thing -- no modem crash anywhere in it -- and 0081 does not touch
+it, tested directly with a data SIM.
+
+## What the phone is running right now
+
+  * kali-boot-dload.img: patches through 0082, and deliberately no
+    qcom_scm.download_mode=full on the command line.
+  * ipa.ko is the patched one, 50f12d45, so a modem crash no longer takes the
+    SoC with it. /home/kali/ipa-original.ko is the stock one, 12dc1306, for
+    when the four second reproducer is wanted back. Swap, depmod -a, reboot.
+  * The ipa boot hold is still off on purpose. With a data SIM and LTE data
+    enabled this phone resets; that is expected in this state and is spelled
+    out in /etc/modprobe.d/README-rhodep-ipa-hold-is-OFF.
+  * A SIM without a data plan is in it, which is safe.
+
+## Next, in the order I would do it
+
+1. **Finish the leak measurement 0081 still owes.** Three attempts were cut
+   short by the very reset being studied. It can be done cleanly now: remove
+   ipa.ko first, which is what stops the reset, then run
+   `rhodep-glink-refcount-test 500` and read the slab deltas. Cheap, and it is
+   the one open question about a patch that is otherwise ready to send.
+
+2. **Ask what the modem was doing in those four seconds.** The reset needs the
+   modem to come back up and needs IPA present. The modem's own view is the
+   one thing not yet sampled during the window; the AT console works and the
+   modem answers until the last moment.
+
+3. **Then download mode, if it comes to that.** With 0082 in place, putting
+   qcom_scm.download_mode=full back makes the phone stay in EDL after a reset
+   instead of rebooting, which is the only remaining way to ask TZ anything.
+   Worth correcting an overcautious note made earlier: this does not risk the
+   device. fastboot is always reachable, so the cost is having a PC to hand
+   and the time it takes, not a phone that cannot be recovered. It still comes
+   third because the two above are cheaper and neither needs a PC.
+
+## Instruments built for this, and what each is for
+
+    rhodep-kmsg-tail            the kernel's last words, fsync per line. The
+                                only reason the LTE death is readable at all.
+    rhodep-pon-reason           why the PMIC cut power, in words, using the
+                                vendor's own tables
+    rhodep-modem-restart-watch  the four second reproducer, and a netdev
+                                sampler that shows whether IPA came back
+    rhodep-glink-hammer         the longer reproducer, kept as a second path
+    rhodep-glink-refcount-test  crash, leak and recovery for patch 0080
+    rhodep-dbgmem               the three Motorola carveouts, which /dev/mem
+                                cannot read and which turn out to be empty
+    rhodep-modem-at             the AT console, with help for all 256 commands

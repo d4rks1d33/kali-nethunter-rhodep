@@ -1244,3 +1244,90 @@ ends at 0x2f24, inside the 0x3000 ipa-shared window. The vendor DTS does not
 state an SRAM size to contradict it; the downstream driver computes its own.
 Qualcomm ships IPA outside the kernel tree (techpack/dataipa), so it cannot be
 compared from the vendor kernel clone that this port uses.
+
+## Reading the kernel's last words, now that ramoops cannot
+
+ramoops does not survive this reset. The console record is there for an Oops
+and empty every single time the SoC goes down at modem bring-up, so the normal
+way of reading a dying kernel does not work here.
+
+`userspace/debug-tools/rhodep-kmsg-tail` reads /dev/kmsg and fsyncs every line
+before reading the next. One fsync per message is far too expensive to leave
+running and exactly right for a four second window that ends in a reset.
+
+    sudo rhodep-kmsg-tail --out /var/log/rhodep-kmsg.log &
+    sudo rhodep-modem-restart-watch.py --rounds 1
+
+What it says about the fatal window is: nothing. Not an error, not a warning,
+no IPA or QMI complaint. The last two kernel lines are always these, and then
+the machine is gone:
+
+    ipa 5840000.ipa: received modem running event
+    remoteproc remoteproc0: remote processor modem is now up
+
+So the AP is not detecting a problem and reacting badly to it. It is being
+switched off while it has nothing to say.
+
+## IPA never recovers from a modem restart, and that is a mainline gap
+
+The watcher also samples /sys/class/net, because rmnet_ipa0 is registered by
+ipa_modem_start() and only exists once the modem has finished setting up the
+data path. Measured:
+
+    interfaces at the start: ... rmnet_ipa0 ...   <- boot handshake succeeded
+    round 1: rmnet_ipa went away                  <- modem crashed
+    round 1: modem is up
+    ...                                           <- it never comes back
+
+Reading why makes it plain. `ipa_modem_crashed()` calls
+`ipa_smp2p_irq_disable_setup()`, whose comment says "Prevent the modem from
+triggering a call to ipa_setup()", and that sets `smp2p->setup_disabled = true`.
+Nothing in the tree ever sets it back to false: grep for it and there are three
+hits, the declaration, the comment and that one assignment. So the GSI-ready
+interrupt from the modem is masked once and stays masked.
+
+`ipa_smp2p_notify_reset()`, which does run on QCOM_SSR_BEFORE_POWERUP, only
+clears the two power notification bits. It does not re-arm that interrupt.
+
+`ipa_setup()` also has no guard against running twice; it would redo
+gsi_setup(), re-enable already-enabled endpoints and call ipa_qmi_setup()
+again. So masking the interrupt is protecting against a real problem, and the
+consequence is that after any modem crash, mainline IPA is finished until
+reboot. Also worth noting: `ipa_modem_crashed()` never calls `ipa_teardown()`
+and never clears `ipa->setup_complete`.
+
+That gives a coherent story for the reset, and it also explains the A/B. The
+first boot establishes the IPA relationship with the modem. After a restart the
+modem announces GSI ready and the AP, by design, does not answer. Roughly four
+seconds later the SoC goes down with no AP involvement. With ipa.ko never
+loaded there is no relationship to break, nothing is expected of the AP, and
+six restarts passed.
+
+It is a story, not a proof. What is measured is: the interrupt is masked
+permanently, rmnet_ipa never returns, the kernel says nothing, and the SoC dies.
+That the modem is escalating because it was left unanswered is inference.
+
+One loose end, deliberately not overclaimed: an unhandled QMI indication shows
+up at every transition, twice, from two nodes.
+
+    qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=8 len=7 ...
+
+IPA's own ids are 0x22 for INIT_COMPLETE and 0x35 for DRIVER_INIT_COMPLETE, so
+0x23 is not one of them, though the length of 7 matches
+IPA_QMI_INIT_COMPLETE_IND_SZ. Unidentified for now.
+
+## A caveat that matters more the better this reproducer gets
+
+This reproducer is a modem *restart*. The LTE bug is not: there the phone boots
+once, IPA sets up normally, rmnet_ipa exists, the modem attaches, and the reset
+comes three to ten minutes later with no modem crash anywhere in it.
+
+They share a fingerprint that is not specific -- any abnormal reset leaves
+088d=01 08c2=02 08c4=40 -- and they share IPA. They may well be two different
+bugs. Nothing here has shown they are the same one, and treating the fast one
+as a stand-in for the slow one is exactly the sort of assumption this document
+exists to prevent.
+
+Next step: re-arm the setup interrupt on bring-up and make the second setup
+safe, then see whether the restart reset goes away. ipa is a module, so that
+can be built and swapped with depmod, without flashing.

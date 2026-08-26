@@ -36,6 +36,20 @@ def uptime():
         return f.read().split()[0]
 
 
+def netdevs():
+    """Which network interfaces exist, and whether IPA's modem one is among
+    them. rmnet_ipa0 is registered by ipa_modem_start(), which only runs once
+    the modem has finished its QMI handshake with IPA, so its appearance is a
+    userspace-visible marker for 'the modem finished setting up the data
+    path'. The kernel says nothing at all in the fatal window, so this is the
+    only progress signal available without rebuilding anything."""
+    try:
+        names = sorted(os.listdir("/sys/class/net"))
+    except OSError:
+        return "?", False
+    return ",".join(names), any(n.startswith("rmnet_ipa") for n in names)
+
+
 def state():
     try:
         with open(STATE) as f:
@@ -87,6 +101,9 @@ def main():
             return 1
 
         last = before
+        nets_last, ipa_net_last = netdevs()
+        say("round %d: interfaces at the start: %s (rmnet_ipa present: %s)"
+            % (r, nets_last, ipa_net_last))
         up_seen = None
         deadline = time.time() + args.settle
         n = 0
@@ -99,6 +116,14 @@ def main():
                     say("round %d: modem is up; the next few seconds are the "
                         "ones that matter" % r)
                 last = now
+            nets_now, ipa_net_now = netdevs()
+            if ipa_net_now != ipa_net_last:
+                say("round %d: rmnet_ipa %s -- the modem finished setting up "
+                    "the data path" % (r, "APPEARED" if ipa_net_now else "went away"))
+                ipa_net_last = ipa_net_now
+            elif nets_now != nets_last:
+                say("round %d: interfaces now %s" % (r, nets_now))
+            nets_last = nets_now
             if up_seen and time.time() - up_seen > 20:
                 say("round %d: 20s after bring-up and still alive" % r)
                 break

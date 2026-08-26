@@ -1712,3 +1712,50 @@ it, tested directly with a data SIM.
     rhodep-dbgmem               the three Motorola carveouts, which /dev/mem
                                 cannot read and which turn out to be empty
     rhodep-modem-at             the AT console, with help for all 256 commands
+
+## 0080 does not leak, and does not fix the underflow either
+
+Both halves of the outstanding question about patch 0080, answered on the
+device at last.
+
+**No leak.** The first attempt said otherwise -- `kmalloc-cg-64 +900` over 500
+cycles -- and it was wrong, because 500 rapid open/close cycles kill the modem:
+that run logged "139 opened, 361 failed" and a remoteproc crash in the middle
+of the measurement window, so most of the growth was a modem crash and recovery
+rather than anything to do with channels.
+
+Repeated gently enough that the modem survives, at 50 ms between cycles, the
+answer changes and the control settles it:
+
+    200 cycles, all succeeded, modem never left running   kmalloc-256 +56
+    400 cycles, all succeeded, modem never left running   kmalloc-256 +28
+
+Doubling the cycles halved the delta, so it does not scale with them and it is
+noise. A leak of one channel per open would have shown as roughly one object
+per cycle. The complete version of 0080 does not leak.
+
+**The underflow is still there.** This is the part that matters, and it
+contradicts what was written here after flashing glinkfix2. Under the stress
+that kills the modem, the teardown that follows still produces the original
+signature:
+
+    [ 417.623099] remoteproc remoteproc0: crash
+    [ 420.589227] refcount_t: underflow; use-after-free.
+                  qcom_glink_native_remove+0x160/0x268
+                  glink_subdev_stop / rproc_stop / rproc_crash_handler_work
+
+So what 0080 actually does, stated no more strongly than the evidence allows:
+
+  * it fixes the Oops in qcom_glink_create_ept. Reopening an endpoint used to
+    freeze the phone within three attempts and now survives eight, and 200
+    rapid cycles complete in 1.3 s. That is solid and repeatedly measured.
+  * it does not leak.
+  * it does not fix the refcount underflow during edge teardown after heavy
+    channel churn. The earlier "no refcount underflow" note was true only of
+    the lighter tests it was based on.
+
+It is therefore not ready to send anywhere as a fix for the underflow, and the
+commit message must not claim it. There is at least one more over-put in the
+teardown path that this accounting does not cover, and finding it needs a run
+where the channels' states at teardown are known rather than the result of 500
+failed opens.

@@ -1,0 +1,23 @@
+# following /dev/kmsg, one fsync per line
+[  140.858216] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  141.520138] BPF: [156044] Invalid name_offset:2884396
+[  146.179292] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  177.721780] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  183.036886] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  213.763344] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  219.263027] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  233.939110] ipa 5840000.ipa: IPA interrupt 14 (other)
+ SUBSYSTEM=platform
+ DEVICE=+platform:5840000.ipa

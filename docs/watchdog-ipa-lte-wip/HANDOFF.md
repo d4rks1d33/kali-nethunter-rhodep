@@ -1369,3 +1369,53 @@ answers the question this port actually cares about.
 Evidence: evidence/20260826-ipa-teardown-fix-kmsg.log for the clean crash and
 bring-up sequence, evidence/20260826-ipa-teardown-fix-rounds.log for the three
 consecutive survived rounds.
+
+## 0081 does not fix the LTE reset
+
+Tested directly, with a SIM that has a working data plan, on the kernel with
+0081 in place. It reset.
+
+    mmcli -m 0 --set-allowed-modes=4g    -> access tech: lte
+    nmcli con up personal                -> and the machine went down
+
+    bootreason=watchdog, pstore empty, PON 088d=01 08c2=02 08c4=40
+    uptime 249 before, 109 after
+
+So the four second restart reset and the LTE reset are not the same bug, which
+is what the caveat above said might be true. 0081 keeps its own value -- four
+resets in five bring-ups became none in four, and a modem crash no longer takes
+the SoC with it -- but the problem this directory exists for is still open.
+
+Worth being precise about what was and was not exercised. The bearer first came
+up on GSM/GPRS and ran fine, which matches everything known. Forcing 4g dropped
+that bearer and registered on LTE, and it was bringing the bearer up again on
+LTE that killed it. So the trigger remains what it always was: the modem
+attaching a data path on LTE.
+
+## The first kernel log of the LTE death
+
+rhodep-kmsg-tail earns its keep here. This has never been readable before:
+ramoops was always empty or corrupt for this reset. The complete tail is in
+evidence/20260826-lte-death-kmsg.log; the last two entries are
+
+    [  219.263027] ath10k_snoc c800000.wifi: chan info: invalid frequency 0
+    [  233.939110] ipa 5840000.ipa: IPA interrupt 14 (other)
+
+and then nothing, for fifteen seconds, until the reset. The userspace watcher
+kept sampling to 249.11, so the AP was alive and well through that silence.
+
+IPA interrupt 14 is IPA_IRQ_TX_SUSPEND, which patch 0072 prints as "other"
+because it only names the error conditions. It lands at 233.939 and the bearer
+disappears at 234.05, so it belongs to the 4g switch tearing the GPRS bearer
+down, not to the death.
+
+The useful part is what is absent. Patch 0072 exists to unmask the IPA error
+interrupts, BAD_SNOC_ACCESS above all, on the grounds that "an access the
+interconnect refuses looks like that from in here, and that is the shape of the
+reset being chased". None of them fired. Not BAD_SNOC_ACCESS, not RX_ERR, not
+DEAGGR_ERR, not TX_ERR, not PROC_ERR, not TX_HOLB_DROP, not GSI_EE.
+
+So whatever kills the machine is not an access that IPA itself sees refused.
+Combined with the AP staying responsive through the silence and writing
+nothing, the remaining shapes are an access refused somewhere IPA cannot
+observe, or something outside the AP entirely deciding to pull the SoC down.

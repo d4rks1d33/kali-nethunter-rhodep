@@ -1,0 +1,28 @@
+start uptime=138.57 ifaces=docker0,lo,rmnet_ipa0,usb0,wlan0
+[138.58] rmnet_ipa0 rx=0 tx=0
+[142.59] ifaces changed: docker0,lo,qmapmux0.0,rmnet_ipa0,usb0,wlan0
+[143.61] rmnet_ipa0 rx=0 tx=0 | qmapmux0.0 rx=0 tx=0
+[148.63] rmnet_ipa0 rx=0 tx=0 | qmapmux0.0 rx=0 tx=0
+[153.66] ifaces changed: docker0,lo,rmnet_ipa0,usb0,wlan0
+[153.67] rmnet_ipa0 rx=0 tx=0
+[154.68] ifaces changed: docker0,lo,qmapmux0.0,rmnet_ipa0,usb0,wlan0
+[158.70] rmnet_ipa0 rx=0 tx=0 | qmapmux0.0 rx=0 tx=0
+[163.73] rmnet_ipa0 rx=0 tx=0 | qmapmux0.0 rx=0 tx=0
+[168.75] rmnet_ipa0 rx=0 tx=0 | qmapmux0.0 rx=0 tx=0
+[173.79] rmnet_ipa0 rx=0 tx=0 | qmapmux0.0 rx=0 tx=0
+[178.81] rmnet_ipa0 rx=0 tx=0 | qmapmux0.0 rx=0 tx=0
+[183.83] rmnet_ipa0 rx=0 tx=0 | qmapmux0.0 rx=0 tx=0
+[188.85] rmnet_ipa0 rx=0 tx=0 | qmapmux0.0 rx=0 tx=0
+[193.87] rmnet_ipa0 rx=0 tx=0 | qmapmux0.0 rx=0 tx=0
+[198.88] rmnet_ipa0 rx=0 tx=0 | qmapmux0.0 rx=0 tx=0
+[203.91] rmnet_ipa0 rx=0 tx=168 | qmapmux0.0 rx=0 tx=168
+[208.93] rmnet_ipa0 rx=152 tx=248 | qmapmux0.0 rx=144 tx=248
+[213.95] rmnet_ipa0 rx=152 tx=248 | qmapmux0.0 rx=144 tx=248
+[218.97] rmnet_ipa0 rx=152 tx=248 | qmapmux0.0 rx=144 tx=248
+[223.99] rmnet_ipa0 rx=152 tx=248 | qmapmux0.0 rx=144 tx=248
+[229.01] rmnet_ipa0 rx=152 tx=248 | qmapmux0.0 rx=144 tx=248
+[234.05] ifaces changed: docker0,lo,rmnet_ipa0,usb0,wlan0
+[234.05] rmnet_ipa0 rx=256 tx=248
+[239.05] rmnet_ipa0 rx=256 tx=248
+[244.08] rmnet_ipa0 rx=256 tx=248
+[249.11] rmnet_ipa0 rx=256 tx=248

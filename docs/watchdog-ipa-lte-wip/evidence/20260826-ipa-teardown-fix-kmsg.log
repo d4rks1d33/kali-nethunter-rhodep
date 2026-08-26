@@ -1,0 +1,468 @@
+# following /dev/kmsg, one fsync per line
+[   82.643919] RESTARTWATCH: [82.63] === new run, 1 round(s), kernel 7.2.0-rc5
+[   82.649076] RESTARTWATCH: [82.63] round 1: state=running, crashing the modem
+[   82.649522] remoteproc remoteproc0: crash detected in modem: type watchdog
+ SUBSYSTEM=remoteproc
+ DEVICE=+remoteproc:remoteproc0
+[   82.649717] remoteproc remoteproc0: handling crash #1 in modem
+ SUBSYSTEM=remoteproc
+ DEVICE=+remoteproc:remoteproc0
+[   82.649815] remoteproc remoteproc0: recovering modem
+ SUBSYSTEM=remoteproc
+ DEVICE=+remoteproc:remoteproc0
+[   82.649864] ipa 5840000.ipa: received modem crashed event
+ SUBSYSTEM=platform
+ DEVICE=+platform:5840000.ipa
+[   82.652551] RESTARTWATCH: [82.64] round 1: interfaces at the start: docker0,lo,rmnet_ipa0,usb0,wlan0 (rmnet_ipa present: True)
+[   82.655732] RESTARTWATCH: [82.64] round 1: running -> crashed
+[   82.658391] RESTARTWATCH: [82.64] round 1: still watching, state=crashed
+[   82.834393] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=5 len=7 from node 5 port 2
+[   82.835012] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=3 len=7 from node 10 port 2
+[   82.836856] ath10k_snoc c800000.wifi: firmware crashed! (guid 2f7c1659-48a9-4227-8fbf-e8ffcd643037)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[   82.836974] ath10k_snoc c800000.wifi: wcn3990 hw1.0 target 0x00000008 chip_id 0x00000000 sub 0000:0000
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[   82.837063] ath10k_snoc c800000.wifi: kconfig debug 0 debugfs 0 tracing 0 dfs 0 testmode 0
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[   82.837153] ath10k_snoc c800000.wifi: firmware ver 1.0.0.1119 api 5 features wowlan,mgmt-tx-by-reference,non-bmi crc32 b3d4b790
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[   82.837241] ath10k_snoc c800000.wifi: board_file api 2 bmi_id N/A crc32 00000000
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[   82.837287] ath10k_snoc c800000.wifi: htt-ver 3.104 wmi-op 4 htt-op 3 cal file max-sta 32 raw 0 hwcrypto 1
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[   82.878511] RESTARTWATCH: [82.85] round 1: rmnet_ipa went away -- the modem finished setting up the data path
+[   82.914070] ipa 5840000.ipa: received modem offline event
+ SUBSYSTEM=platform
+ DEVICE=+platform:5840000.ipa
+[   82.914946] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=6 len=7 from node 5 port 2
+[   82.915210] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=4 len=7 from node 10 port 2
+[   82.919963] remoteproc remoteproc0: stopped remote processor modem
+ SUBSYSTEM=remoteproc
+ DEVICE=+remoteproc:remoteproc0
+[   82.920294] PDM: no support for the platform, userspace daemon might be required.
+[   82.920841] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=7 len=7 from node 5 port 2
+[   82.921421] ipa 5840000.ipa: received modem starting event
+ SUBSYSTEM=platform
+ DEVICE=+platform:5840000.ipa
+[   82.921550] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=5 len=7 from node 10 port 2
+[   83.081958] RESTARTWATCH: [83.07] round 1: crashed -> offline
+[   85.365960] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=8 len=7 from node 5 port 2
+[   85.367868] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=6 len=7 from node 10 port 2
+[   85.368025] ipa 5840000.ipa: received modem running event
+ SUBSYSTEM=platform
+ DEVICE=+platform:5840000.ipa
+[   85.368192] remoteproc remoteproc0: remote processor modem is now up
+ SUBSYSTEM=remoteproc
+ DEVICE=+remoteproc:remoteproc0
+[   85.494599] RESTARTWATCH: [85.48] round 1: offline -> running
+[   85.496144] RESTARTWATCH: [85.48] round 1: modem is up; the next few seconds are the ones that matter
+[   90.778903] ieee80211 phy0: Hardware restart was requested
+ SUBSYSTEM=ieee80211
+ DEVICE=+ieee80211:phy0
+[   91.222799] ath10k_snoc c800000.wifi: device successfully recovered
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[   92.318603] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[   92.738212] RESTARTWATCH: [92.72] round 1: still watching, state=running
+[   96.287705] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[   96.378657] wlan0: authenticate with 8a:c2:27:a1:19:d0 (local address=02:00:a1:3e:b2:47)
+[   96.378853] wlan0: send auth to 8a:c2:27:a1:19:d0 (try 1/3)
+[   96.385685] wlan0: authenticated
+[   96.387478] wlan0: associate with 8a:c2:27:a1:19:d0 (try 1/3)
+[   96.394811] wlan0: RX AssocResp from 8a:c2:27:a1:19:d0 (capab=0x1531 status=0 aid=5)
+[   96.467447] wlan0: associated
+[   96.467660] wlan0: Limiting TX power to 30 (30 - 0) dBm as advertised by 8a:c2:27:a1:19:d0
+[  102.824179] RESTARTWATCH: [102.81] round 1: still watching, state=running
+[  105.649662] RESTARTWATCH: [105.63] round 1: 20s after bring-up and still alive
+[  107.669569] RESTARTWATCH: [107.64] SURVIVED all 1 round(s)
+[  128.139436] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  133.672262] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  165.241234] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  170.560423] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  202.100756] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  207.412389] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  211.590102] RESTARTWATCH: [211.57] === new run, 3 round(s), kernel 7.2.0-rc5
+[  211.598439] RESTARTWATCH: [211.59] round 1: state=running, crashing the modem
+[  211.599257] remoteproc remoteproc0: crash detected in modem: type watchdog
+ SUBSYSTEM=remoteproc
+ DEVICE=+remoteproc:remoteproc0
+[  211.599795] remoteproc remoteproc0: handling crash #2 in modem
+ SUBSYSTEM=remoteproc
+ DEVICE=+remoteproc:remoteproc0
+[  211.599920] remoteproc remoteproc0: recovering modem
+ SUBSYSTEM=remoteproc
+ DEVICE=+remoteproc:remoteproc0
+[  211.600105] ipa 5840000.ipa: received modem crashed event
+ SUBSYSTEM=platform
+ DEVICE=+platform:5840000.ipa
+[  211.601182] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=9 len=7 from node 5 port 2
+[  211.602278] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=7 len=7 from node 10 port 2
+[  211.603536] RESTARTWATCH: [211.60] round 1: interfaces at the start: docker0,lo,usb0,wlan0 (rmnet_ipa present: False)
+[  211.608749] ath10k_snoc c800000.wifi: firmware crashed! (guid 45cc9f79-d1f5-4862-a9d2-7aa13c0144da)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  211.609003] ath10k_snoc c800000.wifi: wcn3990 hw1.0 target 0x00000008 chip_id 0x00000000 sub 0000:0000
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  211.609107] ath10k_snoc c800000.wifi: kconfig debug 0 debugfs 0 tracing 0 dfs 0 testmode 0
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  211.609284] ath10k_snoc c800000.wifi: firmware ver 1.0.0.1119 api 5 features wowlan,mgmt-tx-by-reference,non-bmi crc32 b3d4b790
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  211.609458] ath10k_snoc c800000.wifi: board_file api 2 bmi_id N/A crc32 00000000
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  211.609643] ath10k_snoc c800000.wifi: htt-ver 3.104 wmi-op 4 htt-op 3 cal file max-sta 32 raw 0 hwcrypto 1
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  211.626122] RESTARTWATCH: [211.60] round 1: running -> crashed
+[  211.647290] RESTARTWATCH: [211.63] round 1: still watching, state=crashed
+[  211.701146] ipa 5840000.ipa: received modem offline event
+ SUBSYSTEM=platform
+ DEVICE=+platform:5840000.ipa
+[  211.702313] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=10 len=7 from node 5 port 2
+[  211.702720] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=8 len=7 from node 10 port 2
+[  211.707065] remoteproc remoteproc0: stopped remote processor modem
+ SUBSYSTEM=remoteproc
+ DEVICE=+remoteproc:remoteproc0
+[  211.707678] PDM: no support for the platform, userspace daemon might be required.
+[  211.708470] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=11 len=7 from node 5 port 2
+[  211.709215] ipa 5840000.ipa: received modem starting event
+ SUBSYSTEM=platform
+ DEVICE=+platform:5840000.ipa
+[  211.709300] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=9 len=7 from node 10 port 2
+[  211.857611] RESTARTWATCH: [211.85] round 1: crashed -> offline
+[  212.792895] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=12 len=7 from node 5 port 2
+[  212.794665] ipa 5840000.ipa: received modem running event
+ SUBSYSTEM=platform
+ DEVICE=+platform:5840000.ipa
+[  212.794736] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=10 len=7 from node 10 port 2
+[  212.794749] remoteproc remoteproc0: remote processor modem is now up
+ SUBSYSTEM=remoteproc
+ DEVICE=+remoteproc:remoteproc0
+[  212.873555] RESTARTWATCH: [212.86] round 1: offline -> running
+[  212.878264] RESTARTWATCH: [212.87] round 1: modem is up; the next few seconds are the ones that matter
+[  216.266632] ath10k_snoc c800000.wifi: failed to transmit packet, dropping: -108
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  216.266707] ath10k_snoc c800000.wifi: failed to submit frame: -108
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  216.266791] ath10k_snoc c800000.wifi: failed to push frame: -108
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  216.266893] ath10k_snoc c800000.wifi: failed to transmit packet, dropping: -108
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  216.267001] ath10k_snoc c800000.wifi: failed to submit frame: -108
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  216.267098] ath10k_snoc c800000.wifi: failed to push frame: -108
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  216.287032] ath10k_snoc c800000.wifi: failed to transmit packet, dropping: -108
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  216.287189] ath10k_snoc c800000.wifi: failed to submit frame: -108
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  216.287263] ath10k_snoc c800000.wifi: failed to push frame: -108
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  216.503109] ath10k_snoc c800000.wifi: failed to transmit packet, dropping: -108
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  218.158568] ieee80211 phy0: Hardware restart was requested
+ SUBSYSTEM=ieee80211
+ DEVICE=+ieee80211:phy0
+[  218.598010] ath10k_snoc c800000.wifi: device successfully recovered
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  221.748197] RESTARTWATCH: [221.72] round 1: still watching, state=running
+[  223.568355] ath10k_warn: 9 callbacks suppressed
+[  223.568389] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  223.666526] wlan0: authenticate with 8a:c2:27:a1:19:d0 (local address=02:00:a1:3e:b2:47)
+[  223.666717] wlan0: send auth to 8a:c2:27:a1:19:d0 (try 1/3)
+[  223.679493] wlan0: authenticated
+[  223.682881] wlan0: associate with 8a:c2:27:a1:19:d0 (try 1/3)
+[  223.685325] wlan0: RX AssocResp from 8a:c2:27:a1:19:d0 (capab=0x1531 status=0 aid=5)
+[  223.763747] wlan0: associated
+[  223.764025] wlan0: Limiting TX power to 30 (30 - 0) dBm as advertised by 8a:c2:27:a1:19:d0
+[  231.858748] RESTARTWATCH: [231.84] round 1: still watching, state=running
+[  233.090211] RESTARTWATCH: [233.07] round 1: 20s after bring-up and still alive
+[  235.104985] RESTARTWATCH: [235.09] round 2: state=running, crashing the modem
+[  235.105417] remoteproc remoteproc0: crash detected in modem: type watchdog
+ SUBSYSTEM=remoteproc
+ DEVICE=+remoteproc:remoteproc0
+[  235.105941] remoteproc remoteproc0: handling crash #3 in modem
+ SUBSYSTEM=remoteproc
+ DEVICE=+remoteproc:remoteproc0
+[  235.106224] remoteproc remoteproc0: recovering modem
+ SUBSYSTEM=remoteproc
+ DEVICE=+remoteproc:remoteproc0
+[  235.106802] ipa 5840000.ipa: received modem crashed event
+ SUBSYSTEM=platform
+ DEVICE=+platform:5840000.ipa
+[  235.108272] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=13 len=7 from node 5 port 2
+[  235.109609] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=11 len=7 from node 10 port 2
+[  235.112221] ath10k_snoc c800000.wifi: firmware crashed! (guid 17d00614-8cd6-49b6-8089-d052bf73c95b)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  235.112381] ath10k_snoc c800000.wifi: wcn3990 hw1.0 target 0x00000008 chip_id 0x00000000 sub 0000:0000
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  235.112580] ath10k_snoc c800000.wifi: kconfig debug 0 debugfs 0 tracing 0 dfs 0 testmode 0
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  235.112753] ath10k_snoc c800000.wifi: firmware ver 1.0.0.1119 api 5 features wowlan,mgmt-tx-by-reference,non-bmi crc32 b3d4b790
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  235.112929] ath10k_snoc c800000.wifi: board_file api 2 bmi_id N/A crc32 00000000
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  235.113107] ath10k_snoc c800000.wifi: htt-ver 3.104 wmi-op 4 htt-op 3 cal file max-sta 32 raw 0 hwcrypto 1
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  235.113313] RESTARTWATCH: [235.10] round 2: interfaces at the start: docker0,lo,usb0,wlan0 (rmnet_ipa present: False)
+[  235.120529] RESTARTWATCH: [235.11] round 2: running -> crashed
+[  235.138717] RESTARTWATCH: [235.12] round 2: still watching, state=crashed
+[  235.224215] ipa 5840000.ipa: received modem offline event
+ SUBSYSTEM=platform
+ DEVICE=+platform:5840000.ipa
+[  235.225248] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=14 len=7 from node 5 port 2
+[  235.225673] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=12 len=7 from node 10 port 2
+[  235.229659] remoteproc remoteproc0: stopped remote processor modem
+ SUBSYSTEM=remoteproc
+ DEVICE=+remoteproc:remoteproc0
+[  235.230267] PDM: no support for the platform, userspace daemon might be required.
+[  235.231333] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=15 len=7 from node 5 port 2
+[  235.231950] ipa 5840000.ipa: received modem starting event
+ SUBSYSTEM=platform
+ DEVICE=+platform:5840000.ipa
+[  235.231987] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=13 len=7 from node 10 port 2
+[  235.345947] RESTARTWATCH: [235.34] round 2: crashed -> offline
+[  239.282536] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=16 len=7 from node 5 port 2
+[  239.284213] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=14 len=7 from node 10 port 2
+[  239.284258] ipa 5840000.ipa: received modem running event
+ SUBSYSTEM=platform
+ DEVICE=+platform:5840000.ipa
+[  239.284638] remoteproc remoteproc0: remote processor modem is now up
+ SUBSYSTEM=remoteproc
+ DEVICE=+remoteproc:remoteproc0
+[  239.383785] RESTARTWATCH: [239.37] round 2: offline -> running
+[  239.390319] RESTARTWATCH: [239.38] round 2: modem is up; the next few seconds are the ones that matter
+[  239.425936] ath10k_snoc c800000.wifi: failed to transmit packet, dropping: -108
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  239.427048] ath10k_snoc c800000.wifi: failed to submit frame: -108
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  239.427706] ath10k_snoc c800000.wifi: failed to push frame: -108
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  244.553273] ieee80211 phy0: Hardware restart was requested
+ SUBSYSTEM=ieee80211
+ DEVICE=+ieee80211:phy0
+[  245.073415] ath10k_snoc c800000.wifi: device successfully recovered
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  245.258797] RESTARTWATCH: [245.25] round 2: still watching, state=running
+[  246.174455] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  250.145226] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  250.237129] wlan0: authenticate with 8a:c2:27:a1:19:d0 (local address=02:00:a1:3e:b2:47)
+[  250.237290] wlan0: send auth to 8a:c2:27:a1:19:d0 (try 1/3)
+[  250.240924] wlan0: authenticated
+[  250.246066] wlan0: associate with 8a:c2:27:a1:19:d0 (try 1/3)
+[  250.255067] wlan0: RX AssocResp from 8a:c2:27:a1:19:d0 (capab=0x1531 status=0 aid=5)
+[  250.330837] wlan0: associated
+[  250.337871] wlan0: Limiting TX power to 30 (30 - 0) dBm as advertised by 8a:c2:27:a1:19:d0
+[  255.397512] RESTARTWATCH: [255.38] round 2: still watching, state=running
+[  259.453611] RESTARTWATCH: [259.44] round 2: 20s after bring-up and still alive
+[  261.470124] RESTARTWATCH: [261.45] round 3: state=running, crashing the modem
+[  261.470553] remoteproc remoteproc0: crash detected in modem: type watchdog
+ SUBSYSTEM=remoteproc
+ DEVICE=+remoteproc:remoteproc0
+[  261.471038] remoteproc remoteproc0: handling crash #4 in modem
+ SUBSYSTEM=remoteproc
+ DEVICE=+remoteproc:remoteproc0
+[  261.471709] remoteproc remoteproc0: recovering modem
+ SUBSYSTEM=remoteproc
+ DEVICE=+remoteproc:remoteproc0
+[  261.472239] ipa 5840000.ipa: received modem crashed event
+ SUBSYSTEM=platform
+ DEVICE=+platform:5840000.ipa
+[  261.473502] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=17 len=7 from node 5 port 2
+[  261.476027] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=15 len=7 from node 10 port 2
+[  261.480183] RESTARTWATCH: [261.47] round 3: interfaces at the start: docker0,lo,usb0,wlan0 (rmnet_ipa present: False)
+[  261.480894] ath10k_snoc c800000.wifi: firmware crashed! (guid d693bb4f-8bdf-4636-9bc5-dc25a29c0839)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  261.481127] ath10k_snoc c800000.wifi: wcn3990 hw1.0 target 0x00000008 chip_id 0x00000000 sub 0000:0000
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  261.481301] ath10k_snoc c800000.wifi: kconfig debug 0 debugfs 0 tracing 0 dfs 0 testmode 0
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  261.481475] ath10k_snoc c800000.wifi: firmware ver 1.0.0.1119 api 5 features wowlan,mgmt-tx-by-reference,non-bmi crc32 b3d4b790
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  261.481649] ath10k_snoc c800000.wifi: board_file api 2 bmi_id N/A crc32 00000000
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  261.482066] ath10k_snoc c800000.wifi: htt-ver 3.104 wmi-op 4 htt-op 3 cal file max-sta 32 raw 0 hwcrypto 1
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  261.488411] RESTARTWATCH: [261.48] round 3: running -> crashed
+[  261.496832] RESTARTWATCH: [261.49] round 3: still watching, state=crashed
+[  261.594213] ipa 5840000.ipa: received modem offline event
+ SUBSYSTEM=platform
+ DEVICE=+platform:5840000.ipa
+[  261.595150] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=18 len=7 from node 5 port 2
+[  261.595577] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=16 len=7 from node 10 port 2
+[  261.599312] remoteproc remoteproc0: stopped remote processor modem
+ SUBSYSTEM=remoteproc
+ DEVICE=+remoteproc:remoteproc0
+[  261.599936] PDM: no support for the platform, userspace daemon might be required.
+[  261.600705] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=19 len=7 from node 5 port 2
+[  261.601411] ipa 5840000.ipa: received modem starting event
+ SUBSYSTEM=platform
+ DEVICE=+platform:5840000.ipa
+[  261.601445] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=17 len=7 from node 10 port 2
+[  261.706829] RESTARTWATCH: [261.70] round 3: crashed -> offline
+[  265.185957] ath10k_snoc c800000.wifi: failed to transmit packet, dropping: -108
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  265.186224] ath10k_snoc c800000.wifi: failed to submit frame: -108
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  265.186421] ath10k_snoc c800000.wifi: failed to push frame: -108
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  265.665242] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=20 len=7 from node 5 port 2
+[  265.667122] qmi: no handler on local port 0 for type=4 msg_id=0x0023 txn=18 len=7 from node 10 port 2
+[  265.667182] ipa 5840000.ipa: received modem running event
+ SUBSYSTEM=platform
+ DEVICE=+platform:5840000.ipa
+[  265.667423] remoteproc remoteproc0: remote processor modem is now up
+ SUBSYSTEM=remoteproc
+ DEVICE=+remoteproc:remoteproc0
+[  265.743495] RESTARTWATCH: [265.73] round 3: offline -> running
+[  265.749867] RESTARTWATCH: [265.74] round 3: modem is up; the next few seconds are the ones that matter
+[  271.007725] ieee80211 phy0: Hardware restart was requested
+ SUBSYSTEM=ieee80211
+ DEVICE=+ieee80211:phy0
+[  271.520689] ath10k_snoc c800000.wifi: device successfully recovered
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  271.605627] RESTARTWATCH: [271.60] round 3: still watching, state=running
+[  272.615977] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  276.588046] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  276.687805] wlan0: authenticate with 8a:c2:27:a1:19:d0 (local address=02:00:a1:3e:b2:47)
+[  276.687990] wlan0: send auth to 8a:c2:27:a1:19:d0 (try 1/3)
+[  276.693497] wlan0: authenticated
+[  276.698218] wlan0: associate with 8a:c2:27:a1:19:d0 (try 1/3)
+[  276.705890] wlan0: RX AssocResp from 8a:c2:27:a1:19:d0 (capab=0x1531 status=0 aid=5)
+[  276.776182] wlan0: associated
+[  276.776370] wlan0: Limiting TX power to 30 (30 - 0) dBm as advertised by 8a:c2:27:a1:19:d0
+[  281.746979] RESTARTWATCH: [281.72] round 3: still watching, state=running
+[  285.816251] RESTARTWATCH: [285.80] round 3: 20s after bring-up and still alive
+[  287.833249] RESTARTWATCH: [287.82] SURVIVED all 3 round(s)
+[  308.468634] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  313.998479] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  345.567128] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  351.069344] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  382.637433] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  388.037893] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  419.600428] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  425.013975] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  456.569460] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  461.982268] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  493.533770] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  498.949650] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  530.502687] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  535.813779] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  567.367016] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  572.766679] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  604.331327] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  609.834257] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  641.402456] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  646.816077] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  678.471070] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi
+[  683.785063] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+ SUBSYSTEM=platform
+ DEVICE=+platform:c800000.wifi

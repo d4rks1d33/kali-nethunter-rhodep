@@ -1331,3 +1331,41 @@ exists to prevent.
 Next step: re-arm the setup interrupt on bring-up and make the second setup
 safe, then see whether the restart reset goes away. ipa is a module, so that
 can be built and swapped with depmod, without flashing.
+
+## Tearing the IPA setup down on a modem crash stops the reset
+
+kernel/patches/0081. Two changes: ipa_modem_crashed() calls ipa_teardown() at
+the end, and QCOM_SSR_BEFORE_POWERUP lifts the setup-ready interrupt mask.
+Built as a module and swapped in with depmod, no flashing; the phone was
+rebooted afterwards so ipa would load at boot, since loading it late is not the
+same state.
+
+    before   4 resets in 5 bring-ups
+    after    0 resets in 4 bring-ups, uptime continuous throughout
+
+Three honest qualifications.
+
+It does not bring mobile data back. rmnet_ipa0 goes when the modem crashes and
+is still gone afterwards. ipa_setup() never runs again: no "IPA driver setup
+completed successfully" in the log, and the interrupt handler never fires. The
+modem does not re-raise setup ready after a restart, so arming that interrupt
+was not enough and may well be doing nothing at all.
+
+Which means the teardown is almost certainly the half that matters, since the
+other half demonstrably never fires. That is inference from the handler never
+running, not a measurement; the two halves have not been applied separately.
+
+And why an AP-side teardown changes what the modem does is still unknown. The
+reset always arrived with the AP silent and nothing written, so the modem
+escalating rather than the AP failing was always the better reading, and this
+result is consistent with it. Consistent is not proven.
+
+The LTE caveat above stands and matters more now. This reproducer is a modem
+restart; the LTE bug involves no modem crash at all. 0081 may do nothing
+whatsoever for LTE. Testing that needs the ipa hold removed, a SIM with a
+working data plan, and an attach left running -- and it is the only test that
+answers the question this port actually cares about.
+
+Evidence: evidence/20260826-ipa-teardown-fix-kmsg.log for the clean crash and
+bring-up sequence, evidence/20260826-ipa-teardown-fix-rounds.log for the three
+consecutive survived rounds.

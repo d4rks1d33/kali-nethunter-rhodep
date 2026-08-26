@@ -1,0 +1,32 @@
+[211.57] === new run, 3 round(s), kernel 7.2.0-rc5
+[211.59] round 1: state=running, crashing the modem
+[211.60] round 1: interfaces at the start: docker0,lo,usb0,wlan0 (rmnet_ipa present: False)
+[211.60] round 1: running -> crashed
+[211.63] round 1: still watching, state=crashed
+[211.85] round 1: crashed -> offline
+[212.86] round 1: offline -> running
+[212.87] round 1: modem is up; the next few seconds are the ones that matter
+[221.72] round 1: still watching, state=running
+[231.84] round 1: still watching, state=running
+[233.07] round 1: 20s after bring-up and still alive
+[235.09] round 2: state=running, crashing the modem
+[235.10] round 2: interfaces at the start: docker0,lo,usb0,wlan0 (rmnet_ipa present: False)
+[235.11] round 2: running -> crashed
+[235.12] round 2: still watching, state=crashed
+[235.34] round 2: crashed -> offline
+[239.37] round 2: offline -> running
+[239.38] round 2: modem is up; the next few seconds are the ones that matter
+[245.25] round 2: still watching, state=running
+[255.38] round 2: still watching, state=running
+[259.44] round 2: 20s after bring-up and still alive
+[261.45] round 3: state=running, crashing the modem
+[261.47] round 3: interfaces at the start: docker0,lo,usb0,wlan0 (rmnet_ipa present: False)
+[261.48] round 3: running -> crashed
+[261.49] round 3: still watching, state=crashed
+[261.70] round 3: crashed -> offline
+[265.73] round 3: offline -> running
+[265.74] round 3: modem is up; the next few seconds are the ones that matter
+[271.60] round 3: still watching, state=running
+[281.72] round 3: still watching, state=running
+[285.80] round 3: 20s after bring-up and still alive
+[287.82] SURVIVED all 3 round(s)

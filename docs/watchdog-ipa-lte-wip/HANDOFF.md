@@ -1200,3 +1200,47 @@ for it: `/etc/modprobe.d/README-rhodep-ipa-hold-is-OFF` explains that
 rhodep-ipa-hold.conf was moved to /root/ipa-hold.off, that this phone will
 reset with a SIM in it, that this is expected in this state, and how to put it
 back. Nothing restores that file automatically, and nothing removes it either.
+
+## The APSS watchdog is not what is biting
+
+Worth ruling out before hunting an AP lockup. The reset lands about four
+seconds after the modem finishes coming up, and the APSS watchdog cannot be
+the cause of a four second reset:
+
+  * drivers/watchdog/qcom-wdt.c sets `wdd->timeout = min(max_timeout, 30U)`,
+    and the node this port adds in patch 0068 carries no `timeout-sec`, so the
+    bite is programmed at thirty seconds.
+  * The hard lockup detector is off anyway: "watchdog: NMI not fully
+    supported / Hard watchdog permanently disabled".
+  * `/sys/class/watchdog/watchdog0` has no timeout, state or bootstatus
+    attributes at all, because CONFIG_WATCHDOG_SYSFS is not set. Reading or
+    changing the timeout needs the /dev/watchdog0 ioctls, and opening that
+    device starts the watchdog, so it is not a free measurement.
+
+So `bootreason=watchdog` is what the bootloader reports for the class of
+reset, not evidence that the kernel's watchdog fired. Nothing about the timing
+fits an AP livelock caught by the APSS watchdog thirty seconds later. Something
+external takes the SoC down almost immediately, which is consistent with
+everything else here: instant, silent, no crash reason written, no
+notification to the AP.
+
+## IPA version and regions check out against the vendor
+
+Not a lead, but worth not re-checking: the vendor tree agrees with the
+mainline configuration this port uses.
+
+    blair.dtsi qcom,ipa@0x5800000
+      qcom,ipa-hw-ver = <20>            /* IPA v4.11 */
+      reg = <0x5800000 0x84000>,        ipa-base
+            <0x5804000 0x23000>         gsi-base
+
+Our node uses the same GSI window, 0x05804000 size 0x23000, and picks
+ipa_data_v4_11_sm6375, which is IPA v4.11. So the version is right and the GSI
+region is right.
+
+That weakens the idea that the shared-memory map is wrong. It is taken from
+sc7280, which is also v4.11, and IPA_MEM_MODEM at offset 0x1f18 size 0x100c
+ends at 0x2f24, inside the 0x3000 ipa-shared window. The vendor DTS does not
+state an SRAM size to contradict it; the downstream driver computes its own.
+Qualcomm ships IPA outside the kernel tree (techpack/dataipa), so it cannot be
+compared from the vendor kernel clone that this port uses.

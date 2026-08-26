@@ -3,6 +3,12 @@
 set -e
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
+# If a previous run made it immutable, install(1) cannot overwrite it. Drop the
+# protection first; it goes back on at the end.
+if [ -x /usr/local/sbin/rhodep-protect-files ]; then
+	/usr/local/sbin/rhodep-protect-files release /usr/local/sbin/rhodep-modem-at 2>/dev/null || true
+fi
+
 install -D -m 0755 "$here/rhodep-modem-at" /usr/local/sbin/rhodep-modem-at
 
 # sudo's secure_path here is /usr/sbin:/usr/bin:/sbin:/bin, with no
@@ -19,6 +25,16 @@ sync
 # a dependency of rpmsg_char, but make it explicit so the tool works on a boot
 # where nothing else pulled it in.
 modprobe rpmsg_ctrl 2>/dev/null || true
+
+# The same two layers the rest of the port uses: immutable on the live file so
+# removing it has to be deliberate, and a canonical copy that
+# rhodep-holds-enforce puts back if the live one goes missing. Nothing owns
+# this file otherwise: dpkg has never heard of it.
+if [ -x /usr/local/sbin/rhodep-protect-files ]; then
+	/usr/local/sbin/rhodep-protect-files register modem-at protected \
+		/usr/local/sbin/rhodep-modem-at
+	/usr/local/sbin/rhodep-protect-files enforce
+fi
 
 echo "installed: /usr/local/sbin/rhodep-modem-at"
 echo

@@ -57,7 +57,7 @@ comandos exactos para copiar/pegar y `.img` listos.
 | **Sensores** (acelerómetro, giróscopo, magnetómetro, proximidad, luz) | FUNCIONAN (rotación automática incluida) — `userspace/sensors/`, ver §7.2 |
 | **GPS** | el módem publica el servicio de ubicación y acepta sesión; nunca emitió NMEA, sin probar al aire libre (ver §7.4) |
 | **NFC** | chip Samsung sec-nfc, sin driver mainline (ver §7.5) |
-| **Datos móviles** | FUNCIONAN (~24 Mbit/s) **pero el SoC se reinicia a los 3-10 min con el módem enganchado a LTE**; por eso ipa.ko se envía bloqueado del arranque (ver §7.6) |
+| **Datos móviles** | FUNCIONAN (~24 Mbit/s) **pero el SoC se reinicia a los 3-10 min con el módem enganchado a LTE**; por eso ipa.ko se envía bloqueado del arranque (ver §7.6). Desde 2026-08-26 hay un reproductor de 4 s que no necesita SIM, y el A/B señala a IPA (§7.6) |
 | **Audio en llamada** | NO existe: mainline no tiene q6voice (MVM/CVS/CVP) |
 | **Monitor mode WiFi** | INVIABLE en mainline: firmware raw 0 (ver §7.7) |
 | **Cámara** | inviable en mainline (ver §7.8) |
@@ -354,10 +354,55 @@ en vez de un piso permanente, y el mapa de SRAM del IPA heredado de qcm2290.
 Los tres patches se conservan porque son correcciones verificadas contra el
 árbol del fabricante, pero ninguno es la causa.
 
-El experimento que decide y que todavía no se pudo correr: enganchar a LTE con
-`ipa.ko` **nunca cargado**. Requiere configurar a mano el APN de attach por
-`qmicli --wds-set-lte-attach-pdn-list`, porque sin ModemManager el módem no
-engancha y MM necesita el puerto de red del IPA para existir.
+**Actualizado 2026-08-26.** Dos cosas de arriba quedaron viejas.
+
+El "experimento que decide" de esta sección **no es ejecutable**: sin `ipa.ko`
+el módem busca 96 segundos y nunca registra en LTE, con o sin el APN de attach
+puesto a mano. Quedó descartado como camino.
+
+Pero ya no hace falta, porque apareció un reproductor mucho mejor. **El SoC no
+muere cuando el módem se cae: muere cuando el módem vuelve a levantarse**, y
+alcanza con una escritura a debugfs:
+
+    echo 1 > /sys/kernel/debug/remoteproc/remoteproc0/crash
+
+Unos tres segundos y medio después, reinicio: `bootreason=watchdog`, pstore
+vacío, PON `088d=01 08c2=02 08c4=40`, que es la firma de todas las muertes de
+este port. **Sin SIM, sin radio, sin cobertura y sin attach**, contra los 3 a
+10 minutos que pedía el camino de LTE.
+
+Con ese reproductor se pudo hacer el A/B que antes era imposible:
+
+| | reinicios / levantadas del módem |
+|---|---|
+| `ipa.ko` cargado en el arranque | **4 de 5** |
+| `ipa.ko` descargado | **0 de 6** |
+
+(La quinta con IPA no tuvo levantada a la que sobrevivir: la recuperación se
+colgó dentro de `ipa_modem_stop`, el módem nunca volvió y el SoC tampoco se
+reinició.)
+
+Ojo con lo que esto dice y lo que no. **No dice que IPA sea la causa**: sacar
+`ipa.ko` saca el camino de datos entero, y el módem podría comportarse distinto
+por no tener a dónde mandar tráfico. El próximo corte hay que hacerlo *adentro*
+de IPA, en `ipa_modem_start` y el armado de canales GSI. Lo que sí explica es
+por qué todas las rondas de eliminación volvían al LTE: un attach es lo único
+que hace que el módem levante el camino de datos, y el camino de datos es IPA.
+
+Apareció además un bug aparte que conviene reportar solo: cuando el módem
+muere, `ipa_modem_stop` espera en `__gsi_channel_stop` una completion que un
+módem muerto nunca manda, **sin timeout**, y el worker queda en estado D para
+siempre. Es lo que hace que el apagado tarde quince minutos.
+
+Detalle completo, evidencia y herramientas: `docs/watchdog-ipa-lte-wip/HANDOFF.md`
+(§ "The SoC dies when the modem comes back" y § "IPA is required for the reset"),
+`userspace/debug-tools/rhodep-modem-restart-watch.py`.
+
+> **Estado del teléfono de desarrollo:** el `rhodep-ipa-hold.conf` está
+> **desactivado a propósito** (movido a `/root/ipa-hold.off`) porque el
+> reproductor necesita IPA cargado. Con una SIM puesta, ese teléfono se
+> reinicia: es esperado, no un fallo nuevo. Cómo revertirlo está en
+> `/etc/modprobe.d/README-rhodep-ipa-hold-is-OFF`.
 
 
 ### 7.7 Monitor mode WiFi — INVIABLE en mainline (cerrado)

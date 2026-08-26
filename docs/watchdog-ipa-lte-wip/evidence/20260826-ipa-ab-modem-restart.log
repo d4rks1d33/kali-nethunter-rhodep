@@ -1,0 +1,89 @@
+[112.07] === new run, 2 round(s), kernel 7.2.0-rc5
+[112.08] round 1: state=running, crashing the modem
+[112.09] round 1: running -> crashed
+[112.10] round 1: still watching, state=crashed
+[112.30] round 1: crashed -> offline
+[115.52] round 1: offline -> running
+[115.53] round 1: modem is up; the next few seconds are the ones that matter
+[683.51] === new run, 2 round(s), kernel 7.2.0-rc5
+[683.52] round 1: state=running, crashing the modem
+[683.53] round 1: running -> crashed
+[683.53] round 1: still watching, state=crashed
+[683.74] round 1: crashed -> offline
+[685.37] round 1: offline -> running
+[685.38] round 1: modem is up; the next few seconds are the ones that matter
+[693.64] round 1: still watching, state=running
+[703.77] round 1: still watching, state=running
+[705.41] round 1: 20s after bring-up and still alive
+[707.43] round 2: state=running, crashing the modem
+[707.45] round 2: still watching, state=running
+[707.66] round 2: running -> offline
+[711.69] round 2: offline -> running
+[711.70] round 2: modem is up; the next few seconds are the ones that matter
+[717.56] round 2: still watching, state=running
+[727.67] round 2: still watching, state=running
+[731.75] round 2: 20s after bring-up and still alive
+[733.77] SURVIVED all 2 round(s)
+[763.65] === new run, 4 round(s), kernel 7.2.0-rc5
+[763.66] round 1: state=running, crashing the modem
+[763.67] round 1: running -> crashed
+[763.67] round 1: still watching, state=crashed
+[763.88] round 1: crashed -> offline
+[767.91] round 1: offline -> running
+[767.92] round 1: modem is up; the next few seconds are the ones that matter
+[773.78] round 1: still watching, state=running
+[783.89] round 1: still watching, state=running
+[787.97] round 1: 20s after bring-up and still alive
+[789.99] round 2: state=running, crashing the modem
+[790.01] round 2: still watching, state=running
+[790.22] round 2: running -> offline
+[793.64] round 2: offline -> running
+[793.65] round 2: modem is up; the next few seconds are the ones that matter
+[800.10] round 2: still watching, state=running
+[810.21] round 2: still watching, state=running
+[813.66] round 2: 20s after bring-up and still alive
+[815.68] round 3: state=running, crashing the modem
+[815.70] round 3: still watching, state=running
+[815.91] round 3: running -> offline
+[819.93] round 3: offline -> running
+[819.94] round 3: modem is up; the next few seconds are the ones that matter
+[825.80] round 3: still watching, state=running
+[835.90] round 3: still watching, state=running
+[839.96] round 3: 20s after bring-up and still alive
+[841.99] round 4: state=running, crashing the modem
+[842.01] round 4: running -> crashed
+[842.01] round 4: still watching, state=crashed
+[842.22] round 4: crashed -> offline
+[846.26] round 4: offline -> running
+[846.26] round 4: modem is up; the next few seconds are the ones that matter
+[852.12] round 4: still watching, state=running
+[862.23] round 4: still watching, state=running
+[866.30] round 4: 20s after bring-up and still alive
+[868.32] SURVIVED all 4 round(s)
+[1029.92] === new run, 2 round(s), kernel 7.2.0-rc5
+[1029.93] round 1: state=running, crashing the modem
+[1029.93] round 1: running -> crashed
+[1029.94] round 1: still watching, state=crashed
+[1030.14] round 1: crashed -> offline
+[1032.56] round 1: offline -> running
+[1032.58] round 1: modem is up; the next few seconds are the ones that matter
+[1040.05] round 1: still watching, state=running
+[1050.17] round 1: still watching, state=running
+[1052.61] round 1: 20s after bring-up and still alive
+[1054.62] round 2: state=running, crashing the modem
+[1054.65] round 2: running -> crashed
+[1054.66] round 2: still watching, state=crashed
+[1054.87] round 2: crashed -> offline
+[1058.90] round 2: offline -> running
+[1058.91] round 2: modem is up; the next few seconds are the ones that matter
+[1064.77] round 2: still watching, state=running
+[1074.88] round 2: still watching, state=running
+[1078.94] round 2: 20s after bring-up and still alive
+[1080.96] SURVIVED all 2 round(s)
+[72.02] === new run, 3 round(s), kernel 7.2.0-rc5
+[72.02] round 1: state=running, crashing the modem
+[72.02] round 1: running -> crashed
+[72.03] round 1: still watching, state=crashed
+[72.23] round 1: crashed -> offline
+[74.85] round 1: offline -> running
+[74.85] round 1: modem is up; the next few seconds are the ones that matter

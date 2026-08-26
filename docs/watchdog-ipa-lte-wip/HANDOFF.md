@@ -1150,3 +1150,53 @@ the config the modem receives during ipa_modem_notify, are where to start.
 It does explain why every previous elimination round kept coming back to LTE.
 An attach is the one thing that makes the modem bring the data path up, and
 the data path is IPA.
+
+## The file-restore half of the purge guard had never worked
+
+Found by deleting a registered file on purpose instead of trusting that the
+protection worked. `rhodep-protect-files enforce` noticed the deletion and then
+said `could not restore`, every time, for every file in the port.
+
+`register <component> <mode> <path>...` wants an octal mode, and all four
+callers pass the word `protected` instead, so the manifest lines read
+
+    protected /usr/local/sbin/rhodep-modem-at
+
+and enforce ran `install -D -m protected ...`, which is an error. The immutable
+flag was carrying the whole scheme on its own: root could still delete a file
+by deciding to, and nothing would ever put it back.
+
+Fixed in enforce rather than by migrating the manifests, so old and new entries
+both work: an octal mode is still honoured, anything else means "keep whatever
+the snapshot has", which is what `cp -a` does and what the callers meant.
+
+Verified end to end, which is the only way this should be believed: the AT
+console was deleted, `systemctl start rhodep-holds-enforce` put it back, it
+ran, and the immutable flag was on it again.
+
+One trap worth knowing when changing any protected file, including
+rhodep-protect-files itself. The live file and the canonical copy are separate;
+installing a new version over the live one and then running enforce restores
+the *old* one over your change and reports it as tampering. The sequence is
+release, install, register.
+
+## What is protected now
+
+Registered with both layers and verified restoring: the AT console, and the
+debug tools that had been getting copied by hand every time the phone reset --
+rhodep-pon-dump, rhodep-glink-uaf-check, rhodep-glink-refcount-test,
+rhodep-glink-hammer.py, rhodep-modem-restart-watch.py.
+
+Both installers also gained a `release` before their `install` lines. Without
+it the second run of either script fails, because install(1) cannot overwrite
+an immutable file, and the first run is what makes them immutable.
+
+rhodep-holds-enforce.service was found `disabled`. Its unit has
+`WantedBy=multi-user.target`, so it is meant to run at boot; only the timer was
+enabled, which left the first three minutes of every boot unguarded. Enabled.
+
+The ipa hold is deliberately off, and now says so where somebody would look
+for it: `/etc/modprobe.d/README-rhodep-ipa-hold-is-OFF` explains that
+rhodep-ipa-hold.conf was moved to /root/ipa-hold.off, that this phone will
+reset with a SIM in it, that this is expected in this state, and how to put it
+back. Nothing restores that file automatically, and nothing removes it either.

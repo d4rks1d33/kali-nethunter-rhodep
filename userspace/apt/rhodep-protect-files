@@ -58,6 +58,30 @@ SHARE=/usr/local/share/rhodep
 STORE=$SHARE/files
 MANIFEST=$SHARE/protect.d
 
+# Restore one file from its snapshot.
+#
+# The first field of a manifest line is meant to be an octal mode, but every
+# caller in this port passes the word "protected" instead, and
+# `install -m protected` is an error. The immutable flag was doing all the work
+# and the restore half had never once succeeded -- found by deleting a
+# registered file on purpose and watching enforce say "could not restore".
+#
+# Rather than migrate the manifests, treat anything that is not octal as "keep
+# whatever the snapshot has", which is what cp -a does and what the callers
+# meant. Real octal modes still work, so old and new entries both do.
+put_back() {
+	_mode=$1; _src=$2; _dst=$3
+	case $_mode in
+	[0-7]|[0-7][0-7][0-7]|[0-7][0-7][0-7][0-7])
+		install -D -m "$_mode" "$_src" "$_dst" 2>/dev/null
+		;;
+	*)
+		mkdir -p "$(dirname "$_dst")" 2>/dev/null
+		cp -a "$_src" "$_dst" 2>/dev/null
+		;;
+	esac
+}
+
 log() { logger -t rhodep-protect-files -p daemon.warning -- "$*" 2>/dev/null; echo "rhodep-protect-files: $*"; }
 
 # A live path flattened into a single store filename: /etc/foo -> %etc%foo
@@ -122,11 +146,11 @@ enforce)
 			if [ ! -e "$f" ]; then
 				log "ALERT: $f had been deleted, restoring it"
 				chattr -i "$f" 2>/dev/null
-				install -D -m "$mode" "$src" "$f" 2>/dev/null || { log "could not restore $f"; continue; }
+				put_back "$mode" "$src" "$f" || { log "could not restore $f"; continue; }
 			elif ! cmp -s "$src" "$f"; then
 				log "ALERT: $f had been modified, restoring it"
 				chattr -i "$f" 2>/dev/null
-				install -D -m "$mode" "$src" "$f" 2>/dev/null || { log "could not restore $f"; continue; }
+				put_back "$mode" "$src" "$f" || { log "could not restore $f"; continue; }
 			fi
 			chattr +i "$f" 2>/dev/null
 		done < "$list"

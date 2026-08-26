@@ -29,7 +29,7 @@ import traceback
 
 CREATE_EPT = (1 << 30) | (40 << 16) | (0xB5 << 8) | 0x01
 DESTROY_EPT = (0xB5 << 8) | 0x02
-LOG = "/home/kali/hammer.log"
+LOG_DEFAULT = "/var/log/rhodep-glink-hammer.log"
 
 
 def uptime():
@@ -101,12 +101,15 @@ def main():
                          "has twice now landed after the cycles finished, not "
                          "during them, so stopping at the last cycle is how "
                          "you miss the only part that matters")
+    ap.add_argument("--log", default=LOG_DEFAULT,
+                    help="where to write the fsync'd trail "
+                         "(default %(default)s)")
     args = ap.parse_args()
 
     if os.geteuid() != 0:
         raise SystemExit("needs root")
 
-    say = Log(LOG)
+    say = Log(args.log)
     say("start channel=%s cycles=%d delay=%s rproc=%s"
         % (args.channel, args.cycles, args.delay, rproc_state()))
     try:

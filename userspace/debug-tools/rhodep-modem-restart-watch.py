@@ -26,7 +26,7 @@ import os
 import sys
 import time
 
-LOG = "/home/kali/restart-watch.log"
+LOG_DEFAULT = "/var/log/rhodep-modem-restart-watch.log"
 STATE = "/sys/class/remoteproc/remoteproc0/state"
 CRASH = "/sys/kernel/debug/remoteproc/remoteproc0/crash"
 
@@ -65,11 +65,14 @@ def main():
     ap.add_argument("--rounds", type=int, default=3)
     ap.add_argument("--settle", type=float, default=40.0,
                     help="seconds to watch after each crash")
+    ap.add_argument("--log", default=LOG_DEFAULT,
+                    help="where to write the fsync'd trail "
+                         "(default %(default)s)")
     args = ap.parse_args()
     if os.geteuid() != 0:
         raise SystemExit("needs root")
 
-    say = Log(LOG)
+    say = Log(args.log)
     say("=== new run, %d round(s), kernel %s"
         % (args.rounds, open("/proc/version").read().split()[2]))
 

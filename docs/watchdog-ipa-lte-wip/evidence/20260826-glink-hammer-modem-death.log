@@ -1,0 +1,73 @@
+[205.75] start channel=DS cycles=500 delay=0.0 rproc=running
+[206.37] endpoint /dev/rpmsg0
+[206.38] cycle 0 ok=1 bad=0 rproc=running
+[211.42] cycle 4 failed: [Errno 22] Invalid argument: '/dev/rpmsg0'
+[211.44] cycle 5 ok=5 bad=1 rproc=running
+[211.45] cycle 10 ok=10 bad=1 rproc=running
+[211.46] cycle 15 ok=15 bad=1 rproc=running
+[211.46] cycle 20 ok=20 bad=1 rproc=running
+[211.47] cycle 25 ok=25 bad=1 rproc=running
+[211.48] cycle 30 ok=30 bad=1 rproc=running
+[211.49] cycle 35 ok=35 bad=1 rproc=running
+[211.50] cycle 40 ok=40 bad=1 rproc=running
+[211.51] cycle 45 ok=45 bad=1 rproc=running
+[211.52] cycle 50 ok=50 bad=1 rproc=running
+[211.53] cycle 55 ok=55 bad=1 rproc=running
+[211.54] cycle 60 ok=60 bad=1 rproc=running
+[211.54] cycle 65 ok=65 bad=1 rproc=running
+[211.55] cycle 70 ok=70 bad=1 rproc=running
+[211.56] cycle 75 ok=75 bad=1 rproc=running
+[211.57] cycle 80 ok=80 bad=1 rproc=running
+[211.57] cycle 85 ok=85 bad=1 rproc=running
+[211.58] cycle 90 ok=90 bad=1 rproc=running
+[211.59] cycle 95 ok=95 bad=1 rproc=running
+[211.59] cycle 100 ok=100 bad=1 rproc=running
+[211.60] cycle 105 ok=105 bad=1 rproc=running
+[211.61] cycle 110 ok=110 bad=1 rproc=running
+[211.61] cycle 115 ok=115 bad=1 rproc=running
+[211.62] cycle 120 ok=120 bad=1 rproc=running
+[211.63] cycle 125 ok=125 bad=1 rproc=running
+[211.63] cycle 130 ok=130 bad=1 rproc=running
+[211.64] cycle 135 ok=135 bad=1 rproc=running
+[211.65] cycle 140 ok=140 bad=1 rproc=running
+[211.66] cycle 145 ok=145 bad=1 rproc=running
+[211.67] cycle 150 ok=150 bad=1 rproc=running
+[211.68] cycle 155 ok=155 bad=1 rproc=running
+[211.68] cycle 160 ok=160 bad=1 rproc=running
+[211.69] cycle 165 ok=165 bad=1 rproc=running
+[211.70] cycle 170 ok=170 bad=1 rproc=running
+[211.70] cycle 175 ok=175 bad=1 rproc=running
+[211.71] cycle 180 ok=180 bad=1 rproc=running
+[211.72] cycle 185 ok=185 bad=1 rproc=running
+[211.73] cycle 190 ok=190 bad=1 rproc=running
+[211.73] cycle 195 ok=195 bad=1 rproc=running
+[211.74] cycle 200 ok=200 bad=1 rproc=running
+[211.74] cycle 205 ok=205 bad=1 rproc=running
+[211.75] cycle 210 ok=210 bad=1 rproc=running
+[211.76] cycle 215 ok=215 bad=1 rproc=running
+[211.77] cycle 220 ok=220 bad=1 rproc=running
+[211.77] cycle 225 ok=225 bad=1 rproc=running
+[211.78] cycle 230 ok=230 bad=1 rproc=running
+[211.79] cycle 235 ok=235 bad=1 rproc=running
+[211.80] cycle 240 ok=240 bad=1 rproc=running
+[211.81] cycle 245 ok=245 bad=1 rproc=running
+[211.82] cycle 250 ok=250 bad=1 rproc=running
+[211.83] cycle 255 ok=255 bad=1 rproc=running
+[211.83] cycle 260 ok=260 bad=1 rproc=crashed
+[211.84] cycle 265 ok=265 bad=1 rproc=crashed
+[211.85] cycle 270 ok=270 bad=1 rproc=crashed
+[211.86] cycle 275 ok=275 bad=1 rproc=crashed
+[211.87] cycle 280 ok=280 bad=1 rproc=crashed
+[211.88] cycle 285 ok=285 bad=1 rproc=crashed
+[211.88] cycle 290 ok=290 bad=1 rproc=crashed
+[211.89] cycle 295 ok=295 bad=1 rproc=crashed
+[211.90] cycle 300 ok=300 bad=1 rproc=crashed
+[211.90] cycle 301 failed: [Errno 2] No such file or directory: '/dev/rpmsg0'
+[211.91] cycle 301: /dev/rpmsg0 IS GONE, rproc=crashed -- the edge went down
+[211.92] SURVIVED cycles=500 ok=300 bad=2 rproc=crashed
+[211.93] cleaned up
+[211.94] watching for 60s: rproc state and endpoint every 200ms
+[211.94] watching rproc=crashed endpoints=0
+[212.16] rproc crashed -> offline
+[217.05] watching rproc=offline endpoints=0
+[218.08] rproc offline -> running

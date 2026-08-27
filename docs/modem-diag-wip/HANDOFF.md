@@ -279,26 +279,73 @@ which the AP serves through rmtfs. rmtfs is running and healthy here (service
 file system". The `diag_bootup_flag` path above is the concrete thing to try
 to read here.
 
-`scripts/modem/rhodep-qmi-probe.py` talks to any QMI service by number. The
-method for mapping an undocumented service is to read which error comes back:
+**Service 21 is QMI_MFS (Modem File System), and the previous error map was
+wrong.** The IDL was found: `modem_filesystem_v01` (libqmi's enum agrees,
+`QMI_SERVICE_MFS = 0x15 = 21`, "Modem embedded file system service"; libqmi
+ships the enum but no message definitions, so qmicli cannot drive it). The IDL
+sits at `/tmp/opencode/qmi21/` (re-fetch if gone). It is a **single-shot
+path-based get/put**, no open/read/close handles:
 
-    error 57   the message id does not exist
-    error 17   the message exists, a required TLV is missing
-    error 1    a TLV is present but the wrong size or shape
-    error 19   the TLV is the right shape and the value is refused
+    0x20  MFS_PUT  write a whole item file.  Mandatory TLVs 0x01 path,
+          0x02 data, 0x03 oflag(u32), 0x04 mode(i32).
+    0x21  MFS_GET  read a whole item file.   Mandatory TLV 0x01 path;
+          optional 0x10 data_length(u32).
 
-What that found:
+The errors seen are **QMI framework errors, not EFS errors** -- this is the
+correction that matters, the old table below was a misread:
+
+    error 17  MISSING_ARGUMENT     a mandatory TLV is absent
+    error  1  MALFORMED_MSG        the message structure does not decode
+    error 19  ARGUMENT_TOO_LONG    a var-length TLV's inner count is too big
+    (a real EFS errno comes back as result 0 with efs_err_num in TLV 0x10)
+
+So the previous session's reading -- "0x20 identifies a file by number", "0x21
+parses a string then refuses the value with 19" -- was wrong. 0x20's TLV 0x01
+is the same path array as 0x21; error 17 on 0x20 was the missing mandatory
+0x04 mode, not "a required TLV is unfound". And 0x21's error 19 was **not** a
+refused value: the path is a QMI variable-length array with a **2-byte count
+prefix inside the TLV value** (`SZ_IS_16`), and sending a bare string made the
+decoder read the first two path bytes as the count.
+
+**What this session measured on 0x21 (GET), and where it is stuck:**
+
+    path as bare string (old)          -> error 19
+    path with u16 count prefix         -> error 1   (progress: 19 -> 1)
+    path with 1-byte count prefix      -> error 19
+    u16 count + optional data_length   -> error 1
+    "/nv" alone with u16 count         -> error 1   (same class as long path)
+
+So the u16 count prefix is right (it moved the error off 19), and the leftover
+**error 1 is structural, not about the path contents** (a 3-char and a 45-char
+path give the same error 1). Adding the optional data_length TLV does not help.
+What is still wrong about the message frame is not yet known -- this is the open
+end. Tried against both `/nv/item_files/services/diag/diag_bootup_flag` and
+`/nv/item_files/conf/diag_bootup.conf`.
+
+**0x1F (GET_SUPPORTED_FIELDS) was used and it disagrees with the stock IDL.**
+Asked per message id, it returns `<count:1><tlv ids...>`:
+
+    msg 0x1E  req: (none)      resp: 0x01
+    msg 0x20  req: (none, 00)  resp: 0x01     <- PUT reports ZERO req fields
+    msg 0x21  req: 0x01        resp: 0x03     <- GET resp data is 0x03, not 0x11
+
+Two things to carry forward: this build's GET puts the file **data in response
+TLV 0x03**, where the stock IDL uses 0x11 -- so when a GET finally succeeds,
+read 0x03. And PUT advertising zero request fields is odd; it may mean writes
+are locked down on this build. Both are measured, not inferred.
+
+The remaining error-1 wall on GET is the thing to crack next. Likely suspects,
+untested: the outer message length field, a transaction/flags detail the raw
+QRTR socket gets wrong that 0x1E/0x1F tolerate but 0x21 does not, or a required
+client registration (CID) that stateless queries skip. Do not assume the flag
+is unreadable until the framing is proven correct against a known-good item
+file -- the instrument (`rhodep-qmi-probe.py`) is the suspect here, not the EFS.
+
+Old error map, kept because the numbers are still a useful cross-check but the
+*labels* were wrong (see corrected table above):
 
     0x1E   get supported messages: result 0, tlv 0x10 = 0500000000c003
-    0x20   exists.  0x01 u16, 0x02 u16, 0x03 u32 all accepted,
-           0x04 refused, and with 0x01+0x02+0x03 it still answers 17,
-           so at least one required TLV is unfound.
-           No string field anywhere: this identifies a file by number.
-    0x21   exists.  0x01 takes a string in some form -- 1, 2 and 4-byte
-           values are malformed, any string is parsed and then refused
-           with 19. Not a length problem: "/nv" and a 34-character path
-           are refused identically.
-    0x22, 0x23, 0x24, 0x01, 0x02, 0x03   do not exist
+    0x22, 0x23, 0x24   do not exist (only 0x1E,0x1F,0x20,0x21 are implemented)
 
 ## The downstream diag driver, read at last -- and it changes the model
 

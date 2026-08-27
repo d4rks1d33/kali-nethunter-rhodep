@@ -96,17 +96,27 @@ def main():
                     default=QMI_GET_SUPPORTED_MSGS)
     ap.add_argument("--tlv", action="append", default=[],
                     metavar="ID=VALUE",
-                    help="add a TLV. 0x01=/nv/item_files/conf/diag_bootup.conf "
-                         "sends that string; 0x01:hex=41424344 sends bytes")
+                    help="add a TLV. 0x01=text sends a bare string; "
+                         "0x01:hex=41424344 sends raw bytes; "
+                         "0x01:path=/nv/item_files/... sends a QMI_MFS path "
+                         "(16-bit count prefix + bytes), which is what "
+                         "service 21 needs -- a bare string answers error 19")
     args = ap.parse_args()
 
     payload = b""
     for spec in args.tlv:
         ident, _, value = spec.partition("=")
-        as_hex = ident.endswith(":hex")
-        if as_hex:
+        if ident.endswith(":hex"):
             ident = ident[:-4]
             raw = bytes.fromhex(value)
+        elif ident.endswith(":path"):
+            # QMI variable-length array with a 16-bit element count prefix
+            # (SZ_IS_16), which is how QMI_MFS (service 21) encodes a path.
+            # A bare string is wrong: the decoder reads the first two path
+            # bytes as the count and answers error 19 (ARGUMENT_TOO_LONG).
+            ident = ident[:-5]
+            b = value.encode()
+            raw = struct.pack("<H", len(b)) + b
         else:
             raw = value.encode()
         payload += struct.pack("<BH", int(ident, 0), len(raw)) + raw
@@ -131,6 +141,20 @@ def main():
                 if t == 0x02 and len(v) >= 4:
                     res, err = struct.unpack("<HH", v[:4])
                     print("    result %d error %d" % (res, err))
+                elif t == 0x10 and len(v) == 4:
+                    # MFS response: efs_err_num (a real EFS errno)
+                    print("    tlv 0x10 efs_err_num = %d" %
+                          struct.unpack("<I", v)[0])
+                elif t in (0x03, 0x11) and len(v) >= 2:
+                    # MFS GET data: 16-bit count prefix then the file bytes.
+                    # This build returns the data in 0x03; stock IDL uses 0x11.
+                    n = struct.unpack("<H", v[:2])[0]
+                    body = v[2:2 + n]
+                    print("    tlv %#04x MFS data, %d bytes: %s" %
+                          (t, n, body[:64].hex()))
+                    printable = "".join(chr(c) if 32 <= c < 127 else "."
+                                        for c in body[:64])
+                    print("      as text: %s" % printable)
                 else:
                     print("    tlv %#04x, %d bytes: %s" % (t, len(v), v[:32].hex()))
     return 0

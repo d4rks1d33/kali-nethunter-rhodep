@@ -334,12 +334,56 @@ TLV 0x03**, where the stock IDL uses 0x11 -- so when a GET finally succeeds,
 read 0x03. And PUT advertising zero request fields is odd; it may mean writes
 are locked down on this build. Both are measured, not inferred.
 
-The remaining error-1 wall on GET is the thing to crack next. Likely suspects,
-untested: the outer message length field, a transaction/flags detail the raw
-QRTR socket gets wrong that 0x1E/0x1F tolerate but 0x21 does not, or a required
-client registration (CID) that stateless queries skip. Do not assume the flag
-is unreadable until the framing is proven correct against a known-good item
-file -- the instrument (`rhodep-qmi-probe.py`) is the suspect here, not the EFS.
+**The error-1 wall on GET was chased hard and is now well characterised, but
+not broken.** What was ruled out, all measured:
+
+  * **Not the modem being in a bad state.** Rebooted the whole phone for a
+    clean modem boot (uptime confirmed the reboot, zero crashes that boot,
+    service 21 published) and the GET gives the identical error 1. So it is not
+    a degraded modem after the SSR restarts -- it reproduces on a pristine boot.
+  * **Not the path or the file.** Known-good item files
+    (`/nv/item_files/conf/data_profile.conf`,
+    `.../Thin_UI/enable_thin_ui_cfg`) give error 1 too, so it is framing, not
+    a missing/locked target.
+  * **Not the message header.** 0x21 with no TLV returns error 17
+    (MISSING_ARGUMENT), so the service logic runs and reaches the mandatory-TLV
+    check -- the QMI header, txn and routing are fine; the same header works for
+    0x1E and 0x1F.
+  * **Not any path encoding I could construct.** Bare string, u8/u16/u32 count
+    prefix, aggregate `u32 path_len + path`, each with and without a trailing
+    NUL -- **every** shape of TLV 0x01 returns error 1. The u16-count form is
+    provably correct against Qualcomm's own serializer (`qmi_idl_lib.c`,
+    `SZ_IS_16` -> 2-byte LE count): msg_len, tlv_len and count all reconcile,
+    and it is still rejected.
+
+**Why this is a wall: SID 21 on this build is an OEM MFS spin, not stock.** The
+tell is measured and cross-checked: this build's `0x1F` reports the GET
+*response* data in TLV **0x03**, and stock `modem_filesystem_v01` has been
+frozen at MINOR 0x02 with the GET response data in **0x11** across every
+published train for ~a decade (checked against several vendor dumps and the
+qmi-framework serializer, saved at `/tmp/opencode/qmi21/` and
+`/tmp/opencode/qmi21-v2/`). No public MFS IDL uses 0x03. So the request TLV
+0x01 for MFS_GET on MANNAR is very likely a non-public struct whose shape is
+not one of the standard array/aggregate encodings -- which is why generically
+correct framing is refused. Guessing further TLV shapes is the "adivinar TLVs"
+the brief warns against and was stopped here deliberately.
+
+**The instrument was fixed and is no longer the suspect.** `rhodep-qmi-probe.py`
+now emits the provably-correct u16-count path (via `0x01:path=`) and decodes
+MFS data (0x03/0x11) and efs_err_num. The framing is correct; the schema is the
+unknown, and it is the modem's, not ours.
+
+**Two ways forward that do not need the MFS schema:**
+
+  * **Read EFS2 offline from the raw partitions.** `diag_bootup_flag` lives in
+    `modemst1`/`modemst2` (sde12/sde13), a Qualcomm EFS2 image. Parsing EFS2
+    read-only to extract one item is bounded work and sidesteps QMI entirely;
+    writing back is the risky part and is not needed just to read the flag's
+    value. This is probably the cleaner path to *prove or kill* the
+    diag_bootup_flag premise.
+  * **Find the MANNAR MFS IDL.** If Motorola's or a matching LA.UM.9.16 MFS
+    header with the 0x03 response field surfaces, the request encoding follows
+    and the QMI path reopens. Not found in this session's search.
 
 Old error map, kept because the numbers are still a useful cross-check but the
 *labels* were wrong (see corrected table above):

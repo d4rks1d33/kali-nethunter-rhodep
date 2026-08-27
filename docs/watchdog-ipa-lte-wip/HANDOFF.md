@@ -2277,3 +2277,43 @@ becomes a matter of speaking the protocol. If it still fails, the timeout was
 never the obstacle and the migration is failing for reasons of its own, which
 would point at a transport the AP does not provide -- the firmware lists SMEM,
 smd, spss and apss.
+
+## The timeout was crashing the modem, but it is not why DIAG will not open
+
+Patch 0083 in place, timeout raised from 5000 ms to 45000:
+
+    DIAG_CNTL   waited 46 s, open still failed, and no fatal error at all
+    DIAG        waited 46 s, open still failed, and the modem asserted on close
+    (20000 ms)  asserted, so the threshold is somewhere between 20 and 45 s
+
+So two separate things were happening and they had been confused with each
+other.
+
+The first is real and worth the patch. Giving up after five seconds and closing
+the channel while the modem is still working on it makes the modem take a fatal
+error in glink_channel_migration.c. Wait long enough and DIAG_CNTL does not
+crash it at all. Anyone opening an on-demand glink channel from mainline is
+exposed to this, not just diag, and the fix is not diag-specific.
+
+The second is that waiting does not help. Given 46 seconds the modem still
+never acknowledges the channel, and it never appears in the advertised list.
+The migration completes or times out on its side, and the answer is still no.
+
+Which points at something the AP cannot fix. The channel names are in the
+firmware and glink knows them well enough to attempt a migration, but nothing
+accepts the open. The reading that fits everything seen is that diag's channels
+are registered in this firmware's glink tables while the diag task that would
+own them is not running, so the migration finds no owner. `AT$QCDMG` being
+absent from the same firmware says the same thing from another direction: the
+command that switches a port into diagnostic mode was not built in.
+
+Stated with the confidence it deserves: this is inference, and I have been
+wrong about DIAG twice already -- first claiming it absent from the channel
+list, then claiming the AT command settled it. What is measured is that the
+names are recognised, that migration is attempted, that no open ever completes,
+and that nothing is ever advertised. What is inferred is why.
+
+If that reading is right, no amount of AP-side implementation reaches a peer
+that is not there, and the DIAG console cannot be built on this firmware. What
+would disprove it is finding the modem advertising a diag channel under any
+condition, or finding the thing that starts its diag task.

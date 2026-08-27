@@ -73,6 +73,9 @@ DIAG_CTRL_MSG_EQUIP_LOG_MASK = 9
 DIAG_CTRL_MSG_EVENT_MASK_V2 = 10
 DIAG_CTRL_MSG_F3_MASK_V2 = 11
 DIAG_CTRL_MSG_DIAGMODE = 3
+DIAG_CTRL_MSG_DIAGID = 33
+DIAGID_VERSION_1 = 1
+DIAG_ID_APPS = 1
 DIAG_CTRL_MASK_ALL_ENABLED = 2
 STREAM_1 = 1
 
@@ -109,6 +112,30 @@ def diagmode_packet():
     # sleep_threshold, sleep_time, drain_timer_val, event_stale_timer_val
     body = struct.pack("<IIIIIIIII", 1, 0, 1, 0, 0, 0, 0, 0, 0)
     return struct.pack("<II", DIAG_CTRL_MSG_DIAGMODE, len(body)) + body
+
+
+def diagid_reply(diag_id, process_name):
+    """Echo a DIAGID back with the id the AP assigns.
+
+    This is the step that was missing. process_diagid() in diagfwd_cntl.c
+    answers every DIAGID the peripheral sends, and its own comment says the
+    masks only take effect once it has:
+
+        "Masks (F3, logs and events) will be sent to peripheral ... only if
+         diag_id support is not present or diag_id support is present and
+         diag_id has been sent to peripheral."
+
+    We advertise DIAGID_SUPPORT in the feature mask, so the modem waits for
+    this. Sending masks before it, as the previous attempt did, is sending them
+    into a peripheral that is not listening for them yet.
+
+        header: pkt_id, len, version    then diag_id, then the name with a NUL
+        len = 4 (version) + 4 (diag_id) + len(name) + 1
+    """
+    name = process_name.encode() + b"\0"
+    ln = 4 + 4 + len(name)
+    return struct.pack("<III", DIAG_CTRL_MSG_DIAGID, ln,
+                       DIAGID_VERSION_1) + struct.pack("<I", diag_id) + name
 
 
 def feature_mask_packet():
@@ -182,6 +209,9 @@ def main():
     if not socks:
         return 1
 
+    next_diag_id = [DIAG_ID_APPS + 1]
+    masks_sent = [False]
+
     before = channels()
     say("glink channels before: %s" % " ".join(sorted(before)))
 
@@ -247,17 +277,39 @@ def main():
                     peer = data[12:12 + mlen]
                     say("  that is the modem's feature mask, %d bytes: %s"
                         % (mlen, peer.hex()))
-                    for name, pkt in (("feature mask", feature_mask_packet()),
-                                      ("diagmode", diagmode_packet()),
-                                      ("msg mask all", msg_mask_all()),
-                                      ("log mask all", log_mask_all()),
-                                      ("event mask all", event_mask_all())):
-                        try:
-                            s.sendto(pkt, addr)
-                            say("  sent %-14s %s" % (name, pkt.hex()))
-                            time.sleep(0.05)
-                        except OSError as e:
-                            say("  could not send %s: %s" % (name, e))
+                    pkt = feature_mask_packet()
+                    try:
+                        s.sendto(pkt, addr)
+                        say("  sent feature mask   %s" % pkt.hex())
+                    except OSError as e:
+                        say("  could not reply: %s" % e)
+                elif pkt_id == DIAG_CTRL_MSG_DIAGID and len(data) >= 16:
+                    ver, peer_id = struct.unpack_from("<II", data, 8)
+                    pname = data[16:].split(b"\0")[0].decode("ascii", "replace")
+                    assigned = next_diag_id[0]
+                    next_diag_id[0] += 1
+                    say("  DIAGID from the modem: id %#x name %r" % (peer_id, pname))
+                    ack = diagid_reply(assigned, pname)
+                    try:
+                        s.sendto(ack, addr)
+                        say("  acked with our diag_id %d: %s" % (assigned, ack.hex()))
+                    except OSError as e:
+                        say("  could not ack: %s" % e)
+                        continue
+                    # Only now are the masks meaningful, per the driver's own
+                    # comment. Send them once, after the first ack.
+                    if not masks_sent[0]:
+                        masks_sent[0] = True
+                        for nm, mp in (("diagmode", diagmode_packet()),
+                                       ("msg mask all", msg_mask_all()),
+                                       ("log mask all", log_mask_all()),
+                                       ("event mask all", event_mask_all())):
+                            try:
+                                s.sendto(mp, addr)
+                                say("  sent %-14s %s" % (nm, mp.hex()))
+                                time.sleep(0.05)
+                            except OSError as e:
+                                say("  could not send %s: %s" % (nm, e))
         if cmd_deadline and time.time() > cmd_deadline:
             cmd_deadline = None
             where = modem_cmd_port()

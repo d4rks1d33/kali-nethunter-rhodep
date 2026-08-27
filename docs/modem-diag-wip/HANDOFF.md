@@ -838,3 +838,79 @@ against a channel that answers rather than a wall that does not.
 nothing back). Send the real-time and buffering-mode control messages. Then
 retry the command, and watch DATA rather than the command socket, since that is
 where downstream expects responses to arrive.
+
+# DIAG WORKS
+
+The missing step was the DIAGID acknowledgement, and `process_diagid()` in
+`diagfwd_cntl.c` says so in its own comment:
+
+    Masks (F3, logs and events) will be sent to peripheral immediately
+    following feature mask update only if diag_id support is not present or
+    diag_id support is present and diag_id has been sent to peripheral.
+
+We advertise DIAGID_SUPPORT in the feature mask, so the modem waits for the AP
+to echo each DIAGID back before it treats the masks as meaningful. The previous
+attempt sent the masks straight after the feature mask, into a peripheral that
+was not listening for them yet.
+
+The correct order, which is what `rhodep-diag-server.py` now does:
+
+    modem -> feature mask                    08000000 07000000 03000000 f7fe1b
+    AP    -> feature mask                    08000000 08000000 04000000 15ea1000
+    modem -> DIAGID  "msm/modem/root_pd"
+    AP    -> DIAGID ack, our id 2            21000000 1a000000 01000000 02000000 ...
+    AP    -> diagmode, msg mask, log mask, event mask   (all ALL_ENABLED)
+    modem -> DIAGID  "msm/modem/wlan_pd"
+    AP    -> DIAGID ack, our id 3
+
+The DIAGID reply is the same structure the modem sends -- pkt_id 33, len,
+version 1, diag_id, process name with a NUL -- with the id the AP assigns
+rather than the peripheral's own.
+
+**And then it all works.** A raw `0x00` version request to the modem's CMD
+service is answered:
+
+    DIAG RESPONSE from (0, 26): 58 bytes
+    00 "Sep 17 2024 08:18:42" "Sep 13 2024 11:00:00" "strait.g" ...
+
+That is the modem's build date, build time and build name, in a proper DIAG
+version response. The command interface is live.
+
+**And the log stream is flowing.** 222 packets on DATA in one session, 2 to 4
+KiB each, carrying the modem's own F3 messages -- one of the first contains the
+string `GET RESPONSE`, which is modem-internal log text, not anything we sent.
+
+    CNTL   11 packets     control protocol
+    DATA  222 packets     the log stream
+    DCI     0 packets     nothing requested on it yet
+
+470 packets total in a sixty-second session.
+
+## So the whole earlier conclusion is overturned
+
+Everything in this document before the breakthrough section concluded that this
+was a production handset with diagnostics fused off, unreachable from the AP.
+That was wrong, and the evidence for it was real but pointed the wrong way. The
+EFS is encrypted, MFS does refuse every read and write with EPERM, and
+`diag_bootup_flag` is genuinely unreadable -- all measured, all still true, and
+none of them was ever the reason.
+
+The reason was that nothing on the AP published the QRTR services diag runs on,
+because mainline has no diag driver and every attempt here looked at the glink
+transport where the AP is passive. On the socket transport the AP is the server
+and the modem was waiting for it.
+
+## What exists now
+
+`userspace/debug-tools/rhodep-diag-server.py` is a working DIAG client: it
+publishes the services, completes the control handshake including DIAGID,
+enables all masks, sends a command and prints the response, and logs the stream.
+
+    sudo rhodep-diag-server.py --restart-modem --seconds 60 --cmd 00
+
+`--restart-modem` matters: the modem binds to whichever sockets it first
+connected to, so a second run without restarting it sees nothing.
+
+A console in the shape of the AT one is now a matter of packaging: the request
+path is a sendto on the modem CMD service, the response path is a recvfrom, and
+the log stream is DATA. The protocol work is done.

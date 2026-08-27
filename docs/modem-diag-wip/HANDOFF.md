@@ -375,15 +375,44 @@ unknown, and it is the modem's, not ours.
 
 **Two ways forward that do not need the MFS schema:**
 
-  * **Read EFS2 offline from the raw partitions.** `diag_bootup_flag` lives in
-    `modemst1`/`modemst2` (sde12/sde13), a Qualcomm EFS2 image. Parsing EFS2
-    read-only to extract one item is bounded work and sidesteps QMI entirely;
-    writing back is the risky part and is not needed just to read the flag's
-    value. This is probably the cleaner path to *prove or kill* the
-    diag_bootup_flag premise.
+  * **Read EFS2 offline from the raw partitions.** TRIED -- and it is a dead
+    end, because **the modem EFS is encrypted.** Dumped `modemst1` and
+    `modemst2` (3 MB each, sde12/sde13) read-only. Both carry a small plaintext
+    `IMGEFS2`/`IMGEFS1` wrapper header (entropy 0.57) and then a body at
+    **entropy 7.29 bits/byte** -- that is ciphertext, not a filesystem. The
+    ~12000 "strings" a naive scan finds are random 5-char runs, not names. The
+    EFS2 `EFSSuper` superblock magic and the EFS-info magic `0xA7B93EA0` are
+    **absent** from both dumps, confirming there is no plaintext EFS2 to parse.
+    `4z0x/efs2_extractor` and the EFS2 on-flash spec are irrelevant against an
+    encrypted image; the key lives in the modem/TrustZone, not on the AP.
+  * **The plaintext factory EFS (`fsg`) does not contain the diag items.**
+    `fsg` (128 MB, `sde…`) *is* plaintext and holds ~32000 `/nv/item_files/...`
+    paths -- but grep for `diag` in it returns **zero**. No `diag_bootup_flag`,
+    no `diag_bootup.conf`, nothing under `services/diag/`. So the diag bootup
+    items are not in factory defaults; they live only in the encrypted modemst
+    EFS, or the modem falls back to a compiled-in default. Either way the value
+    is not readable from the AP side offline.
+  * **Net on reading the flag:** both offline routes are closed by encryption,
+    and the live route (QMI MFS) is closed by the OEM schema. The flag's value
+    cannot currently be read from the AP. Stated plainly so nobody re-dumps
+    modemst expecting to grep it.
   * **Find the MANNAR MFS IDL.** If Motorola's or a matching LA.UM.9.16 MFS
     header with the 0x03 response field surfaces, the request encoding follows
-    and the QMI path reopens. Not found in this session's search.
+    and the QMI path reopens. Not found in this session's search. This is now
+    the *only* identified way to reach `diag_bootup_flag` without the modem's
+    own diag already running.
+
+**Where that leaves the premise.** The diag-bootup-flag lead got *stronger* on
+evidence this session, not weaker: besides `/nv/item_files/services/diag/
+diag_bootup_flag` and `diag_bootup.conf`, the modem image also carries
+`BWP Init: ARD EFS params: Enable diag=%d, ...` and
+`/nv/item_files/services/diag/DCI_disable` -- a consistent picture of an EFS
+switch that gates whether the modem's diag comes up. It is no longer "a lead
+from one string". But it is still **not proven**, because the one thing that
+would prove it -- the flag's value -- is behind EFS encryption and an OEM QMI
+schema, both closed here. Do not present "diag_bootup_flag is the gate" as
+fact; present it as the strongest surviving hypothesis with the servreg/PD
+branch eliminated beneath it.
 
 Old error map, kept because the numbers are still a useful cross-check but the
 *labels* were wrong (see corrected table above):

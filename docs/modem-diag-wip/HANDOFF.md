@@ -741,3 +741,52 @@ length, payload -- and `diagfwd_cntl.c` has the exact structures.
 After that, a DIAG console is the same shape as the AT one: send a request to
 the modem's CMD port, read the response, with the DATA socket carrying the log
 stream.
+
+## The control handshake completes, and what is left
+
+`rhodep-diag-server.py` now answers the modem. On receiving control packet
+type 8 it replies with the AP's feature mask, built exactly as
+`diag_send_feature_mask_update()` builds it:
+
+    bits 0 FEATURE_MASK_SUPPORT   2 LOG_ON_DEMAND_APPS   4 REQ_RSP_SUPPORT
+         9 STM                   11 MASK_CENTRALIZATION 13 SOCKETS_ENABLED
+        14 DCI_EXTENDED_HEADER   15 DIAGID_SUPPORT      20 MULTI_SIM_SUPPORT
+
+    -> 08000000 08000000 04000000 15ea1000
+
+APPS_HDLC_ENCODE (6) is deliberately left clear: over sockets the packets are
+unframed, and downstream only sets it for the USB path. FEATURE_MASK_LEN is 4,
+not 2 -- the `{0, 0}` initialiser in the driver is partial and misleads.
+
+With that, a full session from a modem restart looks like:
+
+    modem feature mask   08000000 07000000 03000000 f7fe1b
+    our reply            08000000 08000000 04000000 15ea1000
+    modem log mask       0c000000 01000000 02
+    modem diag id 0x21   ... "msm/modem/root_pd"
+    modem diag id 0x21   ... "msm/modem/wlan_pd"
+
+238 packets in one run. Control type 0x21 is DIAG_CTRL_MSG_DIAGID and the modem
+is registering its protection domains by name, which is a later stage of the
+handshake than the feature mask -- so the modem is progressing through the
+protocol, not just answering once.
+
+**Sending a command still gets nothing back.** The modem's CMD service is found
+(node 0, instance 1; its port moves across restarts, so look it up) and a raw
+`0x00` version request is accepted by the socket, but no response arrives on
+any of the three channels.
+
+That is expected at this stage rather than a wall. `diag_send_updates_peripheral()`
+sends more than the feature mask: after it come the msg (F3), log and event mask
+updates, the real-time mode and the buffering mode. A peripheral with no masks
+set has been told to report nothing, so silence is the correct behaviour. The
+next work is to send those, in `diag_masks.c` order, and then retry.
+
+Two practical notes for whoever continues:
+
+  * **The modem's diag stays up once it has come up**, and it stays bound to
+    whichever sockets it first connected to. Starting a second server without
+    restarting the modem gets no handshake and no traffic. Use
+    `--restart-modem` for a clean session.
+  * **The CMD service port changes** across modem restarts (138, then 26). Look
+    it up by service 0x1001 instance 1 on node 0 rather than hardcoding.

@@ -42,6 +42,35 @@ DIAG_SVC_ID = 0x1001
 MODEM_INST_BASE = 0
 INSTANCES = {0: "CNTL", 2: "DATA", 4: "DCI"}
 EDGE = "6080000.remoteproc"
+
+# DIAG control protocol, from diagfwd_cntl.h / diag_masks.c
+DIAG_CTRL_MSG_FEATURE = 8
+FEATURE_MASK_LEN = 4
+
+# The bits the downstream AP sets, from diag_send_feature_mask_update():
+#   0  FEATURE_MASK_SUPPORT      2  LOG_ON_DEMAND_APPS
+#   4  REQ_RSP_SUPPORT           9  STM
+#  11  MASK_CENTRALIZATION      13  SOCKETS_ENABLED
+#  14  DCI_EXTENDED_HEADER      15  DIAGID_SUPPORT
+#  20  MULTI_SIM_SUPPORT
+# APPS_HDLC_ENCODE (6) is deliberately not set: over sockets we want the
+# packets unframed, and downstream only sets it when the apps side does its own
+# HDLC for the USB path.
+AP_FEATURE_BITS = [0, 2, 4, 9, 11, 13, 14, 15, 20]
+
+
+def ap_feature_mask():
+    m = bytearray(FEATURE_MASK_LEN)
+    for b in AP_FEATURE_BITS:
+        m[b // 8] |= 1 << (b & 7)
+    return bytes(m)
+
+
+def feature_mask_packet():
+    """struct diag_ctrl_feature_mask: id, data_len, mask_len, then the mask."""
+    mask = ap_feature_mask()
+    return struct.pack("<III", DIAG_CTRL_MSG_FEATURE,
+                       4 + len(mask), len(mask)) + mask
 CRASH = "/sys/kernel/debug/remoteproc/remoteproc0/crash"
 
 
@@ -80,6 +109,12 @@ def main():
     ap.add_argument("--restart-modem", action="store_true",
                     help="crash the modem after publishing, so its diag sees "
                          "the services during its own boot")
+    ap.add_argument("--cmd", metavar="HEX",
+                    help="after the handshake, send this DIAG request to the "
+                         "modem's CMD service and print what comes back. "
+                         "0x00 is version, 0x0c verno, 0x7c extended build id")
+    ap.add_argument("--cmd-after", type=float, default=8.0,
+                    help="seconds to wait for the handshake before sending")
     ap.add_argument("--log", default="/var/log/rhodep-diag-server.log")
     args = ap.parse_args()
     if os.geteuid() != 0:
@@ -113,6 +148,36 @@ def main():
         except OSError as e:
             say("cannot crash it: %s" % e)
 
+    def modem_cmd_port():
+        """Where the modem publishes its DIAG CMD service, instance 1.
+
+        It only exists once the modem's diag is up, which is the whole point:
+        before anyone published, there was no 4097 from node 0 at all.
+        """
+        lk = socket.socket(socket.AF_QIPCRTR, socket.SOCK_DGRAM)
+        node, _ = lk.getsockname()
+        lk.sendto(struct.pack("<IIIII", 10, DIAG_SVC_ID, 0, 0, 0),
+                  (node, QRTR_PORT_CTRL))
+        lk.settimeout(2.0)
+        found = None
+        end_l = time.time() + 2.0
+        while time.time() < end_l:
+            try:
+                d, _ = lk.recvfrom(4096)
+            except socket.timeout:
+                break
+            if len(d) < 20:
+                continue
+            cmd, svc, inst, n, prt = struct.unpack("<IIIII", d[:20])
+            if cmd == QRTR_TYPE_NEW_SERVER and svc == DIAG_SVC_ID and n == 0:
+                if inst == MODEM_INST_BASE + 1:
+                    found = (n, prt)
+        lk.close()
+        return found
+
+    cmd_sock = None
+    cmd_deadline = time.time() + args.cmd_after if args.cmd else None
+
     seen = before
     end = time.time() + args.seconds
     got = 0
@@ -128,6 +193,46 @@ def main():
             got += 1
             say("RX on %s from %s: %d bytes: %s"
                 % (INSTANCES[inst], addr, len(data), data[:64].hex()))
+            # The handshake is modem-first: it sends its feature mask and only
+            # then will it talk. Answer with ours, to the port it came from.
+            if len(data) >= 12 and addr[0] != 1:
+                pkt_id, dlen = struct.unpack_from("<II", data, 0)
+                if pkt_id == DIAG_CTRL_MSG_FEATURE:
+                    mlen = struct.unpack_from("<I", data, 8)[0]
+                    peer = data[12:12 + mlen]
+                    say("  that is the modem's feature mask, %d bytes: %s"
+                        % (mlen, peer.hex()))
+                    reply = feature_mask_packet()
+                    try:
+                        s.sendto(reply, addr)
+                        say("  replied with the AP feature mask: %s"
+                            % reply.hex())
+                    except OSError as e:
+                        say("  could not reply: %s" % e)
+        if cmd_deadline and time.time() > cmd_deadline:
+            cmd_deadline = None
+            where = modem_cmd_port()
+            if not where:
+                say("the modem is not publishing its CMD service; no handshake?")
+            else:
+                say("modem CMD service at node %d port %d" % where)
+                req = bytes.fromhex(args.cmd.replace("0x", ""))
+                cmd_sock = socket.socket(socket.AF_QIPCRTR, socket.SOCK_DGRAM)
+                cmd_sock.setblocking(False)
+                try:
+                    cmd_sock.sendto(req, where)
+                    say("sent DIAG request %s" % req.hex())
+                except OSError as e:
+                    say("could not send: %s" % e)
+        if cmd_sock is not None:
+            try:
+                d, a = cmd_sock.recvfrom(4096)
+                say("DIAG RESPONSE from %s: %d bytes: %s" % (a, len(d), d[:96].hex()))
+                say("   as text: %s" % "".join(chr(c) if 32 <= c < 127 else "."
+                                               for c in d[:96]))
+            except (BlockingIOError, OSError):
+                pass
+
         now = channels()
         if now != seen:
             new = now - seen

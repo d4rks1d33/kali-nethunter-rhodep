@@ -610,3 +610,67 @@ silence in that situation is not a crash; ask for the screen to be unlocked.
 **Find the rpmsg control device by matching `6080000.remoteproc` in the sysfs
 path.** It has been rpmsg_ctrl0, 2 and 3 across a single afternoon. Guessing it
 is how two tools in this repo broke, one of them twice.
+
+## Three gaps closed by measurement, and none of them opens diag
+
+Picking this up after the session above, three things it left as inference or
+as a queued action have now been measured. All three are negative, and each
+removes a way the picture could still have been wrong.
+
+**MFS PUT is EPERM too, not just GET.** The section above characterises GET
+thoroughly and then says of PUT only that reporting zero request fields "may
+mean writes are locked down". That was never tested. It is now, with the
+framing the same section established:
+
+    0x20 PUT  0x01 path (u16-count)  /nv/item_files/services/diag/zz_probe
+              0x02 data (u16-count)
+              0x03 oflag (u32)  0x0301
+              0x04 mode  (i32)  0644
+    -> result 0, efs_err_num = 1
+
+Same EPERM as every read. So the lockdown is on the MFS handler as a whole, not
+on reads, and writing the flag was never going to be the way in. Worth knowing
+before someone plans around "maybe we can write it even if we cannot read it" --
+that was my first idea on reading this file.
+
+**DIAG is never advertised, not even for an instant.** The reframed observable
+from step 2 was checked only as a snapshot after the modem settled. A channel
+advertised during bring-up and immediately withdrawn would not survive that.
+`userspace/debug-tools/rhodep-glink-advert-watch.py` polls the rpmsg bus
+directly at 50 ms, opens nothing, creates no endpoint, and so cannot assert the
+modem. Across a full crash-and-recover, with ModemManager stopped:
+
+    2123.35  withdrawn: all twelve
+    2127.50  APPEARED: IPCRTR SSM_RTR_MODEM_APPS glink_ssr rpmsg_ctrl
+    2127.60  APPEARED: LOOPBACK_CTL_MPSS apr_voice_svc
+    2128.65  APPEARED: DATA1 DATA11 DATA2 DATA3 DATA4 DS
+    ...100 s of sampling...
+    DIAG ever advertised: NO
+
+Three distinct waves of bring-up, sampled at 50 ms for a hundred seconds, and
+no DIAG name appears in any of them. The modem's diag does not come up, briefly
+or otherwise. That is now measured at resolution rather than assumed from a
+snapshot, and it is the primary test the AP-passive model asks for.
+
+**The unidentified OEM QMI services are not a way in either.** Nine services on
+the modem are unnamed by qrtr-lookup -- 5004, 1067, 228, 227, 74, 73, 78, 68,
+4099 -- and any of them could in principle have carried a diag control. None
+implements the standard capability message: 1067, 228, 74, 68, 73 and 78 answer
+error 57 to 0x1E, and 5004, 227 and 4099 do not answer at all. Mapping them
+would mean brute-forcing message ids service by service, which is a large and
+unpromising search given everything else here.
+
+**Where that leaves it.** I set out to find a hole in the reasoning above and
+did not find one; I closed three of my own candidate holes instead. Four
+independent AP-side facts now agree: the modem never advertises a diag channel
+at any point in its boot, MFS refuses both reads and writes with EPERM
+including for paths that do not exist, the EFS partitions are encrypted, and
+the servreg PD lever was served correctly and changed nothing.
+
+Stated as carefully as the evidence allows: nothing reachable from the
+application processor has been found that turns this modem's diag on, and the
+remaining candidates are all inside the modem -- its bootup flag, or a
+privileged context this port does not have. That is not the same as proving it
+impossible, and the honest gap is still the same one: no one has read the
+flag's value. But every route to it from this side is now closed with a
+measured reason rather than a suspicion.

@@ -1147,3 +1147,63 @@ zero-dependency reader for a quick look, with its limits stated.
 What does not depend on any of this, because it comes from packet timestamps
 and not from decoding: the modem logs continuously to 151.83, the SoC goes down
 at about 152, and nothing in the capture is an error.
+
+## The captures are standard QMDL, and SCAT reads them
+
+The DATA packets are already the HDLC-framed diag stream: each diag packet is
+followed by a CRC16 and a 0x7E terminator, exactly as in a QMDL log. So
+converting a capture is concatenation, nothing more --
+`userspace/debug-tools/rhodep-diag-to-qmdl.py` does it.
+
+    534 captured packets, 2003465 bytes, uptime 89.68 to 151.83
+    5015 frame terminators
+
+That hands the capture to the existing tools instead of to a homegrown parser,
+which matters because both of my parsers disagreed with each other:
+
+    scanning for the 0x10 pattern     4446 log entries, 2 RRC packets
+    splitting naively on 0x7E         2085 log packets, 0 RRC packets
+
+Neither is right. 0x7E is escaped inside payloads, so splitting on it breaks
+packets, and pattern-scanning misses entries and invents alignment. A frame
+type of 0x98 appears 2430 times and I do not know what it is. This is exactly
+where reimplementing stops paying.
+
+**SCAT parses the file.** Installed from git (the `scat` on PyPI is an
+unrelated project):
+
+    python3 -m venv env && env/bin/pip install git+https://github.com/fgsect/scat
+    env/bin/scat -t qc -d capture.qmdl --msgs --events --disable-crc-check -F out.pcap
+
+It decoded 413 packets into a GSMTAP pcap -- 407 log messages and 6 GSM frames
+-- before hitting a truncated packet at the end of the capture and raising in
+`parse_diag_event`. The pcap is Wireshark-readable and the messages come out as
+text.
+
+**And there is still no smoking gun.** The decoded events are dominated by two
+that alternate continuously, 2804 and 2805, 369 of the 407 between them -- and
+they run from the first second of the capture, not from anywhere near the
+death. Routine. Nothing appears at the end that was not there at the start.
+
+One caveat on the pcap: SCAT's timestamps come out wrong here (a 15637-second
+span and negative values for some frames), so use the DGPK record timestamps
+from the original capture for timing and the pcap for content.
+
+## Closing state of the diag work
+
+Working, and the modem's answer is consistent with every other participant's.
+
+  * DIAG is up: services published, control handshake complete including
+    DIAGID, masks enabled, commands answered, log stream flowing.
+  * The stream survives the reset, in a standard format, readable by SCAT,
+    QCSuper, MobileInsight and Wireshark.
+  * Through an LTE attach that kills the SoC: the modem receives system
+    information at 135.12, transmits on UL_DCCH at 138.16 -- 109 bytes on band
+    28, EARFCN 9360, PCI 101, the size of a setup-complete carrying an attach
+    request -- and then logs physical-layer work continuously until 151.83.
+    The SoC goes down at about 152.
+  * No error, no assertion, no exception, and no event in the last seconds that
+    was not also in the first.
+
+The modem does not fail. That was the question diag was built to answer, and it
+is answered from inside the modem now rather than inferred from outside it.

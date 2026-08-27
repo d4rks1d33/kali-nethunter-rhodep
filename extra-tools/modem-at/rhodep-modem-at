@@ -59,6 +59,12 @@ CRIB = """
 'help <command>' explains any of the 256 commands this modem reports, without
 sending anything: try 'help +CEREG', 'help csq', 'help $QCVOLT'.
 
+sending an SMS
+  sms +5491122334455 Hola          one line, the whole sequence for you
+  sms +5491122334455               then type the body, '.' sends, '!' cancels
+  AT+CMGF=1                        or do it by hand: the console now waits at
+  AT+CMGS="+5491122334455"         the modem's "> " prompt instead of hanging
+
 Every command below was tried against this modem and answers; the ones it does
 not support are called out, so the list is what works rather than what usually
 works.
@@ -606,7 +612,28 @@ def drain(fd, secs=0.3):
             signal.alarm(0)
 
 
-def command(fd, cmd, wait=5.0):
+# Commands that answer with a "> " prompt instead of OK, and then wait for a
+# body terminated by Ctrl-Z. Sending one of these and waiting for OK is how the
+# console used to hang: the modem was holding the prompt open and nobody was
+# going to type into it.
+PROMPT_COMMANDS = ("+CMGS", "+CMGW", "+CMGC", "+CNMA")
+CTRL_Z = b"\x1a"
+ESC = b"\x1b"
+
+
+def wants_prompt(cmd):
+    """Will this command put the modem into text-entry mode?
+
+    Only the set form does. AT+CMGS=? is a test and AT+CMGS? is a read; both
+    answer OK like anything else.
+    """
+    up = cmd.strip().upper().replace(" ", "")
+    if not any(k in up for k in PROMPT_COMMANDS):
+        return False
+    return "=" in up and not up.endswith("=?")
+
+
+def command(fd, cmd, wait=5.0, prompt_ok=False):
     drain(fd)
     try:
         signal.alarm(3)
@@ -634,12 +661,109 @@ def command(fd, cmd, wait=5.0):
         tail = buf.strip()
         if tail.endswith(b"OK") or tail.endswith(b"ERROR") or b"+CME ERROR" in buf:
             break
+        # "> " is a complete answer in its own right: the modem is now waiting
+        # for a message body and will send nothing further until it gets one.
+        if prompt_ok and tail.endswith(b">"):
+            break
 
     text = buf.decode("ascii", "replace")
     lines = [l.strip() for l in text.splitlines() if l.strip()]
     if lines and lines[0].strip().upper() == cmd.strip().upper():
         lines = lines[1:]                       # drop the echo
     return "\n".join(lines) if lines else "(no answer)"
+
+
+def send_body(fd, body, wait=90.0):
+    """Send a message body and the Ctrl-Z that submits it.
+
+    No carriage return is appended: the body ends where Ctrl-Z says it ends,
+    and any newline inside it is part of the message. The wait is long because
+    the modem answers only once the network has taken the message, which is
+    seconds on a good day and much longer on a bad one.
+    """
+    drain(fd, 0.1)
+    try:
+        signal.alarm(3)
+        os.write(fd, body.encode("utf-8", "replace") + CTRL_Z)
+    except Timeout:
+        return "(write blocked: the modem posted no receive buffer)"
+    except OSError as e:
+        return "(write failed: %s)" % e
+    finally:
+        signal.alarm(0)
+
+    end = time.monotonic() + wait
+    buf = b""
+    while time.monotonic() < end:
+        r, _, _ = select.select([fd], [], [], 0.5)
+        if not r:
+            continue
+        try:
+            signal.alarm(2)
+            buf += os.read(fd, 4096)
+        except (Timeout, OSError):
+            break
+        finally:
+            signal.alarm(0)
+        tail = buf.strip()
+        if tail.endswith(b"OK") or tail.endswith(b"ERROR") or b"+CME ERROR" in buf:
+            break
+    lines = [l.strip() for l in buf.decode("ascii", "replace").splitlines()
+             if l.strip()]
+    return "\n".join(lines) if lines else "(no answer after %.0fs)" % wait
+
+
+def abort_body(fd):
+    """Back out of text-entry mode without sending anything."""
+    try:
+        signal.alarm(2)
+        os.write(fd, ESC)
+    except (Timeout, OSError):
+        pass
+    finally:
+        signal.alarm(0)
+    drain(fd, 0.3)
+
+
+def read_body(prompt="sms> "):
+    """Collect a message body from the terminal.
+
+    Ctrl-Z cannot be typed into input() usefully, so a line holding only "."
+    sends and a line holding only "!" cancels, which is the same convention
+    mail clients have used forever.
+    """
+    print("  the modem is waiting for the message.")
+    print("  end with a line containing only  .   to send")
+    print("  or a line containing only        !   to cancel")
+    lines = []
+    while True:
+        try:
+            line = input(prompt)
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return None
+        if line.strip() == ".":
+            return "\n".join(lines)
+        if line.strip() == "!":
+            return None
+        lines.append(line)
+
+
+def send_sms(fd, number, text, say=print):
+    """The whole AT+CMGS dance: text mode, the number, the body, Ctrl-Z."""
+    r = command(fd, "AT+CMGF=1")
+    say("AT+CMGF=1 -> %s" % r)
+    if "OK" not in r:
+        say("the modem would not go into text mode; not sending")
+        return False
+    r = command(fd, 'AT+CMGS="%s"' % number, prompt_ok=True)
+    say('AT+CMGS="%s" -> %s' % (number, r))
+    if not r.strip().endswith(">"):
+        say("no prompt, so the modem did not accept the number")
+        return False
+    r = send_body(fd, text)
+    say(r)
+    return "OK" in r
 
 
 def kmsg(text):
@@ -831,6 +955,9 @@ def main():
                     help="allow --probe to send a command on the do-not-send list")
     ap.add_argument("--cleanup", action="store_true",
                     help="release endpoints left behind by earlier runs and exit")
+    ap.add_argument("--sms", nargs=2, metavar=("NUMBER", "TEXT"),
+                    help="send an SMS and exit, doing the whole AT+CMGF/"
+                         "AT+CMGS/Ctrl-Z sequence")
     ap.add_argument("--explain", metavar="CMD",
                     help="say what a command does and exit, without opening a "
                          "channel or touching the modem at all. Partial names "
@@ -880,6 +1007,8 @@ def main():
         if args.probe:
             probe(fd, args.probe, args.force)
             return
+        if args.sms:
+            return 0 if send_sms(fd, args.sms[0], args.sms[1]) else 1
         if args.cmd:
             print(command(fd, " ".join(args.cmd)))
             return
@@ -913,6 +1042,31 @@ def main():
                 continue
             if line.lower().startswith("help "):
                 show_help(line[5:], fd)
+                continue
+            if line.lower().startswith("sms "):
+                rest = line[4:].strip()
+                number, _, text = rest.partition(" ")
+                if not number:
+                    print("usage: sms <number> <message>")
+                    continue
+                if not text:
+                    body = read_body()
+                    if body is None:
+                        print("cancelled")
+                        continue
+                    text = body
+                send_sms(fd, number, text)
+                continue
+            if wants_prompt(line):
+                reply = command(fd, line, prompt_ok=True)
+                print(reply)
+                if reply.strip().endswith(">"):
+                    body = read_body()
+                    if body is None:
+                        abort_body(fd)
+                        print("cancelled")
+                    else:
+                        print(send_body(fd, body))
                 continue
             print(command(fd, line))
     finally:

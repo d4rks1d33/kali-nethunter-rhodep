@@ -180,3 +180,39 @@ The lookup normalises what you type, so `+CEREG`, `cereg`, `AT+CEREG?` and
 gets suggestions instead of a wrong answer. It deliberately refuses to guess:
 `help zzz` says there is no entry rather than matching `ATZ`, which is a modem
 reset.
+
+## Sending an SMS
+
+AT+CMGS does not answer OK. It answers with a "> " prompt and then waits for
+the message body, terminated by Ctrl-Z. The console used to sit there waiting
+for an OK that was never coming, which made SMS impossible from here.
+
+    sudo rhodep-modem-at --sms "+5491122334455" "Hola"
+
+or inside the console, either the shortcut or by hand:
+
+    at> sms +5491122334455 Hola, esto es una prueba
+
+    at> AT+CMGF=1
+    OK
+    at> AT+CMGS="+5491122334455"
+    >
+      the modem is waiting for the message.
+      end with a line containing only  .   to send
+      or a line containing only        !   to cancel
+    sms> Hola, este es un SMS de prueba
+    sms> .
+    +CMGS: 23
+    OK
+
+Ctrl-Z cannot usefully be typed into a line-based prompt, so a line holding
+only `.` sends and a line holding only `!` cancels, which is the convention
+mail clients have used forever. Cancelling sends ESC, which is what backs the
+modem out of text-entry mode; leaving it there would wedge the channel for the
+next command.
+
+The wait after Ctrl-Z is ninety seconds, because the modem answers only once
+the network has accepted the message.
+
+The same two-phase handling applies to AT+CMGW, AT+CMGC and AT+CNMA, which use
+the same prompt.

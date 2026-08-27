@@ -2230,3 +2230,50 @@ One practical cost to plan around: every failed attempt crashes the modem, and
 a modem crash leaves IPA un-setup until reboot, so ModemManager loses the modem
 too. One attempt per boot is the honest way to run these, and the reboot is
 part of the experiment rather than an annoyance.
+
+## DIAG, second round: the real channel names, and what the modem does with them
+
+The firmware settles the naming. Strings from /readonly/firmware/image/modem.b*
+contain, among a lot else:
+
+    DIAG   DIAG_2   DIAG_CMD   DIAG_CNTL   DIAG_CNTL_2   glink_diag
+
+so the data channel is plain `DIAG`, not `DIAG_DATA`, and the modem carries a
+`glink_diag` component. DIAG_DATA is not in the firmware at all, which makes
+its behaviour more interesting rather than less: it still produced the
+migration assert.
+
+Probed one per boot, with a nonsense name as the control:
+
+    DIAG        device appears, open times out at 5 s, modem asserts later
+    DIAG_CNTL   same
+    DIAG_DATA   same
+    NOTACHANNEL_XYZ   times out and nothing happens, modem carries on
+
+None of them ever appears in the advertised channel list, watched for 30
+seconds after the attempt, so the modem never completes its side.
+
+Two smaller things learned on the way. `AT$QCDMR?` answers `115200`, so the
+modem does have a diagnostic port with a rate, and that command is harmless --
+it was on the do-not-send list on suspicion and can come off it. And the QMI
+service list has no diag service, as expected: diag is its own protocol, not
+QMI.
+
+## The timeout hypothesis, and patch 0083
+
+The assert arrives about twenty-one seconds after our open gives up at five.
+That ordering suggests the failure is ours: we ask, the modem starts a channel
+migration, we give up and close the channel underneath it, and its migration
+then fails against a channel that no longer exists.
+
+kernel/patches/0083 makes qcom_glink_create_local()'s wait a writable module
+parameter, default unchanged at 5000 ms. Built into kali-boot-diag.img.
+
+    echo 45000 > /sys/module/qcom_glink_native/parameters/open_timeout_ms
+    sudo rhodep-diag-probe.py --channel DIAG_CNTL --seconds 60
+
+If the modem finishes when someone waits, that is diag opened and the console
+becomes a matter of speaking the protocol. If it still fails, the timeout was
+never the obstacle and the migration is failing for reasons of its own, which
+would point at a transport the AP does not provide -- the firmware lists SMEM,
+smd, spss and apss.

@@ -2185,3 +2185,48 @@ whether the modem's diag is actually waiting on anything: it does not open a
 DIAG channel of its own, and asking for DIAG_DATA makes it assert in channel
 migration rather than complete a handshake, which suggests its diag is not
 mid-conversation but idle.
+
+## Starting on DIAG: the names are real, and the blocker is channel migration
+
+Probing one channel at a time with `userspace/debug-tools/rhodep-diag-probe.py`,
+which opens a channel and listens without sending anything.
+
+    DIAG_CNTL         device appears, open times out after 5 s,
+                      and 21 s later the modem asserts
+    DIAG_DATA         same, assert arrives sooner
+    NOTACHANNEL_XYZ   device appears, open times out, and nothing happens
+                      at all: no assert after 30 s, modem still running
+
+That control is what makes the rest meaningful. A name the modem has never
+heard of fails quietly. The DIAG names fail loudly:
+
+    qcom_q6v5_pas 6080000.remoteproc: fatal error received:
+      glink_channel_migration.c:602:Assertion status == GLINK_STATUS_SUCCESS failed
+
+So the modem recognises these names, does something real with them, and takes a
+fatal error when that something fails. DIAG is present in this firmware.
+
+The delay matters too. The assert lands 21 seconds after our open times out at
+5 seconds, so it is not our request failing, it is a timer inside the modem's
+glink expiring afterwards. Channel migration in glink is the mechanism for
+moving a channel between transports when it is available on more than one, and
+the assertion is that the migration did not succeed.
+
+Which is where implementing diag has to start, and it is not where I expected.
+The obstacle is not the diag protocol -- we never get far enough to speak it --
+it is that asking for these channels over this edge sends the modem's glink
+into a migration it cannot complete. Things worth trying, cheapest first:
+
+  * Post receive intents before opening. rpmsg_char does not, and diag moves
+    large buffers; a peripheral with nowhere to put its first packet may be
+    what fails.
+  * Open the channels in the order downstream does, control first, with the
+    data channel opened only after the control handshake.
+  * Find which transports this modem advertises. Migration implies more than
+    one, and if diag is registered on a transport the AP does not bring up,
+    that would explain the failure exactly.
+
+One practical cost to plan around: every failed attempt crashes the modem, and
+a modem crash leaves IPA un-setup until reboot, so ModemManager loses the modem
+too. One attempt per boot is the honest way to run these, and the reboot is
+part of the experiment rather than an annoyance.

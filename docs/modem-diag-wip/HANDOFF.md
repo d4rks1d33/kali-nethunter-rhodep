@@ -914,3 +914,57 @@ connected to, so a second run without restarting it sees nothing.
 A console in the shape of the AT one is now a matter of packaging: the request
 path is a sendto on the modem CMD service, the response path is a recvfrom, and
 the log stream is DATA. The protocol work is done.
+
+## Using DIAG on the LTE reset: the modem's own logs, captured through the death
+
+This is what diag was wanted for. `--dump FILE` appends every DATA packet the
+modem sends, raw, with an fsync per packet -- the reset is a power cycle, so
+only what reached flash survives, and this is the one instrument that carries
+the modem's internal view across it.
+
+**A working recipe, and the two traps in it.**
+
+    reboot the phone            IPA must be healthy, so no modem restart
+    start the server WITHOUT --restart-modem
+    force LTE with ModemManager
+    wait for the reset; the dump survives
+
+The traps are worth stating because both cost a run. Restarting the modem to
+get the handshake leaves IPA un-setup, and without IPA the modem never
+registers on LTE -- so the very thing that gets diag talking prevents the bug
+from happening. And on a freshly booted phone the modem's diag has no client
+yet, so publishing the services is enough: it answered 40 ms after the publish,
+no restart needed. Use `--restart-modem` only on a phone whose diag has already
+bound to a dead client.
+
+**It worked.** 2 MB captured, 534 packets, from uptime 89.68 to 151.83, and the
+SoC went down at ~152 with bootreason=watchdog. The file survived.
+
+**The modem's logs are plain text and detailed.** Not a hex dump to decode --
+real internal logging:
+
+    APDU Parsing / slot value:1 / UICC instruction class
+    Response Data: 0x62 0x17 0x82 0x02 0x41 0x21 ...
+    Status Words - 0x90 0x00 - Normal ending of the command
+    ISM#E911Cap#allowedonLTE:[0]#allowedonNR5G:[0]...
+    LTE_3G_RESELEC_TIMER / SINGO_LTE_3G_RESELEC_TIMER
+    <arg name="ims_lte_emerg_access_status_type" value="0" />
+    DCM_RAT_LTE
+
+**And the last ten seconds are binary.** The final plaintext is `DCM_RAT_LTE`
+at 141.93; from there to 151.83 the payloads carry no printable runs. So the
+fatal window is captured but not yet readable: those are encoded log packets
+rather than the text-carrying F3 messages, and reading them needs per-packet
+decoding rather than `strings`.
+
+That is the next piece of work and it is bounded. DIAG log packets have a type
+byte and a header -- log id, timestamp, length -- and the ext-message form
+carries a subsystem id and a line number even when the format string is not
+inline. Even without Qualcomm's message database, "which subsystem logged, at
+what line, in the last second" is a great deal more than this investigation has
+ever had.
+
+Tools:
+
+    userspace/debug-tools/rhodep-diag-server.py       --dump FILE
+    userspace/debug-tools/rhodep-diag-dump-read.py    --tail, --since, --grep

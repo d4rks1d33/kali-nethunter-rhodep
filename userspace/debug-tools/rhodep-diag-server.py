@@ -187,6 +187,13 @@ def main():
                          "0x00 is version, 0x0c verno, 0x7c extended build id")
     ap.add_argument("--cmd-after", type=float, default=8.0,
                     help="seconds to wait for the handshake before sending")
+    ap.add_argument("--dump", metavar="FILE",
+                    help="append every DATA packet from the modem to FILE, "
+                         "raw, fsync'd per packet. This is what survives the "
+                         "reset: the modem's own log stream up to the instant "
+                         "the SoC is switched off. Each record is a 12-byte "
+                         "header -- magic 'DGPK', u32 length, u32 uptime in "
+                         "milliseconds -- then the payload.")
     ap.add_argument("--log", default="/var/log/rhodep-diag-server.log")
     args = ap.parse_args()
     if os.geteuid() != 0:
@@ -208,6 +215,8 @@ def main():
             say("could not publish instance %d: %s" % (inst, e))
     if not socks:
         return 1
+
+    dump = open(args.dump, "wb") if args.dump else None
 
     next_diag_id = [DIAG_ID_APPS + 1]
     masks_sent = [False]
@@ -266,6 +275,14 @@ def main():
                 say("instance %d read error: %s" % (inst, e))
                 continue
             got += 1
+            if dump is not None and INSTANCES[inst] == "DATA":
+                # fsync per packet on purpose. The reset is a power cycle and
+                # anything still in the page cache is gone; the whole point of
+                # this file is the last few packets before it.
+                ms = int(float(uptime()) * 1000)
+                dump.write(b"DGPK" + struct.pack("<II", len(data), ms) + data)
+                dump.flush()
+                os.fsync(dump.fileno())
             say("RX on %s from %s: %d bytes: %s"
                 % (INSTANCES[inst], addr, len(data), data[:64].hex()))
             # The handshake is modem-first: it sends its feature mask and only

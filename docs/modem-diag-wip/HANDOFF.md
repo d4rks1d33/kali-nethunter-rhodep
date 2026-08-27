@@ -1026,3 +1026,39 @@ are documented well enough to parse:
 Neither is needed to answer "does the modem fail" -- that is answered. They
 would answer "what exactly is the modem doing to the rest of the SoC while it
 does not fail", which is now the whole remaining question.
+
+## Where the decoding stands, and one bug worth not repeating
+
+**The log entry payload starts at +16, not +12.** The entry is cmd(1),
+more(1), len(2), len(2), code(2), timestamp(8). Feeding a decoder from +12
+hands it the last four bytes of the timestamp and every validation fails, which
+looks exactly like "no such packets in the capture". Fixed.
+
+**The RRC OTA header on this build is version 27 and does not match the
+published layouts.** Two real packets:
+
+    1b 10 10 0f a0 00 65 00 90 24 00 00 05 2d 03 ...   len 55
+    1b 10 10 0f a0 01 65 00 90 24 00 00 00 00 0b ...   len 142
+
+No arrangement of the v2/v8/v13 field orders makes both the frequency and the
+declared PDU length come out sane -- a u32 where the frequency belongs reads
+0x24900065, which is not an EARFCN. The two packets differ only in byte 5.
+
+`decode_rrc_ota()` returns None rather than guessing. A decoder that reports
+confident nonsense is worse than one that reports nothing, and this document
+has had to withdraw enough confident readings already.
+
+**What the capture already establishes without it**, and this is the part that
+matters: the modem completes an LTE attach, keeps logging physical-layer work
+at around a hundred packets per code, emits its last readable text at 143.37 --
+WiFi coexistence information, the phone's own SSID, which is the modem doing
+its job -- and is still logging at 151.83. The SoC goes down at about 152.
+
+Text runs per five-second window, which is the clearest single view of it:
+
+     105s   750      125s   367      140s    84
+     110s   389      135s   152      145s   246
+                                     150s     0   <- 28 packets, no text
+
+The modem is busy to the end. Naming the individual log codes would say what it
+was busy with; it would not change that it was busy and did not fail.

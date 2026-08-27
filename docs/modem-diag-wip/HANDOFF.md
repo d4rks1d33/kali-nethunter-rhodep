@@ -356,22 +356,45 @@ not broken.** What was ruled out, all measured:
     `SZ_IS_16` -> 2-byte LE count): msg_len, tlv_len and count all reconcile,
     and it is still rejected.
 
-**Why this is a wall: SID 21 on this build is an OEM MFS spin, not stock.** The
-tell is measured and cross-checked: this build's `0x1F` reports the GET
-*response* data in TLV **0x03**, and stock `modem_filesystem_v01` has been
-frozen at MINOR 0x02 with the GET response data in **0x11** across every
-published train for ~a decade (checked against several vendor dumps and the
-qmi-framework serializer, saved at `/tmp/opencode/qmi21/` and
-`/tmp/opencode/qmi21-v2/`). No public MFS IDL uses 0x03. So the request TLV
-0x01 for MFS_GET on MANNAR is very likely a non-public struct whose shape is
-not one of the standard array/aggregate encodings -- which is why generically
-correct framing is refused. Guessing further TLV shapes is the "adivinar TLVs"
-the brief warns against and was stopped here deliberately.
+**RESOLVED: the error-1 wall was a mandatory data_length TLV, and it is now
+broken. But MFS read is EPERM-gated by policy.** A later sweep (I had wrongly
+concluded above that error 1 was an unreadable OEM path schema -- that was
+wrong, kept here as the mistake it was) tried the u16-count path in TLV 0x01
+*together with* a second TLV, and found the accepting form:
 
-**The instrument was fixed and is no longer the suspect.** `rhodep-qmi-probe.py`
-now emits the provably-correct u16-count path (via `0x01:path=`) and decodes
-MFS data (0x03/0x11) and efs_err_num. The framing is correct; the schema is the
-unknown, and it is the modem's, not ours.
+    0x21 GET:  TLV 0x01 = path (u16-count array)   [mandatory]
+               TLV 0x10 = data_length (u32)        [MANDATORY on this build,
+                                                     optional in the stock IDL]
+
+    data_length <= 512  -> result 0
+    data_length >= 4096 -> error 1 (MALFORMED, exceeds the msg buffer)
+    path alone, no 0x10 -> error 1   <- THIS is what the whole wall was
+
+So the OEM difference is small and now known: this build makes the otherwise-
+optional `data_length` mandatory. The `0x1F` GET-response-field 0x03 reading
+stands, but it was a red herring for the request side. `rhodep-qmi-probe.py`
+and its `0x01:path=` form were correct all along; the missing piece was the
+second TLV.
+
+**And now the real answer: MFS read is gated with EPERM.** With the accepting
+form, every GET returns `result 0` (QMI happy) and then `efs_err_num = 1` in
+TLV 0x10 -- EFS errno 1 = EPERM. Measured across many paths:
+
+    diag_bootup_flag, diag_bootup.conf, lte_disable_duration, qmi_cat_mode,
+    enable_thin_ui_cfg, qp_ims_enabled, rfnv/00000505 ...   all efs_err_num=1
+    a path that DOES NOT EXIST                              also efs_err_num=1
+
+The last line is the proof it is policy, not a filesystem result: a real EFS
+would answer ENOENT (2) for a missing file, not EPERM (1) for everything. The
+read is refused in the MFS handler before it touches the filesystem. This
+firmware simply does not serve EFS item reads over MFS to an AP client -- the
+same production lockdown shape as diag itself being off.
+
+**So the QMI route to `diag_bootup_flag` is closed too, but for a concrete,
+understood reason (EPERM policy), not a mystery.** The instrument is correct and
+fully speaks MFS now; it is the firmware refusing. If a way to satisfy MFS's
+permission check surfaces (a privileged QMI client identity, or the read coming
+from an on-modem context), the exact request form to use is the one above.
 
 **Two ways forward that do not need the MFS schema:**
 
@@ -393,14 +416,18 @@ unknown, and it is the modem's, not ours.
     EFS, or the modem falls back to a compiled-in default. Either way the value
     is not readable from the AP side offline.
   * **Net on reading the flag:** both offline routes are closed by encryption,
-    and the live route (QMI MFS) is closed by the OEM schema. The flag's value
-    cannot currently be read from the AP. Stated plainly so nobody re-dumps
-    modemst expecting to grep it.
-  * **Find the MANNAR MFS IDL.** If Motorola's or a matching LA.UM.9.16 MFS
-    header with the 0x03 response field surfaces, the request encoding follows
-    and the QMI path reopens. Not found in this session's search. This is now
-    the *only* identified way to reach `diag_bootup_flag` without the modem's
-    own diag already running.
+    and the live route (QMI MFS) is now driven correctly but closed by an EPERM
+    policy in the modem's MFS handler (see the resolved section above). Every
+    AP-side route to the flag's value is closed. Stated plainly so nobody
+    re-dumps modemst expecting to grep it, or re-fights the MFS framing.
+  * **The TrustZone key idea is a dead end, and it was already established
+    why.** The modem EFS key lives in hardware (secure key slots / TZ), never in
+    AP-readable memory; and the watchdog-ipa HANDOFF already measured that this
+    board's secure memory cannot be reached from the AP -- `CONFIG_STRICT_DEVMEM`
+    is set, the production debug fuses are closed (they disable CoreSight and
+    SDI), and reading the modem carveout or past the IMEM window *hangs the SoC
+    and needs the power button*. Extracting a hardware key would need a TZ/PBL
+    exploit or physical glitching, which is out of scope for a software port.
 
 **Where that leaves the premise.** The diag-bootup-flag lead got *stronger* on
 evidence this session, not weaker: besides `/nv/item_files/services/diag/
@@ -409,10 +436,22 @@ diag_bootup_flag` and `diag_bootup.conf`, the modem image also carries
 `/nv/item_files/services/diag/DCI_disable` -- a consistent picture of an EFS
 switch that gates whether the modem's diag comes up. It is no longer "a lead
 from one string". But it is still **not proven**, because the one thing that
-would prove it -- the flag's value -- is behind EFS encryption and an OEM QMI
-schema, both closed here. Do not present "diag_bootup_flag is the gate" as
-fact; present it as the strongest surviving hypothesis with the servreg/PD
-branch eliminated beneath it.
+would prove it -- the flag's value -- is behind EFS encryption offline and an
+EPERM policy over QMI MFS, both closed here. Do not present "diag_bootup_flag is
+the gate" as fact; present it as the strongest surviving hypothesis with the
+servreg/PD branch eliminated beneath it.
+
+A note on the shape of the whole answer: three independent AP-side lockdowns
+now point the same way -- diag's channels are never advertised, MFS refuses
+every EFS read with EPERM, and the EFS partition is encrypted. This is a
+production handset with diagnostics deliberately fused/flagged off in the modem
+firmware. Nothing on the AP side (which is all this port controls) has been
+found that flips that, and the servreg/PD lever that looked most promising was
+served correctly by 0085 and did not. The realistic reading is that turning
+diag on requires changing something *inside the modem* -- the bootup flag or an
+equivalent -- which needs either a privileged/on-modem path this port does not
+have, or a different (engineering/unlocked) modem image. That is worth stating
+plainly so the next session weighs it against more AP-side probing.
 
 Old error map, kept because the numbers are still a useful cross-check but the
 *labels* were wrong (see corrected table above):

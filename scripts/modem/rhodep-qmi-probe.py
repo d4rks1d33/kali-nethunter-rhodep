@@ -18,6 +18,19 @@ about, without knowing its protocol first.
 Service numbers come from `qrtr-lookup`. Useful ones on this phone:
     21  modem embedded file system     14  remote file system (ours)
     36  persistent device config       64  service registry locator
+
+Service 21 is QMI_MFS. The GET (0x21) form that this OEM build accepts, found
+by sweeping, differs from the stock IDL: TLV 0x10 (data_length) is MANDATORY
+here, not optional, and must be small (<=512; >=4096 gives MALFORMED):
+
+    --service 21 --msg 0x21 \
+        --tlv 0x01:path=/nv/item_files/conf/diag_bootup.conf \
+        --tlv 0x10:hex=00010000        # data_length = 256
+
+That returns result 0 -- but every read then answers efs_err_num=1 (EPERM),
+including for files known to exist AND for paths that do not, so MFS read is
+gated by policy on this firmware, not returning real EFS errnos. See the diag
+HANDOFF.
 """
 
 import argparse

@@ -214,5 +214,17 @@ next command.
 The wait after Ctrl-Z is ninety seconds, because the modem answers only once
 the network has accepted the message.
 
-The same two-phase handling applies to AT+CMGW, AT+CMGC and AT+CNMA, which use
-the same prompt.
+This is not a list of known commands. The modem reports 256 commands, 54 of
+them proprietary, and nothing documents which of those want a body. So the
+console does not guess: every command may answer with a prompt, and the modem
+saying "> " on a line of its own is what triggers text-entry mode. The standard
+cases are AT+CMGS, AT+CMGW, AT+CMGC and AT+CNMA, and any vendor command that
+behaves the same way is handled without anyone having to know about it first.
+
+The test is that the last non-empty line is exactly ">", not that the reply
+ends with one, so a reply whose text happens to end that way while its OK is
+still arriving is not mistaken for a prompt.
+
+In one-shot mode (`rhodep-modem-at 'AT+CMGS="..."'`) there is no terminal to
+type a body into, so it reports the prompt and sends ESC rather than leaving
+the modem in text-entry mode for whoever opens the channel next.

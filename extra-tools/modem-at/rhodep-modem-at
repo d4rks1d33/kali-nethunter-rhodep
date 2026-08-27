@@ -616,21 +616,24 @@ def drain(fd, secs=0.3):
 # body terminated by Ctrl-Z. Sending one of these and waiting for OK is how the
 # console used to hang: the modem was holding the prompt open and nobody was
 # going to type into it.
-PROMPT_COMMANDS = ("+CMGS", "+CMGW", "+CMGC", "+CNMA")
+# The standard ones are +CMGS, +CMGW, +CMGC and +CNMA, but this modem reports
+# 256 commands including 54 proprietary ones, and there is no list of which of
+# those want a body. So do not keep a list: the modem says so itself by sending
+# a bare "> ", and any command that does it gets the same treatment.
 CTRL_Z = b"\x1a"
 ESC = b"\x1b"
 
 
-def wants_prompt(cmd):
-    """Will this command put the modem into text-entry mode?
+def is_prompt(buf):
+    """Is the modem sitting at a "> " prompt waiting for a body?
 
-    Only the set form does. AT+CMGS=? is a test and AT+CMGS? is a read; both
-    answer OK like anything else.
+    The last non-empty line has to be exactly ">". Testing whether the whole
+    buffer ends with ">" would misfire on a reply whose text happens to end
+    that way while its OK has not arrived yet.
     """
-    up = cmd.strip().upper().replace(" ", "")
-    if not any(k in up for k in PROMPT_COMMANDS):
-        return False
-    return "=" in up and not up.endswith("=?")
+    lines = [l.strip() for l in buf.decode("ascii", "replace").splitlines()
+             if l.strip()]
+    return bool(lines) and lines[-1] == ">"
 
 
 def command(fd, cmd, wait=5.0, prompt_ok=False):
@@ -661,9 +664,13 @@ def command(fd, cmd, wait=5.0, prompt_ok=False):
         tail = buf.strip()
         if tail.endswith(b"OK") or tail.endswith(b"ERROR") or b"+CME ERROR" in buf:
             break
-        # "> " is a complete answer in its own right: the modem is now waiting
-        # for a message body and will send nothing further until it gets one.
-        if prompt_ok and tail.endswith(b">"):
+        # A bare "> " on its own line is a complete answer: the modem is now
+        # waiting for a body and will send nothing further until it gets one.
+        #
+        # Matched on the last line being exactly ">" rather than on the buffer
+        # ending with one, so that a normal reply which happens to end in ">"
+        # while its OK is still in flight is not mistaken for a prompt.
+        if prompt_ok and is_prompt(buf):
             break
 
     text = buf.decode("ascii", "replace")
@@ -758,7 +765,7 @@ def send_sms(fd, number, text, say=print):
         return False
     r = command(fd, 'AT+CMGS="%s"' % number, prompt_ok=True)
     say('AT+CMGS="%s" -> %s' % (number, r))
-    if not r.strip().endswith(">"):
+    if r.strip().splitlines()[-1:] != [">"]:
         say("no prompt, so the modem did not accept the number")
         return False
     r = send_body(fd, text)
@@ -1010,7 +1017,15 @@ def main():
         if args.sms:
             return 0 if send_sms(fd, args.sms[0], args.sms[1]) else 1
         if args.cmd:
-            print(command(fd, " ".join(args.cmd)))
+            # One-shot mode can hit a prompt too. There is no terminal to type
+            # a body into, so say so and back the modem out rather than leaving
+            # it in text-entry mode for whoever opens the channel next.
+            reply = command(fd, " ".join(args.cmd), prompt_ok=True)
+            print(reply)
+            if reply.strip().splitlines()[-1:] == [">"]:
+                abort_body(fd)
+                print("the modem is asking for a message body. Use the console,"
+                      " or --sms for the AT+CMGS case. Backed out with ESC.")
             return
 
         print("modem AT console on %s (%s). '?' for a crib sheet, Ctrl-D to quit."
@@ -1057,18 +1072,17 @@ def main():
                     text = body
                 send_sms(fd, number, text)
                 continue
-            if wants_prompt(line):
-                reply = command(fd, line, prompt_ok=True)
-                print(reply)
-                if reply.strip().endswith(">"):
-                    body = read_body()
-                    if body is None:
-                        abort_body(fd)
-                        print("cancelled")
-                    else:
-                        print(send_body(fd, body))
-                continue
-            print(command(fd, line))
+            # Every command is allowed to answer with a prompt, not just the
+            # ones known to. If the modem asks for a body, we notice.
+            reply = command(fd, line, prompt_ok=True)
+            print(reply)
+            if reply.strip().splitlines()[-1:] == [">"]:
+                body = read_body()
+                if body is None:
+                    abort_body(fd)
+                    print("cancelled")
+                else:
+                    print(send_body(fd, body))
     finally:
         # Destroy through this descriptor, then close it: no second channel is
         # built, and the endpoint does not survive to trip up the next run.

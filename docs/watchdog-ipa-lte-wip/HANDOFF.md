@@ -2419,3 +2419,53 @@ real and in the firmware, the modem recognises them, its diag asks the service
 registry for a domain and now gets an answer, and it still does not open its
 channels. The next thread is diag_bootup.conf in the modem's EFS, which is
 reachable over QMI service 21 but needs its message format worked out.
+
+## What is known about QMI service 21, the modem's embedded file system
+
+Mapped by probing, since there is no public definition. The method is worth
+reusing: send a message with a payload and read which error comes back.
+
+    error 57  the message id does not exist
+    error 17  the message exists and a required TLV is missing
+    error 1   a TLV is present but the wrong size or shape
+    error 19  the TLV is the right shape and the value is rejected
+
+Message 0x1E, get supported messages, answers `result 0` with
+tlv 0x10 = 0500000000c003. Only 0x20 and 0x21 exist besides it; 0x22, 0x23,
+0x24, 0x01, 0x02 and 0x03 all answer 57.
+
+Message 0x20 takes fixed-width fields, and no filename:
+
+    tlv 0x01   two bytes      accepted, u16
+    tlv 0x02   two bytes      accepted, u16
+    tlv 0x03   four bytes     accepted, u32
+    tlv 0x04   four bytes     rejected as malformed
+    with 0x01, 0x02 and 0x03 present it still answers 17, so at least one
+    more required TLV has not been found
+
+Two u16 and a u32, with no path anywhere, reads like a request that identifies
+a file by number rather than by name -- an NV item id, a handle, an offset and
+a length would fit that shape.
+
+Message 0x21 does take a string:
+
+    tlv 0x01   1, 2 or 4 bytes            malformed
+    tlv 0x01   any string                 error 19
+    tlv 0x01   u8-length-prefixed string  error 19
+    tlv 0x01   NUL-terminated string      error 19
+    tlv 0x01   u16-length-prefixed        malformed
+
+So 0x01 on 0x21 is a variable-length field that is being parsed and then
+refused, and error 19 is not about length: "/nv" and a 34-character name are
+refused identically. Either the service wants paths in a form not yet guessed,
+or it refuses this client rather than this path.
+
+That is where it stands. Getting a file out of the modem's EFS is a real
+possibility from here, but it needs the remaining required TLV of 0x20 or the
+accepted path form of 0x21, and neither has fallen out of guessing yet.
+
+Worth questioning before spending more on it: that diag_bootup.conf is the
+gate at all. It is a string in the firmware next to the servreg one, which
+makes it a good lead and not a fact. The modem's diag now gets an answer from
+the service registry and still does not open its channels, so something else is
+also missing, and it may be that instead.

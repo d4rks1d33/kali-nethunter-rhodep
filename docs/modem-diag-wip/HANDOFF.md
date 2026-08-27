@@ -146,42 +146,129 @@ What that found:
            are refused identically.
     0x22, 0x23, 0x24, 0x01, 0x02, 0x03   do not exist
 
+## The downstream diag driver, read at last -- and it changes the model
+
+Step 1 below was finally done. The driver was located, read, and it overturns
+the approach every probe on this port has taken so far. Sourcing it took some
+digging, recorded here so nobody re-treads it:
+
+  * `drivers/char/diag` does **not** exist in CLO's `kernel/msm-5.4`
+    (`LA.UM.9.16.c25..c29`, this SoC's train). Verified via the GitLab tree
+    API, 404 on every branch. Diag is not in the msm-5.4 kernel.
+  * `clo/la/platform/vendor/qcom-opensource/diag` exists but carries only
+    ancient `caf_migration/*` (eclair..ics) branches. A stale mirror, useless.
+  * Motorola's `kernel-msm` GKI branches ship a diag **stub** techpack and set
+    no `CONFIG_DIAG*`; the real module is pulled from a vendor manifest that is
+    not public. Dead end for the exact holi build.
+  * What answers the questions is the **rpmsg-transport** diag driver, present
+    in CLO `kernel/msm-4.19` (checked `LA.UM.9.15.c29`). Its channel table
+    matches this modem's firmware strings *exactly*, which the older glink
+    driver (msm-4.9) does not. That match is the evidence it is the right one:
+
+        msm-4.19 rpmsg driver, PERIPHERAL_MODEM (edge "mpss")
+          data  "DIAG"        <- matches firmware string DIAG
+          cntl  "DIAG_CNTL"   <- matches DIAG_CNTL
+          dci   "DIAG_2"      <- matches DIAG_2
+          cmd   "DIAG_CMD"    <- matches DIAG_CMD
+          dcicmd"DIAG_2_CMD"  <- (DIAG_CNTL_2 in the image is DIAG_2's cntl)
+
+    The msm-4.9 glink driver instead names them `DIAG_DATA`/`DIAG_CTRL`, which
+    are **not** in this image. So this firmware speaks the rpmsg-era protocol.
+    Clone kept at `/tmp/opencode/diag-rpmsg/drivers/char/diag/` (msm-4.19,
+    `LA.UM.9.15.c29`); `/tmp` does not survive a reset, re-clone if gone.
+
+**The AP is a passive rpmsg peer. It does not open diag channels.** This is the
+finding. `diagfwd_rpmsg.c` registers a plain `rpmsg_driver` with an id_table of
+the channel names and a `.probe`. `diag_rpmsg_probe()` runs only when the
+**modem advertises** a channel; the AP never calls anything like
+`glink_open`/`CREATE_EPT` for a diag channel. `diag_rpmsg_init()` registers the
+control side and then *waits*. Nothing is opened from this side, ever.
+
+That is the opposite of what this port has been doing. `rhodep-diag-probe.py`
+and the AT console's DIAG note both **create an endpoint from the AP**, which
+forces a local-initiated glink channel open, which is what trips
+`glink_channel_migration.c:602` and asserts the modem. Downstream would never
+issue that open. The right observable is not "can the AP open DIAG" but "does
+the modem ever advertise DIAG on its rpmsg edge" -- and the established fact
+that the twelve advertised channels never include a DIAG one now reads as *the
+modem's diag has not been brought up*, not as a channel we have failed to open.
+
+**Two concrete errors in `rhodep-diag-probe.py`, now provable, not guessed:**
+
+  * It uses `CREATE_EPT` to open the channel actively. The AP-side model is
+    wrong; the endpoint should be created by the rpmsg bus when the modem
+    probes it. Actively opening is exactly the assert trigger.
+  * Its `KNOWN` list leads with `DIAG_DATA`. For the modem (mpss) the data
+    channel is `DIAG`; `DIAG_DATA` is the sensors/cdsp/wdsp name and is not a
+    modem channel at all. The comment "downstream opens the control channel
+    before the data one" is also wrong: downstream opens neither.
+
+**The DIAG_CNTL handshake, for when a cntl channel does appear.** It is
+modem-first, and the sequence is:
+
+  1. modem advertises `DIAG_CNTL`; AP's `.probe` binds it, marks it open.
+  2. modem sends its own feature mask as a `DIAG_CTRL_MSG_FEATURE` (0x0000..)
+     control packet. `process_incoming_feature_mask()` sets `rcvd_feature_mask`.
+  3. only *after* receiving that, `diag_send_updates_peripheral()` lets the AP
+     reply: `diag_send_feature_mask_update()` writes the AP's feature mask
+     (SUPPORT, LOG_ON_DEMAND, STM, DIAGID, REQ_RSP, HDLC_ENCODE, ...), then
+     the log/event/F3 masks follow.
+
+So the control channel is entirely reactive on the AP: it answers the modem, it
+never initiates. There is nothing for us to *send* first to make diag start;
+the modem has to bring up `DIAG_CNTL` on its own, and it only does that once
+its diag is enabled internally. Which puts the whole problem back on the modem
+side -- the gate is in the modem, and `diag_bootup.conf` / the servreg PD
+lookup remain the only leads for why the modem's diag never starts.
+
 ## What I would do next, in order
 
-**1. Read the downstream diag driver.** This is the biggest lever and it was
-not done. Qualcomm's diag driver is open source, in a separate repository from
-the kernel -- CodeLinaro's `platform/vendor/qcom-opensource/dataipa`-style
-repos, or Motorola's published kernel sources for this device. It will state
-exactly which channels it opens, in which order, with what intents, and what
-handshake it performs on DIAG_CNTL. Every question below is answered there
-rather than guessed:
-
-  * does the AP open the channels, or wait for the modem to advertise them?
-  * what does the modem need before its diag opens anything?
-  * what is the control channel handshake, and does it have to happen before
-    the data channel is opened?
+**1. Read the downstream diag driver.** DONE -- see the section above. The
+answers: the AP does **not** open channels (it is a passive rpmsg peer); the
+control handshake is modem-first and the AP only replies; and there is no
+data-before-control ordering to get right on our side because we open nothing.
+The remaining unknown moves entirely to the modem: what makes *it* advertise.
 
 The vendor kernel clone used by this port does **not** contain it:
-`drivers/char/diag` is absent from the tree, checked with `git ls-tree`.
+`drivers/char/diag` is absent from the tree, checked with `git ls-tree`. It is
+a techpack module, and for this SoC's train it is not published; the msm-4.19
+rpmsg driver above is the faithful stand-in and its channel names prove it.
 
-**2. Find out whether the modem is querying servreg and what it receives.**
+**2. Watch for the modem ADVERTISING a diag channel, not for the AP opening
+one.** This is the reframed observable and it is now the primary test. With the
+AP-passive model, success looks like a `DIAG_CNTL`/`DIAG` name appearing in the
+modem's advertised channel list -- the same list `rhodep-modem-at -l` prints
+and that `rhodep-diag-probe.py` was fighting against. Poll that list across a
+modem boot and across the servreg/EFS experiments; the twelve-channel list not
+growing is the negative result, its growth by a DIAG name is the win. This
+needs *no* endpoint creation and so cannot assert the modem -- it is the safe
+experiment the port never ran.
+
+**3. Find out whether the modem is querying servreg and what it receives.**
 0084 makes the AP answer, but nothing has confirmed the modem asks, or that it
 likes the answer. A QMI trace on service 64 during modem boot would settle it.
 If the modem asks for a domain this port does not declare, the domain list in
-0084 is the thing to fix.
+0084 is the thing to fix. Still the leading lead for why the modem's diag never
+starts, now that step 1 has shown the gate is on the modem side.
 
-**3. Only then the EFS.** Getting `diag_bootup.conf` out needs either the last
+**4. Only then the EFS.** Getting `diag_bootup.conf` out needs either the last
 required TLV of message 0x20 or the accepted path form of 0x21. It is a real
-possibility but it is guessing, and step 1 may make it unnecessary.
+possibility but it is guessing.
 
 And keep questioning the premise: that `diag_bootup.conf` is the gate is a good
-lead from a firmware string, not a fact.
+lead from a firmware string, not a fact. Step 1 did not confirm it -- the
+downstream driver never reads that file; it is the modem's own diag that does,
+before it would advertise anything.
 
 ## Tools, and how to run them
 
     userspace/debug-tools/rhodep-diag-probe.py
         opens one glink channel and listens without sending. One channel per
         run. Logs to /var/log/rhodep-diag-probe.log with an fsync per line.
+        NOTE: its whole model (CREATE_EPT from the AP) is now known to be wrong
+        -- see "The downstream diag driver" above. Actively opening is what
+        asserts the modem; downstream is a passive rpmsg peer. Do not run this
+        expecting a channel to open. Kept only for the record.
 
     scripts/modem/rhodep-qmi-probe.py
         talks to any QMI service by number.

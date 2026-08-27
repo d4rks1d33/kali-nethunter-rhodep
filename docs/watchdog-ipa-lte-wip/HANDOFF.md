@@ -2359,3 +2359,63 @@ The patch is worth having regardless. PDR is not a diag mechanism; it is how
 protection domain lifetimes are announced across subsystems, and this port has
 been running without any of it. Anything that depends on knowing when a PD goes
 down has been flying blind, which is worth knowing separately from this hunt.
+
+## Practical: the phone drops WiFi if nobody logs in after a reboot
+
+Worth knowing before it costs somebody an hour. After a reboot, if the screen
+is never unlocked, WiFi goes away after a while and ssh stops answering. The
+phone is fine; it is waiting for a login. USB gadget behaves the same way.
+
+So if ssh fails three or four times in a row and the phone was recently
+rebooted, that is what it is. Ask for the screen to be unlocked rather than
+hunting a crash that did not happen.
+
+## The modem's EFS is reachable over QMI
+
+The other string next to the servreg one was
+`/nv/item_files/conf/diag_bootup.conf`, a file the modem reads from its own
+embedded filesystem at boot. The AP serves that filesystem through rmtfs, which
+is running and healthy here -- service 14, "remote file system", published by
+node 1 -- and the modem publishes service 21, "modem embedded file system".
+
+`scripts/modem/rhodep-qmi-probe.py` talks to any QMI service by number. Almost
+all of them implement message 0x1E, "get supported messages", which is enough
+to find out whether a service is reachable without knowing its protocol:
+
+    service 21 at node 0 port 20
+      message 0x1e: result 0 error 0, tlv 0x10 = 0500000000c003
+
+So the EFS service answers. Probing message IDs with an empty payload
+distinguishes the ones that exist from the ones that do not, because a message
+that exists complains about missing arguments while one that does not complains
+about the message id:
+
+    0x20, 0x21    error 17, missing argument   -- these exist
+    0x22 0x23 0x24 0x01 0x02 0x03   error 57, unknown message
+
+Sending a filename as TLV 0x01 to 0x20 changes the answer again, from 17 to 19,
+so the argument is being parsed and rejected on its own merits rather than
+ignored. Getting further means working out the TLV layout the service expects,
+which is where this stops for now.
+
+Two notes on the tooling, both mistakes worth not repeating. The QRTR lookup
+control message is five 32-bit words sent to your own node, not six sent to
+node 1; the first version invented the latter and got silence. And an
+AF_QIPCRTR socket must not be bound explicitly: bind((0, 0)) fails with EINVAL,
+the port is assigned on first use.
+
+## Where DIAG stands
+
+Two real fixes came out of chasing it, both worth having on their own terms and
+neither of them diag:
+
+  * 0083, the glink open timeout, because giving up after five seconds crashes
+    the modem when it is midway through a channel migration.
+  * 0084, sm6375 in the PD mapper, because the platform was missing entirely
+    and this port had no service registry at all.
+
+And diag itself is not working. What is established: the channel names are
+real and in the firmware, the modem recognises them, its diag asks the service
+registry for a domain and now gets an answer, and it still does not open its
+channels. The next thread is diag_bootup.conf in the modem's EFS, which is
+reachable over QMI service 21 but needs its message format worked out.

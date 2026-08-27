@@ -790,3 +790,51 @@ Two practical notes for whoever continues:
     `--restart-modem` for a clean session.
   * **The CMD service port changes** across modem restarts (138, then 26). Look
     it up by service 0x1001 instance 1 on node 0 rather than hardcoding.
+
+## The masks are sent and accepted, and the modem still does not stream
+
+The rest of `diag_send_updates_peripheral()` is now implemented, in the order
+`diag_masks.c` sends it, all with status `DIAG_CTRL_MASK_ALL_ENABLED` (2) --
+which sets mask_size 0 and so needs no mask body, and therefore no knowledge of
+the modem's event or log numbering:
+
+    diagmode        03000000 24000000 01000000 00000000 01000000 ...
+    msg mask all    0b000000 0b000000 01 02 00 0000 0000 00000000
+    log mask all    09000000 0b000000 01 02 00 00000000 00000000
+    event mask all  0a000000 07000000 01 02 01 00000000
+
+The struct layouts are from `diagfwd_cntl.h` and they are `__packed`, so the
+bodies are 11, 11 and 7 bytes with no padding; the data_len fields in the trace
+above reconcile, which is the check that they were built right.
+
+The modem takes them without complaint and carries on with its side of the
+handshake -- another log-mask message and both `DIAG_CTRL_MSG_DIAGID`
+registrations for root_pd and wlan_pd -- so the packets are not being rejected.
+
+**But nothing flows.** Across a full 60-second session:
+
+  * the modem sends only on CNTL; DATA and DCI receive nothing from node 0
+  * a raw `0x00` version request to the modem's CMD service is accepted by the
+    socket and never answered
+
+So the control channel is genuinely alive and the modem is progressing through
+its own handshake, and the data path has not opened. Two readings, and I cannot
+separate them from here:
+
+  * the masks are structurally fine but semantically incomplete -- real-time
+    mode, buffering mode and the DIAGID acknowledgement are all things
+    downstream sends that this does not, and one of them may be what opens the
+    stream;
+  * or the modem will not talk to a client that has not registered itself the
+    way the real driver does, in which case the remaining gap is the parts of
+    `diagfwd_peripheral.c` that this reimplementation skips.
+
+What is certain and worth carrying forward: the transport works, the modem's
+diag is up and reachable, and the handshake reaches the DIAGID stage. That is a
+long way from where this document started, and the rest is protocol detail
+against a channel that answers rather than a wall that does not.
+
+**Next, in order.** Acknowledge the DIAGID packets (the modem sent two and got
+nothing back). Send the real-time and buffering-mode control messages. Then
+retry the command, and watch DATA rather than the command socket, since that is
+where downstream expects responses to arrive.

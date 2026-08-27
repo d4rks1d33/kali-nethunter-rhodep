@@ -66,6 +66,51 @@ def ap_feature_mask():
     return bytes(m)
 
 
+# The rest of diag_send_updates_peripheral(), in the order diag_masks.c sends
+# them. A peripheral whose masks are unset has been told to report nothing, so
+# the feature mask alone buys silence; these are what make it talk.
+DIAG_CTRL_MSG_EQUIP_LOG_MASK = 9
+DIAG_CTRL_MSG_EVENT_MASK_V2 = 10
+DIAG_CTRL_MSG_F3_MASK_V2 = 11
+DIAG_CTRL_MSG_DIAGMODE = 3
+DIAG_CTRL_MASK_ALL_ENABLED = 2
+STREAM_1 = 1
+
+
+def event_mask_all():
+    """struct diag_ctrl_event_mask, status ALL_ENABLED.
+
+    With ALL_ENABLED the driver sets event_config 1 and event_mask_size 0, so
+    no mask body is needed -- which is why this can be built without knowing
+    the modem's event numbering.
+    """
+    body = struct.pack("<BBBI", STREAM_1, DIAG_CTRL_MASK_ALL_ENABLED, 1, 0)
+    return struct.pack("<II", DIAG_CTRL_MSG_EVENT_MASK_V2, len(body)) + body
+
+
+def log_mask_all():
+    """struct diag_ctrl_log_mask, status ALL_ENABLED, equip_id 0."""
+    body = struct.pack("<BBBII", STREAM_1, DIAG_CTRL_MASK_ALL_ENABLED,
+                       0, 0, 0)
+    return struct.pack("<II", DIAG_CTRL_MSG_EQUIP_LOG_MASK, len(body)) + body
+
+
+def msg_mask_all():
+    """struct diag_ctrl_msg_mask, status ALL_ENABLED, whole ssid range."""
+    body = struct.pack("<BBBHHI", STREAM_1, DIAG_CTRL_MASK_ALL_ENABLED,
+                       0, 0, 0, 0)
+    return struct.pack("<II", DIAG_CTRL_MSG_F3_MASK_V2, len(body)) + body
+
+
+def diagmode_packet():
+    """struct diag_ctrl_msg_diagmode: put the peripheral in memory-device mode
+    with real-time reporting, which is what tells it to stream at all."""
+    # version, sleep_vote, real_time, use_nrt_values, commit_threshold,
+    # sleep_threshold, sleep_time, drain_timer_val, event_stale_timer_val
+    body = struct.pack("<IIIIIIIII", 1, 0, 1, 0, 0, 0, 0, 0, 0)
+    return struct.pack("<II", DIAG_CTRL_MSG_DIAGMODE, len(body)) + body
+
+
 def feature_mask_packet():
     """struct diag_ctrl_feature_mask: id, data_len, mask_len, then the mask."""
     mask = ap_feature_mask()
@@ -202,13 +247,17 @@ def main():
                     peer = data[12:12 + mlen]
                     say("  that is the modem's feature mask, %d bytes: %s"
                         % (mlen, peer.hex()))
-                    reply = feature_mask_packet()
-                    try:
-                        s.sendto(reply, addr)
-                        say("  replied with the AP feature mask: %s"
-                            % reply.hex())
-                    except OSError as e:
-                        say("  could not reply: %s" % e)
+                    for name, pkt in (("feature mask", feature_mask_packet()),
+                                      ("diagmode", diagmode_packet()),
+                                      ("msg mask all", msg_mask_all()),
+                                      ("log mask all", log_mask_all()),
+                                      ("event mask all", event_mask_all())):
+                        try:
+                            s.sendto(pkt, addr)
+                            say("  sent %-14s %s" % (name, pkt.hex()))
+                            time.sleep(0.05)
+                        except OSError as e:
+                            say("  could not send %s: %s" % (name, e))
         if cmd_deadline and time.time() > cmd_deadline:
             cmd_deadline = None
             where = modem_cmd_port()

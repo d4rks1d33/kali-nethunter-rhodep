@@ -125,7 +125,7 @@ static void __iomem *tcsr;
 static void __iomem *tzlog_imem;
 
 #define TZLOG_BODY_BASE	0x0c116000
-#define TZLOG_BODY_SIZE	0x2000
+#define TZLOG_BODY_SIZE	0x4000
 static void __iomem *tzlog_body;
 
 static ssize_t io_read(void __iomem *base, size_t total, char __user *buf,

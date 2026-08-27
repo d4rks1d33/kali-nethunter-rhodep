@@ -2013,3 +2013,64 @@ One practical note found the hard way: module unload does not work on this
 kernel. rmmod returns EBUSY with a refcount of zero even though
 CONFIG_MODULE_UNLOAD is set, and rmmod -f leaves the ioremaps behind so the
 next insmod fails too. Changing this module means rebooting.
+
+## TrustZone's interrupt counters: no fault, right up to the end
+
+The readable part of TZ's diagnostic structure ends exactly at 0x3000 from
+0xc116000, which is the size blair declares for the node. Reading one byte past
+it hangs the AP; 48 reads of 256 bytes cover it and the 49th kills the machine.
+That was established with one freeze rather than several by writing the offset
+to disk with an fsync before each read, so the last line of the scan names the
+address that did it.
+
+Inside it is a table of the interrupts TZ handles, and the layout had to be
+measured because the downstream struct does not match: names sit 56 bytes
+apart starting at 0x23c, with int_info_off in the header being 0x234, so each
+entry is a 4-byte number, 4 bytes of flags, a 16-byte name, and eight 32-bit
+per-CPU counts. `userspace/debug-tools/rhodep-tz-interrupts.py` parses it and
+prints 46 interrupts by name.
+
+On a healthy boot exactly one of them is nonzero:
+
+    SWDogBark    total 11   [7, 0, 4, 0, 0, 0, 0, 0]
+
+and it grows by one every six seconds or so, rotating across CPUs, so it is
+routine.
+
+Watched at 50 ms through an LTE attach, that remains the only thing that
+moves, all the way to the moment the machine stops:
+
+    [208.19] SWDogBark -> [7, 0, 4, 0, 0, 1, 0, 0]
+    [214.08] SWDogBark -> [7, 0, 4, 1, 0, 1, 0, 0]
+    [219.90] SWDogBark -> [8, 0, 4, 1, 0, 1, 0, 0]
+    [225.81] SWDogBark -> [8, 0, 5, 1, 0, 1, 0, 0]
+             ... and it is gone
+
+No VMIDMT error, despite four such interrupts being registered. No NSWDogBite,
+which is the one that would reset the SoC. No RPMErrInd, no SGIFtlErr, no fault
+of any kind.
+
+So the count of participants that see nothing wrong is now three out of three,
+each measured rather than assumed: Linux prints nothing and keeps answering,
+the modem answers AT commands and reports full functionality, and TrustZone's
+own fault accounting does not move. And yet the PMIC records PS_HOLD, which is
+the SoC asking to be shut down.
+
+That is worth stating plainly because it changes what to look for. This does
+not look like a fault handler reacting to something. Deasserting PS_HOLD is
+also how an ordinary shutdown is performed, so the remaining shape is something
+*requesting* a shutdown rather than something failing -- and none of the three
+things that could log such a request is logging it.
+
+## The modem DIAG console is still not available
+
+Checked again while in the area, since a DIAG console would be the natural
+companion to the AT one. The modem advertises twelve glink channels:
+
+    DATA1 DATA11 DATA2 DATA3 DATA4 DS IPCRTR LOOPBACK_CTL_MPSS
+    SSM_RTR_MODEM_APPS apr_voice_svc glink_ssr rpmsg_ctrl
+
+There is no DIAG channel among them, which matches what the AT console already
+established: AT$QCDMG returns ERROR and the string does not appear anywhere in
+this firmware. DIAG is not merely closed on this build, it is absent. A console
+would have nothing to talk to.

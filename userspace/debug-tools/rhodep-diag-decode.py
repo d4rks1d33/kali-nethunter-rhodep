@@ -95,40 +95,42 @@ def scan_logs(payload):
 # The freq width varies by version and is not worth a version table: try both
 # and keep whichever makes the declared length match the bytes that are
 # actually there. That self-check is what keeps this honest.
-PDU_NAMES = {
-    1: "BCCH_BCH", 2: "BCCH_DL_SCH", 3: "MCCH", 4: "PCCH",
-    5: "DL_CCCH", 6: "DL_DCCH", 7: "UL_CCCH", 8: "UL_DCCH",
+# Layout and PDU numbering taken from SCAT (fgsect/scat,
+# src/scat/parsers/qualcomm/diagltelogparser.py), which carries the
+# version tables this firmware needs. Guessing them here produced nonsense; the
+# published v2/v8/v13 layouts do not fit version 27.
+#
+# Versions 25..29 (this build reports 27):
+#     u8 version
+#     u8 rrc_rel_maj | u8 rrc_rel_min | u8 nr_rel_maj | u8 nr_rel_min
+#     u8 rbid | u16 pci | u32 earfcn | u16 sfn_subfn
+#     u8 pdu_num | u32 sib_mask | u16 len
+#   then the ASN.1 PDU, which must be exactly len bytes -- that equality is the
+#   check that the layout is right, and it passes on this phone's packets.
+PDU_NAMES_V27 = {
+    1: "BCCH_BCH", 3: "BCCH_DL_SCH", 6: "MCCH", 7: "PCCH",
+    8: "DL_CCCH", 9: "DL_DCCH", 10: "UL_CCCH", 11: "UL_DCCH",
 }
 
 
 def decode_rrc_ota(body):
-    """Return (pdu_num, pdu_len, cell_id) or None if it does not check out.
-
-    This does NOT decode cleanly yet. Two real packets from this phone:
-
-        1b 10 10 0f a0 00 65 00 90 24 00 00 05 2d 03 ...   (len 55)
-        1b 10 10 0f a0 01 65 00 90 24 00 00 00 00 0b ...   (len 142)
-
-    Version 27, and no arrangement of the documented v2/v8/v13 layouts makes
-    the frequency and length fields come out sane -- a u32 at the expected
-    offset reads 0x24900065, which is not an EARFCN. The two packets differ
-    only in byte 5, so the fields are not where the older layouts put them.
-
-    Left returning None rather than guessing: a decoder that reports confident
-    nonsense is worse than one that reports nothing. Getting this right needs
-    the version 27 header definition, which is in Qualcomm's own tooling.
-    """
-    for freq_width in (4, 2):
-        need = 6 + freq_width + 2 + 1 + 2
-        if len(body) < need:
-            continue
-        cell = struct.unpack_from("<H", body, 4)[0]
-        off = 6 + freq_width + 2
-        pdu_num = body[off]
-        pdu_len = struct.unpack_from("<H", body, off + 1)[0]
-        if pdu_num in PDU_NAMES and 0 < pdu_len <= len(body) - (off + 3) + 4:
-            return pdu_num, pdu_len, cell
-    return None
+    """Decode one 0xB0C0 payload. Returns a dict, or None if it does not fit."""
+    if len(body) < 21:
+        return None
+    version = body[0]
+    if version < 25:
+        return None                     # only the v25..29 layout is implemented
+    (rel_maj, rel_min, nr_maj, nr_min, rbid, pci, earfcn, sfn_subfn,
+     pdu_num, sib_mask, ln) = struct.unpack_from("<BBBBBHIHBIH", body, 1)
+    pdu = body[21:]
+    if ln != len(pdu):
+        return None
+    return {
+        "pci": pci, "earfcn": earfcn, "rbid": rbid,
+        "sfn": sfn_subfn >> 4, "subfn": sfn_subfn & 0xF,
+        "chan": PDU_NAMES_V27.get(pdu_num, "pdu_num %d" % pdu_num),
+        "len": ln, "pdu": pdu,
+    }
 
 
 def main():
@@ -167,9 +169,9 @@ def main():
     if rrc:
         print()
         print("=== LTE RRC over-the-air messages: %d" % len(rrc))
-        for ts, (pdu_num, pdu_len, cell) in rrc:
-            print("[%9.2f] %-12s %3d bytes, cell %d"
-                  % (ts, PDU_NAMES[pdu_num], pdu_len, cell))
+        for ts, r in rrc:
+            print("[%9.2f] %-12s %3d bytes  pci=%d earfcn=%d sfn=%d"
+                  % (ts, r["chan"], r["len"], r["pci"], r["earfcn"], r["sfn"]))
 
     print()
     print("=== log codes, most recent first: %d packets" % len(logs))

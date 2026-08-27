@@ -1062,3 +1062,56 @@ Text runs per five-second window, which is the clearest single view of it:
 
 The modem is busy to the end. Naming the individual log codes would say what it
 was busy with; it would not change that it was busy and did not fail.
+
+## The RRC header, resolved -- from an open-source parser, not from guessing
+
+The version 27 layout that would not fall out of the published v2/v8/v13
+formats is in **SCAT** (`fgsect/scat`,
+`src/scat/parsers/qualcomm/diagltelogparser.py`), which carries version tables
+for every 0xB0C0 form. That is where to look for any other Qualcomm log code
+too, and it is a great deal cheaper than reverse-engineering one packet at a
+time. QCSuper and MobileInsight are the other two worth knowing about.
+
+Versions 25 to 29, which includes this build's 27:
+
+    u8 version
+    u8 rrc_rel_maj | u8 rrc_rel_min | u8 nr_rel_maj | u8 nr_rel_min
+    u8 rbid | u16 pci | u32 earfcn | u16 sfn_subfn
+    u8 pdu_num | u32 sib_mask | u16 len
+    then the ASN.1 PDU, exactly len bytes
+
+and the channel numbering differs from the older versions, which is why a
+guessed decode could never have worked:
+
+    1 BCCH_BCH   3 BCCH_DL_SCH   6 MCCH   7 PCCH
+    8 DL_CCCH    9 DL_DCCH      10 UL_CCCH  11 UL_DCCH
+
+The length equality is the self-check, and it passes on this phone's packets.
+
+## What the RRC log says about the death
+
+    [135.12] BCCH_DL_SCH   22 bytes  pci=101 earfcn=9360 sfn=720
+    [138.16] UL_DCCH      109 bytes  pci=101 earfcn=9360
+
+EARFCN 9360 is band 28, the 700 MHz band this operator uses here, and the
+serving cell is PCI 101. The first message is system information broadcast by
+the cell. The second is the modem transmitting on the dedicated uplink control
+channel, and 109 bytes is the size of an RRCConnectionSetupComplete carrying a
+NAS Attach Request.
+
+Then nothing more on 0xB0C0, and the SoC goes down about fourteen seconds
+later, with physical-layer logging continuous throughout.
+
+**Two RRC messages is few for a complete attach**, which normally shows a
+request, a setup, a setup-complete, security mode and reconfiguration. Two
+readings, and this capture cannot separate them:
+
+  * the 0xB0C0 log is not fully enabled despite the masks being set to
+    ALL_ENABLED, so most RRC traffic is simply not being logged; or
+  * the attach genuinely does not progress past that first uplink message, and
+    what follows is the modem retrying.
+
+The second would be interesting and the first would be a tooling problem.
+Distinguishing them is cheap: count 0xB0C0 packets across a *successful* GSM
+session, where nothing dies, and see whether RRC logging is equally sparse
+there. That is the next measurement and it does not risk anything.

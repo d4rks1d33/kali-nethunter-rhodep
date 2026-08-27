@@ -968,3 +968,61 @@ Tools:
 
     userspace/debug-tools/rhodep-diag-server.py       --dump FILE
     userspace/debug-tools/rhodep-diag-dump-read.py    --tail, --since, --grep
+
+## Decoding the fatal window: the modem is mid-attach and perfectly busy
+
+`rhodep-diag-decode.py` scans a capture for the two packet kinds that can be
+read without Qualcomm's message database:
+
+  * **log packets** (0x10): a 16-bit log code and a timestamp. Unnamed, but
+    "which codes fired and when" is a timeline.
+  * **extended messages** (0x92): file name, line number, subsystem id and
+    format string, all inline, so they decode completely. None were present in
+    this capture -- this build's peripherals log through the log-code path.
+
+The fatal window is not silent at all. It is dense.
+
+From the capture that ended in the reset, the RRC/NAS family (0xB0xx) traces a
+complete LTE attach:
+
+    128.54  0xb0ee, 0xb0f7        NAS coming up
+    135.12  0xb0c0                RRC over-the-air messages
+    137.88  0xb06e, 0xb091, 0xb0b0
+    138.16  0xb0c0 again
+    138.45  0xb0cd
+    139.75  0xb065, 0xb066        sustained through to 151.43
+    141.02  0xb067
+    147.97  0xb097
+    150.03  0xb087, 0xb0a4        last new signalling code
+
+and the ML1 physical-layer family (0xB1xx) plus MAC/RLC (0xB3xx) log
+continuously to **151.83**, the last instant captured, at roughly a hundred
+packets per code. The SoC went down at about 152.
+
+So the modem's own logs say what the AT console said from outside, in far more
+detail: it completes the attach, carries on with ordinary physical-layer work,
+and is still measuring and scheduling in the final tenth of a second. There is
+no error, no assertion, no exception path -- the last two seconds look exactly
+like the two seconds before them.
+
+That closes the question this instrument was built to answer. **The modem does
+not fail.** It is switched off in the middle of working normally, and now that
+is measured from inside the modem rather than inferred from outside it.
+
+## What is worth decoding next
+
+The log codes are unnamed here on purpose -- guessing at Qualcomm's numbering
+would be exactly the kind of unearned confidence this file has been correcting
+all along. But two of them are worth resolving properly, because their formats
+are documented well enough to parse:
+
+  * **0xB0C0**, the RRC OTA log, carries the actual RRC PDUs. Decoding it would
+    say precisely which RRC procedure completes at 138 and whether anything is
+    outstanding when the machine dies.
+  * **0xB065/0xB066**, which run continuously from 139.75 to the end, are the
+    highest-rate signalling codes in the window and the most likely to carry
+    whatever repeats until the reset.
+
+Neither is needed to answer "does the modem fail" -- that is answered. They
+would answer "what exactly is the modem doing to the rest of the SoC while it
+does not fail", which is now the whole remaining question.

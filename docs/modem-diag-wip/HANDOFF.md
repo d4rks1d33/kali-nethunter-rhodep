@@ -184,6 +184,51 @@ the modem to advertise, we do not open).
 Raw trace saved on the phone at `/root/servreg-trace-*.log` and
 `/home/kali/servreg-trace-*.log` (md5-verified after drop_caches).
 
+## Patch 0085: serving tms/pdr_enabled -- it resolves, and diag still does not start
+
+The queued action was done. 0085 gives sm6375 its own domain table, a copy of
+sm6115's set but with `mpss_root_pd_gps_pdr` (which carries `tms/pdr_enabled`)
+in place of `mpss_root_pd_gps`. Built as a module, swapped, rebooted.
+
+**The fix does exactly what it was designed to, measured.** With the same
+pr_debug enabled and the same modem-restart-with-ModemManager-stopped method
+(no SoC reset, uptime monotonic), the modem's boot-time query now resolves:
+
+    before 0085:  PDM: service 'tms/pdr_enabled' offset -1 returning 0 domains (of 0)
+    after  0085:  PDM: found msm/modem/root_pd / 180
+                  PDM: service 'tms/pdr_enabled' offset -1 returning 1 domains (of 1)
+
+So the causal chain from the measurement holds: the previously-null lookup the
+modem makes at boot now returns its PD. This is real progress and 0085 is worth
+keeping -- it is the correct domain set for this SoC regardless of diag.
+
+**But the modem still does not advertise a diag channel.** Checked right after,
+the mpss edge is the same twelve channels, none of them `DIAG`/`DIAG_CNTL`/
+`DIAG_2`:
+
+    DATA1 DATA2 DATA3 DATA4 DATA11 DS IPCRTR LOOPBACK_CTL_MPSS
+    SSM_RTR_MODEM_APPS apr_voice_svc glink_ssr rpmsg_ctrl
+
+So **`tms/pdr_enabled` was necessary-looking and is now served, and it is still
+not sufficient.** The strong inference from the previous section -- that
+serving `tms/pdr_enabled` would make diag start -- is now *disproven as a
+complete explanation*. Serving it changed the servreg answer and nothing
+observable about diag. The gate, or the next gate, is elsewhere.
+
+What this does buy: the servreg PD path is no longer a suspect. The modem asks,
+the AP now answers correctly for `tms/pdr_enabled`, and the modem's diag still
+does not come up -- so whatever stops it is past the PD lookup. That removes a
+whole branch of the search.
+
+**Still open from the same trace burst:** `tms/pddump_disabled` is still queried
+and still returns 0 domains. It was not addressed by 0085 (there is no
+`pddump` domain in `qcom_pd_mapper` at all). Unknown if it matters; it is now
+the only unserved servreg query left in the modem's boot burst, which makes it
+the next cheap thing to look at -- but note it may be a red herring the same
+way `tms/pdr_enabled` turned out to be only a partial answer. Do not assume.
+
+Raw trace saved at `/root/pdr-fix-trace-*.log` and `/home/kali/pdr-fix-trace-*.log`.
+
 ## QMI service 21, the modem's embedded file system
 
 `diag_bootup.conf` lives in the modem's own filesystem, which the AP serves

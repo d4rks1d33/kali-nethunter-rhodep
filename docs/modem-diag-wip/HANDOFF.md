@@ -674,3 +674,70 @@ privileged context this port does not have. That is not the same as proving it
 impossible, and the honest gap is still the same one: no one has read the
 flag's value. But every route to it from this side is now closed with a
 measured reason rather than a suspicion.
+
+# BREAKTHROUGH: the modem's diag is alive. It was waiting for us to publish.
+
+Everything above concluded that diag is off inside the modem and unreachable
+from the AP. That was wrong, and the reason it was wrong is instructive: every
+attempt looked at the **glink** transport, where diag is a set of named
+channels. `diagfwd_socket.c` is a second transport, and there the direction is
+reversed.
+
+    the AP is the SERVER for CNTL, DATA and DCI; the modem connects to it
+    the AP is a client of the modem's CMD and DCI_CMD services
+
+    DIAG_SVC_ID      0x1001 (4097)
+    MODEM_INST_BASE  0
+    INST_ID          CNTL 0   CMD 1   DATA 2   DCI_CMD 3   DCI 4
+
+So a stock AP advertises QRTR service 4097, instances 0, 2 and 4, before the
+modem has anywhere to connect. This port never did, and `qrtr-lookup` showed no
+4097 from anyone -- measured, before the experiment.
+
+`userspace/debug-tools/rhodep-diag-server.py` publishes those three services
+and waits. It creates no glink endpoint and opens no channel, so it cannot
+assert the modem the way rhodep-diag-probe.py does.
+
+**The modem answered immediately.** Within the same second:
+
+    4097  instance 1  node 0  port 138   DIAG service (MODEM:CMD)   <- the modem
+    4097  instance 0  node 1  16412      DIAG service (MODEM:CNTL)  <- us
+    4097  instance 2  node 1  16413      DIAG service (MODEM:DATA)
+    4097  instance 4  node 1  16414      DIAG service (MODEM:DCI)
+
+and it sent diag control packets to our CNTL socket:
+
+    RX on CNTL from (0, 137): 08000000 07000000 03000000 f7fe1b
+    RX on CNTL from (0, 137): 0c000000 01000000 02
+
+Control type 8 is `DIAG_CTRL_MSG_FEATURE`: that is the modem's feature mask,
+which the downstream driver describes as step 2 of the handshake. Type 12 is a
+log mask message. This is the diag control protocol running.
+
+**The modem's diag service persists** after our process exits: once brought up
+it stays up. Before the experiment there was no 4097 at all.
+
+So every conclusion above about diag being fused off is withdrawn. Diag was
+never disabled -- the modem was waiting for an AP that never advertised itself,
+because mainline has no diag driver and nothing on this port had ever published
+the service. The EFS lockdown, the encrypted modemst, the missing
+`diag_bootup_flag` -- all real, all measured, and none of them were the reason.
+
+## What that does not yet do, and the next step
+
+Sending a raw DIAG request to the modem's CMD service (node 0, port 138) times
+out: 0x00 version, 0x7C extended build id, 0x0C verno all get nothing. That is
+expected from the driver's own description: the AP has to complete the control
+handshake first. `diag_send_updates_peripheral()` only lets the AP reply after
+`process_incoming_feature_mask()` has run, and then
+`diag_send_feature_mask_update()` sends the AP's own feature mask, followed by
+the log, event and F3 masks.
+
+So the next step is concrete and small: reply on the CNTL socket with the AP's
+feature mask in the same DIAG_CTRL framing the modem just used, then retry the
+command. The framing is visible in the two packets above -- u32 type, u32
+length, payload -- and `diagfwd_cntl.c` has the exact structures.
+
+After that, a DIAG console is the same shape as the AT one: send a request to
+the modem's CMD port, read the response, with the DATA socket carrying the log
+stream.

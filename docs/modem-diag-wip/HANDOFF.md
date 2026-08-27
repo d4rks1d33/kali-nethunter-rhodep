@@ -113,11 +113,76 @@ registry, which it never did before:
     64  1  1  1  16390  Service registry locator service     <- node 1 is the AP
 
 **And diag still does not open its channels.** Verified after a modem restart
-with the registry up. So servreg was necessary-looking but not sufficient, and
-something else is also missing.
+with the registry up. So servreg was necessary-looking but not sufficient --
+and the next section pins down exactly what else is missing: the AP publishes
+the registry, but not the one *service* the modem's diag actually looks up
+(`tms/pdr_enabled`). 0084 was the right direction with the wrong domain set.
 
 This patch is worth having regardless of diag. PDR is how protection domain
 lifetimes are announced between subsystems, and this port had none of it.
+
+## MEASURED: what the modem actually asks servreg for at boot, and it is not served
+
+This is the strongest new result and it is a direct measurement, not an
+inference. `qcom_pdm_get_domain_list()` in `qcom_pd_mapper.c` carries a
+`pr_debug` (line ~200) that logs every incoming domain-list query with the
+service_name the requester asked for. Enable it live -- the module is loaded,
+so no rebuild:
+
+    echo 'file drivers/soc/qcom/qcom_pd_mapper.c +p' \
+        > /sys/kernel/debug/dynamic_debug/control
+
+Then restart the modem *with ModemManager stopped* so LTE data does not
+re-attach and trigger the ipa-hold-OFF reset (it did not reset -- uptime
+climbed monotonically across the whole run):
+
+    systemctl stop ModemManager
+    echo 1 > /sys/kernel/debug/remoteproc/remoteproc0/crash   # SSR, works
+    # note: writing 'stop' to remoteproc0/state returns 0 but is a no-op here;
+    # the crash file is the working restart trigger (rhodep-modem-restart-watch)
+
+What the modem asked for, during its boot, verbatim from dmesg:
+
+    PDM: service 'tms/pdr_enabled'     offset -1 returning 0 domains (of 0)
+    PDM: service 'tms/pddump_disabled' offset -1 returning 0 domains (of 0)
+    PDM: found msm/adsp/audio_pd / 74   -> service 'avs/audio'        1 domain
+    PDM: found msm/modem/wlan_pd / 180  -> service 'kernel/elf_loader' 1 domain
+
+So, established:
+
+  * **The modem does query servreg at boot** -- the open question from step 2
+    is answered, measured. It asks by *service* name, not domain name.
+  * **It asks for `tms/pdr_enabled` and the AP returns zero domains.** This is
+    the service that advertises "PDR is enabled on this PD". In `qcom_pd_mapper`
+    it is declared only by the `mpss_root_pd_gps_pdr` domain variant, which
+    lists `"gps/gps_service"` **and** `"tms/pdr_enabled"` on `msm/modem/root_pd`
+    (instance 180). Only sc7180 and sc7280 use that variant upstream.
+  * **0084 reused `sm6115_domains`, which uses the plain `mpss_root_pd_gps`** --
+    it has `gps/gps_service` but **not** `tms/pdr_enabled`. So the modem's query
+    for `tms/pdr_enabled` finds no domain, exactly as logged.
+  * It also asks `tms/pddump_disabled`, also unserved. Unknown whether that one
+    matters; noting it because it was in the same burst.
+
+**Inference (flagged as such, not yet proven):** `tms/pdr_enabled` is very
+plausibly the gate. It is the flag by which a PD-aware modem subsystem decides
+the AP supports PDR and it is safe to bring its user-PD services up -- diag
+among them. The firmware string `servreg_get_local_domain() returned null` is
+consistent with this: the modem's diag looks up its PD, the PD is not marked
+pdr-enabled, the lookup yields null, diag does not start. This is a lead, a
+strong one, but "diag starts once `tms/pdr_enabled` is served" is the next
+thing to *test*, not yet a fact.
+
+**Next action (queued):** add `tms/pdr_enabled` to sm6375's modem root PD --
+i.e. point sm6375 at a domain set that uses `mpss_root_pd_gps_pdr` instead of
+`mpss_root_pd_gps`, or add a dedicated sm6375 domain table. `qcom_pd_mapper` is
+a module, so this is a rebuild-the-module-and-reboot test, no flash. Then
+repeat the trace: the query for `tms/pdr_enabled` should return 1 domain, and
+the observable for success is the modem advertising a `DIAG`/`DIAG_CNTL`
+channel on its glink edge (see the passive-rpmsg-peer section -- we watch for
+the modem to advertise, we do not open).
+
+Raw trace saved on the phone at `/root/servreg-trace-*.log` and
+`/home/kali/servreg-trace-*.log` (md5-verified after drop_caches).
 
 ## QMI service 21, the modem's embedded file system
 

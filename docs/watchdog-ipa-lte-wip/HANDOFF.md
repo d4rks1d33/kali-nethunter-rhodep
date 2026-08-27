@@ -2127,3 +2127,61 @@ The first is the most likely and the least instrumented. What would settle it
 is knowing which SMC calls are made in the seconds before the reset, and that
 is a kernel-side question: mainline routes them all through qcom_scm, so they
 can be traced from there.
+
+## Linux does not ask for the shutdown
+
+CONFIG_KPROBES is set on this kernel and __scm_smc_call is in kallsyms, so
+every secure monitor call mainline makes can be recorded from a module with no
+flashing at all. kernel/diag-modules/rhodep_scmtrace.c does that, keeping a
+ring that userspace drains to flash with an fsync per entry, because the reset
+is a power cycle and nothing in RAM survives it.
+
+It was checked against a known call first: writing to
+/sys/module/qcom_scm/parameters/download_mode produces
+
+    svc 0x5 cmd 0x1 owner 0x2 arg0 0x3d3000        I/O service, register read
+    svc 0x5 cmd 0x2 owner 0x2 arg0 0x3d3000 arg1 0x10   register write
+
+which is patch 0082's TCSR address being read and then written with the
+download-mode bits, so both the probe and the patch do what they claim.
+
+Run through an LTE attach and the reset that follows, the entire trace is two
+calls, both before the mode switch:
+
+    [84.17] svc 0x6 cmd 0x1                    INFO
+    [84.19] svc 0xc cmd 0x1b arg 0xffff0000    MP, memory protection
+    [91.73] 4g forced
+            ... nothing at all, and the machine stops
+
+So Linux asks the secure world for nothing in the seconds before it is switched
+off. Whatever requests the shutdown, it is not this kernel.
+
+That leaves two possibilities and the instruments cannot separate them from
+here. The modem can make its own secure monitor calls, and those are invisible
+to a probe on the AP's path. Or nothing requests it and the hardware does it
+directly.
+
+## Where the DIAG hypothesis stands
+
+The idea that the missing diag driver causes this deserves a fair hearing,
+because LTE generates far more diagnostic traffic than GSM and a modem whose
+diag buffers are never drained would fail under LTE and not under GSM, which is
+exactly the pattern seen.
+
+Two observations argue against it, neither conclusive. The modem reports fatal
+errors loudly -- glink_channel_migration.c:602 with the failed assertion, sent
+to the AP and logged -- and it says nothing during the LTE death. And GSM runs
+for hours with the same absent driver.
+
+One observation argues for it. The modem can make secure monitor calls that
+this trace cannot see, so "the modem asks TZ to reset the system" is consistent
+with everything measured: no AP fault, no AP secure call, no modem fatal error
+delivered to the AP, no TZ fault counter moving, and PS_HOLD in the PMIC.
+
+Testing it properly means implementing enough of diag to keep the modem's
+diagnostic subsystem satisfied, which is a real piece of work and would give
+the DIAG console as a by-product. Before that, the cheaper step is to find out
+whether the modem's diag is actually waiting on anything: it does not open a
+DIAG channel of its own, and asking for DIAG_DATA makes it assert in channel
+migration rather than complete a handshake, which suggests its diag is not
+mid-conversation but idle.

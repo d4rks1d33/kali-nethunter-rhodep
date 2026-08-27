@@ -157,6 +157,8 @@ list; everything here is a from-scratch community port.
    selected, both look like the same thing: the modem switching on a hardware
    engine, while the Q6 running software is demonstrably fine. Read
    `docs/watchdog-ipa-lte-wip/HANDOFF.md` first — the leading candidate is now
+* `docs/modem-diag-wip/HANDOFF.md` — getting the modem's DIAG protocol working: what is
+  established, the two patches that came out of it, and what to do next.
    QDSS/CoreSight, which is 110 device tree nodes downstream and zero in
    mainline.
 

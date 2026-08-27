@@ -2469,3 +2469,16 @@ gate at all. It is a string in the firmware next to the servreg one, which
 makes it a good lead and not a fact. The modem's diag now gets an answer from
 the service registry and still does not open its channels, so something else is
 also missing, and it may be that instead.
+
+## DIAG has its own document now
+
+Everything about the modem's diagnostic protocol -- what is established, the
+three things I was wrong about, patches 0083 and 0084, the map of QMI service
+21, and what to do next -- has been moved to
+`docs/modem-diag-wip/HANDOFF.md` so it stops growing at the end of this one.
+
+The short version for anyone reading this file: DIAG is present in the firmware
+and the modem recognises its channel names, but it never opens them, and
+neither the glink open timeout nor the missing service registry was the reason.
+Both of those were real bugs found while looking, and neither fixed the LTE
+reset either.

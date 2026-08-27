@@ -229,11 +229,55 @@ way `tms/pdr_enabled` turned out to be only a partial answer. Do not assume.
 
 Raw trace saved at `/root/pdr-fix-trace-*.log` and `/home/kali/pdr-fix-trace-*.log`.
 
+## What the modem's diag bootup gate actually is, from the image strings
+
+After 0085 cleared the PD lookup and diag still did not start, the next look
+was at the modem image itself. `strings` on `/readonly/firmware/image/modem.b21`
+around the diag names gives, verbatim:
+
+    diag_mode.c
+    tms/pdr_enabled
+    tms/pddump_disabled
+    /nv/item_files/conf/diag_bootup.conf
+    /nv/item_files/services/diag/diag_bootup_flag
+    /nv/item_files/services/diag/diag_bootup_flag
+
+So there are **two** bootup items, not one. The previous session only knew
+`diag_bootup.conf`. The second, `.../services/diag/diag_bootup_flag`, is the
+stronger lead: a `_flag` under `services/diag` is exactly the shape of an
+on/off switch, and a production/OEM build setting it to 0 to keep diag off is
+the textbook way Qualcomm modems ship diag disabled. That would explain the
+whole picture cleanly: PD lookup fixed (0085), and diag still down because its
+own bootup flag says do not start.
+
+This is now more than a string, but it is still not proven -- what is unknown
+is the flag's **value**. Confirming it needs reading that NV item, which lives
+in the modem's EFS.
+
+**Where the EFS physically is.** rmtfs runs as `rmtfs -P -s` and backs the
+modem EFS with the raw partitions `modemst1` (sde12) and `modemst2` (sde13),
+plus `fsg`/`fsc`. These are Qualcomm EFS2 images, an opaque on-flash format;
+rmtfs relays block access, it does not expose files. So `diag_bootup_flag`
+cannot be `cat`'d. Reaching it means one of:
+
+  * QMI service 21 (below) -- read the item by its path or id. Still guessing
+    TLVs, but now with a concrete target path worth the guessing.
+  * parsing EFS2 out of modemst1/2 offline -- possible but heavy, and writing
+    back is risky.
+  * an NV/EFS write path that flips the flag to 1. If that is doable and safe,
+    it is the direct test of the whole premise.
+
+`tms/pddump_disabled` is also in the image (returns 0 from servreg, i.e. not
+served). It is probably benign -- "PD dump collection is not disabled" -- and
+is not the same kind of gate as a diag bootup flag. Noted, not chased.
+
 ## QMI service 21, the modem's embedded file system
 
-`diag_bootup.conf` lives in the modem's own filesystem, which the AP serves
-through rmtfs. rmtfs is running and healthy here (service 14, published by node
-1) and the modem publishes service 21, "modem embedded file system".
+`diag_bootup.conf` and `diag_bootup_flag` live in the modem's own filesystem,
+which the AP serves through rmtfs. rmtfs is running and healthy here (service
+14, published by node 1) and the modem publishes service 21, "modem embedded
+file system". The `diag_bootup_flag` path above is the concrete thing to try
+to read here.
 
 `scripts/modem/rhodep-qmi-probe.py` talks to any QMI service by number. The
 method for mapping an undocumented service is to read which error comes back:

@@ -1115,3 +1115,35 @@ The second would be interesting and the first would be a tooling problem.
 Distinguishing them is cheap: count 0xB0C0 packets across a *successful* GSM
 session, where nothing dies, and see whether RRC logging is equally sparse
 there. That is the next measurement and it does not risk anything.
+
+## A caveat on the decoder, and the right way to finish it
+
+`rhodep-diag-decode.py` scans for byte patterns rather than parsing the stream,
+and the numbers say that is costing packets: 4446 log entries across 534 DATA
+packets of 2 to 4 KiB is about eight per packet, where entries of a hundred-odd
+bytes should give three times that. **Treat its counts as lower bounds.** In
+particular, "only two RRC messages" may be an artefact of the scanner rather
+than a fact about the attach, and the GSM comparison suggested above should not
+be run until this is settled -- it would be comparing two undercounts.
+
+The peripheral's own framing is in `diagfwd_peripheral.c`:
+
+    struct data_header { u8 control_char (0x7E); u8 version (1); u16 length; }
+    payload, then a trailing 0x7E
+
+but the packets arriving on the DATA socket here do not start with 0x7E -- they
+start straight into a log packet, or with what looks like a small length and
+count pair. So the socket transport wraps them differently from the path that
+function serves, and working that out by staring at hex is the same mistake as
+guessing the RRC header was.
+
+**Use SCAT.** It already parses this: `fgsect/scat` has the container handling
+and the version tables for every log code, and it was what resolved the RRC
+header in minutes after an hour of guessing got nowhere. The remaining work on
+the decoder is to feed these captures to SCAT's Qualcomm parser rather than to
+finish reimplementing it. `rhodep-diag-decode.py` is worth keeping as the
+zero-dependency reader for a quick look, with its limits stated.
+
+What does not depend on any of this, because it comes from packet timestamps
+and not from decoding: the modem logs continuously to 151.83, the SoC goes down
+at about 152, and nothing in the capture is an error.

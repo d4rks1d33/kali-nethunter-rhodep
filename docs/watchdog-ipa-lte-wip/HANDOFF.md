@@ -2062,15 +2062,68 @@ also how an ordinary shutdown is performed, so the remaining shape is something
 *requesting* a shutdown rather than something failing -- and none of the three
 things that could log such a request is logging it.
 
-## The modem DIAG console is still not available
+## The modem DIAG channel does exist, and asking for it makes the modem assert
 
-Checked again while in the area, since a DIAG console would be the natural
-companion to the AT one. The modem advertises twelve glink channels:
+The paragraph that used to be here said DIAG was absent because it is not among
+the twelve channels the modem advertises. That was wrong, and the reasoning was
+lazy: glink channels are advertised by whichever side opens them, mainline has
+no diag driver, so nothing ever asks and the modem never announces one.
 
-    DATA1 DATA11 DATA2 DATA3 DATA4 DS IPCRTR LOOPBACK_CTL_MPSS
-    SSM_RTR_MODEM_APPS apr_voice_svc glink_ssr rpmsg_ctrl
+Asking directly is what settles it. Creating an endpoint named DIAG_DATA
+through rpmsg_ctrl, exactly as the AT console does for DS:
 
-There is no DIAG channel among them, which matches what the AT console already
-established: AT$QCDMG returns ERROR and the string does not appear anywhere in
-this firmware. DIAG is not merely closed on this build, it is absent. A console
-would have nothing to talk to.
+    [427.633191] qcom_q6v5_pas 6080000.remoteproc: fatal error received:
+                 glink_channel_migration.c:602:Assertion
+                 status == GLINK_STATUS_SUCCESS failed
+    [427.633540] remoteproc remoteproc0: crash detected in modem: type fatal error
+    [432.350593] rpmsg rpmsg0: failed to open DIAG_DATA
+    [433.791543] remoteproc remoteproc0: remote processor modem is now up
+
+The name is recognised. The modem takes the request far enough to run its
+channel migration code and assert inside it, so DIAG is present on this
+firmware; what is missing is the protocol handshake a real diag driver would
+perform. AT$QCDMG returning ERROR says only that the AT command is not
+implemented, which is a different statement from the channel not existing.
+
+Whether a DIAG console is reachable from here is still open. The modem crashes
+before the channel opens, and the SoC survives it only because patch 0081 is in
+place. The other names -- DIAG_CNTL, DIAG_CMD, DIAG_DCI_DATA, DIAG_DCI_CMD --
+have not been tried yet, because the first attempt took the edge down and the
+control device went with it.
+
+## The modem's fault reporting works, which matters more than DIAG
+
+The assertion above is the first time in this investigation the modem has
+reported a fatal error to the AP, and look at how much it says: source file,
+line number and the failed condition, delivered through
+qcom_q6v5_pas and logged by remoteproc.
+
+So that path works, is detailed, and is not blocked. Which means its silence
+during the LTE death is evidence rather than absence of instrumentation: when
+the modem faults, the AP is told, in detail. During the LTE reset it is not
+told anything, because the modem does not fault.
+
+That closes the last way of reading "the modem might be failing silently". It
+is not failing at all.
+
+## Reframing: not what fails, but what asks
+
+Three participants, all measured, none reporting a fault, and a PMIC that
+records PS_HOLD. PS_HOLD is also how an ordinary shutdown is performed, so the
+question to carry forward is not "what is failing" but "what is asking for a
+shutdown, and why".
+
+Things that can ask, in rough order of how easily they could do it unlogged:
+
+  * TZ itself, on behalf of something that calls into it. A secure monitor call
+    that requests a system reset would look exactly like this from outside, and
+    TZ's fault counters would not move because nothing faulted.
+  * The RPM or another always-on processor. RPMErrInd exists as an interrupt
+    name in TZ's table and never fires, but that only covers the error path.
+  * A power-domain or regulator sequence that removes something the SoC cannot
+    run without, which the PMIC would record as the SoC letting go of PS_HOLD.
+
+The first is the most likely and the least instrumented. What would settle it
+is knowing which SMC calls are made in the seconds before the reset, and that
+is a kernel-side question: mainline routes them all through qcom_scm, so they
+can be traced from there.

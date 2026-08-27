@@ -2317,3 +2317,45 @@ If that reading is right, no amount of AP-side implementation reaches a peer
 that is not there, and the DIAG console cannot be built on this firmware. What
 would disprove it is finding the modem advertising a diag channel under any
 condition, or finding the thing that starts its diag task.
+
+## sm6375 was missing from the PD mapper, and that is a real bug
+
+Chasing what starts the modem's diag led to the firmware's own words. Among the
+strings in /readonly/firmware/image/modem.b*:
+
+    /nv/item_files/conf/diag_bootup.conf
+    Diag_LSM.c:servreg_get_local_domain() returned null
+
+So the modem's diagnostic subsystem asks the service registry for its
+protection domain. On this phone it was being told there is none, because
+qcom_pd_mapper had no entry for sm6375 and printed, on every boot:
+
+    PDM: no support for the platform, userspace daemon might be required.
+
+kernel/patches/0084 adds it. sm6375 has mpss, adsp and cdsp, the same three as
+sm6115, so it takes the same domain set. qcom_pd_mapper is a module, so this
+was tested by swapping the module rather than flashing.
+
+It works, measured two ways. The notice is gone, and the AP now publishes the
+service registry:
+
+    64  1  1  1  16390  Service registry locator service     <- node 1, the AP
+
+which was not there before; only the modem's own notification service was.
+
+Two honest negatives about what it does not do.
+
+It does not start the modem's diag. The channel list is still the same twelve
+after a modem restart with the registry up, so servreg was not the only thing
+diag was waiting for. The other string is the likely next thread:
+diag_bootup.conf is an NV item read from the modem's own EFS, which the AP
+serves through rmtfs.
+
+And it does not fix the LTE reset. Tested directly: pd_mapper working, modem
+registered, forced to 4g, and the machine went down as always with
+bootreason=watchdog.
+
+The patch is worth having regardless. PDR is not a diag mechanism; it is how
+protection domain lifetimes are announced across subsystems, and this port has
+been running without any of it. Anything that depends on knowing when a PD goes
+down has been flying blind, which is worth knowing separately from this hunt.

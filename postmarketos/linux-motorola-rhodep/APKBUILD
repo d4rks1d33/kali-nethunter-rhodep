@@ -98,6 +98,8 @@ source="
 	0083-rpmsg-glink-make-the-channel-open-timeout-adjustable.patch
 	0084-soc-qcom-pd_mapper-add-sm6375.patch
 	0085-soc-qcom-pd_mapper-serve-tms-pdr_enabled-on-sm6375.patch
+	0086-arm64-dts-qcom-sm6375-uart-interconnect-paths.patch
+	0088-interconnect-sm6375-keep-the-boot-floors.patch
 "
 options="!check !strip !tracedeps pmb:cross-native"
 _carch="arm64"
@@ -220,4 +222,6 @@ dc195f4b72f6b591ae46453e58f3f923dd04b802a0dc8bd5d5999f63a6bdf853b7f67bf9345e18d0
 38570e826438e83f6ddae7c343ffd077ec8e15f36a0b34e9c8b3706132070d7c73e6964e6f6cfe0a40391c53a6884d6f2300f0c1a3403f3657379b2660f32907  0083-rpmsg-glink-make-the-channel-open-timeout-adjustable.patch
 adfd4cab337dd7db15456f80dfe412bef8dbc480e679fa855a47f5dd4bdce6c3c06740f3d3b88850cf850001af630df15f1e548152005f04642ddd5d7eab7962  0084-soc-qcom-pd_mapper-add-sm6375.patch
 27e5c521f840210def3de9182413b495e450fa96d8f24ca20bc35f4645e9a3a3714df548af57d69f2ca22469be3928dd496b5529820a7932d15e4d70120709a6  0085-soc-qcom-pd_mapper-serve-tms-pdr_enabled-on-sm6375.patch
+5a3902fec308adfc99327f65a22c540f46403f7de7aedccf7cba7376d5d2a1d25ba4fad79a3bfbc01df9abda734920c015a99f0b0d72c7ba6cb135316287849d  0086-arm64-dts-qcom-sm6375-uart-interconnect-paths.patch
+30a02d25acb40d57bdae9aa27b81d64a82193863e770140b2bf26c9bfc51dff0d6bb8b499f5570d47763b2971ed14396c0e1596640ea0f4586ec12358d8c58f0  0088-interconnect-sm6375-keep-the-boot-floors.patch
 "

@@ -45,9 +45,35 @@ With the keyboard working, minimising it with its own button hides it for a few
 seconds and then it returns. The port's input method is not the cause -- it is a
 thin wrapper that adds terminal keys to the stock `plasma-keyboard` and execs it.
 
-The likely explanation is that Chromium re-requests the input panel whenever the
-editor updates, and KWin honours each request, while the terminal does not
-because nothing re-asks after the user hides it. If so, no browser flag will
-settle it and the fix belongs on the KWin side -- `org.kde.kwin.VirtualKeyboard`
-has a writable `mode`, currently 1 -- which is worth being careful with, because
-it applies to every application including the terminal where this already works.
+Sampling KWin's properties every 0.3 s while typing shows what is actually
+happening, and it is not what it looked like:
+
+	01:22:47.10  active=true  visible=false
+	01:22:47.46  active=true  visible=true
+	01:22:48.14  active=true  visible=false
+	01:22:48.50  active=true  visible=true
+
+`active` never wavers -- KWin knows the application wants text input the whole
+time -- while `visible` flips every 0.4 to 0.7 s. So the application is not
+re-asking for the keyboard; the keyboard surface itself is going up and down
+underneath a stable request. And after the keyboard is dismissed with its own
+button, tapping the editor does not bring it back, which fits: the dismissal
+never reaches Chromium, so it has no reason to ask again.
+
+Two candidate explanations were then ruled out by measurement:
+
+  * **The port's input method is not at fault.** It is a wrapper that adds
+    terminal keys to the stock `plasma-keyboard` and execs it.
+  * **The keyboard process is not crashing and being respawned.** Its pid is
+    stable across the flicker, and there are no crashes in the journal.
+
+`--wayland-text-input-version=2` was worth trying, because v2 carries explicit
+show and hide panel messages and v3 leaves the decision to the compositor --
+which would explain a dismissal that goes nowhere. Chromium does not implement
+v2: with it, no keyboard appears at all. So v3 is the only version both sides
+speak, and its missing hide path is the thing that hurts.
+
+That puts the fault upstream, between Chromium's text-input-v3 implementation
+and KWin, where no browser flag reaches. What is left is either KWin's writable
+`mode` (currently 1), which applies to every application including the terminal
+where this already works, or typing in something other than VS Code.

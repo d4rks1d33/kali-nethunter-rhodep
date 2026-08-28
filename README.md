@@ -2157,6 +2157,52 @@ already done.
    awake, `journalctl -u rhodep-keep-awake` says what and an `ignore:` line
    settles it.
 
+7. **A keyboard for X11 and Java apps, which needs a KWin patch.** Burp Suite is
+   Java on XWayland and shows no on-screen keyboard at all, and neither does any
+   other X11 app. This is not configuration: everything reachable from outside
+   KWin has been tried and measured, and `userspace/keyboard/README.md` has the
+   numbers.
+
+   - `forceActivate` over an X11 window does nothing. With Burp focused and a
+     cursor in a text field, `active` and `visible` stayed false for five
+     seconds of sampling. KWin will not activate the keyboard when the focused
+     client cannot receive text.
+   - `mode` on `org.kde.kwin.VirtualKeyboard` is advertised as writable and is
+     not. Writing 0, 2 or 3 leaves it at 1.
+   - No third-party keyboard can inject keys. KWin offers only
+     `zwp_input_method_v1` to ordinary clients and keeps
+     `zwp_virtual_keyboard_manager_v1` for the input method it launches, so
+     wvkbd and squeekboard cannot place a keystroke anywhere.
+   - onboard does work -- an X11 client injecting through XTEST, which reaches
+     every X11 app without needing its cooperation -- and was rejected on how it
+     feels rather than whether it functions.
+
+   **Measure this first, because it decides which patch to write.** Does
+   `plasma-keyboard` deliver keys as keycodes through
+   `zwp_virtual_keyboard_v1`, or as committed strings through the text-input
+   protocol? Run it under `WAYLAND_DEBUG=1` and watch which interface it binds
+   and which requests carry the keystrokes. The answer splits the work in two:
+
+   **If it sends keycodes**, the patch is small. Keycodes go to the seat's
+   keyboard focus, which is whatever window is focused -- XWayland included --
+   so the keys already have somewhere to land and the only thing missing is
+   permission to show the keyboard. In `src/inputmethod.cpp`, activation is
+   gated on there being a text-input-enabled surface; `forceActivate()` needs to
+   be allowed to proceed without one, and the input method's lifetime needs to
+   stop being tied to a text-input client that will never exist. Roughly: an
+   "activated by the user rather than by an application" state that show/hide
+   respects and that focus changes do not immediately clear.
+
+   **If it commits strings**, there is nothing for an X11 window to receive and
+   the patch is bigger: KWin would have to synthesise key events from the
+   committed text for surfaces with no text-input, which is the same job
+   XTEST does for onboard, done inside the compositor.
+
+   Either way it is a KWin patch and a KWin rebuild rather than a setting, and
+   worth checking against upstream first -- an on-screen keyboard that cannot
+   type into X11 applications is not a rhodep problem, and someone may already
+   be arguing about it.
+
 6. **Stop needing the codec kept awake for jack detection.** A udev rule pins
    the soundwire TX slave on because MBHC detects nothing while it is
    suspended. The real fix is for the codec driver to keep that block alive

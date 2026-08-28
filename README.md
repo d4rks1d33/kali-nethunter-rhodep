@@ -2108,17 +2108,34 @@ already done.
    so it needs no reflash; `mem_sleep_default=s2idle` on the kernel command line
    would do the same at the cost of a boot image.
 
-   **What is still open** is the original goal: suspend while keeping the radio
-   associated and able to wake the host, rather than choosing between "sleeps
-   and drops the link" and "never sleeps". `systemd-inhibit --what=idle:sleep
-   --mode=block <command>` remains the stopgap for holding the phone awake for
-   exactly as long as a job runs.
+   **The link survives too.** Measured across a 27 s suspend with s2idle: same
+   BSSID before and after, still associated. So the half of this that looked
+   like a driver problem was the broken suspend mode all along.
 
-   Worth checking next whether the ath10k path supports wake-on-wlan here:
-   `iw phy0 info` for the WoWLAN triggers, and whether the SNOC glue wires an
-   interrupt that can wake the SoC. If the triggers are there this is a
-   NetworkManager and systemd configuration job; if they are not it is a driver
-   one and considerably larger.
+   **ath10k does advertise WoWLAN here** -- wake on disconnect, on magic packet,
+   on pattern match up to 22 patterns, and on network detection up to 16 match
+   sets. `/etc/NetworkManager/conf.d/rhodep-wowlan.conf` asks for magic-packet
+   wake. That setting is configured but *not* demonstrated to arm: NetworkManager
+   programmes it when the connection comes up, and checking it means dropping
+   and remaking the link, which was not worth doing over the same link. Verify
+   with `iw phy0 wowlan show` after a reconnect.
+
+   **Jobs left running no longer get frozen**, which was the real complaint --
+   start a capture, lock the screen, come back an hour later and find it stopped.
+   `rhodep-keep-awake.service` holds a `systemd-inhibit` lock for exactly as long
+   as anything listed in `/etc/rhodep/keep-awake.conf` is running, and drops it
+   when nothing is:
+
+	unit:bettercap.service      a systemd service
+	proc:wireshark              a process, by exact binary name
+	procf:some-script.py        matched anywhere in the command line
+
+   Nothing is listed by default, deliberately: a phone that never sleeps because
+   something looked busy goes flat by lunchtime, and it does it silently.
+
+   Prefer `proc:` over `procf:`. Command-line matching also matches a shell that
+   merely *mentions* the name -- it matched the ssh command used to test it, so
+   the hold was taken for a job that was never running.
 
 6. **Stop needing the codec kept awake for jack detection.** A udev rule pins
    the soundwire TX slave on because MBHC detects nothing while it is

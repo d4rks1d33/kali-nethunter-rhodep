@@ -1,0 +1,89 @@
+#!/bin/sh
+# Hold the phone awake while work you left running is still running.
+#
+# On Android a background job takes a wakelock and the phone does not sleep
+# underneath it. Here the equivalent is systemd-inhibit, but nothing takes one
+# on your behalf: start a capture, lock the screen, come back an hour later and
+# the phone slept through it. The job did not crash, it was frozen -- and
+# anything depending on the network came back to a link that had gone.
+#
+# So this watches for the things you care about and holds the inhibitor for
+# exactly as long as they are running, then lets go. Both kinds of thing:
+#
+#	unit:bettercap.service      a systemd service
+#	proc:wireshark              a process, by exact binary name
+#	procf:some-script.py        a process, matched anywhere in its command
+#	                            line -- read the warning below before using
+#
+# in /etc/rhodep/keep-awake.conf, one per line, # for comments.
+#
+# It deliberately does *not* inhibit on its own judgement. A phone that never
+# sleeps because something looked busy is a phone with a flat battery by
+# lunchtime, and that is a worse failure than the one this fixes -- it is
+# silent. Everything it holds for is listed in one file you can read.
+set -u
+
+CONF=${RHODEP_KEEP_AWAKE_CONF:-/etc/rhodep/keep-awake.conf}
+INTERVAL=${RHODEP_KEEP_AWAKE_INTERVAL:-10}
+holder=""
+
+running() {
+	[ -r "$CONF" ] || return 1
+	while IFS= read -r line; do
+		case "$line" in ''|\#*) continue ;; esac
+		kind=${line%%:*}
+		name=${line#*:}
+		[ -n "$name" ] || continue
+		case "$kind" in
+			unit)
+				systemctl is-active --quiet "$name" 2>/dev/null && { echo "$name"; return 0; }
+				;;
+			proc)
+				pgrep -x "$name" >/dev/null 2>&1 && { echo "$name"; return 0; }
+				;;
+			procf)
+				# Matches anywhere in a command line, which is useful for
+				# things launched through an interpreter and dangerous for
+				# everything else: it also matches a shell that merely
+				# mentions the name. That is not hypothetical -- it matched
+				# the ssh command used to test this, so the hold was taken
+				# for a job that was never running, and released only when
+				# the tester's own shell exited. Excluding this script and
+				# its inhibitor is not enough, so this mode is opt-in.
+				pgrep -f "$name" 2>/dev/null \
+					| grep -qvE "^($$|${holder:-0})$" && { echo "$name"; return 0; }
+				;;
+		esac
+	done < "$CONF"
+	return 1
+}
+
+release() {
+	[ -n "$holder" ] || return 0
+	kill "$holder" 2>/dev/null
+	wait "$holder" 2>/dev/null
+	holder=""
+}
+
+trap 'release; exit 0' TERM INT
+
+while :; do
+	what=$(running) && rc=0 || rc=1
+
+	if [ $rc -eq 0 ] && [ -z "$holder" ]; then
+		# --mode=block, not delay: delay only postpones the suspend by a
+		# few seconds and then it happens anyway, which is precisely the
+		# failure being fixed.
+		systemd-inhibit --what=idle:sleep --mode=block \
+			--who="rhodep-keep-awake" \
+			--why="a job listed in $CONF is running" \
+			sleep infinity &
+		holder=$!
+		echo "rhodep-keep-awake: holding the phone awake for $what"
+	elif [ $rc -ne 0 ] && [ -n "$holder" ]; then
+		release
+		echo "rhodep-keep-awake: nothing left to wait for, letting it sleep"
+	fi
+
+	sleep "$INTERVAL"
+done

@@ -2751,3 +2751,42 @@ qcom_common and qmi_helpers, so mainline's IPA never calls qcom_scm_assign_mem
 and never hands memory ownership to the modem through TrustZone. The symbol
 exists in the kernel and other drivers use it. Whether IPA on this SoC ought to
 be assigning anything is the open question, not a demonstrated gap.
+
+## Not an unclocked IPA access either, and the firmware fits its region
+
+Two checks along the access-violation line, both negative, both cheap.
+
+**The IPA firmware does not overflow its region.** The device tree reserves
+pil-ipa-fw at 0x8aa00000 for 0x10000 and pil-ipa-gsi at 0x8aa10000 for 0xa000,
+and IPA's `memory-region` points only at the first of the two, which looked like
+it could leave a loader writing past the end. It does not: `qcom,gsi-loader` is
+"self", so the AP loads ipa_fws.mdt itself, and that image is a five-segment
+Hexagon ELF spanning 0x8000 -- half the region. It fits.
+
+**And IPA being asleep is not it.** This looked strong. IPA runs autosuspend
+with a 500 ms delay and spends nearly all its time down:
+
+    runtime_status            suspended
+    runtime_suspended_time    354817 ms
+    runtime_active_time        12594 ms
+
+while `ipa-clock-query`, the smp2p interrupt by which the modem asks the AP to
+power IPA up before touching it, has fired **zero times**. A modem reaching into
+a block whose clocks are gated is precisely an unclocked access, which is one of
+the ways to get this exact silent death. It also explained the otherwise odd
+requirement that ipa.ko be loaded at all: the driver is what gates those clocks,
+and without it nothing does.
+
+Pinning the block awake is a one-line test:
+
+    echo on > /sys/devices/platform/soc@0/5840000.ipa/power/control
+    control=on, runtime_status=active, then force 4g
+
+It died anyway, at the usual interval. So the modem is not being killed by
+touching a sleeping IPA, and the zero clock-query count -- still unexplained --
+is not the mechanism.
+
+What survives: the death remains indistinguishable from a deliberate access
+violation, the modem remains the only participant whose accesses are outside
+Linux's SMMU, and neither of the two concrete violation stories tried so far is
+the right one.

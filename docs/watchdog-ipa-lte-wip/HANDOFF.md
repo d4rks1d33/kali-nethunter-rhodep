@@ -2482,3 +2482,40 @@ and the modem recognises its channel names, but it never opens them, and
 neither the glink open timeout nor the missing service registry was the reason.
 Both of those were real bugs found while looking, and neither fixed the LTE
 reset either.
+
+## WiFi coexistence is not it, tested properly
+
+A good hypothesis, and one this SoC invites: WiFi is not an independent radio
+here. The modem carveout is called `pil_mpss_wlan_mem`, there is an
+`msm/modem/wlan_pd` protection domain, and the modem registered exactly that
+name during the DIAG handshake -- the WLAN firmware runs on the modem
+processor. And the modem's own logs carry the phone's WiFi SSID, because it
+tracks WLAN for coexistence. Two radios sharing a processor, one of which dies
+when the other is asked to work, is worth taking seriously.
+
+It is not the answer, and it took two attempts to test it honestly.
+
+**First attempt, which was not good enough.** `ip link set wlan0 down` plus
+`rfkill block wifi`, control kept over USB so the test does not depend on the
+thing being switched off. Forced to 4g: reset, bootreason=watchdog. But
+checking dmesg afterwards showed ath10k had still loaded its firmware, so the
+WLAN protection domain inside the modem was up the whole time. The host
+interface was down; the modem-side WLAN was not. That tests RF activity and
+nothing else.
+
+**Second attempt, the real one.** `install ath10k_snoc /bin/false` and the same
+for ath10k_core and ath10k_pci -- a blacklist is not enough, something loads it
+explicitly -- then reboot. Verified before the test: ath10k not loaded, no
+wlan0 at all, and zero lines mentioning ath10k or wlan_pd in the whole boot log,
+so the modem never started its WLAN domain.
+
+Forced to 4g anyway:
+
+    uptime 98.54  forcing 4g with no WLAN firmware anywhere
+    uptime 55.17  next boot, bootreason=watchdog, PON says PS_HOLD
+
+So the SoC dies from an LTE attach with the WLAN side of the modem never
+brought up. Coexistence, RF or software, is eliminated -- and eliminated with
+the strong form of the test rather than the convenient one.
+
+The blacklist was removed afterwards; WiFi returns on the next boot.

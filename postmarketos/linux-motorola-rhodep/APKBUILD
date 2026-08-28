@@ -100,6 +100,9 @@ source="
 	0085-soc-qcom-pd_mapper-serve-tms-pdr_enabled-on-sm6375.patch
 	0086-arm64-dts-qcom-sm6375-uart-interconnect-paths.patch
 	0088-interconnect-sm6375-keep-the-boot-floors.patch
+	0089-regulator-fan53870-declare-the-low-ldo-supply.patch
+	0090-arm64-dts-qcom-rhodep-camera-pmic-input-supply.patch
+	0091-arm64-dts-qcom-rhodep-drop-absent-microphones.patch
 "
 options="!check !strip !tracedeps pmb:cross-native"
 _carch="arm64"
@@ -224,4 +227,7 @@ adfd4cab337dd7db15456f80dfe412bef8dbc480e679fa855a47f5dd4bdce6c3c06740f3d3b88850
 27e5c521f840210def3de9182413b495e450fa96d8f24ca20bc35f4645e9a3a3714df548af57d69f2ca22469be3928dd496b5529820a7932d15e4d70120709a6  0085-soc-qcom-pd_mapper-serve-tms-pdr_enabled-on-sm6375.patch
 5a3902fec308adfc99327f65a22c540f46403f7de7aedccf7cba7376d5d2a1d25ba4fad79a3bfbc01df9abda734920c015a99f0b0d72c7ba6cb135316287849d  0086-arm64-dts-qcom-sm6375-uart-interconnect-paths.patch
 30a02d25acb40d57bdae9aa27b81d64a82193863e770140b2bf26c9bfc51dff0d6bb8b499f5570d47763b2971ed14396c0e1596640ea0f4586ec12358d8c58f0  0088-interconnect-sm6375-keep-the-boot-floors.patch
+4d1ae0d83dcddfa2f014346f62e8d675c399d7d173e1d4edd92906d1e860c964f2537ff7b476a91d04d88632786dbefc199f9adad9d284df119f384bbf88dc62  0089-regulator-fan53870-declare-the-low-ldo-supply.patch
+738f0e71b1aadc4a64d54c7ac7803482ddfdc94f59bfe0ce0211749e57d0506c70f184e3d6dd152e78b2ffac485fcea08d5f4c4643bfd5e80ccec01dbc04dfb8  0090-arm64-dts-qcom-rhodep-camera-pmic-input-supply.patch
+cbc0ba4c7bd9ab99dc552ac45048296a2ac41b740a0f8d2ae2fdca626d4f5115bc95c017087fd2b7659aeab35d3a95130ac3afb58ff0fe20900494ad98edc2ea  0091-arm64-dts-qcom-rhodep-drop-absent-microphones.patch
 "

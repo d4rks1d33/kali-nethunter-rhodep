@@ -15,6 +15,7 @@ obj-m += rhodep_clkhold.o
 obj-m += rhodep_pdhold.o
 obj-m += rhodep_dbgmem.o
 obj-m += rhodep_scmtrace.o
+obj-m += rhodep_qrtrtrace.o
 
 KDIR ?= /lib/modules/$(shell uname -r)/build
 

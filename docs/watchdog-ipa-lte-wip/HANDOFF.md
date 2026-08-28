@@ -2519,3 +2519,61 @@ brought up. Coexistence, RF or software, is eliminated -- and eliminated with
 the strong form of the test rather than the convenient one.
 
 The blacklist was removed afterwards; WiFi returns on the next boot.
+
+## The QMI control plane is healthy too, which closes the best remaining theory
+
+With the modem cleared by its own logs, the question became what the modem
+*asks* for rather than what fails, and there was a good candidate: mainline's
+IPA implements a far smaller QMI surface than the downstream driver. A request
+the AP never answers, followed by the modem giving up and asking for a shutdown,
+fits every symptom -- graceful, unlogged, needs ipa.ko present, needs LTE.
+
+**A differential on the DIAG captures first.** 60 s of GSM, where nothing dies,
+against the capture through the LTE death, both parsed with CRC validation
+rather than by pattern-scanning -- if the CRC checks then the framing is right,
+which is what the earlier parsers could not claim:
+
+    GSM    1522 valid frames   38 log codes   1082 log packets
+    LTE    4593 valid frames   71 log codes   1946 log packets
+
+39 log codes are LTE-only, mostly data-services (0x19xx, 0x1Axx) and LTE
+physical layer (0xB1xx). But the useful part is the tail:
+
+    last 20 log packets    0xB12B every 70-200 ms, 564 bytes, even cadence
+    final second           11 packets, 3 codes, all seen 115/98/30 times before
+    new codes in it        NONE
+
+The modem is logging routine periodic measurements at a steady rate and is cut
+off mid-stride. Nothing in its last second was absent from its first.
+
+**Then the control plane itself.** `rhodep_qrtrtrace.c` kprobes
+qrtr_endpoint_post(), which everything arriving from a remote node passes
+through, decodes the v1/v2 header, the QMI header for data and the service map
+from control packets, and keeps a 2048-entry ring that
+`rhodep-qrtrtrace-watch.py` drains to flash with one fsync per batch. Entries
+carry a sequence number so a poll that was too slow shows up as a recorded gap
+instead of a silent hole. Through the death:
+
+    709 messages, 27.5 s window, ZERO gaps
+
+And it shows nothing:
+
+    5:14 -> 1:16402  msg 0x22 indication   671 times, every ~80 ms, last at +0.0
+    0:90 -> 1:16423  msg 0x26 indication    10 times, last at -3.4 ms
+    IPA QMI (service 0x31)                  never appears at all
+
+No IPA transaction in the entire fatal window. No repeated transaction id, which
+is what an unanswered request would look like as the modem retried. The last
+thing the modem sends is the same periodic indication it had been sending for
+the previous 27 seconds, on the same 80 ms cadence, and then the machine stops.
+
+So the theory is dead, and the QMI control plane joins the list of participants
+measured healthy. **The honest limit of this instrument:** it sees only what
+arrives from remote nodes, not what the AP sends back, so "the AP failed to
+answer" cannot be excluded directly -- only through the absence of any retry,
+which is strong but indirect.
+
+Five participants now, all healthy at the moment of death: Linux, TrustZone, the
+modem by AT, the modem by its own DIAG logs, and the QMI control plane. The
+PMIC still records PS_HOLD. Whatever pulls it does not speak QMI, does not fault,
+and does not log.

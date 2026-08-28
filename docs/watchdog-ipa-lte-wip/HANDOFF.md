@@ -2668,3 +2668,46 @@ So the message that tells the modem where to write is correct, field by field,
 on the kernel that resets. That theory is closed too -- and closed against the
 running system rather than against a source tree that happened to be lying
 around.
+
+## A second reproducible trigger, and a pillar that has to come down
+
+Chasing `RPMMasterLog` -- a string found in the modem firmware, the RPM keeping
+a per-master record of what each processor asked for -- meant reading the RPM
+message RAM. The device tree puts `rpm_msg_ram` at 0x045f0000 with a size of
+0x7000, and there is a separate `qcom,rpm-stats` region at 0x04690000 which
+holds the RPM build string, RPM.BF.1.11-00134, so this SoC does have an RPM.
+
+Reading the first 4 KB works and shows no strings and no recognisable structure.
+**Reading at 0x045f1000 kills the machine**, with bootreason=watchdog and PON
+reporting PS_HOLD: the LTE signature exactly. So the region is only accessible
+for part of its declared length, and scanning it blindly -- which is what was
+done here -- switches the phone off. That was careless and is worth recording as
+such.
+
+The lead itself is dead: the per-master log is not reachable from the AP.
+
+**But it produced a second reproducible trigger of the signature**, alongside the
+TCSR read at 0x3d3000, and that allows a test that matters more.
+
+If a deliberate access violation is invisible to TrustZone's interrupt counters,
+then "TrustZone records nothing" was never evidence that TrustZone saw nothing.
+
+    before the deliberate violation   SWDogBark 17   [11, 1, 1, 2, 1, 1, 0, 0]
+    after it                          SWDogBark 11   [7, 4, 0, 0, 0, 0, 0, 0]
+
+**The counter went down.** They do not accumulate across the power cycle; they
+reset and start again on each boot. So they cannot report anything about the
+event that ended the previous boot -- they die with it. No VMIDMT error, no
+NSWDogBite and no RPMErrInd appears after a violation that demonstrably
+happened, because by the time they can be read, they have been zeroed.
+
+That retires an entry from the list of things established. TrustZone was never
+measured healthy at the moment of death; the instrument was structurally
+incapable of the measurement, and the earlier reading of it as a clean bill of
+health was wrong. Four participants remain measured healthy -- Linux, the modem
+by AT, the modem by its own DIAG logs, and the QMI control plane -- and
+TrustZone's state at the moment of death is simply unknown.
+
+This reopens the access-violation hypothesis for the LTE reset, which now has
+two known instances producing an identical signature, and no evidence against
+it beyond a counter that cannot see it.

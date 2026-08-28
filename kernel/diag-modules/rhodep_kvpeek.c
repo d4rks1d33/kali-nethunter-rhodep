@@ -24,6 +24,7 @@
  */
 
 #include <linux/debugfs.h>
+#include <linux/io.h>
 #include <linux/module.h>
 #include <linux/seq_file.h>
 #include <linux/uaccess.h>
@@ -32,6 +33,8 @@
 
 static u64 peek_addr;
 static u32 peek_len = 256;
+static u64 phys_addr;
+static u32 phys_len = 256;
 static u8 buf[MAX_LEN];
 
 static int data_show(struct seq_file *m, void *unused)
@@ -66,6 +69,46 @@ static int data_show(struct seq_file *m, void *unused)
 }
 DEFINE_SHOW_ATTRIBUTE(data);
 
+/*
+ * The same, for a physical address. Only for memory that is known to answer --
+ * the RPM message RAM is in the device tree and other drivers already map it --
+ * because an address that does not respond on this SoC takes the machine down
+ * instead of faulting.
+ */
+static int phys_show(struct seq_file *m, void *unused)
+{
+	u32 len = phys_len;
+	void __iomem *p;
+	u32 i;
+
+	if (!phys_addr) {
+		seq_puts(m, "# no physical address set\n");
+		return 0;
+	}
+	if (len > MAX_LEN)
+		len = MAX_LEN;
+
+	p = ioremap(phys_addr, len);
+	if (!p) {
+		seq_printf(m, "# cannot map %#llx\n", phys_addr);
+		return 0;
+	}
+	memcpy_fromio(buf, p, len);
+	iounmap(p);
+
+	seq_printf(m, "# %u bytes at physical %#llx\n", len, phys_addr);
+	for (i = 0; i < len; i += 16) {
+		u32 j, n = min_t(u32, 16, len - i);
+
+		seq_printf(m, "%04x ", i);
+		for (j = 0; j < n; j++)
+			seq_printf(m, "%02x ", buf[i + j]);
+		seq_puts(m, "\n");
+	}
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(phys);
+
 static struct dentry *dir;
 
 static int __init rhodep_kvpeek_init(void)
@@ -77,6 +120,9 @@ static int __init rhodep_kvpeek_init(void)
 	debugfs_create_x64("addr", 0600, dir, &peek_addr);
 	debugfs_create_u32("len", 0600, dir, &peek_len);
 	debugfs_create_file("data", 0400, dir, NULL, &data_fops);
+	debugfs_create_x64("paddr", 0600, dir, &phys_addr);
+	debugfs_create_u32("plen", 0600, dir, &phys_len);
+	debugfs_create_file("phys", 0400, dir, NULL, &phys_fops);
 
 	pr_info("rhodep_kvpeek: ready\n");
 	return 0;

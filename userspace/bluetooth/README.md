@@ -80,31 +80,55 @@ pipewire-pulse` and it connects and stays. `install.sh` does this for every
 logged-in session. On a boot where Bluetooth is enabled from the start the
 ordering is right and it does not arise.
 
-## The address was random
+## The address is not the device's own, and this service no longer changes that
 
 The controller does not hold its own address. Mainline's `hci_qca` reads it
 from `local-bd-address` in the device tree, and this port's device tree does
-not describe the controller at all, so the stack invents one:
+not describe the controller at all, so what the stack ends up with is:
 
 	BD Address: 02:00:60:3B:D3:94        <- 02: is locally administered
 
-A new one every boot, so every device the phone has paired with sees a
-different phone afterwards and the pairing is dead. The real address is on the
-kernel command line, where the bootloader put it:
+while the real address is on the kernel command line, where the bootloader put
+it:
 
 	androidboot.btmacaddr=E4:26:D5:01:11:0F
 
-`rhodep-bt-address` programs it with `btmgmt public-addr` before `bluetoothd`
-starts, which is the only moment the controller accepts it — it has to be
-powered down. Verified:
+**Two claims that used to be here were wrong.**
 
-	hci0 Set Public Address complete
-	BD Address: E4:26:D5:01:11:0F
+*"A new one every boot, so every pairing is dead after a reboot."* No — that
+address is **stable**. Checked across five consecutive boots, all five report
+`02:00:60:3B:D3:94`, and it is the same value recorded in an earlier session's
+notes. It is almost certainly the default baked into `qca/crnv21.bin`, which is
+exactly the value `qca_check_bdaddr()` compares the controller against. So
+pairings do survive reboots today; what the phone lacks is its *own* assigned
+address, not a stable one.
 
-Doing it here keeps this a rootfs change, so it needs no new boot image.
-**Adding `local-bd-address` to the device tree is the tidier fix** and is worth
-doing the next time the boot image is rebuilt for another reason; then this
-service becomes a no-op and can be dropped.
+*"`rhodep-bt-address` programs it … Verified: Set Public Address complete."*
+Not any more. That is what the service used to do, and doing it is what broke
+the adapter — issuing Set Public Address to an already-configured controller
+moves it into the configuration-pending state and drops it from both mgmt
+controller lists, giving an adapter that `hciconfig` shows as UP RUNNING on the
+right address and that `bluetoothd` cannot see at all. The script was rewritten
+to leave a working controller alone, which on this device it always is, so on
+every boot it now logs
+
+	rhodep-bt-address: controller listed on 02:00:60:3B:D3:94 after 2 attempts
+
+and programs nothing. The long comment at the top of `rhodep-bt-address` has
+the full story; this file had simply not been updated to match it.
+
+**The fix is `local-bd-address` in the device tree**, which both this file and
+the script have named all along and which nobody has done because it needs a
+new boot image. It is the supported mainline path and it avoids the mgmt state
+machine entirely: `qca_check_bdaddr()` sets `HCI_QUIRK_USE_BDADDR_PROPERTY`
+when the controller comes up on the NVM's default address, `hci_dev_setup_sync()`
+then reads the property and `qca_set_bdaddr()` programs it, at setup time, on
+every open. The property is **little-endian** (`bluetooth-controller.yaml`:
+"least significant byte first"), so for `E4:26:D5:01:11:0F` the node needs
+
+	local-bd-address = [ 0F 11 01 D5 26 E4 ];
+
+Once that is in and verified, this service can be dropped.
 
 ## Checking it
 

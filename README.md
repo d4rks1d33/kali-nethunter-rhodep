@@ -117,8 +117,9 @@ list; everything here is a from-scratch community port.
   (no in-call audio yet) and SMS arrives. It is held out of the boot because
   the SoC watchdog-resets a few minutes after attaching to LTE — see "What does
   not work" and the note at the top, and `userspace/modem/README.md`.
-- **Bluetooth audio** (A2DP), with the controller's real address so pairings
-  survive a reboot — `userspace/bluetooth/`.
+- **Bluetooth audio** (A2DP). The controller's address is stable across reboots,
+  so pairings survive, but it is the firmware's default rather than the
+  device's own assigned address — `userspace/bluetooth/`.
 - **Sensors**: accelerometer, gyroscope, magnetometer, compass, proximity and
   ambient light, through `iio-sensor-proxy`, so **screen auto-rotation works**.
   They live on the SSC inside the ADSP (the IMU on I3C) and read their registry
@@ -144,37 +145,26 @@ list; everything here is a from-scratch community port.
 Things that work but sometimes break, as opposed to the table above, which is
 things that do not work at all.
 
-**Bluetooth stops after a warm reset of the controller.** At boot the QCA
-firmware downloads cleanly ("QCA setup on UART is completed", twice) and
-Bluetooth works. If the controller is reset later in the session, the firmware
-download can fail instead:
+**Bluetooth used to stop after a warm reset of the controller — fixed.**
+Turning it off from the quick-settings shade and back on failed, took four or
+five presses, and often needed a reboot. The cause was not the controller at
+all: `icc_sync_state()` drops the INT_MAX floors `icc_node_add()` installs, and
+on this SoC almost nothing declares interconnect paths, so every unvoted node —
+including the QUP the Bluetooth UART runs on — went to zero the moment it fired.
+The tell was the timing: the setups during boot always succeeded, because
+`sync_state` had not run yet.
 
-	Bluetooth: hci0: QCA Downloading qca/crbtfw21.tlv
-	Bluetooth: hci0: command 0xfc00 tx timeout
-	Bluetooth: hci0: QCA Failed to send TLV segment (-110)
+It was dormant until patch 0065 made the interconnect provider built in instead
+of a blacklisted module; before that the provider never bound and the RPM's boot
+vote stood. Fixed by patch 0088, which does not register `.sync_state` for this
+SoC, plus 0086, which gives uart1 the `qup-core`/`qup-config` paths sm6115 has
+and sm6375 never did.
 
-`-110` is a timeout: the WCN3990 stops answering over UART. `btmgmt info` then
-shows "Index list with 0 items". Seen once mid-session at uptime ~1543 s with
-the external TP-Link (`8188eu`) in use, so USB/OTG power handling perturbing the
-shared WCN3990 is a suspect, not a confirmed cause.
-
-Rebinding the serdev driver does **not** fix it -- the chip is still mute, and
-the download fails again. A full reboot does: firmware downloads clean, zero
-timeouts, controller listed. So the fix today is to reboot.
-
-Tentative directions, none proven to be the only or best one:
-
-  * **An auto-recoverer.** A service that watches for the `tx timeout` /
-    `-110` failure and power-cycles the chip properly -- not the serdev rebind,
-    which is already known not to work, but something that actually drops and
-    restores the WCN3990's power, since the rebind does not cut power. Needs
-    working out how to power-cycle the WCN3990 without rebooting the whole
-    device.
-
-  * **Attack the trigger instead of the symptom.** Confirm first whether the
-    warm reset is caused by using the external adapter (USB/OTG power) or by
-    runtime suspend of the controller, and if so prevent that reset rather than
-    recover from it. If the cause is known, it may be preventable.
+Measured: 150 controller resets with zero failures, against failures within one
+to six cycles before, and `qup0_core_master` holding INT_MAX instead of 0. The
+bisect, the mechanism and the dead ends — link speed, transfer length, the power
+pulse, the shared rails, rfkill — are in
+[`docs/bluetooth-warm-reset-wip/README.md`](docs/bluetooth-warm-reset-wip/README.md).
 
 ## Where to pick this up
 
@@ -483,9 +473,11 @@ userspace/
                            aside each boot so a crash log survives the next one
   usb-net/            SSH over the USB cable (172.16.42.1), the only link that
                       survives a modem restart (install.sh)
-  bluetooth/          unmasks bluetooth.service and programs the real
-                      controller address from androidboot.btmacaddr, instead
-                      of the random one the stack invents (install.sh)
+  bluetooth/          unmasks bluetooth.service and drops the --noplugin
+                      restriction that kept A2DP off. It no longer programs
+                      the controller address: that is stable but is not the
+                      device's own, and the fix is local-bd-address in the
+                      device tree -- see its README (install.sh)
   modem/              everything that makes the radio work: populates the
                       modem's remote file system from the stock modem/fsg/
                       persist partitions, opens the UIM provisioning session,
@@ -502,6 +494,11 @@ userspace/
                       refuses to purge them, and the enforcer that puts a hold
                       back if anything removes it (apply-holds.sh)
   login/              GDM login screen instead of the phosh.service autologin (install.sh)
+  power/              s2idle instead of the broken deep suspend, and the hold
+                      that keeps a running job alive across a screen lock --
+                      including anything started from a terminal. Also the
+                      NetworkManager drop-in that asks the radio to stay
+                      wake-capable rather than dropping the link (install.sh)
   sensors/            the SSC sensors: Qualcomm's FastRPC userspace built
                       against the mainline driver, the registry copied out of
                       the stock vendor/persist partitions, and the udev bits
@@ -554,7 +551,7 @@ docs/                       extra notes
 
 # The kernel (shared with the pmOS port)
 
-## The 69 applied patches (`kernel/patches/`, applied in this order)
+## The 74 applied patches (`kernel/patches/`, applied in this order)
 
 The order below is the aport's `source=` order, which is what `patch` sees; it
 is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
@@ -618,6 +615,12 @@ is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
 0067 rhodep-ramoops-ecc-and-firmware-regions  crash logs came back unreadable
 0068 sm6375-add-apss-watchdog            the watchdog was never described
 0070 qcom_q6v5-mask-handover-irq         one-shot IRQ left enabled forever
+0086 sm6375-uart-interconnect-paths      uart1 never voted for QUP bandwidth
+0088 interconnect-sm6375-keep-boot-floors  sync_state starved every unvoted
+                                       node, which is what broke Bluetooth
+0089 regulator-fan53870-declare-low-ldo-supply  LDO1/2 had no supply_name
+0090 rhodep-camera-pmic-input-supply     PM6125 S6 feeds the low LDO group
+0091 rhodep-drop-absent-microphones      AMIC1/2 and the VA DMICs are not fitted
 ```
 
 0062 and 0063 are kept but neither changes the glitched lines they were written
@@ -630,8 +633,8 @@ the same way 0058 does — apply it by hand when measuring the display.
 were interconnect and audio diagnostics that were dropped, 0050 and 0058 were
 never used, and the ones worth reading survive under
 `docs/interconnect-sm6375-wip/` (see
-[`AUDIO-SM6375.md`](docs/interconnect-sm6375-wip/AUDIO-SM6375.md)). Not every `.patch` file in `kernel/patches/` is in the build: 80 files are
-kept and 69 are listed in `source=`. The other eleven are diagnostics and
+[`AUDIO-SM6375.md`](docs/interconnect-sm6375-wip/AUDIO-SM6375.md)). Not every `.patch` file in `kernel/patches/` is in the build: 86 files are
+kept and 74 are listed in `source=`. The other twelve are diagnostics and
 experiments retained on purpose, and `scripts/check-patch-sync.sh` prints them
 by name so the difference is visible rather than assumed.
 
@@ -1451,9 +1454,10 @@ The canonical list lives in `userspace/apt/apt-holds.txt`, is copied to
 Six of those groups are newer than the rest and are the ones a reader is most
 likely to think are stray:
 
-- **`bluez`** owns `btmgmt`, which `rhodep-bt-address` uses to program the
-  controller's real address at every boot; without it the phone invents a
-  random one per boot and every pairing dies. It is also the one hold here most
+- **`bluez`** owns `btmgmt`, which `rhodep-bt-address` uses to inspect the
+  controller at every boot, and `bluetoothctl`/`btmgmt` are how the adapter is
+  driven at all. (That service no longer *programs* an address — see
+  `userspace/bluetooth/README.md`.) It is also the one hold here most
   worth lifting deliberately when a security update lands, since it is a
   network-facing daemon with a CVE history —
   `rhodep-hold-override release bluez "<reason>"`.
@@ -2129,17 +2133,24 @@ already done.
    `docs/display-cmd-dma-window-wip/` with the dead ends and where to pick it
    up. Read that before trying a fifth.
 
-3. **Give the FAN53870 node a `vin-supply`.** Linux currently believes PM6125's
-   S6 is off and unused (`s6 = disabled, users=0`) while it is physically
-   powering the camera PMIC's low group. Nothing breaks today, but a rail the
-   kernel thinks is free is a rail something can legitimately switch off later,
-   and that failure would arrive as a camera that used to work. One property.
-   See `docs/CAMERA-SENSORS-FEASIBILITY.md`.
+3. ~~**Give the FAN53870 node a `vin-supply`.**~~ ~~**Drop the device tree
+   nodes for hardware this board does not have.**~~ **Both done**, patches
+   0089-0091, in `kali-boot-v114-STABLE.img`.
 
-4. **Drop the device tree nodes for hardware this board does not have.** The
-   four VA-macro DMICs and AMIC1/AMIC2 return digital silence; only AMIC3 is
-   populated. Cosmetic, so it is worth batching with the next reflash.
-   `AUDIO-SM6375.md` §6.
+   The supply needed a driver change as well as the device tree property:
+   `fan53870.c` declared no `supply_name` at all, so `vin1-supply` alone would
+   have been ignored. LDO1/LDO2 (the low group, `cam_vdig`) now name `vin1` and
+   the board wires it to PM6125's S6, which is what the vendor device tree says.
+   LDO3-7 are deliberately left with no supply: their input is a real pin too,
+   but nothing names it, and inventing a property no device tree sets would only
+   make the core substitute a dummy regulator and warn about it five times a
+   boot.
+
+   The microphone cleanup dropped the `audio-routing` entries for AMIC1, AMIC2
+   and the four VA DMICs. The VA macro's own `dmic01`/`dmic23` pinctrl was
+   **left in place on purpose**: that macro provides `fsgen` to the RX and TX
+   macros, so nothing audio-related probes without it, and `pinctrl-0` cannot be
+   left empty.
 
 5. **Behave like a phone with the screen locked.** Partly fixed. The immediate
    cause was not power policy at all: **`deep` suspend does not work on this
@@ -2174,10 +2185,12 @@ already done.
    **ath10k does advertise WoWLAN here** -- wake on disconnect, on magic packet,
    on pattern match up to 22 patterns, and on network detection up to 16 match
    sets. `/etc/NetworkManager/conf.d/rhodep-wowlan.conf` asks for magic-packet
-   wake. That setting is configured but *not* demonstrated to arm: NetworkManager
-   programmes it when the connection comes up, and checking it means dropping
-   and remaking the link, which was not worth doing over the same link. Verify
-   with `iw phy0 wowlan show` after a reconnect.
+   wake. **Verified.** `iw phy0 wowlan show` after a normal reconnect reports
+   `WoWLAN is enabled: * wake up on magic packet`, from the shipped
+   `conf.d` file alone, with the connection profile left at its default
+   (`0x1`). It really is only programmed at activation, so a link that has been
+   up since boot -- or one brought back by hand after unloading `ath10k_snoc` --
+   reads `disabled` and says nothing about the configuration.
 
    **Jobs left running no longer get frozen**, which was the real complaint --
    start a capture, lock the screen, come back an hour later and find it stopped.
@@ -2289,15 +2302,30 @@ already done.
      you started working", not "what ran at lock time". Freeze it at lock and
      pwnagotchi is already in it and never counts.
 
-   **Direction A, the safe one: explicit list plus terminal detection.** Keep
-   the named list for services (one line per tool: `unit:pwnagotchi.service`,
-   `unit:wifite.service`), and add automatic detection of *terminal* work by
-   cgroup. Anything run in a tty or pts login session -- wifite, tshark, as root
-   or not -- lives under `/sys/fs/cgroup/user.slice/session-N.scope`, and a
-   non-shell process there is work. The graphical session must be excluded by
-   `Type` (it is `wayland` here and full of long-lived non-shell processes that
-   would pin the phone awake forever). This is predictable and has no battery
-   failure mode; the cost is one config line per new service.
+   **Direction A is now implemented** (`terminal_work: yes`, on by default).
+   A non-shell process inside a tty or pts login session scope counts as work,
+   so anything started from a terminal -- wifite, tshark, a build, as root or
+   not -- keeps the phone up without being named first. The graphical session is
+   excluded by `Type`, not by name: it is `wayland` here and full of long-lived
+   non-shell processes that would pin the phone awake for ever.
+
+   **The trap, which the design above walks straight into: an ssh login is a
+   pts session too.** Left as written, `sshd` counts as work and the phone never
+   sleeps while anyone is connected -- exactly the flat-battery failure this
+   feature has to avoid. Shells and session plumbing are therefore skipped, and
+   that has to be a *prefix* match: modern OpenSSH names the per-connection
+   process `sshd-session`, not `sshd`, so an exact-name list misses it. That was
+   caught by testing rather than by reading, and it is the whole difference
+   between this working and quietly draining the battery.
+
+   Verified on the device, five cases: an idle ssh session does not hold;
+   `sleep 60` started in it does, and is named in the log; killing it releases;
+   `terminal_work: no` disables the whole thing; and the wayland session never
+   appears. The service's own inhibitor cannot re-trigger it either, because it
+   lives in `/system.slice`, not in a user session scope.
+
+   Still open is Direction B below -- this covers what you start from a
+   terminal, not what a graphical app starts.
 
    **Direction B, the convenient one: dynamic baseline that tracks until you
    work.** Instead of a boot photo, track the running-service set continuously

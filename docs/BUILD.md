@@ -152,6 +152,8 @@ sudo cp -r userspace/apt     /tmp/rootfs/srv/apt
 sudo chroot /tmp/rootfs sh /srv/apt/apply-holds.sh
 sudo cp -r userspace/login   /tmp/rootfs/srv/login
 sudo chroot /tmp/rootfs sh /srv/login/install.sh kali
+sudo cp -r userspace/power   /tmp/rootfs/srv/power
+sudo chroot /tmp/rootfs sh /srv/power/install.sh
 ```
 
 - **Audio userspace** (`userspace/audio/install.sh`): UCM for speaker, earpiece,
@@ -201,6 +203,14 @@ sudo chroot /tmp/rootfs sh /srv/login/install.sh kali
   real address from `androidboot.btmacaddr` before `bluetoothd` starts. Without
   that last part the stack invents a new random address every boot and no
   pairing survives a reboot. A2DP verified with real earbuds.
+- **Power** (`userspace/power/install.sh`): selects s2idle, because `deep`
+  suspend returns after two seconds on this SoC and the phone then enters and
+  leaves suspend continuously with the screen off, re-enumerating USB each time.
+  Also installs the hold that keeps a running job alive across a screen lock,
+  and the NetworkManager drop-in that asks the radio to stay wake-capable. This
+  directory had no `install.sh` at all until now, so images built before this
+  note have none of it.
+
 - **Login screen** (`userspace/login/install.sh`): required as soon as anything
   pulls in `gdm3` (several Kali metapackages do), because `phosh.service` and a
   display manager both claim the display at boot. See README "Login screen

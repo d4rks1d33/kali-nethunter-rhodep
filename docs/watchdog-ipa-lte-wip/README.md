@@ -1100,3 +1100,41 @@ this session was read and nearly reported before noticing it came from an
 earlier boot: a one-second boot had come and gone in between and overwritten
 the zone. Write a marker to `/dev/kmsg`, then grep for it in the record before
 believing anything in it.
+
+---
+
+## Ruled out: the interconnect floors (28 August)
+
+Chasing the Bluetooth regression turned up that `icc_sync_state()` drops the
+INT_MAX floors `icc_node_add()` installs, and that on this SoC almost nothing
+declares interconnect paths — so from patch 0065 onward, when the provider
+started binding, every unvoted NoC node sat at **zero**. That included
+`qxs_imem`, which is the region the IPA and the modem exchange their filter and
+routing tables through, and `ebi`.
+
+That is worth knowing because **every measurement taken from 25 August onward —
+the DIAG session, the watchdog instrumentation, patches 0079-0085 — was taken on
+a system starved in a way nobody knew about.** It is a confounder, not a
+mistake: findings that do not depend on bus bandwidth (the PMIC signatures,
+PS_HOLD, the DIAG captures) are unaffected.
+
+**Tested, and it is not the cause.** Patch 0088 keeps the floors, which produces
+a configuration that had never existed before: provider bound *and* floors held,
+so the IPA's own votes from 0044/0047 are effective for the first time. With
+`qxs_imem` and `qup0_core_master` both confirmed at 2147483647:
+
+	[ 1969.911075] rhodep-gnss: session 11 started; listening 40 s
+	[ 1969.911357] rhodep-gnss: ----------------------------------
+
+and the SoC died there, uptime 1969 -> 57. Same signature as always: the console
+stops mid-line, milliseconds after the session starts.
+
+So the GNSS reset — and by extension the LTE one, which shares its signature —
+is **independent of NoC bandwidth**. This also retires the last form of the
+"unvoted path to IMEM" hypothesis: 0044/0045/0047 addressed the IPA's own votes
+and were negative, and now the floors underneath them have been held as well,
+also negative.
+
+The useful part is what it removes: bus starvation is no longer a variable, so
+any measurement repeated from here on is cleaner than the ones taken between 25
+and 28 August.

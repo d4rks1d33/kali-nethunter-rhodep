@@ -2577,3 +2577,49 @@ Five participants now, all healthy at the moment of death: Linux, TrustZone, the
 modem by AT, the modem by its own DIAG logs, and the QMI control plane. The
 PMIC still records PS_HOLD. Whatever pulls it does not speak QMI, does not fault,
 and does not log.
+
+## Mainline's IPA QMI handshake is complete, so there is nothing missing to write
+
+Mainline implements a far smaller IPA QMI surface than the downstream driver,
+and since this is the first port of this SoC, "it is missing so write it" is a
+reasonable instinct. It was worth checking what is actually missing before
+writing anything, and the answer is: not the handshake.
+
+Mainline implements exactly four messages, from drivers/net/ipa/ipa_qmi_msg.h:
+
+    0x20  INDICATION_REGISTER     modem -> AP request
+    0x21  INIT_DRIVER             AP -> modem request
+    0x22  INIT_COMPLETE           AP -> modem indication
+    0x35  DRIVER_INIT_COMPLETE    modem -> AP request
+
+**A false finding, caught.** Tracing across a deliberate modem crash showed no
+IPA traffic whatsoever and no inbound 0x20 or 0x35, which looked like a missing
+handshake. It was an artifact: a modem crash leaves IPA unable to re-arm, and
+rmnet_ipa0 was gone afterwards, so what got traced was an already-broken state
+in which the handshake legitimately does not happen. The instrument was fine;
+the state being measured was not.
+
+**The real measurement.** The tracer has to be loaded before the modem boots at
+15.7 s, which a systemd unit ordered before sysinit.target manages -- it lands
+at 15.42 s, and rmnet_ipa0 is present afterwards, so the boot is a healthy one.
+The handshake then appears in full:
+
+    +6.18  0:42 -> 1:16387   request    INDICATION_REGISTER
+    +6.20  0:28 -> 1:16388   response   INIT_DRIVER
+    +6.20  0:42 -> 1:16387   request    DRIVER_INIT_COMPLETE
+    +6.20  0:28 -> 1:16387   response   to INIT_COMPLETE
+
+All four messages, in order, with the modem's IPA service at node 0 port 28 and
+its client at port 42. The service instance is announced as 513, which is not a
+mismatch with mainline's IPA_MODEM_SERVICE_INS_ID of 2: QRTR packs the instance
+in the high byte and the version in the low one, so 2 and version 1 encode to
+0x201. Mainline looks it up correctly.
+
+So the modem is satisfied with what mainline offers at init, and it completes.
+
+And through the fatal window there is no IPA QMI traffic at all -- no filter
+install, no request of any kind, nothing to drop and nothing to answer. There is
+no unimplemented message being ignored, because there is no message.
+
+That is worth stating plainly: the "implement the missing QMI" idea has no
+target. It would have been easy to write code first and find this afterwards.

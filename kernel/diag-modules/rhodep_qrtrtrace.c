@@ -102,6 +102,8 @@ struct entry {
 	/* Only meaningful for control packets; ctrl_service is ~0 when absent. */
 	u32 ctrl_service;
 	u32 ctrl_instance;
+	u32 ctrl_node;
+	u32 ctrl_port;
 };
 
 static struct entry ring[RING_SIZE];
@@ -170,6 +172,8 @@ static int rx_entry(struct kprobe *p, struct pt_regs *regs)
 	e->qmi_msg_id = 0;
 	e->ctrl_service = 0xffffffff;
 	e->ctrl_instance = 0;
+	e->ctrl_node = 0;
+	e->ctrl_port = 0;
 
 	if (type == QRTR_TYPE_DATA &&
 	    len >= hdrlen + optlen + sizeof(struct qmi_hdr)) {
@@ -186,6 +190,8 @@ static int rx_entry(struct kprobe *p, struct pt_regs *regs)
 
 		e->ctrl_service = le32_to_cpu(c->service);
 		e->ctrl_instance = le32_to_cpu(c->instance);
+		e->ctrl_node = le32_to_cpu(c->node);
+		e->ctrl_port = le32_to_cpu(c->port);
 	}
 
 	head++;
@@ -214,15 +220,15 @@ static int msgs_show(struct seq_file *m, void *unused)
 	spin_unlock_irqrestore(&ring_lock, flags);
 
 	seq_printf(m, "# %llu messages seen, showing the last %u\n", seen, count);
-	seq_puts(m, "# seq ns type src_node:src_port dst_node:dst_port size qmi_type qmi_txn qmi_msg_id ctrl_service ctrl_instance\n");
+	seq_puts(m, "# seq ns type src_node:src_port dst_node:dst_port size qmi_type qmi_txn qmi_msg_id ctrl_service ctrl_instance ctrl_node ctrl_port\n");
 	for (i = 0; i < count; i++) {
 		struct entry *e = &copy[(start + i) % RING_SIZE];
 
-		seq_printf(m, "%llu %llu %u %u:%u %u:%u %u %#x %u %#x %u %u\n",
+		seq_printf(m, "%llu %llu %u %u:%u %u:%u %u %#x %u %#x %u %u %u %u\n",
 			   e->seq, e->ns, e->type, e->src_node, e->src_port,
 			   e->dst_node, e->dst_port, e->size, e->qmi_type,
 			   e->qmi_txn, e->qmi_msg_id, e->ctrl_service,
-			   e->ctrl_instance);
+			   e->ctrl_instance, e->ctrl_node, e->ctrl_port);
 	}
 	return 0;
 }

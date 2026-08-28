@@ -1,89 +1,237 @@
-#!/bin/sh
-# Hold the phone awake while work you left running is still running.
-#
-# On Android a background job takes a wakelock and the phone does not sleep
-# underneath it. Here the equivalent is systemd-inhibit, but nothing takes one
-# on your behalf: start a capture, lock the screen, come back an hour later and
-# the phone slept through it. The job did not crash, it was frozen -- and
-# anything depending on the network came back to a link that had gone.
-#
-# So this watches for the things you care about and holds the inhibitor for
-# exactly as long as they are running, then lets go. Both kinds of thing:
-#
-#	unit:bettercap.service      a systemd service
-#	proc:wireshark              a process, by exact binary name
-#	procf:some-script.py        a process, matched anywhere in its command
-#	                            line -- read the warning below before using
-#
-# in /etc/rhodep/keep-awake.conf, one per line, # for comments.
-#
-# It deliberately does *not* inhibit on its own judgement. A phone that never
-# sleeps because something looked busy is a phone with a flat battery by
-# lunchtime, and that is a worse failure than the one this fixes -- it is
-# silent. Everything it holds for is listed in one file you can read.
-set -u
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0
+"""Hold the phone awake while work you left running is still working.
 
-CONF=${RHODEP_KEEP_AWAKE_CONF:-/etc/rhodep/keep-awake.conf}
-INTERVAL=${RHODEP_KEEP_AWAKE_INTERVAL:-10}
-holder=""
+The complaint this answers: start a capture, lock the screen, come back an hour
+later, find it stopped. On Android a background job takes a wakelock and the
+phone does not sleep underneath it.
 
-running() {
-	[ -r "$CONF" ] || return 1
-	while IFS= read -r line; do
-		case "$line" in ''|\#*) continue ;; esac
-		kind=${line%%:*}
-		name=${line#*:}
-		[ -n "$name" ] || continue
-		case "$kind" in
-			unit)
-				systemctl is-active --quiet "$name" 2>/dev/null && { echo "$name"; return 0; }
-				;;
-			proc)
-				pgrep -x "$name" >/dev/null 2>&1 && { echo "$name"; return 0; }
-				;;
-			procf)
-				# Matches anywhere in a command line, which is useful for
-				# things launched through an interpreter and dangerous for
-				# everything else: it also matches a shell that merely
-				# mentions the name. That is not hypothetical -- it matched
-				# the ssh command used to test this, so the hold was taken
-				# for a job that was never running, and released only when
-				# the tester's own shell exited. Excluding this script and
-				# its inhibitor is not enough, so this mode is opt-in.
-				pgrep -f "$name" 2>/dev/null \
-					| grep -qvE "^($$|${holder:-0})$" && { echo "$name"; return 0; }
-				;;
-		esac
-	done < "$CONF"
-	return 1
-}
+Android is not actually automatic about this -- an app has to declare itself,
+with a foreground service and a notification, and anything that does not gets
+frozen. But "list the program names in advance" is not usable either, because
+you do not know in advance what you will leave running.
 
-release() {
-	[ -n "$holder" ] || return 0
-	kill "$holder" 2>/dev/null
-	wait "$holder" 2>/dev/null
-	holder=""
-}
+So this does not match names. It watches for *work*: a process burning CPU is
+doing something, a shell sitting at a prompt is not. Everything the port already
+runs is idle by that measure, so nothing has to be enumerated, and something you
+start tomorrow is covered without being told about it.
 
-trap 'release; exit 0' TERM INT
+Two things keep it from becoming "a phone that never sleeps":
 
-while :; do
-	what=$(running) && rc=0 || rc=1
+  - the CPU threshold, which an idle desktop stays well under once the screen
+    is off. While the screen is on the phone would not be suspending anyway.
+  - a battery floor. Below it the hold is dropped even if work is running,
+    because a flat phone in your pocket is a worse outcome than an interrupted
+    capture, and it is the failure you cannot see coming.
 
-	if [ $rc -eq 0 ] && [ -z "$holder" ]; then
-		# --mode=block, not delay: delay only postpones the suspend by a
-		# few seconds and then it happens anyway, which is precisely the
-		# failure being fixed.
-		systemd-inhibit --what=idle:sleep --mode=block \
-			--who="rhodep-keep-awake" \
-			--why="a job listed in $CONF is running" \
-			sleep infinity &
-		holder=$!
-		echo "rhodep-keep-awake: holding the phone awake for $what"
-	elif [ $rc -ne 0 ] && [ -n "$holder" ]; then
-		release
-		echo "rhodep-keep-awake: nothing left to wait for, letting it sleep"
-	fi
+Both are in /etc/rhodep/keep-awake.conf, along with an ignore list and an
+always-hold list for the cases where the heuristic is wrong.
+"""
 
-	sleep "$INTERVAL"
-done
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import time
+
+CONF = os.environ.get("RHODEP_KEEP_AWAKE_CONF", "/etc/rhodep/keep-awake.conf")
+CLK = os.sysconf("SC_CLK_TCK")
+
+
+def load_conf():
+    cfg = {
+        "interval": 15.0,
+        "cpu_percent": 3.0,
+        "battery_floor": 20,
+        "ignore": set(),
+        "always": [],
+    }
+    try:
+        with open(CONF) as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return cfg
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if ":" not in line:
+            continue
+        key, val = line.split(":", 1)
+        key, val = key.strip(), val.strip()
+        if key == "interval":
+            cfg["interval"] = float(val)
+        elif key == "cpu_percent":
+            cfg["cpu_percent"] = float(val)
+        elif key == "battery_floor":
+            cfg["battery_floor"] = int(val)
+        elif key == "ignore":
+            cfg["ignore"].add(val)
+        elif key in ("unit", "proc", "procf"):
+            cfg["always"].append((key, val))
+    return cfg
+
+
+def cpu_times():
+    """Per-pid (name, uid, ticks) for every process we can read."""
+    out = {}
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            with open("/proc/%s/stat" % pid) as fh:
+                data = fh.read()
+            # comm can contain spaces and parentheses; split on the last ')'
+            close = data.rindex(")")
+            name = data[data.index("(") + 1:close]
+            fields = data[close + 2:].split()
+            ticks = int(fields[11]) + int(fields[12])  # utime + stime
+            uid = os.stat("/proc/%s" % pid).st_uid
+        except (OSError, ValueError, IndexError):
+            continue
+        out[pid] = (name, uid, ticks)
+    return out
+
+
+def busy(prev, now, cfg, elapsed):
+    """Names of processes that used more than the threshold since last poll."""
+    if elapsed <= 0:
+        return []
+    budget = cfg["cpu_percent"] / 100.0 * elapsed * CLK
+    hits = []
+    for pid, (name, uid, ticks) in now.items():
+        if name in cfg["ignore"]:
+            continue
+        # System daemons are the port's own furniture and are expected to tick
+        # over; it is the user's work we are protecting.
+        if uid < 1000 and uid != 0:
+            continue
+        old = prev.get(pid)
+        if old is None or old[0] != name:
+            continue
+        if ticks - old[2] > budget:
+            hits.append(name)
+    return hits
+
+
+def always_running(cfg):
+    for kind, name in cfg["always"]:
+        try:
+            if kind == "unit":
+                if subprocess.call(["systemctl", "is-active", "--quiet", name]) == 0:
+                    return name
+            elif kind == "proc":
+                if subprocess.call(["pgrep", "-x", name],
+                                   stdout=subprocess.DEVNULL) == 0:
+                    return name
+            elif kind == "procf":
+                if subprocess.call(["pgrep", "-f", name],
+                                   stdout=subprocess.DEVNULL) == 0:
+                    return name
+        except OSError:
+            continue
+    return None
+
+
+def battery():
+    """(percent, charging) or (None, None) if it cannot be read."""
+    for base in ("/sys/class/power_supply/battery",
+                 "/sys/class/power_supply/bq256xx-battery",
+                 "/sys/class/power_supply/cw2217-battery"):
+        try:
+            with open(base + "/capacity") as fh:
+                pct = int(fh.read().strip())
+            try:
+                with open(base + "/status") as fh:
+                    charging = fh.read().strip() != "Discharging"
+            except OSError:
+                charging = False
+            return pct, charging
+        except OSError:
+            continue
+    return None, None
+
+
+class Hold:
+    def __init__(self):
+        self.proc = None
+        self.why = ""
+
+    def take(self, why):
+        if self.proc is not None:
+            return
+        self.why = why
+        self.proc = subprocess.Popen(
+            ["systemd-inhibit", "--what=idle:sleep", "--mode=block",
+             "--who=rhodep-keep-awake",
+             # Deliberately generic. With the job name in here, a command-line
+             # match found the inhibitor itself and the hold outlived the job
+             # for ever.
+             "--why=work is running", "sleep", "infinity"])
+        say("holding the phone awake: %s" % why)
+
+    def drop(self, reason):
+        if self.proc is None:
+            return
+        self.proc.terminate()
+        try:
+            self.proc.wait(timeout=5)
+        except Exception:
+            self.proc.kill()
+        self.proc = None
+        say("letting it sleep: %s" % reason)
+
+
+def say(msg):
+    sys.stdout.write("rhodep-keep-awake: %s\n" % msg)
+    sys.stdout.flush()
+
+
+def main():
+    if not shutil.which("systemd-inhibit"):
+        sys.exit("systemd-inhibit is not installed")
+
+    hold = Hold()
+    signal.signal(signal.SIGTERM, lambda *a: (hold.drop("stopping"), sys.exit(0)))
+    signal.signal(signal.SIGINT, lambda *a: (hold.drop("stopping"), sys.exit(0)))
+
+    cfg = load_conf()
+    prev = cpu_times()
+    last = time.time()
+    say("watching for work above %.1f%% CPU, battery floor %d%%"
+        % (cfg["cpu_percent"], cfg["battery_floor"]))
+
+    while True:
+        time.sleep(cfg["interval"])
+        cfg = load_conf()          # picked up without a restart
+        now = cpu_times()
+        elapsed = time.time() - last
+        last = time.time()
+
+        pct, charging = battery()
+        if pct is not None and not charging and pct <= cfg["battery_floor"]:
+            hold.drop("battery at %d%%, below the %d%% floor"
+                      % (pct, cfg["battery_floor"]))
+            prev = now
+            continue
+
+        why = always_running(cfg)
+        if why is None:
+            hits = busy(prev, now, cfg, elapsed)
+            if hits:
+                seen = sorted(set(hits))
+                why = "%s busy" % ", ".join(seen[:3])
+                if len(seen) > 3:
+                    why += " and %d more" % (len(seen) - 3)
+
+        if why:
+            hold.take(why)
+        else:
+            hold.drop("nothing is working")
+
+        prev = now
+
+
+if __name__ == "__main__":
+    main()

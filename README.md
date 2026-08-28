@@ -2122,20 +2122,40 @@ already done.
 
    **Jobs left running no longer get frozen**, which was the real complaint --
    start a capture, lock the screen, come back an hour later and find it stopped.
-   `rhodep-keep-awake.service` holds a `systemd-inhibit` lock for exactly as long
-   as anything listed in `/etc/rhodep/keep-awake.conf` is running, and drops it
-   when nothing is:
 
-	unit:bettercap.service      a systemd service
-	proc:wireshark              a process, by exact binary name
-	procf:some-script.py        matched anywhere in the command line
+   `rhodep-keep-awake.service` does not match program names, because you do not
+   know in advance what you will leave running. It watches for *work*: a process
+   burning CPU is doing something, a shell at a prompt is not. Whatever you start
+   tomorrow is covered without being listed. Measured: a busy loop started with
+   no configuration at all produced `holding the phone awake: trabajo.sh busy`,
+   and `letting it sleep: nothing is working` when it ended.
 
-   Nothing is listed by default, deliberately: a phone that never sleeps because
-   something looked busy goes flat by lunchtime, and it does it silently.
+   Worth being clear that **Android is not automatic about this either** -- an
+   app declares itself with a foreground service and a notification, and what
+   does not declare itself gets frozen. This is the same bargain made without
+   the notification.
 
-   Prefer `proc:` over `procf:`. Command-line matching also matches a shell that
-   merely *mentions* the name -- it matched the ssh command used to test it, so
-   the hold was taken for a job that was never running.
+   Two things stop it becoming a phone that never sleeps, both in
+   `/etc/rhodep/keep-awake.conf`:
+
+   - `cpu_percent`, the threshold. The compositor and shell sit at 5-10% with
+     the screen on and are in the default `ignore` list for that reason: with
+     the screen on nothing was going to suspend anyway, and if they are still
+     busy with the screen off, that is a bug in them and staying awake would
+     hide it.
+   - `battery_floor`, below which the hold is dropped even with work running.
+     A flat phone in your pocket is worse than an interrupted capture, and it is
+     the failure you cannot see coming.
+
+   `unit:`, `proc:` and `procf:` entries still exist for jobs that spend their
+   time blocked rather than computing -- waiting on the network or a device --
+   which the CPU heuristic cannot see. Prefer `proc:` over `procf:`: command-line
+   matching also matches a shell that merely *mentions* the name, and it once
+   matched the ssh command used to test it.
+
+   The log names whatever it is holding for, so if something keeps the phone
+   awake, `journalctl -u rhodep-keep-awake` says what and an `ignore:` line
+   settles it.
 
 6. **Stop needing the codec kept awake for jack detection.** A udev rule pins
    the soundwire TX slave on because MBHC detects nothing while it is

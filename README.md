@@ -2475,6 +2475,31 @@ already done.
     and injection today, and `pwnagotchi` is pinned to `wlan1` for that reason.
     This is worth doing to know the answer, not to get the feature.
 
+14. **The LPASS clock warning on every resume.** Each time the phone comes back
+    from suspend, twice per resume:
+
+	LPASS_CLK_ID_TX_CORE_NPL_MCLK already unprepared
+	WARNING: drivers/clk/clk.c:1048 at clk_core_unprepare+0xb0/0xe8
+	WARNING: drivers/clk/clk.c:1188 at clk_core_disable+0x80/0xa0
+	Workqueue: pdr_notifier_wq pdr_notifier_work [pdr_interface]
+
+    The audio codec's clock refcount goes negative when the protection-domain
+    notifier runs on resume: something unprepares a clock that is already
+    unprepared. Nothing visibly breaks today -- audio, WiFi and OTG all survive
+    the resume it happens on.
+
+    It is worth fixing anyway, because this port has already been bitten by
+    exactly this class of bug. Patch 0059 exists because an unbalanced LPASS
+    clock produced an oops *inside* `__clk_register()`, which runs holding the
+    global clk `prepare_lock`; the dying worker never released it, every
+    `clk_prepare_enable()` in the system blocked for ever, and the display
+    could not be turned back on while SSH kept working. A warning about a
+    refcount going negative is the polite version of that.
+
+    Start at `pdr_notifier_work` and which of the LPASS macro drivers
+    (`snd_soc_lpass_tx_macro` / `va_macro`) drops the reference twice across a
+    PD notification.
+
 # License
 Kernel patches: GPL-2.0. Packaging/glue: MIT. Vendor firmware blobs: proprietary,
 not included (extract from your own device). See `LICENSE`.

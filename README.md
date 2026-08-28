@@ -2429,6 +2429,52 @@ already done.
     It is the least tractable item in this file. It is also the one that would
     change daily use the most, which is why it is here.
 
+13. **Monitor mode on the internal WiFi, as a research project.** The table at
+    the top of this file calls this infeasible, and for anything short of a
+    project it is -- but "infeasible" is not the same as "impossible", and the
+    distinction is worth writing down properly.
+
+    It is **not** a gap in mainline that a patch could close. The capability
+    comes from the firmware, and ath10k only reads it:
+
+	if (!test_bit(ATH10K_FW_FEATURE_RAW_MODE_SUPPORT, fw_file->fw_features)) {
+		ath10k_err(ar, "rawmode = 1 requires support from firmware");
+		return -EINVAL;
+	}
+
+    The `raw 0` in dmesg is literally that bit being printed. WCN3990's firmware
+    says no, so `ath10k_core frame_mode=1 cryptmode=1` does not force anything:
+    it fails the probe and leaves you with no wlan0. A monitor interface can
+    still be *created*, because cfg80211 allows it, and it captures nothing.
+
+    Two routes, and only one of them is real:
+
+    - **New firmware is not a route.** The WCN3990's firmware is signed, runs on
+      a core with no public toolchain or documentation, and is loaded through the
+      WLAN protection domain inside the modem (`wlanmdsp.mbn`). Secure boot
+      rejects anything unsigned. This is not "hard", it is closed.
+
+    - **Porting the monitor path from `qcacld-3.0`** is the one that could work.
+      That is Qualcomm's own driver, it is published source, and it does monitor
+      and spectral scan on this exact chip -- which is why LineageOS has both.
+      It does not go through mac80211 at all: it sets up a monitor vdev over WMI
+      and takes frames off a path ath10k does not implement.
+
+    So the question worth researching is narrow and answerable: **does the
+    firmware expose monitor through WMI independently of the RAW_MODE feature
+    bit?** ath10k already knows about `WMI_VDEV_TYPE_MONITOR`. If qcacld gets
+    frames by asking the firmware for a monitor vdev and a different rx decap
+    mode, rather than by the raw-mode path ath10k gates on, then the missing
+    piece is a WMI sequence rather than a firmware capability -- and that is
+    something that could be prototyped against the existing ath10k_snoc.
+
+    If it turns out the firmware really does gate it on the same bit, the answer
+    is no and this can be closed for good.
+
+    None of this is needed for day-to-day use: the external TP-Link does monitor
+    and injection today, and `pwnagotchi` is pinned to `wlan1` for that reason.
+    This is worth doing to know the answer, not to get the feature.
+
 # License
 Kernel patches: GPL-2.0. Packaging/glue: MIT. Vendor firmware blobs: proprietary,
 not included (extract from your own device). See `LICENSE`.

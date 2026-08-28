@@ -2790,3 +2790,38 @@ What survives: the death remains indistinguishable from a deliberate access
 violation, the modem remains the only participant whose accesses are outside
 Linux's SMMU, and neither of the two concrete violation stories tried so far is
 the right one.
+
+## Both loose ends explained, and two of this port's own patches are inert here
+
+**`ipa-setup-ready` is absent by design.** ipa_smp2p.c requests it only inside
+`if (modem_init)`, which is true when the modem loads the GSI firmware. This
+device tree sets `qcom,gsi-loader = "self"`, so the AP loads it and the
+interrupt is correctly never requested. Not a gap.
+
+That has a consequence for patch 0081, whose description is half wrong. It
+argued that `ipa_modem_crashed()` masks the setup-ready interrupt through
+`ipa_smp2p_irq_disable_setup()` and that nothing ever clears `setup_disabled`.
+True upstream, but on this device:
+
+	void ipa_smp2p_irq_disable_setup(struct ipa *ipa)
+	{
+		if (!smp2p->setup_ready_irq)
+			return;
+
+`setup_ready_irq` is zero here, so the mask is never applied and the half of
+0081 that lifts it does nothing. The measured result -- four resets in five
+bring-ups before, none in four after -- came entirely from the added
+`ipa_teardown()` call. The patch works; the explanation attached to it does not
+apply to this SoC, and that is worth fixing before it is ever sent anywhere.
+
+**Patch 0079 is inert here too.** It removes `ipa->mem_offset` from two size
+fields, and its own description says "if mem_offset is zero on a given SoC this
+never mattered". Reading the request out of the running kernel shows
+hdr_proc_ctx starting at 0x0ad0, which is exactly the vendor's region offset
+with nothing added, so `mem_offset` is zero on rhodep. The fix is still correct
+and still worth upstreaming for SoCs where it is not zero. It changes nothing on
+this one.
+
+**`ipa-clock-query` firing zero times remains unexplained**, but it is no longer
+interesting: pinning IPA awake did not prevent the death, so whatever that
+mechanism is for, it is not what kills this SoC.

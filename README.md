@@ -495,7 +495,7 @@ docs/                       extra notes
 
 # The kernel (shared with the pmOS port)
 
-## The 56 patches (`kernel/patches/`, applied in this order)
+## The 69 applied patches (`kernel/patches/`, applied in this order)
 
 The order below is the aport's `source=` order, which is what `patch` sees; it
 is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
@@ -571,9 +571,10 @@ the same way 0058 does — apply it by hand when measuring the display.
 were interconnect and audio diagnostics that were dropped, 0050 and 0058 were
 never used, and the ones worth reading survive under
 `docs/interconnect-sm6375-wip/` (see
-[`AUDIO-SM6375.md`](docs/interconnect-sm6375-wip/AUDIO-SM6375.md)). Every
-`.patch` file that *is* in `kernel/patches/` is in the build — all 51 of them,
-and both aports list the same 51.
+[`AUDIO-SM6375.md`](docs/interconnect-sm6375-wip/AUDIO-SM6375.md)). Not every `.patch` file in `kernel/patches/` is in the build: 80 files are
+kept and 69 are listed in `source=`. The other eleven are diagnostics and
+experiments retained on purpose, and `scripts/check-patch-sync.sh` prints them
+by name so the difference is visible rather than assumed.
 
 **0059 is a mainline bug, not a rhodep quirk**, and it is the one to send
 upstream first: `q6dsp_clock_dev_probe()` calls `dev_set_drvdata()` *after*
@@ -716,9 +717,12 @@ pmbootstrap build --force linux-motorola-rhodep
 ```
 Verify after build: no empty `.ko`, **no `.ko.zst`** in the apk.
 
-**The 51 patches under `kernel/patches/` and `postmarketos/linux-motorola-rhodep/`
+**The patches under `kernel/patches/` and `postmarketos/linux-motorola-rhodep/`
 are identical**, same filenames and same `source=` order — the only difference
-between the two trees is the `.config`.
+between the two trees is the `.config`. Run `scripts/check-patch-sync.sh` to
+confirm it, and do run it: these copies drifted 22 files apart once without
+anything complaining, and a stale copy does not look stale, it looks
+authoritative.
 `postmarketos/` is the build engine (pmbootstrap builds the kernel and produces
 the boot.img/initramfs from it); `kernel/` carries the Kali variant of the
 config on top. If you change a patch, change it in both places, or copy the set

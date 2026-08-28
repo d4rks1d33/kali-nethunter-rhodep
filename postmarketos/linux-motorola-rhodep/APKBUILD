@@ -86,6 +86,18 @@ source="
 	0067-arm64-dts-qcom-rhodep-ramoops-ecc-and-firmware-regions.patch
 	0068-arm64-dts-qcom-sm6375-add-apss-watchdog.patch
 	0070-remoteproc-qcom_q6v5-mask-handover-irq.patch
+	0072-DIAGNOSTIC-net-ipa-report-error-interrupts.patch
+	0073-DIAGNOSTIC-remoteproc-print-leftover-crash-reason.patch
+	0074-DIAGNOSTIC-soc-qcom-qmi-report-unhandled-messages.patch
+	0075-DIAGNOSTIC-net-ipa-expose-modem-gsi-channel-state.patch
+	0076-DIAGNOSTIC-remoteproc-qcom-read-crash-reason-on-demand.patch
+	0079-net-ipa-do-not-add-the-memory-offset-to-a-size.patch
+	0080-rpmsg-glink-take-a-reference-for-the-rcid-entry.patch
+	0081-net-ipa-tear-the-setup-down-when-the-modem-crashes.patch
+	0082-arm64-dts-qcom-sm6375-add-the-tcsr-download-mode-address.patch
+	0083-rpmsg-glink-make-the-channel-open-timeout-adjustable.patch
+	0084-soc-qcom-pd_mapper-add-sm6375.patch
+	0085-soc-qcom-pd_mapper-serve-tms-pdr_enabled-on-sm6375.patch
 "
 options="!check !strip !tracedeps pmb:cross-native"
 _carch="arm64"
@@ -196,4 +208,16 @@ b30ef03c84025e573c9dbf31dbaf8efbff72694726b7273cab35d634258cb5ed483b39df435e2c84
 e2f05f00941fa556645ffb694655e60c0e3e41a3cd57593b6820531a0ca646b7c2beead39b3b6f545b6c5c52eaccf469ff07c20a7fbf5daaefaba1793591fe4a  0067-arm64-dts-qcom-rhodep-ramoops-ecc-and-firmware-regions.patch
 b7172fd6724f8af2093107e5744c7003d58b6ec1344ae823253b27b7b63436fcca2d83830c8d13b8b47d4b948ef1fc28247526d27d623851b523f834a4ee43be  0068-arm64-dts-qcom-sm6375-add-apss-watchdog.patch
 56a31ff3202e46dae28c4e87ceb573b8d7dc5f8048f9c9359deac7d6162e1cd1c070ae1aad35672c4dea919d4a5b9719fb47d53da13faa98f929d0a39eb66e91  0070-remoteproc-qcom_q6v5-mask-handover-irq.patch
+2b4d7ce27ed0cfd17761a7abd1c487bf7f0c729f934579c629725f29e60bf0af20ed7198f8fc9e29c544aff03d510bc9169ae429a3d8354377fe0e32a47cb648  0072-DIAGNOSTIC-net-ipa-report-error-interrupts.patch
+1c9875b9bb5cca2179793c69bdd83879f2c6f5bacb77729420dcd44c60d75786db7e6327f1c2911a12cfeba62c474ff2d4f35aa5cebea8c539176c24f2194f55  0073-DIAGNOSTIC-remoteproc-print-leftover-crash-reason.patch
+10da87a4faa022f49730169d42d4e3fd7fdee51ae652e7c82d708b502a8dfb81fc8dc5ad43ec9d24d4975cfa47efd6c05dc28470b68bc8bcdccac1b6573b89e9  0074-DIAGNOSTIC-soc-qcom-qmi-report-unhandled-messages.patch
+feb6df14a9350ea79777f8fa1d0a187eaaecfd120116e7022acadf6174d7673684551e9a74582ce83de1396798a9f6b398974c7add9468e4f5ee411756f27c4a  0075-DIAGNOSTIC-net-ipa-expose-modem-gsi-channel-state.patch
+dc195f4b72f6b591ae46453e58f3f923dd04b802a0dc8bd5d5999f63a6bdf853b7f67bf9345e18d033b31f26ad9b5cafa2db0edb205e145c56114051d886fe92  0076-DIAGNOSTIC-remoteproc-qcom-read-crash-reason-on-demand.patch
+092172c3fcbe5e50174b40c3550bbcc8f8b3cb87879d24219d570fa0f98a01ee95678fe0b6ebbd845b30eb21261f6e6135e9ff95f3410f6a2d16435cd3ae5940  0079-net-ipa-do-not-add-the-memory-offset-to-a-size.patch
+77f801dc2bb2c36e17538d88fe7cede1fa76953a7b475abc236bd871d1d42f20d3105919e16dd1c0cc7fcd0c975534926d7c319c49db2cf7ce02b9e3b1e0976e  0080-rpmsg-glink-take-a-reference-for-the-rcid-entry.patch
+85e06ebc474dc76afcf94b79b0f19f2ded5869552ac7de85b7f44a9a39d7864840e3b2e3c7300f3736c87276e152eaed756e05ed044edaf9b9975d0b1867fbce  0081-net-ipa-tear-the-setup-down-when-the-modem-crashes.patch
+8c23610d1b470dde9c1e2155c8932440bc05d11f448aaf1ecd85c99f50817e9023c6b6ba2c31c1455700c6c21793de9fc66ed4a92eb7b19e0dff14066a812861  0082-arm64-dts-qcom-sm6375-add-the-tcsr-download-mode-address.patch
+38570e826438e83f6ddae7c343ffd077ec8e15f36a0b34e9c8b3706132070d7c73e6964e6f6cfe0a40391c53a6884d6f2300f0c1a3403f3657379b2660f32907  0083-rpmsg-glink-make-the-channel-open-timeout-adjustable.patch
+adfd4cab337dd7db15456f80dfe412bef8dbc480e679fa855a47f5dd4bdce6c3c06740f3d3b88850cf850001af630df15f1e548152005f04642ddd5d7eab7962  0084-soc-qcom-pd_mapper-add-sm6375.patch
+27e5c521f840210def3de9182413b495e450fa96d8f24ca20bc35f4645e9a3a3714df548af57d69f2ca22469be3928dd496b5529820a7932d15e4d70120709a6  0085-soc-qcom-pd_mapper-serve-tms-pdr_enabled-on-sm6375.patch
 "

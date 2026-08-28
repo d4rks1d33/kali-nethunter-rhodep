@@ -139,6 +139,43 @@ list; everything here is a from-scratch community port.
 | **Camera** | **Does not capture** — no photos, no video, no viewfinder. Only groundwork is done: the FAN53870 camera PMIC driver is written and running (all 7 LDOs registered, voltages verified against the chip's registers), and the rest is feasible because the ISP pipeline (`csid530` + `tfe530` + `tpg101`) is the *same silicon* mainline already drives on qcm2290, the 52 `gcc_camss_*` clocks are in mainline, and the 50 MP main sensor (Samsung S5KJN1) has a mainline driver. Still needed before any image: a `camss` entry for SM6375, the CSIPHY/CSID/TFE nodes and the sensor node. [`CAMERA-SENSORS-FEASIBILITY.md`](docs/CAMERA-SENSORS-FEASIBILITY.md) |
 | **Monitor mode on the internal WiFi** | Infeasible: the WCN3990 firmware reports `raw 0`. Use the external adapter, which does work. |
 
+## Bugs
+
+Things that work but sometimes break, as opposed to the table above, which is
+things that do not work at all.
+
+**Bluetooth stops after a warm reset of the controller.** At boot the QCA
+firmware downloads cleanly ("QCA setup on UART is completed", twice) and
+Bluetooth works. If the controller is reset later in the session, the firmware
+download can fail instead:
+
+	Bluetooth: hci0: QCA Downloading qca/crbtfw21.tlv
+	Bluetooth: hci0: command 0xfc00 tx timeout
+	Bluetooth: hci0: QCA Failed to send TLV segment (-110)
+
+`-110` is a timeout: the WCN3990 stops answering over UART. `btmgmt info` then
+shows "Index list with 0 items". Seen once mid-session at uptime ~1543 s with
+the external TP-Link (`8188eu`) in use, so USB/OTG power handling perturbing the
+shared WCN3990 is a suspect, not a confirmed cause.
+
+Rebinding the serdev driver does **not** fix it -- the chip is still mute, and
+the download fails again. A full reboot does: firmware downloads clean, zero
+timeouts, controller listed. So the fix today is to reboot.
+
+Tentative directions, none proven to be the only or best one:
+
+  * **An auto-recoverer.** A service that watches for the `tx timeout` /
+    `-110` failure and power-cycles the chip properly -- not the serdev rebind,
+    which is already known not to work, but something that actually drops and
+    restores the WCN3990's power, since the rebind does not cut power. Needs
+    working out how to power-cycle the WCN3990 without rebooting the whole
+    device.
+
+  * **Attack the trigger instead of the symptom.** Confirm first whether the
+    warm reset is caused by using the external adapter (USB/OTG power) or by
+    runtime suspend of the controller, and if so prevent that reset rather than
+    recover from it. If the cause is known, it may be preventable.
+
 ## Where to pick this up
 
 1. **The SoC reset, with GNSS as the trigger.** A live GNSS session kills the

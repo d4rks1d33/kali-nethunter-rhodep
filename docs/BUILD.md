@@ -63,8 +63,14 @@ pmbootstrap build --force linux-motorola-rhodep
   building. The 40 patches are identical either way; only the config differs.
 
 **Verify the apk before trusting it:**
-- `iommus = <0x3a 0xa1 0x00>` in the decompiled `sm6375-motorola-rhodep.dtb`
-  (the audio fix — without it the SoC resets on playback).
+- The audio stream ID is present in the decompiled `sm6375-motorola-rhodep.dtb`:
+  `dtc -I dtb -O dts ... | grep 'iommus = <0x[0-9a-f]* 0xa1 0x00>'`. Without it
+  the SoC resets on playback.
+
+  Check the **stream ID `0xa1`**, not the phandle. This used to be written as
+  `iommus = <0x3a 0xa1 0x00>` and that check now fails on a perfectly good
+  build: adding a node renumbers phandles, and patch 0082's `tcsr_regs` pushed
+  the SMMU from 0x3a to 0x3b. The stream ID is the part that means something.
 - IPA node has `qcom,gsi-loader = "self"`.
 - `snd-soc-aw88261.ko`, `q6asm-dai.ko`, the LPASS macros are present.
 - **No `.ko.zst`** anywhere (compressed modules hang this device at boot).

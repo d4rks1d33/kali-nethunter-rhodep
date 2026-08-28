@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=NetHunter Pro
+Comment=Kali NetHunter control panel
+Exec=nethunter-pro
+Icon=org.kali.NetHunterPro
+Terminal=false
+Categories=System;Security;
+Keywords=kali;nethunter;security;pentest;

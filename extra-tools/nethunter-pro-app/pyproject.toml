@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nethunter-pro-app"
+version = "0.1.0"
+description = "Kali NetHunter Pro control panel for Phosh (GTK4/libadwaita)"
+readme = "README.md"
+license = { text = "GPL-2.0-or-later" }
+requires-python = ">=3.10"
+
+[project.scripts]
+nethunter-pro = "nethunter_pro.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+nethunter_pro = ["style.css"]

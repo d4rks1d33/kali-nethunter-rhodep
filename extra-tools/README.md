@@ -20,6 +20,10 @@ paid API key.
 	                      already holds keys for
 	pwnagotchi/           pwnagotchi capturing on the external TP-Link (wlan1),
 	                      never touching the internal wlan0
+	nethunter-pro-app/    the NetHunter Pro control panel — a GTK4/libadwaita
+	                      app for Phosh that drives the port's tools (pwnagotchi,
+	                      wifipumpkin3, CARsenal, nmap, HID attacks, VNC…) from a
+	                      touch UI instead of a terminal
 	cleanup/              weekly disk-space cleanup (caches, journal, coredumps)
 	                      and a permanent cap on the systemd journal
 
@@ -36,6 +40,7 @@ Each has an `install.sh` that is idempotent and safe to re-run:
 	cd terminal-clipboard && sudo ./install.sh   # then open a new terminal
 	cd claude-free        && sudo ./install.sh
 	cd pwnagotchi         && sudo ./install.sh   # needs /opt/pwnagotchi cloned
+	cd nethunter-pro-app  && sudo ./install.sh   # installs the app + dbus helper
 	cd cleanup            && sudo ./install.sh   # weekly timer + journal cap
 
 `terminal-keyboard` and `terminal-clipboard` belong together — the keyboard sends

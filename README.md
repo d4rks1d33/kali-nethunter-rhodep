@@ -285,6 +285,25 @@ pointed at wlan0 or if wlan1 shares a phy with it, and never runs
 at boot and started on demand, because capture needs `otg on` and the external
 adapter anyway. Its face and status are on the web UI at `http://<phone>:8080`.
 
+**`nethunter-pro-app/`** — the NetHunter Pro control panel, a GTK4/libadwaita
+app for Phosh that drives the port's tools from a touch UI instead of a
+terminal: pwnagotchi, wifipumpkin3, CARsenal (CAN bus), nmap, HID/BadUSB
+attacks, an evil twin, VNC, and the rest. Each is a module screen.
+
+The detail worth knowing: anything needing root goes through a persistent DBus
+helper (`org.kali.NetHunterPro.Helper`) so the password is asked once, falling
+back to `pkexec` if the helper is absent — the UI thread never runs privileged
+code itself. Three module icons are shipped by the app because no installed icon
+theme has them (a car for CARsenal, a pumpkin for wifipumpkin3, the pwnagotchi
+face), symbolic so they recolour with the theme. The pwnagotchi screen edits the
+plugin config live with `tomlkit` to keep comments and formatting, reads the
+wpa-sec upload state from the plugin's own SQLite db so its "upload now" and
+"free space" buttons agree with the plugin, and only ever deletes captures
+wpa-sec has finished with. Note the app is installed with `pip`, so it lands in
+the current `python3`'s site-packages: a Python minor-version bump (3.13 → 3.14
+happened once) leaves the module behind and the launcher fails with
+`ModuleNotFoundError` until it is reinstalled for the new version.
+
 **`cleanup/`** — a weekly disk-space cleanup and a permanent cap on the systemd
 journal. The disk had drifted to 50G used, ~2G of it junk that comes straight
 back with use, and the journal alone was 633M.
@@ -463,6 +482,9 @@ extra-tools/          not needed to boot or to make a call: tools that make the
   pwnagotchi/         pwnagotchi capturing WPA handshakes on the external
                       TP-Link (wlan1mon), never touching the internal wlan0
                       (install.sh; on-demand services, needs otg on)
+  nethunter-pro-app/  the NetHunter Pro control panel (GTK4/libadwaita for
+                      Phosh): pwnagotchi, wifipumpkin3, CARsenal, nmap, HID,
+                      VNC and more, from a touch UI (install.sh + dbus helper)
   cleanup/            weekly disk-space cleanup (caches, journal, coredumps)
                       + a permanent journal cap; weekly systemd timer (install.sh)
 scripts/

@@ -2082,27 +2082,39 @@ already done.
    populated. Cosmetic, so it is worth batching with the next reflash.
    `AUDIO-SM6375.md` §6.
 
-5. **Behave like a phone with the screen locked.** Press the power button on a
-   stock phone and it keeps working: the radio stays associated, background
-   services keep running, notifications arrive overnight, and a job started an
-   hour ago is still going. Here the session idles out, the phone suspends and
-   the link drops, so anything depending on the network dies with the screen --
-   a script that takes hours, an agent that has to stay online, or simply a
-   messaging app that should have told you something arrived.
+5. **Behave like a phone with the screen locked.** Partly fixed. The immediate
+   cause was not power policy at all: **`deep` suspend does not work on this
+   SoC, and it was the default.**
 
-   The goal is ordinary phone behaviour on a mainline Linux stack, which is the
-   whole point of the port; it is listed here rather than under what does not
-   work because nothing is blocked by it today.
+   Asked to sleep for twenty seconds it came back after two, every time, with
+   nothing in the log and nothing in `/sys/power/pm_wakeup_irq` -- so not a
+   wakeup, but the suspend itself returning:
 
-   There is a working stopgap in the meantime: `systemd-inhibit
-   --what=idle:sleep --mode=block <command>` holds the phone awake for exactly
-   as long as the command runs, which is what `scripts/rhodep-idle-power-ab`
-   relies on to measure anything at all. What is missing is the normal
-   behaviour -- suspend while keeping the radio associated and able to wake the
-   host -- rather than choosing between "suspends and drops the link" and "never
-   sleeps at all".
+   | mode | asked | slept |
+   | --- | --- | --- |
+   | deep | 20 s | 2 s |
+   | s2idle | 20 s | 22 s |
 
-   Worth checking first whether the ath10k path supports wake-on-wlan here:
+   With the screen off the phone was therefore entering and leaving suspend
+   every couple of seconds, and every cycle re-enumerates USB. Anything running
+   off a USB adapter lost its interface and died, and OTG had to be switched on
+   by hand afterwards -- which is how this was found, from a WiFi scan on a
+   TP-Link dongle that did not survive locking the screen in the street.
+
+   `rhodep-suspend-mode.service` now selects s2idle at boot. Measured across a
+   25 s suspend afterwards: slept 27 s, OTG still on with the charger's boost
+   register untouched (`reg01=0x3a` before and after), and a background process
+   still running with a single 28-second gap in its heartbeat. A rootfs change,
+   so it needs no reflash; `mem_sleep_default=s2idle` on the kernel command line
+   would do the same at the cost of a boot image.
+
+   **What is still open** is the original goal: suspend while keeping the radio
+   associated and able to wake the host, rather than choosing between "sleeps
+   and drops the link" and "never sleeps". `systemd-inhibit --what=idle:sleep
+   --mode=block <command>` remains the stopgap for holding the phone awake for
+   exactly as long as a job runs.
+
+   Worth checking next whether the ath10k path supports wake-on-wlan here:
    `iw phy0 info` for the WoWLAN triggers, and whether the SNOC glue wires an
    interrupt that can wake the SoC. If the triggers are there this is a
    NetworkManager and systemd configuration job; if they are not it is a driver

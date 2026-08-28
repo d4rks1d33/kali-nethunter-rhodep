@@ -2351,6 +2351,84 @@ already done.
    across runtime suspend, which would also stop the port burning power to hold
    the slave up.
 
+9. **A flashlight toggle** -- and the flash is needed for the camera anyway.
+
+   The good news is that this looks cheap, because the flash on this board is
+   **not** an i2c LED driver chip. The vendor describes it as a plain GPIO:
+
+	led_flash_rear: qcom,camera-flash@0 {
+		compatible = "qcom,camera-flash";
+		flash-type = <CAM_FLASH_TYPE_GPIO>;
+		gpios = <&tlmm 49 0>;
+		pinctrl-0 = <&flash_active>;
+	};
+
+   so in mainline terms it is a `gpio-leds` node on tlmm 49, not a driver to
+   write. There is a second one, `led_flash_macro` at cell-index 2, for the
+   macro camera.
+
+   And unlike the auto-brightness tile in item 1, **Plasma Mobile already ships
+   a `flashlight` quick setting** -- it is in the stock list of 21 tiles. So the
+   work is likely to be the device tree node plus whatever name that tile
+   expects to find under `/sys/class/leds`. Check that before assuming the tile
+   will pick it up: it may want a specific name, or it may go through the V4L2
+   flash API rather than the LED class, and those are different amounts of work.
+
+   Untested. Nobody has yet driven that GPIO to see the LED light up, which is
+   the first thing to do and needs no code at all.
+
+10. **NFC.** Samsung `sec-nfc` (S3NRN) at 0x27, with ven=tlmm48, firm=tlmm8,
+    irq=tlmm9 and clk_req=tlmm7.
+
+    This got cheaper without anyone intending it: the chip sits on
+    `qupv3_se7_i2c`, which is mainline's `i2c7`, and **patch 0052 already
+    enables that bus** for the camera PMIC. The bus, its pinctrl and its clocks
+    are up and working today, so what is missing is only the driver.
+
+    Before writing one, check whether mainline's `s3fwrn5` fits. This port's
+    older notes say "mainline has nxp-nci, st-nci, pn544, but not Samsung's",
+    and that is not quite right -- `drivers/nfc/s3fwrn5` is a Samsung driver.
+    Whether it matches this particular part is unknown and worth ten minutes,
+    because it is the difference between adding a device tree node and writing
+    a driver from scratch.
+
+    Note the SAR sensor `semtech,sx937x` at 0x2c shares that bus, and has no
+    useful mainline driver either.
+
+11. **microSD -- probably already works, just untested.** The tray takes a card
+    alongside the SIM, and the device tree has had the controller wired up since
+    patch 0001:
+
+	&sdhc_2 {
+		status = "okay";
+		vmmc-supply = <&pm6125_l22>;
+		vqmmc-supply = <&pm6125_l5>;
+		cd-gpios = <&tlmm 94 GPIO_ACTIVE_HIGH>;
+	};
+
+    Supplies and card detect are all there, and `sdhc_2` is a plain
+    `qcom,sdhci-msm` that mainline drives. So the honest state of this item is
+    that nobody has put a card in.
+
+    Put one in, then `dmesg | grep mmc` and `lsblk`. If it enumerates, delete
+    this entry rather than writing anything.
+
+12. **Fingerprint, and unlocking the screen with it.** Focaltech, driven on
+    Android by a proprietary HAL (`fingerprint.focaltech.default.so`). No
+    mainline driver, and the sensor node was not found in the vendor tree's
+    sparse checkout, so even the bus and GPIOs still have to be established.
+
+    Worth being clear that this is two jobs, not one, and the second is the
+    part people forget: a working driver gets you an image from the sensor.
+    Turning that into "unlock instead of typing the PIN" needs the matching to
+    happen somewhere and a PAM path into the lock screen -- `fprintd` plus
+    `pam_fprintd`, with Phosh and KWin's lock screens each having to accept it.
+    On this port the lock screen is Phosh's numeric keypad or KWin's, and
+    neither has been looked at from that angle.
+
+    It is the least tractable item in this file. It is also the one that would
+    change daily use the most, which is why it is here.
+
 # License
 Kernel patches: GPL-2.0. Packaging/glue: MIT. Vendor firmware blobs: proprietary,
 not included (extract from your own device). See `LICENSE`.

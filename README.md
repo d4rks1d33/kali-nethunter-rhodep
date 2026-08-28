@@ -2203,6 +2203,61 @@ already done.
    type into X11 applications is not a rhodep problem, and someone may already
    be arguing about it.
 
+8. **Automatically keep the phone awake for anything you start, not a fixed
+   list.** Today `rhodep-keep-awake` holds the phone up for two things: work
+   that burns CPU (caught automatically), and units or processes named in
+   `/etc/rhodep/keep-awake.conf` (the pwnagotchi stack is anchored there because
+   it waits on packets rather than computing). What is missing is the phone-like
+   behaviour of *anything* you start staying alive across a lock without naming
+   it first.
+
+   An attempt at fully automatic detection was built and reverted, because it is
+   harder than it looks and the failure mode is a phone that silently does not
+   sleep and goes flat in your pocket. The two workable directions, and why the
+   naive one does not work:
+
+   **What does not work: a photo of the running services at boot.** The idea was
+   to snapshot every service running on a fresh boot as "infrastructure", and
+   treat anything new as your work. Two things break it, both measured:
+
+   - Services that start late inflate the baseline. docker and containerd spawn
+     transient units while bringing containers up, so a baseline taken 20 s in
+     held 38 services while the steady state was 35. The live set is then a
+     *subset* of the baseline, `now - baseline` is always empty, and nothing is
+     ever seen as new.
+   - It gets the timing backwards for the real case. To keep pwnagotchi -- which
+     you start *before* locking -- alive, the baseline must be "what ran before
+     you started working", not "what ran at lock time". Freeze it at lock and
+     pwnagotchi is already in it and never counts.
+
+   **Direction A, the safe one: explicit list plus terminal detection.** Keep
+   the named list for services (one line per tool: `unit:pwnagotchi.service`,
+   `unit:wifite.service`), and add automatic detection of *terminal* work by
+   cgroup. Anything run in a tty or pts login session -- wifite, tshark, as root
+   or not -- lives under `/sys/fs/cgroup/user.slice/session-N.scope`, and a
+   non-shell process there is work. The graphical session must be excluded by
+   `Type` (it is `wayland` here and full of long-lived non-shell processes that
+   would pin the phone awake forever). This is predictable and has no battery
+   failure mode; the cost is one config line per new service.
+
+   **Direction B, the convenient one: dynamic baseline that tracks until you
+   work.** Instead of a boot photo, track the running-service set continuously
+   while the screen is unlocked and freeze it only when you *start* something --
+   detected as the first service to appear that is not in the tracked set --
+   rather than at lock time. This is what "just works" would look like, and it
+   is where the fragility lives: distinguishing a service you started from one a
+   timer or socket activated, without a per-service "who started me", is the
+   unsolved part. systemd does not expose that reliably, especially when
+   everything runs as root, which on this phone it does.
+
+   Two facts already measured that the next attempt should keep. `loginctl
+   show-session -p LockedHint` reports the lock state cleanly. And the inhibitor
+   must be killed by process group, not by pid: `systemd-inhibit` spawns a
+   `sleep` to hold the lock, and terminating only the parent leaves the sleep
+   reparented to init with the lock still held -- a hold that never releases.
+   `start_new_session=True` and `os.killpg` fixed it, and that fix is in the
+   current script.
+
 6. **Stop needing the codec kept awake for jack detection.** A udev rule pins
    the soundwire TX slave on because MBHC detects nothing while it is
    suspended. The real fix is for the codec driver to keep that block alive

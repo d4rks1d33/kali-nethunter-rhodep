@@ -77,3 +77,35 @@ That puts the fault upstream, between Chromium's text-input-v3 implementation
 and KWin, where no browser flag reaches. What is left is either KWin's writable
 `mode` (currently 1), which applies to every application including the terminal
 where this already works, or typing in something other than VS Code.
+
+## X11 and Java apps: there is no way in from outside KWin
+
+Burp is Java on XWayland and never shows a keyboard at all. Three things were
+tried and all three are closed:
+
+**`forceActivate` over an X11 window does nothing.** Measured with Burp focused
+and a cursor in a text field:
+
+	before      supportsTextInput=false  active=false  visible=false
+	t+1s..t+5s                           active=false  visible=false
+
+KWin will not activate the virtual keyboard when the focused client cannot
+receive text, and there is no property or method that overrides it. `mode` is
+advertised as writable and is not: writing 0, 2 or 3 leaves it at 1.
+
+**No third-party keyboard can inject keys.** KWin offers only
+`zwp_input_method_v1` to ordinary clients; `zwp_virtual_keyboard_manager_v1` is
+reserved for the input method KWin launches itself. So wvkbd, squeekboard and
+anything like them cannot put a keystroke anywhere.
+
+**onboard works and is unpleasant.** It is an X11 client and injects through
+XTEST, which reaches every X11 app including Burp without asking permission --
+the only mechanism tried that does not need the application's cooperation. It
+was rejected on how it feels to use, not on whether it works. Uninstalled.
+
+What is left is a change inside KWin: either letting forceActivate raise the
+keyboard over any surface, or having KWin offer text-input on behalf of
+XWayland surfaces. That is a C++ patch and a KWin rebuild, not configuration.
+
+Note for anyone testing this over ssh: do not name a shell variable `path`.
+zsh ties it to `PATH` and the rest of the script loses every command it needs.

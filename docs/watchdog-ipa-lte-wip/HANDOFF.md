@@ -2623,3 +2623,48 @@ no unimplemented message being ignored, because there is no message.
 
 That is worth stating plainly: the "implement the missing QMI" idea has no
 target. It would have been easy to write code first and find this afterwards.
+
+## What the modem is actually told, read out of the running kernel
+
+INIT_DRIVER is the message that tells the modem where in IPA's shared memory it
+may write its tables, and getting it wrong is precisely how this SoC dies
+silently -- that is what patch 0048 was about. Since the handshake is confirmed
+to happen, the next question is whether every field in it is right.
+
+**A trap on the way.** The kernel tree nearest to hand, /tmp/v59test, turned out
+to have patch 0025 but not 0048 or 0079. Reasoning from it would have described
+a kernel that is not the one running, and it would have looked authoritative.
+None of the four APKBUILDs in the tree lists the patches above 0070 either,
+although 0083's module parameter and 0084's QMI service are both demonstrably
+present on the phone, so the images were built by some path these files do not
+record. Source archaeology was the wrong instrument.
+
+**Reading the running kernel instead.** kallsyms names static variables, and
+`init_modem_driver_req.req` is one: the request structure itself, retained after
+the handshake because the driver reuses it. `rhodep_kvpeek.c` reads a kernel
+address through copy_from_kernel_nofault -- not a plain dereference, since a
+wrong address here takes the machine down rather than returning an error -- and
+that settles the question with no tree in between.
+
+    platform_type          3       MSM_ANDROID, correct
+    hdr_tbl                0x0688 .. 0x08c7
+    v4/v6 route start      0x0508 / 0x0608, end index 7, so 8 modem routes
+    v4/v6 filter start     0x0308 / 0x0408
+    ctrl_comm_dest_end_pt  16
+
+and the four regions that patches 0048 and 0079 were about, against the vendor's
+ipa_4_11_mem_part:
+
+    region           running          vendor           
+    modem_mem_info   0x27d8 / 0x800   0x27d8 / 0x800   match
+    hdr_proc_ctx     0x0ad0 / 0xac0   0x0ad0 / 0xac0   match
+    stats_quota      0x1d00 / 0x30    0x1d00 / 0x30    match
+    stats_drop       0x27b0 / 0x20    0x27b0 / 0x20    match
+
+The quota size is the plain 0x30 rather than 0x30 plus the memory offset, so
+0079 is in the running kernel as well as 0048.
+
+So the message that tells the modem where to write is correct, field by field,
+on the kernel that resets. That theory is closed too -- and closed against the
+running system rather than against a source tree that happened to be lying
+around.

@@ -140,6 +140,14 @@ def bits(value):
 
 
 def main():
+    """--raw dumps the whole PON block instead of the decoded summary.
+
+    Two different causes can decode to the same sentence. Comparing an LTE
+    death against a deliberately triggered access violation needs the bytes
+    themselves, because the question is whether any bit differs at all, not
+    whether the summary reads the same.
+    """
+    raw = "--raw" in sys.argv
     if os.geteuid() != 0:
         print("needs root: the regmap debugfs is root-only", file=sys.stderr)
         return 1
@@ -149,6 +157,11 @@ def main():
               "Is CONFIG_REGMAP_DEBUGFS on and debugfs mounted?", file=sys.stderr)
         return 1
     regs = parse(text)
+    if raw:
+        for a in range(0x8C0, 0x8D0):
+            if a in regs:
+                print("%04x: %02x" % (a, regs[a]))
+        return 0
     print("PON registers from %s" % path)
     for a in WANTED:
         if a in regs:

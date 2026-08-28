@@ -2711,3 +2711,43 @@ TrustZone's state at the moment of death is simply unknown.
 This reopens the access-violation hypothesis for the LTE reset, which now has
 two known instances producing an identical signature, and no evidence against
 it beyond a counter that cannot see it.
+
+## The two deaths are indistinguishable at the PMIC, and the modem is the only
+## plausible violator left
+
+With a reproducible trigger in hand, the LTE death can be compared against a
+deliberate access violation instead of against a description of one.
+`rhodep-pon-reason --raw` dumps the PON block rather than the decoded sentence,
+because two causes can decode to the same summary while differing in a bit.
+
+    after reading 0x045f1000     08c0: 41  08c2: 02  08c4: 40  08c5: 02  08c7: 80
+    after an LTE attach          08c0: 41  08c2: 02  08c4: 40  08c5: 02  08c7: 80
+
+Byte for byte identical, and the rest of the block zero in both. Nothing at the
+PMIC distinguishes them, and neither does anything else measured: both are
+instant, both leave pstore empty, both print nothing, both report
+bootreason=watchdog.
+
+That does not prove a shared cause -- many paths can funnel into the same
+PS_HOLD deassert -- but there is now no measurement that tells them apart.
+
+**Who could be violating.** The device tree gives IPA two stream IDs, 0x4a0 and
+0x4a2, behind the SMMU at 5940000: an SMMUv2 with stage-1 translation and five
+context banks. So IPA's DMA is translated, and a wrong address from IPA would
+raise a context fault that Linux would print. There has never been one:
+
+    context faults in the whole log    0
+
+The modem's remoteproc node has no `iommus` property at all. Its accesses are
+not policed by Linux's SMMU but by the SoC's own protection units, which is the
+mechanism that kills silently -- as both reproducible triggers demonstrate.
+
+So if the reset is an access violation, IPA's own DMA is not the violator; the
+modem is, or something else outside the SMMU. And the modem would not report it,
+because from its side the access simply goes out.
+
+Noted while checking, not yet shown to matter: `ipa.ko` depends only on
+qcom_common and qmi_helpers, so mainline's IPA never calls qcom_scm_assign_mem
+and never hands memory ownership to the modem through TrustZone. The symbol
+exists in the kernel and other drivers use it. Whether IPA on this SoC ought to
+be assigning anything is the open question, not a demonstrated gap.

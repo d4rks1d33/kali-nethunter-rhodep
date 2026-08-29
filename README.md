@@ -170,6 +170,65 @@ bisect, the mechanism and the dead ends — link speed, transfer length, the pow
 pulse, the shared rails, rfkill — are in
 [`docs/bluetooth-warm-reset-wip/README.md`](docs/bluetooth-warm-reset-wip/README.md).
 
+**The WiFi is not lost during suspend — NetworkManager throws it away on
+resume.** Leave the phone locked and the link is gone when you come back, so
+the obvious reading is that the radio dies while the phone sleeps. Measured over
+a **1586-second (26 minute) s2idle suspend**, that reading is wrong on both
+counts.
+
+At suspend entry NetworkManager unmanaged `usb0`, `qrtr0`, `wlan1` and both
+`p2p-dev-*` devices and declared itself `ASLEEP` — and left **`wlan0` activated**.
+The link survived the whole 26 minutes. What happened next is the bug:
+
+	22:20:36  PM: suspend exit
+	22:20:37  NetworkManager: sleep: wake requested
+	22:20:37  device (wlan0): activated -> unmanaged (reason 'unmanaged-nm-disabled')
+	22:20:37  wpa_supplicant: CTRL-EVENT-DISCONNECTED locally_generated=1
+	22:20:37  wlan0: deauthenticating by local choice (Reason: 3=DEAUTH_LEAVING)
+	22:20:45  wlan0: associated          <- eight seconds later, from scratch
+
+Both halves are deliberate, and both are in `do_sleep_wake()` in NetworkManager's
+`src/core/nm-manager.c`. On the way down:
+
+	/* Wake-on-LAN devices will be taken down post-suspend rather than pre- */
+	if (suspending && device_is_wake_on_lan(priv->platform, device))
+		continue;
+
+and on the way back up:
+
+	/* Belatedly take down Wake-on-LAN devices; ideally we wouldn't have to do
+	 * this but for now it's the only way to make sure we re-check their
+	 * connectivity. */
+	if (device_is_wake_on_lan(priv->platform, device))
+		nm_device_set_unmanaged_by_flags(device, NM_UNMANAGED_MANAGER_DISABLED, ...);
+
+`device_is_wake_on_lan()` asks the platform, which for a wifi link means WoWLAN,
+so `etc/NetworkManager/rhodep-wowlan.conf` is what puts `wlan0` on this path.
+**That file is working exactly as intended** and should be kept: it is the reason
+the link stays up across the suspend at all, and therefore the reason a magic
+packet can wake the phone. Without it NM tears the interface down *before*
+suspending instead, which is strictly worse.
+
+There is no setting for the resume teardown. It is unconditional, and upstream's
+own comment calls it a workaround. Living without it means patching NM, or taking
+`wlan0` out of NM and driving it with wpa_supplicant directly — note that
+wpa_supplicant already does the right thing here, logging *"Do not deauthenticate
+as part of interface deinit since WoWLAN is enabled"* just as NM pulls the rug
+out from under it.
+
+**The USB adapter has a second, unrelated version of this.** Across the same
+suspend the dongle was never de-enumerated — VBUS held, `role=host` held, and the
+kernel logged `usb 1-1: reset high-speed USB device number 2`, a reset of the
+same device on the same port, not a re-enumeration. But `rtw_8821au` reloads
+firmware on that reset, so the phy is rebuilt: `phy1` disappears, `phy2` appears,
+and NM registers a **new** `wlan1`. Anything pinned to the old interface — a
+capture, monitor mode, a MAC — is gone. Checking that `wlan1` still exists after
+a resume does not tell you anything; check the phy index.
+
+The practical consequence for auditing work is that a capture must not be allowed
+to suspend in the first place, which is what `rhodep-keep-awake` and its
+AF_PACKET detection are for.
+
 ## Where to pick this up
 
 1. **The SoC reset, with GNSS as the trigger.** A live GNSS session kills the

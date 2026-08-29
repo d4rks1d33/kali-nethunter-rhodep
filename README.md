@@ -535,7 +535,157 @@ because they name traps the next attacker will hit:
     Chrome and system apps ignore user-installed CAs by policy, which was
     Google's mitigation for exactly this attack. The realistic path for real
     victim-facing use is a public look-alike domain and Let's Encrypt via
-    autocert (without `-developer`), which the launcher does not do today.
+    autocert (without `-developer`) -- the launcher now auto-detects an
+    installed cert and switches modes; see below.
+
+Ten more traps came out of getting Instagram's login form to actually render
+end to end -- the "stuck on the logo" bug. Each was hunted with tcpdump, tmux
+`capture-pane` on the evilginx window, and `tshark` to read SNI off the client's
+`ClientHello` frames; every fix is committed and worth reading because the
+default configuration fails silently on all of them.
+
+  * The stock Instagram phishlet only proxies `www.instagram.com` and
+    `m.instagram.com`. Instagram's login HTML links every JS/CSS bundle that
+    renders the form with absolute URLs at `static.cdninstagram.com` (verified:
+    488 references in the served HTML), so with the CDN unproxied the browser
+    fetches those bundles from the real CDN under the wrong origin and the
+    React SPA never mounts the form -- the page stops at the Instagram logo.
+    The phishlet under `phishlets/instagram.yaml` now proxies
+    `static.cdninstagram.com`, `scontent.cdninstagram.com` and
+    `i.instagram.com` as extra `proxy_hosts` with `auto_filter: true`, and adds
+    explicit `sub_filters` for the CDN host so the served bundles reference
+    `static.<phishdomain>` and stay on the phishing origin.
+  * Evilginx v3.3.0 only generates a phishing vhost and a per-host cert for
+    `proxy_hosts` marked `session: true`. With `session: false` the CDN hosts
+    get no vhost, so the browser's request to `static.<phishdomain>` hangs
+    (`http 000`, TCP connects but no TLS response) and the login bundles never
+    load -- same "stuck on the logo" symptom. All CDN hosts in the fixed
+    Instagram phishlet are `session: true`; the flag does not widen credential
+    capture because `auth_tokens` still scopes what is harvested.
+  * With the full 96-phishlet directory shipped in `/usr/share/evilginx2/`,
+    `phishlets get-hosts instagram` silently omits the extra CDN hosts -- only
+    `www.instagram-login.com` and `m.instagram-login.com` appear. `strace` on
+    evilginx confirms every YAML is parsed on start; the omission is not a
+    parse error but a downstream collision/limit that only triggers past
+    ~60-70 loaded phishlets. Isolating the same YAML in a directory with only
+    a handful of phishlets makes all five CDN hosts appear in `get-hosts`
+    immediately. The port ships only the four phishlets that are actually
+    exposed by the app (`instagram`, `facebook`, `outlook`,
+    `google-botguard-bypass`); the rest are backed up to
+    `phishlets.all.bak/` in case something else is needed later.
+  * The USB Realtek RTL8811AU dongle (`rtw_8821au`, e.g. the TP-Link Archer
+    T2U Nano) tears itself down mid-attack when WiFi power-save is on: `dmesg`
+    shows repeated `wlan1: entered promiscuous mode` / `left promiscuous
+    mode`, then `usb 1-1: reset high-speed USB device` /
+    `(unregistering)`, and the AP silently dies (`client has left AP`, SSID
+    gone, hostapd left orphaned). `iw dev wlan1 set power_save off` before
+    hostapd binds fixes it. The launcher runs this in both
+    `release_from_networkmanager` and again in `start_in_tmux` after the AP is
+    up, because wp3 re-creates the interface when it switches it to AP mode
+    which resets `power_save` to `on`. USB autosuspend is also forced off on
+    every USB device (`echo on > /sys/bus/usb/*/power/control`) to keep the
+    kernel from parking the dongle.
+  * `/etc/resolv.conf` on the port ships with `nameserver 127.0.0.11` (a
+    ghost from a Docker install that is not running). Nothing listens there,
+    so every DNS resolution the host does -- including every upstream lookup
+    evilginx makes to reach Instagram's real backend -- times out on the first
+    server before falling back to the second. Symptoms are 5+ second first-byte
+    times on every proxied request and CDN bundles that never finish loading
+    within the browser's own timeouts. The launcher rewrites `/etc/resolv.conf`
+    to `1.1.1.1` + `8.8.8.8` at start and disables IPv6 (`sysctl
+    net.ipv6.conf.all.disable_ipv6=1`), because Go's default dialer prefers
+    the AAAA record when both are present and the port has no working IPv6
+    route to Meta's CDN.
+  * evilginx v3.3.0 in `-developer` mode refuses `ClientHello`s with SNI it
+    does not know: `WARN: Cannot handshake client static.cdninstagram.com
+    remote error: tls: unknown certificate`. What actually reaches evilginx
+    (verified by `tshark -Y tls.handshake.type==1` on every interface) is only
+    the phishing-domain SNIs the browser was told about; the log line
+    identifies the *upstream* host evilginx tried and failed to reach, not the
+    incoming SNI. It is emitted from the same code path that later, in
+    non-developer mode, becomes the real bug: the browser refuses to trust the
+    self-signed cert on any subresource -- there is no click-through UI for
+    `<script src>` -- and the login form stays a logo. See the Let's Encrypt
+    section below for the fix; installing the developer CA on Android does
+    NOT help, because Chrome only trusts user-installed CAs for top-level
+    documents, not for JS-loaded subresources.
+
+**Real certs, no developer CA.** The launcher auto-detects a real (Let's
+Encrypt-issued or otherwise CA-signed) cert under
+`crt/sites/<phishdomain>/fullchain.pem` + `privkey.pem` in evilginx's config
+directory. If present, it feeds `config autocert off` on stdin during setup and
+starts evilginx *without* `-developer`, so evilginx serves the disk cert
+instead of the "Super-Evil" self-signed one -- the browser trusts the whole
+`*.<phishdomain>` cert chain, top-level *and* every asset subdomain, and the
+login form renders. If no cert is present the launcher falls back to
+`-developer` (self-signed) so nothing breaks; see `has_real_cert()` in
+`rhodep-phishkin3-launch`.
+
+The end-to-end flow that actually works (tested with `cdninstagram.dedyn.io`):
+
+  1. Register a free public domain -- **deSEC.io** (`*.dedyn.io`) is the pick:
+     wildcard-capable, native DNS API, and gratis. DuckDNS also works and
+     avoids deSEC's DNSSEC replication lag but the domain is longer. The
+     Let's Encrypt validation is DNS-01, so the port never has to expose any
+     port to the internet -- only a TXT record propagates through the
+     provider.
+  2. Install `acme.sh`:
+     `curl https://get.acme.sh | sh -s email=<a-real-email>` (Let's Encrypt
+     rejects `example.com` addresses; use `--nocron` if no cron is present).
+  3. Issue the wildcard with the deSEC plugin, `--dnssleep 180` or higher --
+     deSEC's own devs document their DNSSEC replication lag on their forum
+     (`talk.desec.io/t/ns1-desec-io-replication-issues/804`); the default
+     `--dnssleep` fails with `DNSSEC: Bogus: validation failure ... covering
+     NSEC3 was not opt-out` and the challenge times out. 180-300s consistently
+     succeeds:
+     ```
+     export DEDYN_TOKEN=<token-from-desec.io>
+     acme.sh --issue --dns dns_desec \
+         -d cdninstagram.dedyn.io -d '*.cdninstagram.dedyn.io' --dnssleep 180
+     ```
+  4. Install it under evilginx's cert dir with the exact filenames the
+     `setUnmanagedSync` loader in `core/certdb.go` looks for (`fullchain.pem`
+     + `privkey.pem`; the folder name under `crt/sites/` is a container and
+     does not have to match SNI, since certmagic keys off the cert's own
+     SANs):
+     ```
+     acme.sh --install-cert -d cdninstagram.dedyn.io --ecc \
+         --fullchain-file <cfg>/crt/sites/cdninstagram.dedyn.io/fullchain.pem \
+         --key-file       <cfg>/crt/sites/cdninstagram.dedyn.io/privkey.pem
+     ```
+  5. Launch: `rhodep-phishkin3-launch --phishlet instagram --domain
+     cdninstagram.dedyn.io --interface wlan1 --interface-net wlan0 --start`.
+     The launcher logs `cert=letsencrypt/unmanaged` at setup and starts
+     evilginx without `-developer`. `openssl s_client -servername
+     www.<phishdomain>` should show `issuer=... Let's Encrypt` on every
+     subdomain the phishlet uses; that is what the browser gets, no
+     click-through warning at any level.
+
+Two things still bite the victim path even with a valid cert, and both are
+about how Android treats the AP:
+
+  * **Captive portal WebView.** Android sends `connectivitycheck.gstatic.com`
+    over HTTP:80 to sniff for internet on join; the phishkin3 DNAT catches
+    that on `--dport 80 -j DNAT --to 172.16.0.1:8080` and the phishkin3 Flask
+    app 302s it to the lure URL. Android then opens the lure inside its
+    built-in captive-portal WebView, not Chrome, and that WebView is a
+    stripped-down runtime: Instagram's SPA loads the HTML+logo and never
+    finishes bootstrapping. The victim has to dismiss the captive-portal
+    banner ("Use network as is" / "Sin internet") and open the lure in real
+    Chrome. This is inherent to how phishkin3 uses the captive-portal
+    detection as a delivery vector; documenting it is the fix.
+  * **Public A record for the phish domain.** The AP's `dns_spoof` answers
+    `www.<phishdomain>` -> `172.16.0.1` for its clients, but Chrome on Android
+    routinely does DNS-over-HTTPS to Cloudflare/Google, not to the AP's
+    resolver. If the phish domain has no public A record, DoH returns
+    `NXDOMAIN` and Chrome shows `DNS_PROBE_FINISHED_NXDOMAIN` -- the AP's own
+    resolver is bypassed entirely. The pragmatic fix, since the AP IP is
+    private (`172.16.0.1`), is to publish that private IP as the public A
+    record for every subdomain the phishlet uses (`apex`, `www`, `static`,
+    `scontent`, `i`, `m`). Public resolvers happily serve private IPs; the
+    result is the same `172.16.0.1` whether the client asked the AP's spoof
+    or Cloudflare's DoH, and Chrome connects to the AP either way. TTL 3600
+    (deSEC minimum is 900).
 
 Also worth documenting because it is not obvious: nethunter-pro-app also
 carries `rhodep-make-captiveportal`, a generator that turns a git repo of a
@@ -785,7 +935,7 @@ docs/                       extra notes
 
 # The kernel (shared with the pmOS port)
 
-## The 78 applied patches (`kernel/patches/`, applied in this order)
+## The 79 applied patches (`kernel/patches/`, applied in this order)
 
 The order below is the aport's `source=` order, which is what `patch` sees; it
 is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
@@ -887,6 +1037,8 @@ is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
                                        ever offered; refresh= picks the timing
 0095 sm6375-soundwire-wake-irq          swr0 had no wakeup interrupt, so the
                                        codec could not signal while suspended
+0096 cw2217-no-full-while-discharging    FULL at 100% on battery made UPower
+                                       say on-battery: no, so it never slept
 ```
 
 0062 and 0063 are kept but neither changes the glitched lines they were written
@@ -2952,8 +3104,8 @@ already done.
     theoretical minimum (`clk_scale=100`), so any further rate has to be
     measured rather than assumed to fit.
 
-17. **The fuel gauge says `Full` at 100% even on battery, and the phone then
-    never suspends.** This is the one that quietly cost a day of testing: with
+17. **The fuel gauge says `Full` at 100% even on battery — fixed in patch 0096,
+    verification pending.** This is the one that quietly cost a day of testing: with
     the charger unplugged and the gauge at 100%, `status` reads `Full` instead
     of `Discharging`, UPower reports `on-battery: no`, and PowerDevil applies the
     plugged-in policy -- so a locked screen never leads to a suspend. Every
@@ -2994,6 +3146,16 @@ already done.
     Worth fixing before any further power measurement, not only for the
     suspend policy: anything reasoning about "is it on battery" is wrong at 100%,
     which includes the measurement in item 6.
+
+    **Patch 0096 does exactly that**, and since `CONFIG_BATTERY_CW2217=m` it went
+    onto the phone as a module over ssh with no reflash -- same vermagic,
+    `rmmod`/`modprobe`, and the charging case is unchanged (`Charging` at 55%
+    with positive current). **The case it was written for has not been observed
+    yet**, because that needs the pack at 100% with the charger out and the
+    battery was at 55%. Until someone sees `Discharging` at 100% this is a fix
+    by inspection, not a fix by measurement. `rhodep-batwatch` logs capacity,
+    status, current and charger presence to `/root/batwatch.log` so the moment
+    is captured rather than waited for.
 
 # License
 Kernel patches: GPL-2.0. Packaging/glue: MIT. Vendor firmware blobs: proprietary,

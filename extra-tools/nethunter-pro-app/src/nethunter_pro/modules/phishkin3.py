@@ -23,6 +23,14 @@ from ..widgets import ToolRunner, toast
 
 PHISHLETS_DIR = "/usr/share/evilginx2/phishlets"
 LAUNCHER = "/usr/libexec/nethunter-pro-phishkin3-launch"
+# World-readable list of domains that have a real (Let's Encrypt / other
+# public CA) cert available for the launcher to load in `autocert off` /
+# unmanaged mode. The GUI runs as the login user, not root, so it cannot read
+# evilginx's own cert directory under /root/.config/... . The launcher writes
+# one empty marker file per domain into this dir (mode 644 on a 755 dir) so
+# the picker can list domains without needing any of the actual cert bytes.
+# The launcher still reads the real cert+key from /root/... itself.
+CERTS_INDEX_DIR = "/var/lib/nethunter-phishkin3/certs"
 
 # Homoglyph substitutions: a character that reads as the key but is a different
 # codepoint, so the domain is not the real one.
@@ -62,6 +70,22 @@ def homoglyph_variants(base):
             seen.add(d)
             ordered.append(d)
     return ordered
+
+
+def installed_cert_domains():
+    """Domains with a real (unmanaged) cert the launcher can serve.
+
+    Reads the world-readable index at CERTS_INDEX_DIR that the launcher keeps
+    in sync with its private cert store under /root/.config/... . The picker
+    puts these at the top of the domain suggestions so the default choice is
+    the domain the browser will actually trust (Let's Encrypt / other CA).
+    """
+    try:
+        return sorted(
+            n for n in os.listdir(CERTS_INDEX_DIR)
+            if not n.startswith("."))
+    except OSError:
+        return []
 
 
 @register
@@ -167,19 +191,48 @@ class Phishkin3(NHModule):
         name = item.get_string()
         base = "%s.com" % name.replace("_", "").replace("-", "")
         variants = homoglyph_variants(base)
+
+        # Prepend every domain that already has a real cert installed. That is
+        # what the launcher will use in `letsencrypt/unmanaged` mode (no
+        # -developer), and it is the only kind of domain that lets the browser
+        # actually reach the login form -- with a self-signed developer CA,
+        # Chrome refuses the assets even after the user click-through on the
+        # top-level page, and Instagram's SPA stays a logo. If the phishlet
+        # name occurs in a cert domain, that one goes first (e.g. picking the
+        # `instagram` phishlet with an installed `cdninstagram.dedyn.io` cert
+        # puts that domain at the top).
+        installed = installed_cert_domains()
+        installed.sort(key=lambda d: (0 if name in d else 1, d))
+
+        # Real-cert domains first, then look-alikes; dedup preserving order.
+        options = []
+        seen = set()
+        for d in installed + variants:
+            if d not in seen:
+                seen.add(d)
+                options.append(d)
+
         while self.domain_model.get_n_items() > 0:
             self.domain_model.remove(0)
-        for d in variants:
-            self.domain_model.append(d)
-        if variants:
+        for d in options:
+            label = ("%s  (Let's Encrypt cert installed)" % d
+                     if d in installed else d)
+            self.domain_model.append(label)
+        if options:
             self.domain_combo.set_selected(0)
-            self.domain_entry.set_text(variants[0])
+            # entry gets the bare domain, not the annotated label
+            self.domain_entry.set_text(options[0])
 
     def _on_domain_pick(self, _row, _p) -> None:
         idx = self.domain_combo.get_selected()
         item = self.domain_model.get_item(idx)
-        if item:
-            self.domain_entry.set_text(item.get_string())
+        if not item:
+            return
+        # Strip the "(Let's Encrypt cert installed)" annotation added in the
+        # combo so the free-text entry (and the launcher) get the bare domain.
+        s = item.get_string()
+        bare = s.split("  (", 1)[0]
+        self.domain_entry.set_text(bare)
 
     def _launch(self, start: bool) -> None:
         idx = self.phishlet.get_selected()

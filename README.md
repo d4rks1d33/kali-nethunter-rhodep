@@ -3077,7 +3077,7 @@ already done.
     panel at 60 Hz buys nothing measurable, and raising the panel to 120 Hz
     without the ceiling leaves roughly 7 fps on the table.
 
-16. **Runtime refresh-rate switching (48/60/90/120).** Patch 0094 lifted the
+16. **Runtime refresh-rate switching (48/60/90/120) — done in patch 0097.** Patch 0094 lifted the
     panel from 60 Hz to 120 and that is measured below, but the rate is still
     chosen once, at power on, from a kernel parameter. DRM is handed a single
     mode, so nothing can change it afterwards: no KDE setting, and no dropping
@@ -3105,6 +3105,27 @@ already done.
     pixel clock, 168432 → 336864 kHz, on a link this port already runs at the
     theoretical minimum (`clk_scale=100`), so any further rate has to be
     measured rather than assumed to fit.
+
+    **Done.** Patch 0097 advertises all four and takes the register value from
+    the mode in use, read out of the CRTC state because `drm_panel` has no
+    `mode_set`. KDE lists them (`kscreen-doctor -o` shows
+    `120.00*! 90.00 60.00 48.00`) and each was driven from there and measured:
+
+	pedido  48 Hz | kernel 48  | fps=47.1  janks=0  dsi_err=0
+	pedido  60 Hz | kernel 60  | fps=58.9  janks=0  dsi_err=0
+	pedido  90 Hz | kernel 90  | fps=88.1  janks=0  dsi_err=0
+	pedido 120 Hz | kernel 120 | fps=108.2 janks=0  dsi_err=0
+
+    The frame rate follows the request, which is the part worth measuring: that
+    the panel is really running at the rate rather than DRM merely claiming it.
+    No underruns or DSI errors at any of them, 48 Hz included, which was the one
+    furthest from anything previously tested.
+
+    **What is left is doing it seamlessly.** Every switch is a full modeset, so
+    the display blanks for a moment. The vendor sends a timing-switch command
+    and never drops the link; matching that means tracking the transition rather
+    than re-running the power on sequence, and is only worth attempting now that
+    the rates themselves are known to be sound.
 
 17. **The fuel gauge says `Full` at 100% even on battery — fixed in patch 0096,
     verification pending.** This is the one that quietly cost a day of testing: with

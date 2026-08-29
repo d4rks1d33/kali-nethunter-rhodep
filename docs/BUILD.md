@@ -221,6 +221,16 @@ sudo chroot /tmp/rootfs sh /srv/power/install.sh
   four files are registered with `rhodep-protect-files`, so a stray `apt` or an
   editor cannot quietly undo them.
 
+- **Powersupply app** (`userspace/powersupply/install.sh`): makes the
+  Powersupply app read the real battery. It groups the supplies by `type`, sorts
+  each group alphabetically and takes `[0]`, so `bq256xx-battery` beat
+  `cw2217-battery` and every field showed N/A. That first one is the charger's
+  own empty view of a battery and patch 0023 marks it `scope=Device` for exactly
+  this reason, which is also why UPower already ignores it. The fix skips
+  `scope=Device` rather than naming the gauge, so it survives a hardware change
+  and is worth sending upstream. `powersupply-gtk` is held and the file is
+  registered with `rhodep-protect-files`.
+
 - **Login screen** (`userspace/login/install.sh`): required as soon as anything
   pulls in `gdm3` (several Kali metapackages do), because `phosh.service` and a
   display manager both claim the display at boot. See README "Login screen

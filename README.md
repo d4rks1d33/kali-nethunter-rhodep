@@ -2738,21 +2738,52 @@ already done.
     the whole time, the GPU thermal zones sat at 37-42 °C, and dmesg produced no
     fault, hang, timeout or recovery.
 
-    **The speed-up is not demonstrated, and the honest reason is that there is no
-    GPU-bound workload here to demonstrate it with.** An A/B in the same boot,
-    ceiling pinned to 650 and then 840:
+    **The speed-up is real, but only once the panel stops being the bottleneck.**
+    At 60 Hz it could not be measured at all: ceiling pinned to 650 and then to
+    840 gives 59.7 and 59.5 fps, because both sit on the panel's cap. That said
+    more about the display than the GPU, and led to patch 0094 and the 120 Hz
+    entry below. Repeating the same A/B once the panel runs at 120:
 
-	techo650   frames=1792  fps=59.7  janks=1  worst=33.3ms
-	techo840   frames=1785  fps=59.5  janks=0  worst=19.8ms
+	120 Hz, GPU ceiling 650   fps=109.8  janks=0  worst=16.8ms
+	120 Hz, GPU ceiling 840   fps=116.9  janks=0  worst=16.7ms
 
-    Both sit on the panel's 60 Hz cap, so fps cannot separate them; the worst
-    frame halving from 33.3 ms (exactly two vsyncs, i.e. one dropped frame) to
-    19.8 ms is suggestive, but it is one run each and a 1-vs-0 jank count is
-    noise. glxgears with `vblank_mode=0` gives ~2513 vs ~2627 FPS, about 4.5%,
-    and glxgears is bound by the CPU and the driver rather than the GPU — its
-    first 840 sample is identical to the 650 ones. Neither result should be
-    quoted as the gain. Measuring this properly needs something actually
-    GPU-bound; there is no glmark2 or vkmark on the image.
+    So the turbo steps are worth about 6.5% and the difference between missing
+    the 120 Hz target and very nearly hitting it. `trans_stat` during the run
+    shows where the load went: 35.8 s at 840 MHz against 7.3 s at 266, where at
+    60 Hz the GPU had been mostly idle at the bottom of the table.
+
+    The two changes only make sense together. Raising the GPU ceiling with the
+    panel at 60 Hz buys nothing measurable, and raising the panel to 120 Hz
+    without the ceiling leaves roughly 7 fps on the table.
+
+16. **Runtime refresh-rate switching (48/60/90/120).** Patch 0094 lifted the
+    panel from 60 Hz to 120 and that is measured below, but the rate is still
+    chosen once, at power on, from a kernel parameter. DRM is handed a single
+    mode, so nothing can change it afterwards: no KDE setting, and no dropping
+    back to 60 Hz on a low battery, which is exactly what a phone should do and
+    what the stock firmware does.
+
+    The panel already supports it. Register `0x2f` selects the timing and the
+    vendor's own map is repeated beside every timing node in
+    `dsi-panel-mot-csot-nt37701-655-1080x2400-dsc-cmd`:
+
+	08 = 48 Hz   03 = 60 Hz   07 = 90 Hz   02 = 120 Hz   04 = 144 Hz
+
+    and `nt37701_modes[]` already carries the first four. 144 Hz is in the map
+    but its timing node is commented out in the vendor tree, so it is unproven.
+
+    What is missing is the switch itself: `get_modes()` would advertise all four
+    and the driver would have to send the vendor's timing-switch command when
+    the mode changes, which needs the panel to learn the current mode — drm_panel
+    has no `mode_set`, so this usually means tracking it from the DSI host side.
+    Worth doing: 120 Hz costs power, and right now it cannot be given back.
+
+    Two things to keep in mind while doing it. The `DSI PLL(0) lock failed`
+    messages at boot are **not** related — there are exactly eight of them at
+    both 60 and 120 Hz, so they predate all of this. And 120 Hz doubles the
+    pixel clock, 168432 → 336864 kHz, on a link this port already runs at the
+    theoretical minimum (`clk_scale=100`), so any further rate has to be
+    measured rather than assumed to fit.
 
 # License
 Kernel patches: GPL-2.0. Packaging/glue: MIT. Vendor firmware blobs: proprietary,

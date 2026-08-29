@@ -105,6 +105,7 @@ source="
 	0091-arm64-dts-qcom-rhodep-drop-absent-microphones.patch
 	0092-arm64-dts-qcom-rhodep-add-the-flash-led-as-a-torch.patch
 	0093-arm64-dts-qcom-rhodep-expose-gpu-770-840.patch
+	0094-drm-panel-nt37701-selectable-refresh-rate.patch
 "
 options="!check !strip !tracedeps pmb:cross-native"
 _carch="arm64"
@@ -234,4 +235,5 @@ adfd4cab337dd7db15456f80dfe412bef8dbc480e679fa855a47f5dd4bdce6c3c06740f3d3b88850
 cbc0ba4c7bd9ab99dc552ac45048296a2ac41b740a0f8d2ae2fdca626d4f5115bc95c017087fd2b7659aeab35d3a95130ac3afb58ff0fe20900494ad98edc2ea  0091-arm64-dts-qcom-rhodep-drop-absent-microphones.patch
 a213be2d657373e447ece84a4828bae5ee936743a852cabeb35f53b7401fb7683eca367d7d2cae828acbfffbbdbbe4576436bde8575feabd4154b398de71aa1c  0092-arm64-dts-qcom-rhodep-add-the-flash-led-as-a-torch.patch
 d7b5fcbb2eb2ed7c5e97ed19f6d806d29f9e32e76e6cf65a5f752495923a35135dda7bb65bf971f255e2ec96be4c5b5da09b243b88daa018be3218bea1603192  0093-arm64-dts-qcom-rhodep-expose-gpu-770-840.patch
+bb61237e744ef998b5c3fce46e7537826eb7f1767b29d7342d0d9d4c6cf666da13cbcdc0a50a30931da4d0ddecf7e58c568074810f410d7af6e02733a6cb5974  0094-drm-panel-nt37701-selectable-refresh-rate.patch
 "

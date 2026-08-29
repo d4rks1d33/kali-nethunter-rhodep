@@ -2383,9 +2383,48 @@ already done.
    `GPIO 500000.pinctrl` in pinmux-pins while held. So it is one GPIO and
    nothing else: no rail to hunt for, no i2c part.
 
-   What is left is the device tree node, and then finding what name Plasma's
-   flashlight tile looks for under `/sys/class/leds`. A camera strobe would
-   later want the v4l2-flash class rather than a plain LED; a torch does not.
+   **The gpio-leds node in patch 0092 is not enough, and the reason is the
+   interesting part.** It creates `/sys/class/leds/white:torch`, Plasma's tile
+   finds it (the plugin matches `*:torch` over udev and reads `max_brightness`),
+   and writing 1 does light the LED -- for a few seconds. Then it goes out while
+   `brightness` still reads 1. So the LED class thinks it is on and the hardware
+   disagrees.
+
+   The vendor explains it. The flash needs **two** pins, not one:
+
+   | pin | role |
+   | --- | --- |
+   | tlmm 49 | enable, via `qcom,camera-flash` with `flash-type = <CAM_FLASH_TYPE_GPIO>` |
+   | PM6125 gpio8, function `func1` | current, as PWM from `&pm6125_pwm 0` |
+
+   and `cam_flash_pm6125_gpio/pm6125_flash_gpio.c` sets the current *as the duty
+   cycle*:
+
+	#define PM6125_PWM_PERIOD          50000   /* 50 us */
+	#define FLASH_FIRE_LOW_MAXCURRENT    150   /* mA, torch */
+	#define FLASH_FIRE_HIGH_MAXCURRENT  1200   /* mA, strobe */
+
+	duty_cycle = PM6125_PWM_PERIOD * real_current / FLASH_FIRE_LOW_MAXCURRENT;
+
+   Holding the enable high with no PWM is therefore "strobe at full current",
+   and the driver IC's safety timer cuts it. Android never does that: in torch
+   mode it asks for at most 150 mA, about 12% duty. That is why it stays lit
+   there and not here.
+
+   What it actually takes:
+
+   1. `qcom,pm6125-pwm` in `drivers/leds/rgb/leds-qcom-lpg.c`. Mainline has
+      pm8916, pm8350c, pmi632 and others but not this one, and an entry is six
+      lines: the vendor's node is `qcom,pwms@b300`, `reg = <0xb300>`,
+      `qcom,num-lpg-channels = <1>`, which maps onto `.num_channels = 1` and
+      `.base = 0xb300`. Upstreamable on its own.
+   2. The LPG node in the PM6125 device tree, and PM6125 gpio8 muxed to `func1`.
+   3. `pwm-leds` instead of `gpio-leds`, period 50 us, brightness scaled into
+      the torch range rather than the strobe one.
+   4. Somewhere to keep tlmm 49 asserted -- `leds-pwm` has no enable property,
+      so this is the part that needs a decision rather than transcription.
+
+   Steps 1 to 3 are mechanical. Patch 0092 should be replaced, not extended.
 
 10. **NFC.** Samsung `sec-nfc` (S3NRN) at 0x27, with ven=tlmm48, firm=tlmm8,
     irq=tlmm9 and clk_req=tlmm7.
@@ -2512,6 +2551,33 @@ already done.
     Start at `pdr_notifier_work` and which of the LPASS macro drivers
     (`snd_soc_lpass_tx_macro` / `va_macro`) drops the reference twice across a
     PD notification.
+
+15. **Get more out of the GPU.** It works and it is accelerated, but it is
+    running at a fraction of what the part can do.
+
+    `/sys/class/devfreq/*.gpu` offers **266, 390, 490 and 650 MHz**, and
+    `simple_ondemand` picks between them. The vendor's own power levels for this
+    GPU go considerably higher:
+
+	qcom,gpu-freq = <875000000>;  qcom,level = <RPMH_REGULATOR_LEVEL_TURBO_L1>;
+	qcom,gpu-freq = <800000000>;  qcom,level = <RPMH_REGULATOR_LEVEL_TURBO>;
+	qcom,gpu-freq = <650000000>;  qcom,level = <RPMH_REGULATOR_LEVEL_NOM_L1>;
+
+    So mainline's table stops at what the vendor calls nominal, and 800 and
+    875 MHz are simply not described. That is most of a third of the peak clock
+    left unused, and it is the kind of gap that shows up as jank rather than as
+    a number anybody notices.
+
+    Adding the two missing OPPs is not a transcription job, and this is the
+    reason to be careful rather than a reason not to try: each level carries a
+    voltage corner, this GPU is fed from **VDDGX and not VDDCX** (that is what
+    patch 0007 fixed, and getting it wrong under-volts the part and hangs it
+    under load), and the thermal map in patch 0021 was written against a table
+    that stops at 650. Raising the ceiling without revisiting throttling is how
+    a phone gets faster for ninety seconds and then slower than before.
+
+    Worth measuring before and after with `scripts/rhodep-repaint-bench`, which
+    already reports late frames and exists for exactly this kind of comparison.
 
 # License
 Kernel patches: GPL-2.0. Packaging/glue: MIT. Vendor firmware blobs: proprietary,

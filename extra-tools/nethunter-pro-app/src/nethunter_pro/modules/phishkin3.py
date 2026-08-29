@@ -88,6 +88,10 @@ class Phishkin3(NHModule):
         self.phishlet.connect("notify::selected", self._on_phishlet)
         g.add(self.phishlet)
 
+        self.ssid = Adw.EntryRow(title="AP name (SSID)")
+        self.ssid.set_text("Free WiFi")
+        g.add(self.ssid)
+
         self.iface = Adw.EntryRow(title="AP interface")
         self.iface.set_text("wlan1")
         g.add(self.iface)
@@ -188,11 +192,14 @@ class Phishkin3(NHModule):
         domain = self.domain_entry.get_text().strip()
         iface = self.iface.get_text().strip() or "wlan1"
         iface_net = self.iface_net.get_text().strip()
+        ssid = self.ssid.get_text().strip()
         if not domain:
             toast(self.app_window, "Pick or type a look-alike domain")
             return
         argv = [LAUNCHER, "--phishlet", phishlet, "--domain", domain,
                 "--interface", iface]
+        if ssid:
+            argv += ["--ssid", ssid]
         if iface_net:
             argv += ["--interface-net", iface_net]
         if start:

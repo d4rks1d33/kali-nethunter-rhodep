@@ -444,8 +444,9 @@ adapter anyway. Its face and status are on the web UI at `http://<phone>:8080`.
 
 **`nethunter-pro-app/`** — the NetHunter Pro control panel, a GTK4/libadwaita
 app for Phosh that drives the port's tools from a touch UI instead of a
-terminal: pwnagotchi, wifipumpkin3, CARsenal (CAN bus), nmap, HID/BadUSB
-attacks, an evil twin, VNC, Docker, and the rest. Each is a module screen.
+terminal: pwnagotchi, wifipumpkin3, Phishkin3 (wp3 + evilginx2), CARsenal (CAN
+bus), nmap, HID/BadUSB attacks, an evil twin, VNC, Docker, and the rest. Each
+is a module screen.
 
 The Docker screen keeps the engine off until asked. Start and Stop drive
 **both** `docker.service` and `docker.socket` -- the socket first on start so the
@@ -465,6 +466,87 @@ among them is surfaced as a URL. Tested end to end with `bkimminich/juice-shop`:
 pull, EXPOSE 3000 detected and published, container up, HTTP 200 on
 `http://127.0.0.1:3000`; and the wipe verified to leave zero containers, images
 and volumes.
+
+The **Phishkin3 (evilginx)** screen turns the multi-step wifipumpkin3 +
+evilginx2 attack (https://docs.wifipumpkin3.com/blog/tutorials/phishkin3) into
+three inputs: phishlet, look-alike domain, interface. The orchestrator lives in
+`helper/rhodep-phishkin3-launch`. It configures evilginx by feeding its shell
+commands on stdin (evilginx v3 keeps phishlets and lures in a BuntDB store, not
+a config file, so pilot-by-stdin is the reliable way), writes the wp3 `.pulp`
+with the phishkin3 proxy and DNS spoof, spoofs `/etc/hosts`, and launches both
+tools in a `tmux` session named `phishkin3` so they survive and can be attached
+for logs. 95 community phishlets ship pre-installed under
+`/usr/share/evilginx2/phishlets/` (from Whispergate, jeanlucndato and
+hash3liZer), including Instagram, Facebook, Google, GitHub and LinkedIn.
+
+The domain is never the real one -- HSTS preload refuses a spoof of the real
+name. The screen suggests look-alikes: a plain one (`instagram-login.com`) and
+homoglyphs, Cyrillic and dotless-i characters that read as the original but are
+a different domain. The launcher converts these to punycode, which is what
+evilginx, the DNS spoof and `/etc/hosts` actually use: `instagrаm.com` with a
+Cyrillic a becomes `xn--instgram-46g.com`, verified end to end.
+
+Ten separate bugs had to be worked around, all committed and worth reading
+because they name traps the next attacker will hit:
+
+  * The evilginx config directory has to be cleared each run (a stale `data.db`
+    accumulates lures and hostnames from previous runs, so `get-url 0` returns
+    the wrong lure for the current phishlet -- Instagram tripped over this).
+  * The DNS spoof needs every subdomain listed explicitly. `add *.<domain>`
+    is written to the zone file but pydns does not match it against a real
+    query for `www.<domain>`: the log shows `no local zone found, proxying
+    www.<domain>` and the browser gets `ERR_NAME_NOT_RESOLVED`. Every landing
+    hostname from the phishlet's `proxy_hosts` gets its own `add` line.
+  * phishkin3's gate allows only port 8080 to the AP; the launcher adds an
+    `iptables -I FORWARD` for 443 to the AP so the browser can reach the lure
+    that `/login` 302s to.
+  * evilginx's blacklist runs in `unauth` mode by default. Every victim's
+    traffic transits through the AP, so a stray probe or a curl during setup
+    lands the AP IP on the list, after which every real visitor gets served
+    the `unauth_url` (a Rickroll). The launcher sends `blacklist off` on
+    startup and clears `blacklist.txt` alongside the config each run.
+  * The stock Instagram phishlet's `sub_filters` are a no-op (search and
+    replace are both `https://{hostname}/`), so the HTML served to the
+    browser keeps hardcoded links to `www.instagram.com` and the browser
+    fetches static assets from the real Instagram through the DNS spoof.
+    A fixed phishlet lives under `phishlets/instagram.yaml` and gets copied
+    into place.
+  * NetworkManager still owns `wlan1` while wp3 puts it in AP mode, so it
+    disconnects the interface in a loop -- SSID flashes on and off. `nmcli
+    device set <iface> managed no` before start, `managed yes` on Stop.
+  * `wifipumpkin3`'s `-iNM` is a *standalone action*, not a flag. Passed with
+    `-p`, wp3 ignores the interface and exits before touching the pulp; the
+    log shows `The interface wlan1 has been ignored successfully` and then
+    nothing, and tmux dies with `no server running`. The nmcli call above is
+    enough; `-iNM` must not be added to the wp3 invocation.
+  * `pkill -f phishkin3` would match the launcher itself, which is called
+    `nethunter-pro-phishkin3-launch`. The reset used narrow patterns instead:
+    `pgrep -f 'wifipumpkin3 -p'`, `pgrep -f 'plugins/bin/phishkin3'`, and
+    `pkill -x` for evilginx/hostapd/dnsmasq. The `pgrep` variants also filter
+    out the launcher's own pid.
+  * Half-cleaned state between launches (duplicate FORWARD ACCEPT rules, an
+    already-open tmux session) stops wp3 from ever driving phishkin3 to a
+    listening state -- the AP comes up but there is no captive portal.
+    `full_reset` runs before every Launch, whether Stop was pressed or not.
+  * evilginx's `-developer` mode signs certs with a CA called literally
+    "Evilginx Super-Evil Root CA". Android will never trust that automatically.
+    Installing the CA on the victim (Settings → Security → Install certificate)
+    works for browser traffic in a lab, but not for apps: since Android 7,
+    Chrome and system apps ignore user-installed CAs by policy, which was
+    Google's mitigation for exactly this attack. The realistic path for real
+    victim-facing use is a public look-alike domain and Let's Encrypt via
+    autocert (without `-developer`), which the launcher does not do today.
+
+Also worth documenting because it is not obvious: nethunter-pro-app also
+carries `rhodep-make-captiveportal`, a generator that turns a git repo of a
+static login page into a wifipumpkin3 captive portal (clones, folds
+`index.html` into `templates/login.html`, moves css/js/images under `static/`
+and rewrites paths, forces the first `<form>` to POST with `name=login` /
+`name=password` so captiveflask captures, writes the plugin `.py`, installs
+into place and deletes the clone). It is invoked from the wifipumpkin3 screen
+and reports honestly when the source has no `<form>` and only submits via
+JavaScript, since a portal that silently captures nothing is worse than one
+that admits it cannot.
 
 The detail worth knowing: anything needing root goes through a persistent DBus
 helper (`org.kali.NetHunterPro.Helper`) so the password is asked once, falling
@@ -668,7 +750,8 @@ extra-tools/          not needed to boot or to make a call: tools that make the
                       TP-Link (wlan1mon), never touching the internal wlan0
                       (install.sh; on-demand services, needs otg on)
   nethunter-pro-app/  the NetHunter Pro control panel (GTK4/libadwaita for
-                      Phosh): pwnagotchi, wifipumpkin3, CARsenal, nmap, HID,
+                      Phosh): pwnagotchi, wifipumpkin3, Phishkin3 (wp3 +
+                      evilginx2, 95 phishlets), CARsenal, Docker, nmap, HID,
                       VNC and more, from a touch UI (install.sh + dbus helper)
   cleanup/            weekly disk-space cleanup (caches, journal, coredumps)
                       + a permanent journal cap; weekly systemd timer (install.sh)

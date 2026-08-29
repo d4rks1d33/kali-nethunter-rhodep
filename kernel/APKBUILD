@@ -108,6 +108,7 @@ source="
 	0094-drm-panel-nt37701-selectable-refresh-rate.patch
 	0095-arm64-dts-qcom-sm6375-soundwire-wake-irq.patch
 	0096-power-supply-cw2217-no-full-while-discharging.patch
+	0097-drm-panel-nt37701-offer-all-four-refresh-rates.patch
 "
 options="!check !strip !tracedeps pmb:cross-native"
 _carch="arm64"
@@ -240,4 +241,5 @@ d7b5fcbb2eb2ed7c5e97ed19f6d806d29f9e32e76e6cf65a5f752495923a35135dda7bb65bf971f2
 bb61237e744ef998b5c3fce46e7537826eb7f1767b29d7342d0d9d4c6cf666da13cbcdc0a50a30931da4d0ddecf7e58c568074810f410d7af6e02733a6cb5974  0094-drm-panel-nt37701-selectable-refresh-rate.patch
 532c2d929e3ff883d39b63880b64a67394a94817d8262fca3d76787d113f3eb1ca099635b353dd11b0fdf41042967bbefa71c7f0241d3a99a039a14037154f56  0095-arm64-dts-qcom-sm6375-soundwire-wake-irq.patch
 9c96e062ea91e27b7b0f38bc5c85776c7f5bc5b8ad28a34ca606dc79856440336b6d6f099585eae6776b840a4a18ef7ccf414a028af5801c793081a62499c50e  0096-power-supply-cw2217-no-full-while-discharging.patch
+0623c17e6fded6bbb170e8273d737c000c7577c92eabb1429d557a981ff6bdd7f10f899f890835844a0a32efc61fa3e3f77de5ce9100e3a3fafbe4780bb3e5e6  0097-drm-panel-nt37701-offer-all-four-refresh-rates.patch
 "

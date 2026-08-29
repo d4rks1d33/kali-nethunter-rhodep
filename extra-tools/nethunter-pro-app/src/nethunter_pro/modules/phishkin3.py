@@ -210,13 +210,22 @@ class Phishkin3(NHModule):
         self.runner.run(argv, root=True)
 
     def _stop(self) -> None:
-        # Kill both tools, drop the tmux session, and strip our hosts entries.
+        # Kill everything, drop the tmux session, strip our hosts entries, and
+        # give the AP interface back to NetworkManager so ordinary Wi-Fi still
+        # works on it once the attack is done.
+        iface = self.iface.get_text().strip() or "wlan1"
         script = (
             "tmux kill-session -t phishkin3 2>/dev/null || true\n"
-            "pkill -f wifipumpkin3 2>/dev/null || true\n"
-            "pkill -f evilginx 2>/dev/null || true\n"
+            "pkill -9 -f wifipumpkin3 2>/dev/null || true\n"
+            "pkill -9 -f evilginx 2>/dev/null || true\n"
+            "pkill -9 -f phishkin3 2>/dev/null || true\n"
+            "pkill -9 hostapd 2>/dev/null || true\n"
+            "pkill -9 dnsmasq 2>/dev/null || true\n"
+            "iptables -F FORWARD 2>/dev/null || true\n"
+            "iptables -t nat -F 2>/dev/null || true\n"
             "sed -i '/# nethunter-phishkin3/d' /etc/hosts 2>/dev/null || true\n"
-            "echo stopped and hosts restored\n"
-        )
+            "nmcli device set %s managed yes 2>/dev/null || true\n"
+            "echo stopped, hosts restored, %s back to NetworkManager\n"
+        ) % (iface, iface)
         self.runner.output.append("Stopping phishkin3…\n")
         self.runner.run(["sh", "-c", script], root=True)

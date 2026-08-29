@@ -295,6 +295,27 @@ Measured on the device, in this order:
 Do not try to solve this by making the listener unfreezable. It would still have
 to answer the DSP while the AP is asleep, which is exactly what it cannot do.
 
+### Test suspend with `systemctl suspend`, never with `rtcwake`
+
+`rtcwake -m mem` writes to `/sys/power/state` directly and therefore **skips
+`/usr/lib/systemd/system-sleep/` entirely**, so the hook above never runs. The
+listener stays alive through the freeze, the sensors PD asserts, and the ADSP
+takes audio down with it -- the very failure the hook exists to prevent.
+
+Measured the hard way: five `rtcwake -m mem -s 60` cycles produced five ADSP
+crashes,
+
+	qcom_q6v5_pas a400000.remoteproc: fatal error received:
+	  err_qdi.c:1045:EX:sensor_process:0x1:frpc_dsp:0xc5
+	remoteproc remoteproc1: handling crash #5 in adsp
+
+and `/proc/asound/cards` came back "no soundcards" even though the ADSP itself
+recovered and reads `running`. A reboot brings the card back; nothing short of
+one does, because the card was registered against the ADSP instance that died.
+
+So a suspend test that uses `rtcwake` is not testing the configuration this
+port actually ships, and it will quietly cost you audio while it runs.
+
 ## Automatic brightness
 
 The ambient light sensor works and reports correct lux -- 6.6 in a dark room,

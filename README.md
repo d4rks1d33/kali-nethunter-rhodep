@@ -99,6 +99,10 @@ list; everything here is a from-scratch community port.
     `rtw88` mac80211 driver (`rtw_8821au`), see `packages/rhodep-rtl8821au`.
 
   Either shows up as `wlan1`; the internal `wlan0` is never touched.
+- **microSD**, in the tray beside the SIM. Verified with a 16 GB card: it
+  enumerates at UHS-I SDR104, 202 MHz on a 4-bit bus, and its vfat partition is
+  readable. It needed no work at all -- `&sdhc_2` has had its supplies and
+  card-detect GPIO since patch 0001, and nobody had put a card in to find out.
 - **Docker**, and all NetHunter kernel features (WiFi USB injection drivers,
   BadUSB HID gadget, CAN, SDR, NFS)
 - **Phone apps** (dialer, SMS, Contacts, file manager) via `mobian-phosh-phone`
@@ -2374,8 +2378,14 @@ already done.
    will pick it up: it may want a specific name, or it may go through the V4L2
    flash API rather than the LED class, and those are different amounts of work.
 
-   Untested. Nobody has yet driven that GPIO to see the LED light up, which is
-   the first thing to do and needs no code at all.
+   **Confirmed on the device.** tlmm 49 was free and unclaimed, driving it with
+   `gpioset -c gpiochip3 -t 1s 49=1` blinks the rear flash, and the pin shows as
+   `GPIO 500000.pinctrl` in pinmux-pins while held. So it is one GPIO and
+   nothing else: no rail to hunt for, no i2c part.
+
+   What is left is the device tree node, and then finding what name Plasma's
+   flashlight tile looks for under `/sys/class/leds`. A camera strobe would
+   later want the v4l2-flash class rather than a plain LED; a torch does not.
 
 10. **NFC.** Samsung `sec-nfc` (S3NRN) at 0x27, with ven=tlmm48, firm=tlmm8,
     irq=tlmm9 and clk_req=tlmm7.
@@ -2411,28 +2421,15 @@ already done.
     32 kHz clk_req, or simply not ACKing until something speaks NCI to it -- has
     still to be found. Establish that before writing or porting any driver.
 
-11. **microSD -- probably already works, just untested.** The tray takes a card
-    alongside the SIM, and the device tree has had the controller wired up since
-    patch 0001:
-
-	&sdhc_2 {
-		status = "okay";
-		vmmc-supply = <&pm6125_l22>;
-		vqmmc-supply = <&pm6125_l5>;
-		cd-gpios = <&tlmm 94 GPIO_ACTIVE_HIGH>;
-	};
-
-    Supplies and card detect are all there, and `sdhc_2` is a plain
-    `qcom,sdhci-msm` that mainline drives. So the honest state of this item is
-    that nobody has put a card in.
-
-    Put one in, then `dmesg | grep mmc` and `lsblk`. If it enumerates, delete
-    this entry rather than writing anything.
-
 12. **Fingerprint, and unlocking the screen with it.** Focaltech, driven on
     Android by a proprietary HAL (`fingerprint.focaltech.default.so`). No
     mainline driver, and the sensor node was not found in the vendor tree's
     sparse checkout, so even the bus and GPIOs still have to be established.
+
+    **The sensor is fitted**, which is worth establishing before anyone decides
+    this variant simply lacks it: the bootloader declares `mmi,fps = true` in
+    `/chosen`, the same mechanism it uses for the NFC chip. So this is a driver
+    problem, not a missing-hardware one.
 
     Worth being clear that this is two jobs, not one, and the second is the
     part people forget: a working driver gets you an image from the sensor.

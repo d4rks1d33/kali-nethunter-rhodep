@@ -120,35 +120,56 @@ def rewrite_form(html):
         return tag[:-1] + ' method="POST" action="/login">'
     html = re.sub(r"<form\b[^>]*>", fix_form_tag, html, count=1, flags=re.I)
 
+    # Attribute value: quoted ("x" or 'x') or bare (x). One pattern reused so
+    # both quoting styles are handled -- real pages use quotes, hand-written and
+    # minified ones sometimes do not.
+    V = r'''(?:"[^"]*"|'[^']*'|[^\s>]+)'''
+
+    def set_name(html, target):
+        """Give the matched input name="<target>", replacing any existing name."""
+        return re.sub(r'(name\s*=\s*)' + V,
+                      lambda m: m.group(1) + '"%s"' % target, html, count=1,
+                      flags=re.I)
+
     # Rename the likely username field to name="login".
-    if re.search(r'name\s*=\s*["\']login["\']', html, flags=re.I):
+    if re.search(r'name\s*=\s*(?:"login"|\'login\'|login\b)', html, flags=re.I):
         pass  # already there
     else:
+        # An input whose name looks like a username/email/account field.
         user_pat = re.compile(
-            r'(<input\b[^>]*name\s*=\s*["\'])'
-            r'(user(name)?|email|log(in)?|account|id)'
-            r'(["\'][^>]*>)', flags=re.I)
-        html, n = user_pat.subn(r"\1login\5", html, count=1)
-        if not n:
-            # fall back: the first text/email input becomes login
-            html, n = re.subn(
-                r'(<input\b[^>]*type\s*=\s*["\'](?:text|email)["\'][^>]*name\s*=\s*["\'])[^"\']*(["\'])',
-                r"\1login\2", html, count=1, flags=re.I)
-        if not n:
+            r'<input\b[^>]*name\s*=\s*["\']?'
+            r'(?:user(?:name)?|email|log(?:in)?|account|id|phone)',
+            flags=re.I)
+        m = user_pat.search(html)
+        if not m:
+            # fall back: first text or email input
+            m = re.search(
+                r'<input\b[^>]*type\s*=\s*["\']?(?:text|email)\b', html, flags=re.I)
+        if m:
+            tag_end = html.index(">", m.start())
+            tag = html[m.start():tag_end + 1]
+            if re.search(r'name\s*=', tag, flags=re.I):
+                new_tag = set_name(tag, "login")
+            else:
+                new_tag = tag[:-1] + ' name="login">'
+            html = html[:m.start()] + new_tag + html[tag_end + 1:]
+        else:
             warns.append("could not find a username field to rename to "
                          "name=login; check the form by hand")
 
     # Rename the password field to name="password".
-    if not re.search(r'name\s*=\s*["\']password["\']', html, flags=re.I):
-        html, n = re.subn(
-            r'(<input\b[^>]*type\s*=\s*["\']password["\'][^>]*name\s*=\s*["\'])[^"\']*(["\'])',
-            r"\1password\2", html, count=1, flags=re.I)
-        if not n:
-            # a password input without a name attribute at all
-            html, n = re.subn(
-                r'(<input\b[^>]*type\s*=\s*["\']password["\'])',
-                r'\1 name="password"', html, count=1, flags=re.I)
-        if not n:
+    if not re.search(r'name\s*=\s*(?:"password"|\'password\'|password\b)',
+                     html, flags=re.I):
+        m = re.search(r'<input\b[^>]*type\s*=\s*["\']?password\b', html, flags=re.I)
+        if m:
+            tag_end = html.index(">", m.start())
+            tag = html[m.start():tag_end + 1]
+            if re.search(r'name\s*=', tag, flags=re.I):
+                new_tag = set_name(tag, "password")
+            else:
+                new_tag = tag[:-1] + ' name="password">'
+            html = html[:m.start()] + new_tag + html[tag_end + 1:]
+        else:
             warns.append("could not find a password field; check the form by "
                          "hand")
 
@@ -230,34 +251,27 @@ def build(git_url, plugin_name=None):
             open(preview, "wb").write(
                 b"\x89PNG\r\n\x1a\n")  # minimal, just so the path resolves
 
-        # The plugin .py next to the folder, both inside the zip.
-        py_path = os.path.join(work, name + ".py")
-        open(py_path, "w").write(PLUGIN_PY.format(
-            name=name, desc="captive portal from " + repo_base))
-
-        zip_path = os.path.join(work, name + ".zip")
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
-            z.write(py_path, name + ".py")
-            for base, _dirs, files in os.walk(stage):
-                for f in files:
-                    p = os.path.join(base, f)
-                    z.write(p, os.path.relpath(p, work))
-        say("built %s" % zip_path)
-
-        # Install through wifipumpkin3 so it lands where the tool expects and
-        # registers the plugin.
-        say("installing into wifipumpkin3")
-        r = subprocess.run(
-            ["wifipumpkin3", "-x", "use misc.custom_captiveflask; "
-             "install %s %s; exit" % (name, zip_path)],
-            capture_output=True, text=True, timeout=120)
-        out = (r.stdout or "") + (r.stderr or "")
-        if "sucessful" in out or "successful" in out or \
-                os.path.isdir(os.path.join(TEMPLATES_DIR, name)):
-            say("installed template %s" % name)
-        else:
-            say("install may have failed; wifipumpkin3 said:")
-            say(out.strip()[-500:])
+        # Install into place directly. This is exactly what wifipumpkin3's
+        # `install` does -- copy the .py into the captiveflask plugins dir and
+        # the folder into the templates dir -- without starting wifipumpkin3,
+        # which would reconfigure the network.
+        os.makedirs(PLUGIN_DIR, exist_ok=True)
+        os.makedirs(TEMPLATES_DIR, exist_ok=True)
+        open(os.path.join(PLUGIN_DIR, name + ".py"), "w").write(
+            PLUGIN_PY.format(name=name, desc="captive portal from " + repo_base))
+        dest_tmpl = os.path.join(TEMPLATES_DIR, name)
+        if os.path.isdir(dest_tmpl):
+            shutil.rmtree(dest_tmpl)
+        shutil.copytree(stage, dest_tmpl)
+        # Mirror to the shared templates dir too, so the app's Refresh (which
+        # scans /usr/share/...) lists it as well.
+        shared = "/usr/share/wifipumpkin3/config/templates"
+        if os.path.isdir(shared):
+            dst = os.path.join(shared, name)
+            if os.path.isdir(dst):
+                shutil.rmtree(dst)
+            shutil.copytree(stage, dst)
+        say("installed plugin %s.py and template %s" % (name, name))
 
         if warns:
             say("")

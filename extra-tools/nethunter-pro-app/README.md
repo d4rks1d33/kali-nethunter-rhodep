@@ -61,6 +61,24 @@ and opens it in a terminal. What each field maps to:
 there and press **Refresh templates** to pick it up. The stock ones are
 `DarkLogin`, `FlaskDemo`, `Login_v4`, `evilqr3` and `loginPage`.
 
+**Build a portal from a login-page repo.** The screen has a "Build a portal from
+a login page repo" box: paste a git URL of a static login page (e.g.
+`github.com/trananhtuat/instagram-login`) and it produces a wifipumpkin3 captive
+portal from it. `helper/rhodep-make-captiveportal` does the work: clone the repo,
+fold its `index.html` into `templates/login.html`, move css/js/images under
+`static/` and rewrite their paths to `url_for('static', ...)`, write the plugin
+`.py`, install both into place (the captiveflask plugins dir and the templates
+dir, directly -- not by starting wifipumpkin3, which would reconfigure the
+network), and delete the clone so the source does not sit around.
+
+The form rewrite is best-effort and honest about it. It forces the first `<form>`
+to `method="POST"`, renames the username-ish field to `name="login"` and the
+password field to `name="password"` (the two fields captiveflask captures),
+handling quoted and unquoted attributes. If the page has no `<form>` -- it
+submits through JavaScript, like the Instagram example above -- it says so
+plainly, because a capture that silently captures nothing is worse than a
+warning. Pick a repo with a real HTML login form for capture to work.
+
 Note the NAT/forwarding wifipumpkin3 sets up needs iptables working in the
 kernel; on a kernel without the `ip_tables` module, sharing internet fails with
 "table does not exist".

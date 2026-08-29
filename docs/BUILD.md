@@ -211,6 +211,16 @@ sudo chroot /tmp/rootfs sh /srv/power/install.sh
   directory had no `install.sh` at all until now, so images built before this
   note have none of it.
 
+  It also installs the pair that keeps the WiFi alive across a suspend:
+  `/usr/lib/systemd/system-sleep/rhodep-wowlan`, which disarms WoWLAN for the
+  instant NetworkManager checks it on resume so NM does not tear the link down
+  and rebuild it, and `rhodep-wowlan-check.timer`, which re-arms WoWLAN if it is
+  ever found off with `wlan0` associated. The timer is not optional decoration:
+  both earlier versions of the hook failed in ways that left WoWLAN disarmed for
+  good, and a phone in that state cannot be woken over the network at all. All
+  four files are registered with `rhodep-protect-files`, so a stray `apt` or an
+  editor cannot quietly undo them.
+
 - **Login screen** (`userspace/login/install.sh`): required as soon as anything
   pulls in `gdm3` (several Kali metapackages do), because `phosh.service` and a
   display manager both claim the display at boot. See README "Login screen

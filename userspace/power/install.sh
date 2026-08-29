@@ -36,7 +36,11 @@ if [ -x "$PROTECT" ]; then
 		/etc/rhodep/keep-awake.conf \
 		/etc/systemd/system/rhodep-keep-awake.service \
 		/etc/systemd/system/rhodep-suspend-mode.service \
-		/etc/NetworkManager/conf.d/rhodep-wowlan.conf 2>/dev/null || true
+		/etc/NetworkManager/conf.d/rhodep-wowlan.conf \
+		/usr/lib/systemd/system-sleep/rhodep-wowlan \
+		/usr/local/sbin/rhodep-wowlan-check \
+		/etc/systemd/system/rhodep-wowlan-check.service \
+		/etc/systemd/system/rhodep-wowlan-check.timer 2>/dev/null || true
 fi
 
 install -D -m 0755 "$here/rhodep-keep-awake"   /usr/local/sbin/rhodep-keep-awake
@@ -102,13 +106,18 @@ if [ -x "$PROTECT" ]; then
 	"$PROTECT" register power 0755 \
 		/usr/local/sbin/rhodep-keep-awake \
 		/usr/local/sbin/rhodep-awake \
-		/usr/local/sbin/rhodep-suspend-mode 2>/dev/null || true
+		/usr/local/sbin/rhodep-suspend-mode \
+		/usr/local/sbin/rhodep-wowlan-check \
+		/usr/lib/systemd/system-sleep/rhodep-wowlan 2>/dev/null || true
 	"$PROTECT" register power-conf 0644 \
 		/etc/systemd/system/rhodep-keep-awake.service \
 		/etc/systemd/system/rhodep-suspend-mode.service \
-		/etc/NetworkManager/conf.d/rhodep-wowlan.conf 2>/dev/null || true
+		/etc/NetworkManager/conf.d/rhodep-wowlan.conf \
+		/etc/systemd/system/rhodep-wowlan-check.service \
+		/etc/systemd/system/rhodep-wowlan-check.timer 2>/dev/null || true
 	# keep-awake.conf is deliberately NOT registered: the store restores content,
 	# and this file is meant to be edited.
 	"$PROTECT" register-units power \
-		rhodep-keep-awake.service rhodep-suspend-mode.service 2>/dev/null || true
+		rhodep-keep-awake.service rhodep-suspend-mode.service \
+		rhodep-wowlan-check.timer 2>/dev/null || true
 fi

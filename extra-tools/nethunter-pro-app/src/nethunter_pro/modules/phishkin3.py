@@ -214,13 +214,18 @@ class Phishkin3(NHModule):
         # give the AP interface back to NetworkManager so ordinary Wi-Fi still
         # works on it once the attack is done.
         iface = self.iface.get_text().strip() or "wlan1"
+        # Stop uses the same narrow-pattern approach as the launcher: 'pkill -f
+        # phishkin3' would match nethunter-pro-phishkin3-launch itself, and
+        # although this runs in a different shell than the launcher, the same
+        # trap can catch anything else on the machine that happens to have
+        # 'phishkin3' in its name. Match the real service processes.
         script = (
             "tmux kill-session -t phishkin3 2>/dev/null || true\n"
-            "pkill -9 -f wifipumpkin3 2>/dev/null || true\n"
-            "pkill -9 -f evilginx 2>/dev/null || true\n"
-            "pkill -9 -f phishkin3 2>/dev/null || true\n"
-            "pkill -9 hostapd 2>/dev/null || true\n"
-            "pkill -9 dnsmasq 2>/dev/null || true\n"
+            "pgrep -f 'wifipumpkin3 -p' | xargs -r kill -9 2>/dev/null || true\n"
+            "pgrep -f 'plugins/bin/phishkin3' | xargs -r kill -9 2>/dev/null || true\n"
+            "pkill -9 -x evilginx2 2>/dev/null || true\n"
+            "pkill -9 -x hostapd 2>/dev/null || true\n"
+            "pkill -9 -x dnsmasq 2>/dev/null || true\n"
             "iptables -F FORWARD 2>/dev/null || true\n"
             "iptables -t nat -F 2>/dev/null || true\n"
             "sed -i '/# nethunter-phishkin3/d' /etc/hosts 2>/dev/null || true\n"

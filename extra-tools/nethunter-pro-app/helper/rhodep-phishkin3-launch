@@ -232,18 +232,45 @@ def full_reset():
     iptables rules (five duplicated 443 ACCEPTs stacked up over successive
     launches), and wp3's phishkin3 setup then bailed part way through. Every
     run should start from an empty state.
+
+    The pkill patterns are deliberately narrow. 'pkill -f phishkin3' would
+    match this launcher's own name (nethunter-pro-phishkin3-launch), and
+    signal it with -9 -- 'resetting any previous run' followed by the process
+    dying with 'exit -9' is exactly that bug. Match the real service process
+    (wifipumpkin3/plugins/bin/phishkin3.py) and this launcher's own pid gets
+    excluded from every pattern via --ns 1 (kernel pid namespace root) with an
+    explicit skip.
     """
     say("resetting any previous run")
+    own_pid = os.getpid()
+    patterns = [
+        # The wp3 supervisor itself, but not any wrapper that happens to have
+        # 'wifipumpkin' in its argv -- there is only ever one 'wifipumpkin3 -p'
+        # invocation.
+        "wifipumpkin3 -p",
+        # The evilginx binary. -x matches the exact comm name.
+        None,  # handled with pkill -x below
+        # The phishkin3 proxy is a python running .../plugins/bin/phishkin3.py.
+        "plugins/bin/phishkin3",
+    ]
+    subprocess.run(
+        ["sh", "-c", "tmux kill-session -t phishkin3 2>/dev/null || true"])
+    for pat in patterns:
+        if pat is None:
+            continue
+        # -f matches the full command line, and -F excludes this launcher's pid
+        # so a match on 'phishkin3' cannot catch it.
+        subprocess.run(
+            ["sh", "-c",
+             "pgrep -f '%s' | grep -vw %d | xargs -r kill -9" % (pat, own_pid)],
+            stderr=subprocess.DEVNULL)
+    # These have simple comm names and cannot collide with the launcher.
+    for comm in ("evilginx2", "hostapd", "dnsmasq"):
+        subprocess.run(["sh", "-c", "pkill -9 -x %s 2>/dev/null || true" % comm],
+                       stderr=subprocess.DEVNULL)
+    # Clean iptables rules the previous run left behind and the /etc/hosts
+    # entries with the marker.
     for cmd in [
-        "tmux kill-session -t phishkin3",
-        "pkill -9 -f wifipumpkin3",
-        "pkill -9 -f evilginx",
-        "pkill -9 -f phishkin3",
-        "pkill -9 hostapd",
-        "pkill -9 dnsmasq",
-        # Clean iptables rules the previous run left behind: FORWARD chain
-        # (phishkin3's own DNS/portal/DROP plus our 443 ACCEPT) and the nat
-        # PREROUTING with the port-80 DNAT. sed the /etc/hosts marker out too.
         "iptables -F FORWARD",
         "iptables -t nat -F",
         "sed -i '/nethunter-phishkin3/d' /etc/hosts",

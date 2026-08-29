@@ -311,9 +311,13 @@ def start_in_tmux(interface):
     release_from_networkmanager(interface)
     subprocess.run([
         "tmux", "new-session", "-d", "-s", "phishkin3", "-n", "wp3",
-        # -iNM keeps NetworkManager from touching the AP interface for the
-        # duration of the wp3 session.
-        "wifipumpkin3 -iNM %s -p %s" % (interface, PULP_PATH)])
+        # No -iNM here: wifipumpkin3's -iNM is a standalone action, not a flag
+        # that combines with -p. Passing '-iNM wlan1 -p ...' makes wp3 ignore
+        # the interface and exit immediately, without touching the pulp -- the
+        # log shows only 'The interface wlan1 has been ignored successfully'
+        # and then nothing. The NetworkManager release above (nmcli device set
+        # <iface> managed no) is enough on its own.
+        "wifipumpkin3 -p %s" % PULP_PATH])
     say("started wp3 in tmux (window wp3)")
     time.sleep(8)  # let the AP come up before evilginx binds
     subprocess.run([

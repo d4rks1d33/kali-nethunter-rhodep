@@ -2728,9 +2728,31 @@ already done.
     `qcom-rpmpd.h` for that reason (650 → 256 NOM, 770 → 320 NOM_PLUS, 840 → 384
     TURBO).
 
-    In `kali-boot-v116-gpu840.img`. **Not yet flashed or benchmarked** — the
-    numbers to beat are in `scripts/rhodep-repaint-bench`, and `dmesg` should
-    stay free of GPU faults under sustained load.
+    **Flashed and measured (v116).** `available_frequencies` lists 770 and 840,
+    and `trans_stat` shows the GPU genuinely using them — within two minutes of
+    boot, on nothing but Plasma's own animations, it had already spent 9.4 s at
+    840 and 4.8 s at 770.
+
+    Stability at the new corner, which was the actual risk, holds: pinned at
+    840 MHz (`min_freq` = `max_freq`) under load for 60 s, the clock stayed there
+    the whole time, the GPU thermal zones sat at 37-42 °C, and dmesg produced no
+    fault, hang, timeout or recovery.
+
+    **The speed-up is not demonstrated, and the honest reason is that there is no
+    GPU-bound workload here to demonstrate it with.** An A/B in the same boot,
+    ceiling pinned to 650 and then 840:
+
+	techo650   frames=1792  fps=59.7  janks=1  worst=33.3ms
+	techo840   frames=1785  fps=59.5  janks=0  worst=19.8ms
+
+    Both sit on the panel's 60 Hz cap, so fps cannot separate them; the worst
+    frame halving from 33.3 ms (exactly two vsyncs, i.e. one dropped frame) to
+    19.8 ms is suggestive, but it is one run each and a 1-vs-0 jank count is
+    noise. glxgears with `vblank_mode=0` gives ~2513 vs ~2627 FPS, about 4.5%,
+    and glxgears is bound by the CPU and the driver rather than the GPU — its
+    first 840 sample is identical to the 650 ones. Neither result should be
+    quoted as the gain. Measuring this properly needs something actually
+    GPU-bound; there is no glmark2 or vkmark on the image.
 
 # License
 Kernel patches: GPL-2.0. Packaging/glue: MIT. Vendor firmware blobs: proprietary,

@@ -33,7 +33,16 @@ else
 	$SUDO true 2>/dev/null || SUDO="sudo -A"
 fi
 
-count_dsi() { $SUDO dmesg | grep -c 'dsi-diag' 2>/dev/null || echo 0; }
+# grep -c prints 0 *and* exits 1 when nothing matches, so the `|| echo 0` this
+# used to end with appended a second line: count_dsi returned "0\n0", and the
+# subtraction below died with "Illegal number: 0" -- throwing away a run that
+# had already completed and printed its RESULT. That is the case on any kernel
+# without the dsi-diag patch (0064), which is every kernel the phone normally
+# runs, so the header's claim that the error count simply "reads 0" was wrong.
+count_dsi() {
+	n=$($SUDO dmesg 2>/dev/null | grep -c 'dsi-diag') || :
+	echo "${n:-0}"
+}
 
 # Anchor in the ring buffer so a wrap during the run cannot be mistaken for a
 # drop in errors.

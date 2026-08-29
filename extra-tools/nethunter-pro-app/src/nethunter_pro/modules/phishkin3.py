@@ -92,6 +92,12 @@ class Phishkin3(NHModule):
         self.iface.set_text("wlan1")
         g.add(self.iface)
 
+        # The adapter with internet, shared to the AP's clients so the victim
+        # gets online after logging in (and evilginx can reach the real site).
+        self.iface_net = Adw.EntryRow(title="Internet interface (share to victim)")
+        self.iface_net.set_text("wlan0")
+        g.add(self.iface_net)
+
         # Suggested look-alike domains, plus a free field.
         self.domain_combo = Adw.ComboRow(title="Look-alike domain")
         self.domain_model = Gtk.StringList()
@@ -181,11 +187,14 @@ class Phishkin3(NHModule):
         phishlet = item.get_string()
         domain = self.domain_entry.get_text().strip()
         iface = self.iface.get_text().strip() or "wlan1"
+        iface_net = self.iface_net.get_text().strip()
         if not domain:
             toast(self.app_window, "Pick or type a look-alike domain")
             return
         argv = [LAUNCHER, "--phishlet", phishlet, "--domain", domain,
                 "--interface", iface]
+        if iface_net:
+            argv += ["--interface-net", iface_net]
         if start:
             argv.append("--start")
         self.runner.output.append(

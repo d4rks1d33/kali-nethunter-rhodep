@@ -106,6 +106,7 @@ source="
 	0092-arm64-dts-qcom-rhodep-add-the-flash-led-as-a-torch.patch
 	0093-arm64-dts-qcom-rhodep-expose-gpu-770-840.patch
 	0094-drm-panel-nt37701-selectable-refresh-rate.patch
+	0095-arm64-dts-qcom-sm6375-soundwire-wake-irq.patch
 "
 options="!check !strip !tracedeps pmb:cross-native"
 _carch="arm64"
@@ -236,4 +237,5 @@ cbc0ba4c7bd9ab99dc552ac45048296a2ac41b740a0f8d2ae2fdca626d4f5115bc95c017087fd2b7
 a213be2d657373e447ece84a4828bae5ee936743a852cabeb35f53b7401fb7683eca367d7d2cae828acbfffbbdbbe4576436bde8575feabd4154b398de71aa1c  0092-arm64-dts-qcom-rhodep-add-the-flash-led-as-a-torch.patch
 d7b5fcbb2eb2ed7c5e97ed19f6d806d29f9e32e76e6cf65a5f752495923a35135dda7bb65bf971f255e2ec96be4c5b5da09b243b88daa018be3218bea1603192  0093-arm64-dts-qcom-rhodep-expose-gpu-770-840.patch
 bb61237e744ef998b5c3fce46e7537826eb7f1767b29d7342d0d9d4c6cf666da13cbcdc0a50a30931da4d0ddecf7e58c568074810f410d7af6e02733a6cb5974  0094-drm-panel-nt37701-selectable-refresh-rate.patch
+532c2d929e3ff883d39b63880b64a67394a94817d8262fca3d76787d113f3eb1ca099635b353dd11b0fdf41042967bbefa71c7f0241d3a99a039a14037154f56  0095-arm64-dts-qcom-sm6375-soundwire-wake-irq.patch
 "

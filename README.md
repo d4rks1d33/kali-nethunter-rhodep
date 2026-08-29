@@ -264,6 +264,14 @@ The practical consequence for auditing work is that a capture must not be allowe
 to suspend in the first place, which is what `rhodep-keep-awake` and its
 AF_PACKET detection are for.
 
+**Both halves have now been confirmed away from the bench.** A walk with the
+screen locked and the TP-Link scanning through OTG: the WiFi stayed up, and the
+capture on the dongle ran through without the adapter dropping or coming back as
+a new interface. That is the scenario this whole section was written from -- it
+had only ever been reproduced while plugged in and sitting on a desk, and the
+one thing that could not be tested there was whether it survives being carried
+around.
+
 **Waking the phone over WiFi works, and has been demonstrated end to end.** Until
 now WoWLAN was only known to be *armed* -- `iw phy0 wowlan show` reports the magic
 packet -- which is not the same as it working. Forced a suspend with
@@ -2352,9 +2360,18 @@ already done.
    macros, so nothing audio-related probes without it, and `pinctrl-0` cannot be
    left empty.
 
-5. **Behave like a phone with the screen locked.** Partly fixed. The immediate
-   cause was not power policy at all: **`deep` suspend does not work on this
-   SoC, and it was the default.**
+5. **Behave like a phone with the screen locked — done, and confirmed in the
+   street.** A walk with the screen locked and the TP-Link scanning through OTG:
+   the WiFi held, the capture ran through, and the adapter neither dropped nor
+   came back as a different interface. That is the scenario this entry was
+   opened from, and it had never been tested anywhere but on a desk with a cable
+   attached.
+
+   It took three separate fixes, and only the first was where the problem looked
+   like it was.
+
+   The immediate cause was not power policy at all: **`deep` suspend does not
+   work on this SoC, and it was the default.**
 
    Asked to sleep for twenty seconds it came back after two, every time, with
    nothing in the log and nothing in `/sys/power/pm_wakeup_irq` -- so not a
@@ -2406,6 +2423,14 @@ already done.
    app declares itself with a foreground service and a notification, and what
    does not declare itself gets frozen. This is the same bargain made without
    the notification.
+
+   **And the last piece was NetworkManager throwing the link away on resume**,
+   which is documented under "Bugs" above: NM skips wake-on-lan devices when
+   suspending and then takes them down "belatedly" on the way back, so the
+   association survived the sleep and was destroyed a second after waking.
+   `userspace/power/systemd/system-sleep/rhodep-wowlan` disarms WoWLAN for the
+   instant NM looks, and `rhodep-wowlan-check.timer` makes sure it always ends up
+   armed again.
 
    Two things stop it becoming a phone that never sleeps, both in
    `/etc/rhodep/keep-awake.conf`:

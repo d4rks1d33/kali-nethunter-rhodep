@@ -439,14 +439,20 @@ app for Phosh that drives the port's tools from a touch UI instead of a
 terminal: pwnagotchi, wifipumpkin3, CARsenal (CAN bus), nmap, HID/BadUSB
 attacks, an evil twin, VNC, Docker, and the rest. Each is a module screen.
 
-The Docker screen keeps the engine off until asked -- `docker.service` and
-`docker.socket` are disabled so nothing holds power at boot -- with Start/Stop
-buttons, a box to pull-and-run an image by name, and a Docker Hub search. Run is
-"inteligente" only as far as the image's own metadata allows: exposed ports come
-from the pulled image's `EXPOSE` list (not a README, which is free text), are
-published with `-p`, and a web port among them is surfaced as a URL. Tested end
-to end with `bkimminich/juice-shop`: pull, EXPOSE 3000 detected and published,
-container up, HTTP 200 on `http://127.0.0.1:3000`.
+The Docker screen keeps the engine off until asked. Start and Stop drive
+**both** `docker.service` and `docker.socket` -- the socket first on start so the
+service can bind it, the service first on stop so nothing socket-activates it
+straight back up -- and both are disabled at boot so nothing holds power until
+asked. There is a **Clean everything** button that wipes all Docker data for the
+run-on-demand-then-clean workflow: every container, image, network, the build
+cache, and all volumes including named ones (which `system prune --volumes` does
+not touch), behind a confirmation. Run is "inteligente" only as far as the
+image's own metadata allows: exposed ports come from the pulled image's `EXPOSE`
+list (not a README, which is free text), are published with `-p`, and a web port
+among them is surfaced as a URL. Tested end to end with `bkimminich/juice-shop`:
+pull, EXPOSE 3000 detected and published, container up, HTTP 200 on
+`http://127.0.0.1:3000`; and the wipe verified to leave zero containers, images
+and volumes.
 
 The detail worth knowing: anything needing root goes through a persistent DBus
 helper (`org.kali.NetHunterPro.Helper`) so the password is asked once, falling

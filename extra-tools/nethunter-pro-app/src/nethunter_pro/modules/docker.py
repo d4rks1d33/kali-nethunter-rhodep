@@ -62,6 +62,17 @@ class Docker(NHModule):
         self.engine_row.add_suffix(self.start_btn)
         self.engine_row.add_suffix(self.stop_btn)
         eng.add(self.engine_row)
+
+        # Wipe everything: containers, images, volumes, networks, build cache.
+        # For the "run on demand, clean up completely when done" workflow.
+        self.clean_row = Adw.ActionRow(
+            title="Clean everything",
+            subtitle="Remove all containers, images, volumes and networks")
+        self.clean_btn = Gtk.Button(label="Wipe", valign=Gtk.Align.CENTER)
+        self.clean_btn.add_css_class("destructive-action")
+        self.clean_btn.connect("clicked", lambda _b: self._clean())
+        self.clean_row.add_suffix(self.clean_btn)
+        eng.add(self.clean_row)
         box.append(eng)
 
         # ---- run an image ------------------------------------------------
@@ -104,20 +115,87 @@ class Docker(NHModule):
 
     # ------------------------------------------------------------- engine
     def _engine(self, action: str) -> None:
-        run_async(["systemctl", action, "docker.service"],
+        # Both units, in the right order. Starting: the socket first so the
+        # service can bind to it, then the service. Stopping: the service first,
+        # then the socket, so nothing socket-activates the service straight back
+        # up. Chained in one root call so the order holds.
+        if action == "start":
+            cmd = "systemctl start docker.socket && systemctl start docker.service"
+        else:
+            cmd = "systemctl stop docker.service docker.socket"
+        run_async(["sh", "-c", cmd],
                   lambda r: self._refresh_engine(), root=True, timeout=60)
         self.engine_row.set_subtitle("%sing…" % action)
 
+    # ------------------------------------------------------------- clean
+    def _clean(self) -> None:
+        """Wipe every Docker object, behind a confirmation.
+
+        The workflow is run-on-demand then clean-up-completely, so this removes
+        everything, not just dangling objects: all containers (running or not),
+        all images, all volumes, all custom networks and the build cache. It is
+        irreversible, hence the dialog.
+        """
+        dlg = Adw.MessageDialog(
+            transient_for=self.app_window,
+            heading="Wipe all Docker data?",
+            body="This removes every container, image, volume, network and the "
+            "build cache. Nothing Docker is kept. This cannot be undone.")
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("wipe", "Wipe everything")
+        dlg.set_response_appearance("wipe", Adw.ResponseAppearance.DESTRUCTIVE)
+        dlg.set_default_response("cancel")
+        dlg.connect("response", self._clean_confirmed)
+        dlg.present()
+
+    def _clean_confirmed(self, _dlg, response: str) -> None:
+        if response != "wipe":
+            return
+        # Stop and remove every container first (system prune will not remove
+        # running ones or in-use images), then prune everything including
+        # volumes and all images, not just dangling.
+        script = (
+            "set -e\n"
+            "ids=$(docker ps -aq)\n"
+            "[ -n \"$ids\" ] && docker rm -f $ids || true\n"
+            "docker system prune -a -f --volumes\n"
+            # system prune --volumes only removes anonymous volumes; named ones
+            # survive it, and 'everything' means everything, so remove those too.
+            "vols=$(docker volume ls -q)\n"
+            "[ -n \"$vols\" ] && docker volume rm -f $vols || true\n"
+            "echo\n"
+            "echo 'cleaned. remaining:'\n"
+            "echo \"  containers: $(docker ps -aq | wc -l)\"\n"
+            "echo \"  images:     $(docker images -aq | wc -l)\"\n"
+            "echo \"  volumes:    $(docker volume ls -q | wc -l)\"\n"
+        )
+        self.runner.output.append("Wiping all Docker data…\n")
+        self.runner.run(["sh", "-c", script], root=True)
+
     def _refresh_engine(self) -> bool:
+        # Report the service and the socket together: the service is what runs
+        # containers, the socket is what can bring it back, so "stopped" only if
+        # both are down.
         def done(r: Result) -> None:
-            up = (r.stdout or "").strip() == "active"
-            self.engine_row.set_subtitle("running" if up else "stopped")
+            states = (r.stdout or "").split()
+            svc = states[0] if len(states) > 0 else "unknown"
+            sock = states[1] if len(states) > 1 else "unknown"
+            up = svc == "active"
+            if up:
+                self.engine_row.set_subtitle("running")
+            elif sock == "active":
+                self.engine_row.set_subtitle("stopped (socket armed)")
+            else:
+                self.engine_row.set_subtitle("stopped")
             self.start_btn.set_sensitive(not up)
-            self.stop_btn.set_sensitive(up)
+            self.stop_btn.set_sensitive(up or sock == "active")
             for w in (self.image_entry, self.run_btn, self.search_entry):
                 w.set_sensitive(up)
-        run_async(["systemctl", "is-active", "docker.service"], done,
-                  root=True, timeout=10)
+            if hasattr(self, "clean_btn"):
+                self.clean_btn.set_sensitive(up)
+        # is-active prints one line per unit, in order.
+        run_async(["systemctl", "is-active", "docker.service", "docker.socket"],
+                  done, root=True, timeout=10)
         return True  # keep the timeout alive
 
     # ------------------------------------------------------------- run

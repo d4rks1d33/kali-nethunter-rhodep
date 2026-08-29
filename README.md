@@ -2552,32 +2552,53 @@ already done.
     (`snd_soc_lpass_tx_macro` / `va_macro`) drops the reference twice across a
     PD notification.
 
-15. **Get more out of the GPU.** It works and it is accelerated, but it is
-    running at a fraction of what the part can do.
+15. **Get more out of the GPU.** It works and it is accelerated, but it runs at
+    a fraction of the clock the part supports, and this was a deliberate
+    decision rather than an oversight. Patch 0007 says so:
 
-    `/sys/class/devfreq/*.gpu` offers **266, 390, 490 and 650 MHz**, and
-    `simple_ondemand` picks between them. The vendor's own power levels for this
-    GPU go considerably higher:
+	Only up to NOM (650 MHz) is exposed for now; the turbo bins
+	(770/840/900) can be added once the GPU has been confirmed stable.
 
-	qcom,gpu-freq = <875000000>;  qcom,level = <RPMH_REGULATOR_LEVEL_TURBO_L1>;
-	qcom,gpu-freq = <800000000>;  qcom,level = <RPMH_REGULATOR_LEVEL_TURBO>;
-	qcom,gpu-freq = <650000000>;  qcom,level = <RPMH_REGULATOR_LEVEL_NOM_L1>;
+    It has been stable for a long time now, so the reason to hold back is gone.
 
-    So mainline's table stops at what the vendor calls nominal, and 800 and
-    875 MHz are simply not described. That is most of a third of the peak clock
-    left unused, and it is the kind of gap that shows up as jank rather than as
-    a number anybody notices.
+    `/sys/class/devfreq/*.gpu` offers **266, 390, 490 and 650 MHz** under
+    `simple_ondemand`. Those four are not the vendor's numbers -- the vendor's
+    top bin is 875/800/650/565/430/355/253 -- they come from mainline's own
+    clock driver, and **that table already goes higher**:
 
-    Adding the two missing OPPs is not a transcription job, and this is the
-    reason to be careful rather than a reason not to try: each level carries a
-    voltage corner, this GPU is fed from **VDDGX and not VDDCX** (that is what
-    patch 0007 fixed, and getting it wrong under-volts the part and hangs it
-    under load), and the thermal map in patch 0021 was written against a table
-    that stops at 650. Raising the ceiling without revisiting throttling is how
-    a phone gets faster for ninety seconds and then slower than before.
+	/* drivers/clk/qcom/gpucc-sm6375.c, ftbl for gpu_cc_gx_gfx3d_clk_src */
+	F(266000000, ...)  F(390000000, ...)  F(490000000, ...)  F(650000000, ...)
+	F(770000000, ...)  F(840000000, ...)  F(900000000, ...)
 
-    Worth measuring before and after with `scripts/rhodep-repaint-bench`, which
-    already reports late frames and exists for exactly this kind of comparison.
+    So the clock can already produce 770, 840 and 900 MHz. What is missing is
+    three OPP entries with the right voltage corner, and sm6375 is an SMD RPM
+    platform, so they are `rpmpd` levels rather than the RPMH ones the vendor
+    writes. The corners exist: `rpmpd_opp_nom_plus`, `rpmpd_opp_turbo` and
+    `rpmpd_opp_turbo_no_cpr` are all defined in `sm6375.dtsi`, and the vendor's
+    top two levels are TURBO and TURBO_L1.
+
+    **The thing that makes this more than transcription is the speed bin.** The
+    vendor ships three tables, chosen by a fuse:
+
+	pwrlevels-0   up to 875 MHz    (default bin)
+	pwrlevels-1   up to 650 MHz
+	pwrlevels-2   up to 430 MHz
+
+    So not every part can do the top clock, and this phone's bin has never been
+    read. Raising the ceiling for a chip binned at 650 or 430 is how a GPU gets
+    unstable under load rather than faster. Establish the bin first -- the
+    vendor computes it as `FMAX/4.8 MHz` rounded up, plus 2 -- and note that
+    mainline's a6xx driver has speed-bin support (`qcom,gpu-speed-bin` read from
+    an nvmem cell) that this port does not wire up at all.
+
+    Two more things not to skip. This GPU is fed from **VDDGX, not VDDCX** --
+    that is what patch 0007 fixed, and getting the corner wrong under-volts the
+    part and hangs it under load. And the thermal map in patch 0021 was written
+    against a table that stops at 650, so raising the ceiling without revisiting
+    throttling is how a phone gets faster for ninety seconds and slower after.
+
+    Measure it rather than assuming: `scripts/rhodep-repaint-bench` already
+    reports late frames and worst-frame time, and exists for this comparison.
 
 # License
 Kernel patches: GPL-2.0. Packaging/glue: MIT. Vendor firmware blobs: proprietary,

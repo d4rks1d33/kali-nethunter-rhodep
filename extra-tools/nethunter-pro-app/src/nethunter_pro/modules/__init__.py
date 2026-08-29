@@ -11,6 +11,7 @@ from . import searchsploit     # noqa: F401
 from . import wifi_attacks     # noqa: F401
 from . import evil_twin        # noqa: F401
 from . import wifipumpkin      # noqa: F401
+from . import phishkin3        # noqa: F401
 from . import wifite          # noqa: F401
 from . import pwnagotchi       # noqa: F401
 from . import pineapple        # noqa: F401

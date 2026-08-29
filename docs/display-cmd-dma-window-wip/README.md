@@ -141,6 +141,67 @@ which looks like the DSC decoder losing sync.
 So the window is being programmed somewhere that corrupts the compressed
 stream rather than avoiding the collision.
 
+## The screen wedges, and a modeset alone recovers it
+
+Two reproductions with the artefact driven by hand -- brightness moved up and
+down under KWin until the display went first to glitched lines and then to a
+solid colour -- with the wedged state left in place and inspected over ssh
+instead of being cleared straight away. That state had never been looked at.
+
+What it is **not**: an ongoing failure. The error count froze the moment the
+screen went bad, 22 -> 22 over eight seconds in one run and 17 -> 17 over six in
+the other, with nothing new in the log. The link is healthy, the controller is
+running, the compositor keeps drawing -- in the first run the framebuffer index
+kept advancing and the user could see the corrupted lines move as the UI
+changed underneath.
+
+So the controller recovers on its own and **the panel is what stays desynced**.
+Every fix attempt so far has aimed at the controller, which is where the error
+is raised, and not at the panel, which is what is left broken.
+
+**A modeset is enough to fix it.** With the screen solid brown, changing the
+refresh rate from 120 to 90 through `kscreen-doctor` -- a full modeset, so the
+panel's power on sequence runs again -- brought the display straight back, with
+no lock/unlock and no user interaction. Lock/unlock was never the necessary
+part; re-initialising the panel is.
+
+That makes automatic recovery possible, and DRM already has the mechanism for
+exactly this situation: set `connector->link_status` to
+`DRM_MODE_LINK_STATUS_BAD` and send a hotplug event, which is how DP drivers
+ask userspace to redo a modeset after link training fails. KWin honours it.
+
+**The open question is when to fire it**, and it is not "on every error". Both
+runs logged 17-22 errors while only the last one wedged the screen: most produce
+a band of lines that the next frame repairs. Triggering a modeset on each would
+mean a black flash every time a line flickers, which is worse than the symptom.
+Something has to separate the transient case from the persistent one -- a count
+within a window is the crude version, and nothing in `status` distinguishes them
+so far, since both runs are dominated by the same `status=4`.
+
+Worth recording that `status=4` is `DSI_ERR_STATE_FIFO` on its own, and
+`status=5` adds `DSI_ERR_STATE_TIMEOUT`. Earlier notes only ever saw 5. Neither
+triggers `dsi_sw_reset()`, which `dsi_err_worker()` reserves for
+`DSI_ERR_STATE_MDP_FIFO_UNDERFLOW` -- and on this evidence a controller reset
+would not have helped anyway, because the controller is not what is stuck.
+
+## Why the bench does not reproduce it, still unanswered
+
+Two guesses at what `rhodep-repaint-bench` was missing were tested against the
+hand-driven runs and both were wrong:
+
+- **Not the write rate.** The manual runs peaked at 18 brightness writes per
+  second; the synthetic ramp sustains 20.
+- **Not the brightness range.** The first run reached 474 where the ramp stops
+  at 1200, which looked promising -- but the second run never went below 855 and
+  wedged the screen just the same.
+
+What is left, and untested, is *who* writes: KWin changes the backlight from the
+compositor, on the same thread that is driving the repaints, while the bench
+writes from an unrelated process. A DCS write issued from inside the compositor's
+own frame loop lands in a different place relative to the transfer than one
+issued from outside it, and this artefact is a collision between exactly those
+two things.
+
 ## Where to pick this up
 
 The offsets are almost certainly right and the gate is now correct. What is

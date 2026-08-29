@@ -2670,53 +2670,48 @@ already done.
     (`snd_soc_lpass_tx_macro` / `va_macro`) drops the reference twice across a
     PD notification.
 
-15. **Get more out of the GPU.** It works and it is accelerated, but it runs at
-    a fraction of the clock the part supports, and this was a deliberate
-    decision rather than an oversight. Patch 0007 says so:
+15. **Get more out of the GPU — done, 650 → 840 MHz (patch 0093).** The table
+    stopped at NOM (650 MHz) because patch 0007 held the turbo steps back on
+    purpose, until the GPU was known to be stable. It has been for a long time.
 
-	Only up to NOM (650 MHz) is exposed for now; the turbo bins
-	(770/840/900) can be added once the GPU has been confirmed stable.
+    Nothing was needed from the clock driver: `ftbl_gpu_cc_gx_gfx3d_clk_src` in
+    `gpucc-sm6375.c` already lists 770, 840 and 900. Only the OPPs were missing,
+    with the vendor's RPMH corners translated to the `rpmpd` (SMD RPM) ones this
+    SoC actually uses — NOM_L1 → `rpmpd_opp_nom_plus`, TURBO → `rpmpd_opp_turbo`.
 
-    It has been stable for a long time now, so the reason to hold back is gone.
+    **The ceiling is 840 rather than 900 because the speed bin is a fuse**, and
+    it was read rather than guessed. mainline has no qfprom node for sm6375, so
+    it came out of `/dev/mem` at the vendor's address — qfprom `0x1b40000` plus
+    the `gpu_speed_bin` cell at `0x6015`, byte `0x1b46015`:
 
-    `/sys/class/devfreq/*.gpu` offers **266, 390, 490 and 650 MHz** under
-    `simple_ondemand`. Those four are not the vendor's numbers -- the vendor's
-    top bin is 875/800/650/565/430/355/253 -- they come from mainline's own
-    clock driver, and **that table already goes higher**:
+	gpu_speed_bin = 177
 
-	/* drivers/clk/qcom/gpucc-sm6375.c, ftbl for gpu_cc_gx_gfx3d_clk_src */
-	F(266000000, ...)  F(390000000, ...)  F(490000000, ...)  F(650000000, ...)
-	F(770000000, ...)  F(840000000, ...)  F(900000000, ...)
+    which is `qcom,gpu-pwrlevels-2` in the vendor blair.dtsi, topping out at 840.
+    900 MHz is listed only for bins 0 and 190, so on this part it would be
+    running the GPU past what the silicon was sorted for.
 
-    So the clock can already produce 770, 840 and 900 MHz. What is missing is
-    three OPP entries with the right voltage corner, and sm6375 is an SMD RPM
-    platform, so they are `rpmpd` levels rather than the RPMH ones the vendor
-    writes. The corners exist: `rpmpd_opp_nom_plus`, `rpmpd_opp_turbo` and
-    `rpmpd_opp_turbo_no_cpr` are all defined in `sm6375.dtsi`, and the vendor's
-    top two levels are TURBO and TURBO_L1.
+    Two traps found on the way, both of which produce a confident wrong answer:
 
-    **The thing that makes this more than transcription is the speed bin.** The
-    vendor ships three tables, chosen by a fuse:
+    - **blair is not holi.** `blair.dtsi` includes `holi-gpu.dtsi` and then does
+      `/delete-node/` on `qcom,gpu-pwrlevel-bins` and declares four bins of its
+      own. holi's tables end at 875 and never apply to this SoC. Patch 0007's
+      comment says its values came from `qcom,gpu-pwrlevels-0`, and the numbers
+      do match blair's — but reading holi's file to extend them gives frequencies
+      this clock cannot produce.
+    - **The thermal map needed nothing.** The cooling-maps from patch 0021 use
+      `THERMAL_NO_LIMIT` for both bounds, so they pick up the new states by
+      themselves. An earlier version of this entry claimed they were pinned to a
+      table ending at 650; they are not.
 
-	pwrlevels-0   up to 875 MHz    (default bin)
-	pwrlevels-1   up to 650 MHz
-	pwrlevels-2   up to 430 MHz
+    Still worth knowing: this rail is **VDDGX, not VDDCX**, which is what patch
+    0007 fixed, and getting the corner wrong under-volts the part and hangs it
+    under load. The corners in the built DTB were checked by hand against
+    `qcom-rpmpd.h` for that reason (650 → 256 NOM, 770 → 320 NOM_PLUS, 840 → 384
+    TURBO).
 
-    So not every part can do the top clock, and this phone's bin has never been
-    read. Raising the ceiling for a chip binned at 650 or 430 is how a GPU gets
-    unstable under load rather than faster. Establish the bin first -- the
-    vendor computes it as `FMAX/4.8 MHz` rounded up, plus 2 -- and note that
-    mainline's a6xx driver has speed-bin support (`qcom,gpu-speed-bin` read from
-    an nvmem cell) that this port does not wire up at all.
-
-    Two more things not to skip. This GPU is fed from **VDDGX, not VDDCX** --
-    that is what patch 0007 fixed, and getting the corner wrong under-volts the
-    part and hangs it under load. And the thermal map in patch 0021 was written
-    against a table that stops at 650, so raising the ceiling without revisiting
-    throttling is how a phone gets faster for ninety seconds and slower after.
-
-    Measure it rather than assuming: `scripts/rhodep-repaint-bench` already
-    reports late frames and worst-frame time, and exists for this comparison.
+    In `kali-boot-v116-gpu840.img`. **Not yet flashed or benchmarked** — the
+    numbers to beat are in `scripts/rhodep-repaint-bench`, and `dmesg` should
+    stay free of GPU faults under sustained load.
 
 # License
 Kernel patches: GPL-2.0. Packaging/glue: MIT. Vendor firmware blobs: proprietary,

@@ -122,9 +122,25 @@ def run_async(
 ) -> None:
     argv = shlex.split(command) if isinstance(command, str) else list(command)
 
+    def deliver(result: Result) -> bool:
+        # An exception raised in a GLib idle callback aborts the whole process
+        # with a core dump -- which is how the app was seen to vanish when the
+        # Docker engine start/stop callback touched the UI while the daemon was
+        # reconfiguring the network. A module callback must never be able to take
+        # the app down, so it is contained here.
+        try:
+            callback(result)
+        except Exception:
+            import traceback
+            traceback.print_exc()
+        return False  # one-shot
+
     def worker() -> None:
-        result = _run_root(argv, timeout) if root else _run_local(argv, timeout)
-        GLib.idle_add(callback, result)
+        try:
+            result = _run_root(argv, timeout) if root else _run_local(argv, timeout)
+        except Exception as exc:  # never let the worker thread die silently
+            result = Result(1, "", "run_async worker failed: %s" % exc)
+        GLib.idle_add(deliver, result)
 
     threading.Thread(target=worker, daemon=True).start()
 

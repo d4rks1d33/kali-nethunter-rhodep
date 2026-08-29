@@ -195,12 +195,23 @@ hand-driven runs and both were wrong:
   at 1200, which looked promising -- but the second run never went below 855 and
   wedged the screen just the same.
 
-What is left, and untested, is *who* writes: KWin changes the backlight from the
-compositor, on the same thread that is driving the repaints, while the bench
-writes from an unrelated process. A DCS write issued from inside the compositor's
-own frame loop lands in a different place relative to the transfer than one
-issued from outside it, and this artefact is a collision between exactly those
-two things.
+What is left, and untested, is *who* writes: a compositor changes the backlight
+from the same process that is driving the repaints, while the bench writes from
+an unrelated one. A DCS write issued from inside a compositor's own frame loop
+lands in a different place relative to the transfer than one issued from outside
+it, and this artefact is a collision between exactly those two things.
+
+**It is not KWin-specific.** The same run under Phosh, on `phoc` rather than
+KWin, wedges the screen identically: 10 errors, all `status=4`, frozen at 10
+over the six seconds after it broke. The peak write rate was 18/s, the same as
+under KWin, and the range went 40..3514, wider at both ends than either KDE run
+and than the bench, which reinforces that the range is not what matters.
+
+Two different compositors, two different toolkits, one shared behaviour: both
+write the backlight from the process that composes. The bench does not, and the
+bench is the one that cannot reproduce it. That is now the only surviving
+difference, and testing it means making the bench write its own backlight from
+inside its frame loop rather than from a helper.
 
 ## Where to pick this up
 

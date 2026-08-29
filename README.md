@@ -229,6 +229,30 @@ The practical consequence for auditing work is that a capture must not be allowe
 to suspend in the first place, which is what `rhodep-keep-awake` and its
 AF_PACKET detection are for.
 
+**Waking the phone over WiFi works, and has been demonstrated end to end.** Until
+now WoWLAN was only known to be *armed* -- `iw phy0 wowlan show` reports the magic
+packet -- which is not the same as it working. Forced a suspend with
+`systemctl suspend`, confirmed the phone was unreachable over both ssh paths, sent
+a magic packet, and it came back on its own:
+
+	suspend count       2 -> 3     (it really suspended)
+	gpio-keys wakeups   2 -> 2     (nobody touched the button)
+	"Power key pressed" 0 times in the journal
+	22:36:37 suspend entry -> 22:37:25 suspend exit
+
+Two things worth keeping. The packet was **unicast, from a different subnet**
+(a 172.18.0.0/16 container routed to the phone's 192.168.1.0/24) -- no broadcast
+and no shared L2 segment needed, because the magic pattern is matched in the
+payload. So anything with a route to the phone can wake it. And this is the same
+reason ordinary traffic does *not* wake it: during the earlier 26-minute suspend
+the association was alive and ssh SYNs were reaching the radio, but the firmware
+drops everything that is not the magic pattern without ever waking the CPU. A
+phone that ignores ssh while suspended is the feature working, not a fault.
+
+Suspend with `systemctl suspend` when testing this. Never `rtcwake -m mem`: it
+bypasses `/usr/lib/systemd/system-sleep/rhodep-adsp`, the sensors PD asserts, and
+it takes the ADSP and audio down with it until a reboot.
+
 ## Where to pick this up
 
 1. **The SoC reset, with GNSS as the trigger.** A live GNSS session kills the

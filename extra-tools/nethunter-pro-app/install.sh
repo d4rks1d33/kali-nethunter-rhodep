@@ -29,7 +29,8 @@ rm -f /usr/share/icons/hicolor/scalable/apps/org.kali.NetHunterPro.svg
 # Module icons that are not in any installed icon theme, so the app ships them:
 # a car for CARsenal, a pumpkin for wifipumpkin3, the pwnagotchi face for the
 # pwnagotchi module. Symbolic, under scalable/actions.
-for ic in nethunter-carsenal nethunter-wifipumpkin nethunter-pwnagotchi; do
+for ic in nethunter-carsenal nethunter-wifipumpkin nethunter-pwnagotchi \
+          nethunter-docker; do
     install -Dm644 "$here/data/icons/${ic}-symbolic.svg" \
         "/usr/share/icons/hicolor/scalable/actions/${ic}-symbolic.svg"
 done

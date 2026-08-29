@@ -2,6 +2,7 @@
 # Core / device
 from . import kali_services    # noqa: F401
 from . import net_control      # noqa: F401
+from . import docker           # noqa: F401
 from . import sysinfo          # noqa: F401
 # Recon
 from . import nmap             # noqa: F401

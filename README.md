@@ -443,7 +443,11 @@ The Docker screen keeps the engine off until asked. Start and Stop drive
 **both** `docker.service` and `docker.socket` -- the socket first on start so the
 service can bind it, the service first on stop so nothing socket-activates it
 straight back up -- and both are disabled at boot so nothing holds power until
-asked. There is a **Clean everything** button that wipes all Docker data for the
+asked. A **Downloaded images** list shows every pulled image with a per-image Run or
+Stop button, so several can be started and stopped independently -- start one,
+start another, stop one, come back later. Stop removes the container but keeps
+the image, so it can be run again; the state is read live from `docker ps`. There
+is a **Clean everything** button that wipes all Docker data for the
 run-on-demand-then-clean workflow: every container, image, network, the build
 cache, and all volumes including named ones (which `system prune --volumes` does
 not touch), behind a confirmation. Run is "inteligente" only as far as the

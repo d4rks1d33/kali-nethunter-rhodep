@@ -44,6 +44,7 @@ class Docker(NHModule):
     required_tools = ["docker"]
 
     def build(self) -> Gtk.Widget:
+        self._engine_up = False
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         for m in ("top", "bottom", "start", "end"):
             getattr(box, "set_margin_" + m)(12)
@@ -93,14 +94,34 @@ class Docker(NHModule):
         rg.add(run_row)
         box.append(rg)
 
+        # ---- downloaded images ------------------------------------------
+        ig = Adw.PreferencesGroup(
+            title="Downloaded images",
+            description="Run and stop each one. Start several, stop some, come "
+            "back later, then wipe when done.")
+        self.images_group = ig
+        self._image_rows: list[Adw.ActionRow] = []
+        box.append(ig)
+
         # ---- search Docker Hub ------------------------------------------
         sg = Adw.PreferencesGroup(
             title="Search Docker Hub",
-            description="Find an image by name; tap a result to fill the box "
-            "above.")
+            description="Type a name and press Search or Enter; tap a result to "
+            "fill the run box above.")
         self.search_entry = Adw.EntryRow(title="Search hub.docker.com")
+        # Enter in the field triggers a search; a visible button does too, since
+        # EntryRow's apply signal needs the apply button and nothing fires while
+        # typing (one HTTP request per keystroke would be wrong anyway).
+        self.search_entry.connect("entry-activated", lambda _r: self._search())
         self.search_entry.connect("apply", lambda _r: self._search())
+        self.search_entry.set_show_apply_button(True)
         sg.add(self.search_entry)
+        search_row = Adw.ActionRow(title="Search")
+        sb = Gtk.Button(label="Search", valign=Gtk.Align.CENTER)
+        sb.add_css_class("suggested-action")
+        sb.connect("clicked", lambda _b: self._search())
+        search_row.add_suffix(sb)
+        sg.add(search_row)
         self._result_rows: list[Adw.ActionRow] = []
         self.search_group = sg
         box.append(sg)
@@ -110,8 +131,14 @@ class Docker(NHModule):
         box.append(self.runner)
 
         self._refresh_engine()
-        self._poll = GLib.timeout_add_seconds(5, self._refresh_engine)
+        self._refresh_images()
+        self._poll = GLib.timeout_add_seconds(5, self._tick)
         return box
+
+    def _tick(self) -> bool:
+        self._refresh_engine()
+        self._refresh_images()
+        return True
 
     # ------------------------------------------------------------- engine
     def _engine(self, action: str) -> None:
@@ -181,6 +208,7 @@ class Docker(NHModule):
             svc = states[0] if len(states) > 0 else "unknown"
             sock = states[1] if len(states) > 1 else "unknown"
             up = svc == "active"
+            self._engine_up = up
             if up:
                 self.engine_row.set_subtitle("running")
             elif sock == "active":
@@ -198,9 +226,98 @@ class Docker(NHModule):
                   done, root=True, timeout=10)
         return True  # keep the timeout alive
 
+    # -------------------------------------------------------- image list
+    def _refresh_images(self) -> None:
+        """List downloaded images, each with a Run or Stop button.
+
+        Only queries Docker when the engine is up; with it down there is nothing
+        to list, so the group shows a single placeholder and no root call is
+        made. For each image it checks whether a container of ours is running
+        from it (name derived the same way _run_image derives it), and shows
+        Stop if so, Run if not -- so several can be started and stopped
+        independently.
+        """
+        if not self._engine_up:
+            self._render_images([], set())
+            return
+        # One shell call: images on the first block, running container images on
+        # the second, separated by a marker line, so a single round-trip has
+        # both. Format keeps repo:tag.
+        script = (
+            "docker images --format '{{.Repository}}:{{.Tag}}' "
+            "| grep -v '<none>' | sort -u\n"
+            "echo '---RUNNING---'\n"
+            "docker ps --format '{{.Names}}\\t{{.Image}}\\t{{.Ports}}'\n"
+        )
+
+        def done(r: Result) -> None:
+            images, running = [], {}
+            section = 0
+            for line in (r.stdout or "").splitlines():
+                if line.strip() == "---RUNNING---":
+                    section = 1
+                    continue
+                if section == 0:
+                    if line.strip():
+                        images.append(line.strip())
+                else:
+                    parts = line.split("\t")
+                    if parts and parts[0]:
+                        running[parts[0]] = parts[2] if len(parts) > 2 else ""
+            self._render_images(images, running)
+        run_async(["sh", "-c", script], done, root=True, timeout=15)
+
+    def _render_images(self, images, running) -> None:
+        for row in self._image_rows:
+            self.images_group.remove(row)
+        self._image_rows = []
+
+        if not self._engine_up:
+            row = Adw.ActionRow(title="Engine is off",
+                                subtitle="Start it to see downloaded images")
+            self.images_group.add(row)
+            self._image_rows.append(row)
+            return
+        if not images:
+            row = Adw.ActionRow(title="No images downloaded",
+                                subtitle="Run one below, or search Docker Hub")
+            self.images_group.add(row)
+            self._image_rows.append(row)
+            return
+
+        for image in images:
+            name = self._container_name(image)
+            is_up = name in running
+            sub = "running — %s" % running[name] if is_up else "stopped"
+            row = Adw.ActionRow(title=image, subtitle=sub)
+            if is_up:
+                btn = Gtk.Button(label="Stop", valign=Gtk.Align.CENTER)
+                btn.add_css_class("destructive-action")
+                btn.connect("clicked", lambda _b, i=image: self._stop_image(i))
+            else:
+                btn = Gtk.Button(label="Run", valign=Gtk.Align.CENTER)
+                btn.add_css_class("suggested-action")
+                btn.connect("clicked", lambda _b, i=image: self._run_image(i))
+            row.add_suffix(btn)
+            self.images_group.add(row)
+            self._image_rows.append(row)
+
+    @staticmethod
+    def _container_name(image: str) -> str:
+        return image.replace("/", "_").replace(":", "_")
+
+    def _stop_image(self, image: str) -> None:
+        name = self._container_name(image)
+        self.runner.output.append("Stopping %s …\n" % name)
+        run_async(["sh", "-c", "docker rm -f %s" % shlex_quote(name)],
+                  lambda r: self._refresh_images(), root=True, timeout=30)
+
     # ------------------------------------------------------------- run
-    def _run_image(self) -> None:
-        image = self.image_entry.get_text().strip()
+    def _run_image(self, image: str | None = None) -> None:
+        # Called with an image name from the downloaded-images list, or with
+        # nothing from the Run button, in which case the text box is used.
+        if image is None:
+            image = self.image_entry.get_text().strip()
         if not image:
             toast(self.app_window, "Enter an image name first")
             return
@@ -255,6 +372,7 @@ class Docker(NHModule):
                       "Running — ports %s" % ", ".join(map(str, ports)))
             else:
                 toast(self.app_window, "Running (no exposed ports)")
+            self._refresh_images()
         run_async(["sh", "-c", script], done, root=True, timeout=10)
         return False  # one-shot
 

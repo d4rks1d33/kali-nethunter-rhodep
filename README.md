@@ -635,6 +635,8 @@ userspace/
                       refuses to purge them, and the enforcer that puts a hold
                       back if anything removes it (apply-holds.sh)
   login/              GDM login screen instead of the phosh.service autologin (install.sh)
+  powersupply/        makes the Powersupply app skip the charger's empty
+                      scope=Device battery and read the real gauge
   power/              s2idle instead of the broken deep suspend, and the hold
                       that keeps a running job alive across a screen lock --
                       including anything started from a terminal. Also the
@@ -692,7 +694,7 @@ docs/                       extra notes
 
 # The kernel (shared with the pmOS port)
 
-## The 74 applied patches (`kernel/patches/`, applied in this order)
+## The 78 applied patches (`kernel/patches/`, applied in this order)
 
 The order below is the aport's `source=` order, which is what `patch` sees; it
 is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
@@ -756,12 +758,44 @@ is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
 0067 rhodep-ramoops-ecc-and-firmware-regions  crash logs came back unreadable
 0068 sm6375-add-apss-watchdog            the watchdog was never described
 0070 qcom_q6v5-mask-handover-irq         one-shot IRQ left enabled forever
+0072 DIAGNOSTIC-net-ipa-report-error-interrupts  IPA error interrupts were
+                                       masked, so failures were silent
+0073 DIAGNOSTIC-remoteproc-print-leftover-crash-reason  the previous crash
+                                       reason survives a reboot; print it
+0074 DIAGNOSTIC-soc-qcom-qmi-report-unhandled-messages  unhandled QMI messages
+                                       were dropped without a word
+0075 DIAGNOSTIC-net-ipa-expose-modem-gsi-channel-state  modem GSI state and
+                                       mem_offset, for the LTE reset hunt
+0076 DIAGNOSTIC-remoteproc-qcom-read-crash-reason-on-demand  read it from sysfs
+                                       rather than only at crash time
+0079 net-ipa-do-not-add-the-memory-offset-to-a-size  a size was being computed
+                                       as if it were an address
+0080 rpmsg-glink-take-a-reference-for-the-rcid-entry  the rcid entry and the
+                                       endpoint could be freed while in use
+0081 net-ipa-tear-the-setup-down-when-the-modem-crashes  setup survived a modem
+                                       crash and pointed at dead memory
+0082 sm6375-add-the-tcsr-download-mode-address  needed for download mode to be
+                                       armed at all
+0083 rpmsg-glink-make-the-channel-open-timeout-adjustable  the fixed timeout was
+                                       too short to observe a slow open
+0084 soc-qcom-pd_mapper-add-sm6375       the protection-domain map had no entry
+                                       for this SoC
+0085 soc-qcom-pd_mapper-serve-tms-pdr_enabled-on-sm6375  the modem PD asks for
+                                       tms/pdr_enabled and got nothing
 0086 sm6375-uart-interconnect-paths      uart1 never voted for QUP bandwidth
 0088 interconnect-sm6375-keep-boot-floors  sync_state starved every unvoted
                                        node, which is what broke Bluetooth
 0089 regulator-fan53870-declare-low-ldo-supply  LDO1/2 had no supply_name
 0090 rhodep-camera-pmic-input-supply     PM6125 S6 feeds the low LDO group
 0091 rhodep-drop-absent-microphones      AMIC1/2 and the VA DMICs are not fitted
+0092 rhodep-add-the-flash-led-as-a-torch  tlmm 49 as a gpio-led; see nice-to-have
+                                       9, the flash also wants a PM6125 PWM
+0093 rhodep-expose-gpu-770-840          the speed bin (fuse = 177) allows both;
+                                       the table had stopped at NOM
+0094 nt37701-selectable-refresh-rate     the panel is 120 Hz and only 60 was
+                                       ever offered; refresh= picks the timing
+0095 sm6375-soundwire-wake-irq          swr0 had no wakeup interrupt, so the
+                                       codec could not signal while suspended
 ```
 
 0062 and 0063 are kept but neither changes the glitched lines they were written

@@ -2395,6 +2395,22 @@ already done.
     Note the SAR sensor `semtech,sx937x` at 0x2c shares that bus, and has no
     useful mainline driver either.
 
+    **Measured on the device, so nobody repeats it.** The hardware is fitted:
+    the bootloader declares `mmi,nfc = samsung` in `/chosen`, which is the
+    property the vendor node gates itself on (`mmi,status = "/chosen",
+    "mmi,nfc", "samsung"`). The bus works -- the camera PMIC answers as `UU` at
+    0x35 on the same i2c-0. The GPIOs are right and reachable: driving tlmm 48
+    shows up as `pin 48 (GPIO_48): GPIO 500000.pinctrl` in pinmux-pins.
+
+    And with all of that, **0x27 does not ACK**: VEN low then high, FIRM held
+    low for normal mode, probed at 1, 3, 6 and 10 seconds after, with both
+    `i2cdetect -r` and `i2cget`. Nothing.
+
+    So this is not "enable the node and it appears". The vendor node declares no
+    supplies, so whatever else the part needs -- a rail turned on elsewhere, the
+    32 kHz clk_req, or simply not ACKing until something speaks NCI to it -- has
+    still to be found. Establish that before writing or porting any driver.
+
 11. **microSD -- probably already works, just untested.** The tray takes a card
     alongside the SIM, and the device tree has had the controller wired up since
     patch 0001:

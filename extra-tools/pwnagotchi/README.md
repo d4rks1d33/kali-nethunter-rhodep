@@ -76,6 +76,25 @@ It runs from a venv at `/opt/pwnagotchi/.venv` built `--system-site-packages`,
 because Kali is EXTERNALLY-MANAGED: scapy, flask, dbus, prctl and the rest come
 from apt, and only `pycryptodome` (the `Crypto` module) is added into the venv.
 
+**The venv is pinned to `python3.13`, on purpose.** Two things broke it when it
+followed the system Python instead:
+
+  * pwnagotchi calls `asyncio.get_event_loop()` with no running loop
+    (`agent.py`, `start_event_polling`), which Python 3.12+ made a fatal
+    `RuntimeError` instead of a warning. On 3.14 the agent dies a few seconds
+    after start with *"There is no current event loop in thread 'MainThread'"* --
+    which from the UI looks like Enable turning itself back off. 3.13 is the last
+    version it runs on.
+  * A venv whose `python3` is a plain link to `/usr/bin/python3` follows the
+    system across a minor-version bump, leaving its own `pycryptodome` in
+    `lib/python3.13/site-packages` where the new interpreter never looks:
+    *"ModuleNotFoundError: No module named 'Crypto'"*, the same failure with a
+    different message. This is the same trap that hit the NetHunter Pro app.
+
+`install.sh` builds the venv with `python3.13` explicitly and rebuilds it if it
+finds one on another version. If 3.13 is ever removed, pwnagotchi's asyncio use
+has to be fixed before it will run at all.
+
 Default mode is **manual**: it listens and serves the UI but never transmits.
 For the full loop change `launcher manual` to `launcher auto` in
 `rhodep-pwnagotchi.service`. The NetHunter Pro app does this with a systemd

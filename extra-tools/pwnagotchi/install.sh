@@ -32,9 +32,36 @@ apt-get install -y --no-install-recommends \
 	python3-prctl python3-file-read-backwards python3-flask-cors \
 	python3-flask-wtf python3-dbus python3-scapy >/dev/null 2>&1 || true
 
-if [ ! -x "$PWN/.venv/bin/python" ]; then
-	echo "pwnagotchi: creating venv (--system-site-packages)"
-	python3 -m venv --system-site-packages "$PWN/.venv"
+# The venv is pinned to a specific Python, not the system default, for two
+# reasons that both broke it in practice:
+#
+#   * pwnagotchi calls asyncio.get_event_loop() with no running loop
+#     (agent.py, start_event_polling), which Python 3.12+ turned from a warning
+#     into a fatal RuntimeError. On 3.14 the agent dies seconds after start with
+#     "There is no current event loop in thread 'MainThread'". 3.13 is the last
+#     version where it runs.
+#   * A venv whose python3 is a plain link to /usr/bin/python3 follows the
+#     system across a minor-version bump, leaving its own packages
+#     (pycryptodome, in lib/python3.13/site-packages) where the new interpreter
+#     does not look -- "ModuleNotFoundError: No module named 'Crypto'".
+#
+# Pinning to python3.13 explicitly fixes both. If 3.13 is ever removed this must
+# be revisited, and pwnagotchi's asyncio use fixed first.
+PY=python3.13
+if ! command -v "$PY" >/dev/null 2>&1; then
+	echo "pwnagotchi: $PY not found; pwnagotchi does not run on the newer Python" >&2
+	echo "pwnagotchi: install python3.13 or patch pwnagotchi's asyncio use first" >&2
+	exit 1
+fi
+venv_ver=""
+[ -x "$PWN/.venv/bin/python" ] && venv_ver=$("$PWN/.venv/bin/python" -c \
+	'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || true)
+if [ ! -x "$PWN/.venv/bin/python" ] || [ "$venv_ver" != "3.13" ]; then
+	[ -n "$venv_ver" ] && [ "$venv_ver" != "3.13" ] && \
+		echo "pwnagotchi: venv is python $venv_ver, rebuilding on 3.13"
+	rm -rf "$PWN/.venv"
+	echo "pwnagotchi: creating venv on $PY (--system-site-packages)"
+	"$PY" -m venv --system-site-packages "$PWN/.venv"
 fi
 # pycryptodome provides the Crypto module pwnagotchi/identity.py imports; the
 # Debian package installs Cryptodome (different namespace), so it comes from pip

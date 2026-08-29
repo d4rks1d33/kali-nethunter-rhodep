@@ -20,11 +20,13 @@ TEMPLATE_DIRS = [
     "/usr/share/wifipumpkin3/config/templates",
     "/root/.config/wifipumpkin3/config/templates",
 ]
+# set proxy <name>; the captive portal is captiveflask, not pumpkinproxy
+# (pumpkinproxy is the transparent MITM proxy, a different thing).
 PROXIES = {
     "None": None,
-    "Captive Flask portal": "pumpkinproxy",
+    "Captive Flask portal": "captiveflask",
+    "Transparent proxy (pumpkinproxy)": "pumpkinproxy",
     "Sniffkin3 (capture creds)": "sniffkin3",
-    "BeEF hook": "beef",
 }
 
 
@@ -47,6 +49,12 @@ class Wifipumpkin(NHModule):
         self.iface = Adw.EntryRow(title="AP interface")
         self.iface.set_text("wlan1")
         group.add(self.iface)
+        # The interface with internet, shared to the AP's clients (-iNet).
+        # Leave empty for a captive portal that does not pass traffic through.
+        # wlan0 is the internal Wi-Fi, which normally holds the real connection.
+        self.iface_net = Adw.EntryRow(title="Internet interface (share to clients)")
+        self.iface_net.set_text("wlan0")
+        group.add(self.iface_net)
         self.ssid = Adw.EntryRow(title="SSID")
         self.ssid.set_text("Free WiFi")
         group.add(self.ssid)
@@ -69,6 +77,14 @@ class Wifipumpkin(NHModule):
         rb.connect("clicked", lambda _b: self._load_templates())
         refresh.add_suffix(rb)
         group.add(refresh)
+
+        # Where the templates live, so more can be dropped in from a terminal.
+        where = Adw.ActionRow(
+            title="Templates folder",
+            subtitle="/usr/share/wifipumpkin3/config/templates — add your own "
+            "here, then Refresh")
+        where.set_subtitle_selectable(True)
+        group.add(where)
         box.append(group)
 
         actions = Adw.PreferencesGroup()
@@ -109,18 +125,29 @@ class Wifipumpkin(NHModule):
         ssid = self.ssid.get_text().strip() or "Free WiFi"
         script = f"set interface {iface}; set ssid {ssid}; "
 
+        # Share internet to the AP's clients if an internet interface is given.
+        # This is the -iNet option; wifipumpkin3 sets up the NAT/forwarding.
+        iface_net = self.iface_net.get_text().strip()
+        if iface_net:
+            script += f"set interface_net {iface_net}; "
+
         proxy = PROXIES[list(PROXIES)[self.proxy.get_selected()]]
         if proxy:
-            script += f"set proxy {proxy}; ignore {proxy} off; "
+            # Just select the proxy. The old "ignore <proxy> off" was wrong --
+            # ignore takes a logger class name, not a proxy, and wifipumpkin3
+            # answered with 'requires a correct name of logger class'.
+            script += f"set proxy {proxy}; "
 
+        # With the captive portal, the template is chosen by enabling it on the
+        # captiveflask proxy -- "set captiveflask.<Template> true" -- which is
+        # what writes DarkLogin=true into captive-portal.ini. It is not a
+        # templates.custom path; that command installs new templates rather than
+        # selecting an existing one, which is why the old script showed no portal.
         tidx = self.template.get_selected()
-        if tidx > 0:
+        if proxy == "captiveflask" and tidx > 0:
             item = self.template_model.get_item(tidx)
             if item:
                 tmpl = item.get_string()
-                script += (
-                    f"use misc.custom_captiveflask; "
-                    f"set templates.custom {tmpl}; back; "
-                )
+                script += f"set captiveflask.{tmpl} true; "
         script += "start"
         self.runner.run_in_terminal(["wifipumpkin3", "-x", script], root=True)

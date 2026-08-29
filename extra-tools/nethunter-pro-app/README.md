@@ -37,6 +37,34 @@ A module greys itself out and says which tool is missing if the command it
 needs is not on `PATH`, so screens degrade cleanly rather than failing at
 click time.
 
+## Wifipumpkin3 screen notes
+
+The rogue-AP screen builds a wifipumpkin3 startup script from the chosen options
+and opens it in a terminal. What each field maps to:
+
+  * **AP interface** — `set interface` (the adapter that becomes the AP, e.g.
+    `wlan1`, the external dongle).
+  * **Internet interface** — `set interface_net` (wifipumpkin3's `-iNet`): the
+    adapter with a working connection, shared to the AP's clients, so they get
+    real internet through the phone. `wlan0` by default (the internal Wi-Fi).
+    Leave empty for a captive portal that does not pass traffic on.
+  * **Proxy** — `captiveflask` is the captive portal; `pumpkinproxy` is the
+    transparent MITM proxy; `sniffkin3` captures credentials. (Not
+    `pumpkinproxy` for the portal — that was a bug once.)
+  * **Captive-portal template** — enabled with `set captiveflask.<Template> true`,
+    which is what writes e.g. `DarkLogin=true` into `captive-portal.ini`. This is
+    not the `templates.custom` install command, which installs *new* templates
+    rather than selecting one.
+
+**Captive-portal templates live in** `/usr/share/wifipumpkin3/config/templates`
+(also mirrored under the dist-packages path). Drop a new template folder in
+there and press **Refresh templates** to pick it up. The stock ones are
+`DarkLogin`, `FlaskDemo`, `Login_v4`, `evilqr3` and `loginPage`.
+
+Note the NAT/forwarding wifipumpkin3 sets up needs iptables working in the
+kernel; on a kernel without the `ip_tables` module, sharing internet fails with
+"table does not exist".
+
 ## Architecture
 
 - `executor.py` — async command runner. Everything runs off the GTK thread and

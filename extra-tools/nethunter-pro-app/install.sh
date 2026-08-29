@@ -43,6 +43,8 @@ install -Dm755 "$here/helper/nethunter_pro_helper.py" \
     /usr/libexec/nethunter-pro-helper
 install -Dm755 "$here/helper/hid_type.py" \
     /usr/libexec/nethunter-pro-hid
+install -Dm755 "$here/helper/rhodep-make-captiveportal" \
+    /usr/libexec/nethunter-pro-make-captiveportal
 install -Dm644 "$here/data/dbus/org.kali.NetHunterPro.Helper.service" \
     /usr/share/dbus-1/system-services/org.kali.NetHunterPro.Helper.service
 install -Dm644 "$here/data/dbus/org.kali.NetHunterPro.Helper.conf" \

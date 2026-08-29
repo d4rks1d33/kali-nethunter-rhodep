@@ -87,6 +87,24 @@ class Wifipumpkin(NHModule):
         group.add(where)
         box.append(group)
 
+        # ---- build a portal from a git repo -----------------------------
+        bg = Adw.PreferencesGroup(
+            title="Build a portal from a login page repo",
+            description="Paste a git URL of a login page (e.g. "
+            "github.com/trananhtuat/instagram-login). It becomes a captive "
+            "portal template; the cloned source is deleted afterwards.")
+        self.repo_entry = Adw.EntryRow(title="git URL")
+        bg.add(self.repo_entry)
+        build_row = Adw.ActionRow(
+            title="Build and install",
+            subtitle="Clone, convert, install, then Refresh templates to see it")
+        bb = Gtk.Button(label="Build", valign=Gtk.Align.CENTER)
+        bb.add_css_class("suggested-action")
+        bb.connect("clicked", lambda _b: self._build_portal())
+        build_row.add_suffix(bb)
+        bg.add(build_row)
+        box.append(bg)
+
         actions = Adw.PreferencesGroup()
         start = Adw.ActionRow(
             title="Start rogue AP",
@@ -119,6 +137,22 @@ class Wifipumpkin(NHModule):
             ["sh", "-c", f"for d in {globbed}; do [ -d \"$d\" ] && ls -1 \"$d\"; done 2>/dev/null | sort -u"],
             done, timeout=10,
         )
+
+    def _build_portal(self) -> None:
+        url = self.repo_entry.get_text().strip()
+        if not url:
+            from ..widgets import toast
+            toast(self.app_window, "Paste a git URL first")
+            return
+        # The generator clones, converts, installs into wifipumpkin3 and deletes
+        # the source. It writes into the system templates dir, so it runs as
+        # root through the same path as everything else. Output streams live.
+        builder = "/usr/libexec/nethunter-pro-make-captiveportal"
+        self.runner.output.append("Building a portal from %s …\n" % url)
+        self.runner.run([builder, url], root=True)
+        # When it finishes, refresh the template list so the new one appears.
+        from gi.repository import GLib
+        GLib.timeout_add_seconds(6, lambda: (self._load_templates(), False)[1])
 
     def _start(self, _b: Gtk.Button) -> None:
         iface = self.iface.get_text().strip() or "wlan1"

@@ -2869,6 +2869,49 @@ already done.
     theoretical minimum (`clk_scale=100`), so any further rate has to be
     measured rather than assumed to fit.
 
+17. **The fuel gauge says `Full` at 100% even on battery, and the phone then
+    never suspends.** This is the one that quietly cost a day of testing: with
+    the charger unplugged and the gauge at 100%, `status` reads `Full` instead
+    of `Discharging`, UPower reports `on-battery: no`, and PowerDevil applies the
+    plugged-in policy -- so a locked screen never leads to a suspend. Every
+    attempt to reproduce the locked-screen behaviour at 100% measured nothing at
+    all, and the run that finally worked only did because the battery had drifted
+    down to 95%.
+
+    The cause is three lines in `cw2217_get_status()`, in patch 0012:
+
+	if (cw->soc >= 100)
+		return POWER_SUPPLY_STATUS_FULL;
+
+	cur = CW2217_CURRENT_TO_UA(cw->current_raw, cw->shunt_mohm);
+	...
+	return cur > 0 ? POWER_SUPPLY_STATUS_CHARGING :
+			 POWER_SUPPLY_STATUS_DISCHARGING;
+
+    The state of charge is checked before the current is looked at, so a battery
+    at 100% reports `Full` whether or not it is being drained. `FULL` is supposed
+    to mean the battery is full *and* not discharging; a pack sitting at 100%
+    with current leaving it is discharging, and it is the only thing userspace
+    has to go on.
+
+    The fix is to read the current first and let a discharge win over the
+    state of charge, keeping `Full` for 100% with no current leaving:
+
+	cur = ...;
+	if (cur < -CW2217_CURRENT_NOISE_UA)
+		return POWER_SUPPLY_STATUS_DISCHARGING;
+	if (cw->soc >= 100)
+		return POWER_SUPPLY_STATUS_FULL;
+
+    Note the sign convention in this driver is that positive current is charging.
+    The `!cw->shunt_mohm` path has to keep returning something sensible, since
+    without a shunt value the current cannot be read at all -- that is the one
+    case where falling back to the state of charge is right.
+
+    Worth fixing before any further power measurement, not only for the
+    suspend policy: anything reasoning about "is it on battery" is wrong at 100%,
+    which includes the measurement in item 6.
+
 # License
 Kernel patches: GPL-2.0. Packaging/glue: MIT. Vendor firmware blobs: proprietary,
 not included (extract from your own device). See `LICENSE`.

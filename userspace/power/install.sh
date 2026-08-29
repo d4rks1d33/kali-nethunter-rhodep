@@ -64,6 +64,18 @@ fi
 install -D -m 0644 "$here/etc/NetworkManager/rhodep-wowlan.conf" \
 	/etc/NetworkManager/conf.d/rhodep-wowlan.conf
 
+# Arming WoWLAN is what makes NetworkManager keep the link across the suspend,
+# and also what makes it tear the link down on the way back. The hook disarms it
+# for the instant NM looks, and the timer makes sure it always ends up armed
+# again even if the hook's re-arm never runs. See the hook for the mechanism.
+install -D -m 0755 "$here/systemd/system-sleep/rhodep-wowlan" \
+	/usr/lib/systemd/system-sleep/rhodep-wowlan
+install -D -m 0755 "$here/rhodep-wowlan-check" /usr/local/sbin/rhodep-wowlan-check
+install -D -m 0644 "$here/systemd/rhodep-wowlan-check.service" \
+	/etc/systemd/system/rhodep-wowlan-check.service
+install -D -m 0644 "$here/systemd/rhodep-wowlan-check.timer" \
+	/etc/systemd/system/rhodep-wowlan-check.timer
+
 install -D -m 0644 "$here/README.md" /usr/share/doc/rhodep-power/README.md 2>/dev/null || true
 
 if [ -d /run/systemd/system ]; then
@@ -72,9 +84,11 @@ if [ -d /run/systemd/system ]; then
 	systemctl enable rhodep-keep-awake.service   >/dev/null 2>&1
 	systemctl start  rhodep-suspend-mode.service >/dev/null 2>&1 || true
 	systemctl restart rhodep-keep-awake.service  >/dev/null 2>&1 || true
+	systemctl enable --now rhodep-wowlan-check.timer >/dev/null 2>&1 || true
 	systemctl reload NetworkManager >/dev/null 2>&1 || true
 	echo "suspend mode: $(cat /sys/power/mem_sleep 2>/dev/null)"
 	echo "keep-awake:   $(systemctl is-active rhodep-keep-awake)"
+	echo "wowlan-check: $(systemctl is-active rhodep-wowlan-check.timer)"
 else
 	install -d /etc/systemd/system/multi-user.target.wants
 	ln -sf /etc/systemd/system/rhodep-suspend-mode.service \

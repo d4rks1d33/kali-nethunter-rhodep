@@ -224,6 +224,34 @@ def write_pulp(interface, interface_net, ssid, domain_puny, subs, lure_url):
     say("wrote wp3 script %s" % PULP_PATH)
 
 
+def full_reset():
+    """Kill every previous run and clear the state they left behind.
+
+    Relaunching without this produced an AP that came up but a phishkin3 proxy
+    that never listened, because the previous run had left half-configured
+    iptables rules (five duplicated 443 ACCEPTs stacked up over successive
+    launches), and wp3's phishkin3 setup then bailed part way through. Every
+    run should start from an empty state.
+    """
+    say("resetting any previous run")
+    for cmd in [
+        "tmux kill-session -t phishkin3",
+        "pkill -9 -f wifipumpkin3",
+        "pkill -9 -f evilginx",
+        "pkill -9 -f phishkin3",
+        "pkill -9 hostapd",
+        "pkill -9 dnsmasq",
+        # Clean iptables rules the previous run left behind: FORWARD chain
+        # (phishkin3's own DNS/portal/DROP plus our 443 ACCEPT) and the nat
+        # PREROUTING with the port-80 DNAT. sed the /etc/hosts marker out too.
+        "iptables -F FORWARD",
+        "iptables -t nat -F",
+        "sed -i '/nethunter-phishkin3/d' /etc/hosts",
+    ]:
+        subprocess.run(["sh", "-c", cmd], stderr=subprocess.DEVNULL)
+    time.sleep(3)
+
+
 def start_in_tmux(interface):
     """wp3 first (creates the AP), then evilginx, each in a tmux window.
 
@@ -233,8 +261,7 @@ def start_in_tmux(interface):
     if not subprocess.run(["sh", "-c", "command -v tmux"],
                           stdout=subprocess.DEVNULL).returncode == 0:
         sys.exit("tmux is not installed; needed to run both tools")
-    subprocess.run(["tmux", "kill-session", "-t", "phishkin3"],
-                   stderr=subprocess.DEVNULL)
+    full_reset()
     subprocess.run([
         "tmux", "new-session", "-d", "-s", "phishkin3", "-n", "wp3",
         "wifipumpkin3 -p %s" % PULP_PATH])

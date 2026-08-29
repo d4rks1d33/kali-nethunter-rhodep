@@ -2072,11 +2072,36 @@ it is either not started or a research project.
      loop is what delays the backend start.
    - **Drop the dead device tree nodes**: the four VA-macro DMICs and AMIC2 are
      not populated on this board. Cosmetic, so batch it with the next reflash.
-   - **Keeping the codec awake should not be necessary.** Jack detection relies
-     on a udev rule pinning the soundwire slave on, because MBHC detects nothing
-     while it is suspended. The real fix is for the codec to keep that block
-     alive across runtime suspend, which is a kernel change and would also stop
-     the port from burning power to hold the slave up.
+   - **Keeping the codec awake should not be necessary — half of it is done.**
+     Jack detection relies on a udev rule pinning the soundwire slave on,
+     because MBHC detects nothing while it is suspended, and the port burns
+     power holding it up. Patch 0095 supplies what was missing underneath: the
+     wake interrupt sm6375.dtsi never gave swr0, so the slave had no way to
+     signal while the link was stopped.
+
+     **The wake path works, measured.** With the TX slave released to `auto` it
+     reaches `suspended` in two seconds, and plugging a jack in wakes it by
+     itself — `swr_wake_irq` goes 1 → 2 → 3 on the transitions and
+     `rhodep-jack-watch` logged all four switches correctly.
+
+     Two things still block removing the rule. MBHC's impedance measurement
+     fails on a freshly woken codec:
+
+	Impedance detect ramp error, c1=2, x1=0x0
+	wcd_measure_adc_once: adc complete: 0, adc timeout: 1
+
+     which is what tells a headset from headphones and drives the buttons, so
+     insertion working is not enough. And **the saving has never been measured**
+     — every attempt so far has been with the phone charging, where the fuel
+     gauge reports the charge current and the codec's few mA are invisible.
+     Removing the rule to save an unknown amount is not a trade worth making
+     blind, especially next to a display now running at 120 Hz.
+
+     Beware of testing this the way it was first tested: flipping
+     `power/control` to `auto` on a running system left the speaker silent, with
+     `aw88261 ... start failure (-1)` on both amplifiers, which the driver
+     raises when the I2S clock is not there. A reboot cleared it. The
+     measurement has to start from a cold boot, not from a live edit.
 
    Call audio is item 3, and it is a missing driver rather than an audio bug.
 5. **The camera — started, but it does not capture yet.** Only the power rails

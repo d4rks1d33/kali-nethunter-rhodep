@@ -146,10 +146,20 @@ stream rather than avoiding the collision.
 The offsets are almost certainly right and the gate is now correct. What is
 not known is how to compute the window for this panel. Things not yet tried:
 
-- The panel may define `qcom,mdss-dsi-panel-cmd-dma-sched-line` and a window in
-  its own DT node; downstream reads them into `host->dma_sched_line` and
-  `host->dma_sched_window` and only falls back to `v_active` when they are
-  absent. The rhodep panel DTSI was not checked for these.
+- ~~The panel may define a schedule line and window in its own DT node.~~
+  **Checked, it does not, so the fallback values the attempts used were right.**
+  The property names are `qcom,mdss-dsi-dma-schedule-line` and
+  `qcom,mdss-dsi-dma-schedule-window` (`dsi_panel.c`, not the names guessed
+  here), both default to 0 when absent, and neither appears in
+  `dsi-panel-mot-csot-nt37701-655-1080x2400-dsc-cmd-common-v1.dtsi`, in the
+  tianma variant, or anywhere else in the vendor tree for this panel. With both
+  at 0 `dsi_configure_command_scheduling()` takes the command-mode fallback --
+  `line = TEARCHECK_WINDOW_SIZE + v_active`, `window = v_active` -- which is
+  exactly what v122 to v125 programmed.
+
+  This matters mostly for what it rules out: the failures were not caused by
+  feeding the register the wrong numbers. Whatever is wrong is in when the
+  write happens, not in what is written.
 - `DSI_DMA_SCHEDULE_CTRL` at 0x100 downstream (0xFC here) with `BIT(28)` is the
   *video mode* path and was never touched; whether command mode also needs it
   set is unknown.
@@ -160,6 +170,21 @@ not known is how to compute the window for this panel. Things not yet tried:
   decoder-shaped, not line-shaped.
 
 ## Dead ends, so nobody repeats them
+
+- **Refresh rate makes no visible difference to the error rate.** Once patch
+  0097 made all four rates available, the same repaint-plus-brightness workload
+  was run at each: 120, 90, 60 and 48 Hz gave 0, 1, 0 and 1 `dsi_err_worker`
+  lines over 20 seconds. The idea was that a slower rate leaves more idle time
+  between frames for a command DMA to fit into, so the glitch should ease off at
+  48 Hz. Nothing of the sort showed up.
+
+  **But that run proves little**, and the reason is worth recording: the
+  synthetic ramp in `rhodep-repaint-bench` produces 0-1 errors per run against
+  70-79 in one real KWin ambient-brightness run, so there was never enough
+  signal to see a difference with. Whatever KWin does that the bench does not is
+  still the missing ingredient, and finding it would be worth more than another
+  fix attempt. Note `dsi_err_worker()` uses `pr_err_ratelimited`, so counts are
+  capped at roughly ten per five seconds and a genuinely bad run undercounts.
 
 - **Brightness in LP instead of HS** (patch 0062): no change.
 - **`clk_scale` 100 → 230**: no change to the glitch, and it added a crimson

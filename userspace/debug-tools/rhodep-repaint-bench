@@ -70,6 +70,19 @@ run_load() {
 
 
 BL=/sys/class/backlight/5e94000.dsi.0/brightness
+BL_MAX=$(cat /sys/class/backlight/5e94000.dsi.0/max_brightness 2>/dev/null || echo 0)
+BL_LO=1200
+BL_HI=3600
+# The panel's max_brightness is 3514, and writing 3600 is rejected with -EINVAL.
+# The ramp used to end in `|| exit 0`, so that one rejected write killed the
+# whole subshell after about twenty steps -- one second of a thirty second run,
+# ascending only, and silently, because the error went to /dev/null and the
+# report printed "+bl" regardless. Every measurement taken with this mode before
+# the clamp was added was therefore made with the backlight standing still for
+# 97% of the run, which is why it could not reproduce an artefact that needs the
+# level to be moving.
+[ "$BL_MAX" -gt 0 ] && [ "$BL_HI" -gt "$BL_MAX" ] && BL_HI=$BL_MAX
+
 bl_pid=""
 if [ -n "$BACKLIGHT" ] && [ -w "$BL" ]; then
 	bl_saved=$(cat "$BL")
@@ -77,18 +90,23 @@ if [ -n "$BACKLIGHT" ] && [ -w "$BL" ]; then
 	# level is moving, and a compositor ramp is a sequence of small steps.
 	(
 		while :; do
-			v=1200
-			while [ "$v" -le 3600 ]; do
-				echo "$v" > "$BL" 2>/dev/null || exit 0
+			v=$BL_LO
+			while [ "$v" -le "$BL_HI" ]; do
+				# Only give up if the file really went away. A rejected
+				# value must not end the ramp.
+				echo "$v" > "$BL" 2>/dev/null || [ -w "$BL" ] || exit 0
 				v=$((v + 120)); sleep 0.05
 			done
-			while [ "$v" -ge 1200 ]; do
-				echo "$v" > "$BL" 2>/dev/null || exit 0
+			v=$((v - 120))	# the loop leaves v above the ceiling
+			while [ "$v" -ge "$BL_LO" ]; do
+				echo "$v" > "$BL" 2>/dev/null || [ -w "$BL" ] || exit 0
 				v=$((v - 120)); sleep 0.05
 			done
 		done
 	) &
 	bl_pid=$!
+elif [ -n "$BACKLIGHT" ]; then
+	echo "warning: $BL is not writable, running without the ramp" >&2
 fi
 
 out=$(run_load 2>&1)
@@ -118,4 +136,4 @@ dsi=$((after - before))
 wall=$(awk -v a="$start_boot" -v b="$end_boot" 'BEGIN{printf "%.1f", b-a}')
 
 printf '%-10s%s frames=%-5s fps=%-5s janks=%-4s worst=%-6s dsi_err=%-4s (%ss)\n' \
-	"$LABEL" "$([ -n "$BACKLIGHT" ] && echo ' +bl' || echo '    ')" "$frames" "$fps" "$janks" "${worst}ms" "$dsi" "$wall"
+	"$LABEL" "$([ -n "$bl_pid" ] && echo ' +bl' || echo '    ')" "$frames" "$fps" "$janks" "${worst}ms" "$dsi" "$wall"

@@ -241,6 +241,70 @@ not known is how to compute the window for this panel. Things not yet tried:
 - The DSC configuration may interact: the corruption seen in v125 is
   decoder-shaped, not line-shaped.
 
+## The bench's brightness mode was broken, and it invalidates measurements
+
+`rhodep-repaint-bench` takes a third argument that is supposed to ramp the
+backlight for the length of the run. It ramped for **about one second of a
+thirty second run**, ascending only, once, and then stopped -- silently.
+
+The panel's `max_brightness` is **3514**. The ramp climbed to **3600**, that
+write is rejected with `-EINVAL`, and the loop ended in `|| exit 0`, so the
+single rejected write killed the whole subshell after roughly twenty steps. The
+error went to `/dev/null`, and the report printed `+bl` whether or not anything
+had been written, because the label was chosen from the argument rather than
+from whether the ramp was alive.
+
+**Every number taken with that mode is therefore worthless**, including:
+
+- the "synthetic writes do not reproduce it at all" conclusion recorded above;
+- the refresh-rate comparison of 0, 1, 0 and 1 errors at 120, 90, 60 and 48 Hz,
+  which was measuring a backlight that stood still for 97% of each run.
+
+An external ramp with the *same* range, step and interval produces **47 errors
+in thirty seconds**. The bench produced 0-1. That gap was the bug, not a
+property of the workload.
+
+Fixed by clamping the ceiling to `max_brightness`, only aborting when the file
+really disappears rather than when a value is rejected, and stepping `v` back
+into range before the descending half. The `+bl` marker now follows the ramp's
+pid so it can no longer claim a ramp that never ran.
+
+**One earlier conclusion has to be withdrawn with it.** "Not the write rate --
+the manual runs peaked at 18/s against the ramp's 20" was measured by sampling
+the backlight at 20 Hz, which cannot observe a rate above 20/s at all. The
+compositors may well write far faster than that; the measurement could not tell.
+
+## What downstream does that mainline does not
+
+Read out of `techpack/display/msm/dsi` and `sde` in the vendor tree, for the
+error path this artefact lives on:
+
+- **Mainline does nothing at all for `status=4`.** `dsi_err_worker()` only calls
+  `dsi_sw_reset()` for `DSI_ERR_STATE_MDP_FIFO_UNDERFLOW` (0x8); plain
+  `DSI_ERR_STATE_FIFO` (0x4), which is what this phone logs, is logged and
+  dropped. Downstream soft-resets the controller on a lane underflow regardless
+  of mode (`dsi_display.c:8291`).
+- Downstream **masks FIFO overflow around every command DMA**
+  (`dsi_ctrl.c:3496`), and has a spurious-interrupt guard at 15 errors per
+  second (`dsi_ctrl.c:2730`). Mainline has neither.
+- **Neither one re-initialises the panel from the error path.** Downstream's
+  panel recovery comes from somewhere else entirely: a periodic ESD check
+  (`sde_connector.c:2536`) that, on failure, emits `DRM_EVENT_PANEL_DEAD`
+  (`sde_connector.c:2487`) and lets userspace do the off/on. The DSC PPS is
+  resent only as part of that full modeset (`dsi_display.c:9211`).
+
+So the gap is not in FIFO handling. **Mainline has no notion of the panel being
+desynced while the controller is healthy**, which is exactly this symptom.
+
+The precedent for closing it without inventing a mechanism is
+`DRM_MODE_LINK_STATUS_BAD`: set it from a worker and send a hotplug event, which
+is what i915 does (`intel_connector.c:41-67`, guarded against double-queueing by
+`intel_dp->needs_modeset_retry` in `intel_dp.c:3539`) and what
+`cdns-mhdp8546-core.c:2175` does. Both delegate the re-init to userspace rather
+than doing it in the kernel, which is also what downstream ends up doing. The
+kernel-doc explicitly says the property is "not limited to DP or link training",
+and equally explicitly warns that userspace may ignore it.
+
 ## Dead ends, so nobody repeats them
 
 - **Refresh rate makes no visible difference to the error rate.** Once patch

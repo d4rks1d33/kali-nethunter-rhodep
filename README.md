@@ -621,6 +621,21 @@ login form renders. If no cert is present the launcher falls back to
 `-developer` (self-signed) so nothing breaks; see `has_real_cert()` in
 `rhodep-phishkin3-launch`.
 
+The phishkin3 module in the app surfaces installed-cert domains at the top of
+the look-alike domain picker so the default choice is a domain the browser
+will actually trust. The GUI runs as the login user (not root) and so it
+cannot read the cert store under `/root/.config/nethunter-phishkin3/evilginx/
+crt/sites/` directly; instead the launcher mirrors the list of loadable
+domains as empty marker files under `/var/lib/nethunter-phishkin3/certs/`
+(mode 0644 on a 0755 dir) on every run, via `refresh_cert_index()`. The
+picker reads that world-readable directory. Elevating the whole app under
+`pkexec` was tried first and rejected: kwin on the Plasma-Mobile port refuses
+Wayland connections from a UID that does not own the session, so
+`Gdk.Display.get_default()` returns None under root and the app aborts with
+`TypeError: Argument 0 does not allow None as a value`. The per-action
+`ToolRunner(..., root=True)` path with `allow_active: yes` in the polkit
+rule is enough for the privileged work.
+
 The end-to-end flow that actually works (tested with `cdninstagram.dedyn.io`):
 
   1. Register a free public domain -- **deSEC.io** (`*.dedyn.io`) is the pick:

@@ -210,11 +210,46 @@ packet can wake the phone. Without it NM tears the interface down *before*
 suspending instead, which is strictly worse.
 
 There is no setting for the resume teardown. It is unconditional, and upstream's
-own comment calls it a workaround. Living without it means patching NM, or taking
-`wlan0` out of NM and driving it with wpa_supplicant directly — note that
-wpa_supplicant already does the right thing here, logging *"Do not deauthenticate
-as part of interface deinit since WoWLAN is enabled"* just as NM pulls the rug
-out from under it.
+own comment calls it a workaround. But it does not read configuration either —
+`device_is_wake_on_lan()` asks the *hardware* — so it is enough for WoWLAN to
+look disarmed at the instant NM asks. **Fixed, without patching NM**, by
+`userspace/power/systemd/system-sleep/rhodep-wowlan`: disarm on resume, re-arm
+two seconds later.
+
+The ordering this depends on is guaranteed rather than lucky. systemd-sleep runs
+these hooks synchronously and logind only emits `PrepareForSleep(false)` once it
+exits, so the hook always finishes before NM looks:
+
+	22:55:29.919  PM: suspend exit
+	22:55:29.960  rhodep-wowlan: WoWLAN desarmado en phy0
+	22:55:32.011  rhodep-wowlan: WoWLAN rearmado en phy0
+	(no takedown, no deauth, no re-association)
+
+Measured across a suspend: association time went 752 s → 788 s, continuous, where
+before it reset to zero. The phone was woken by a magic packet and `gpio-keys`
+never moved, so WoWLAN still works with the hook in place.
+
+Three things this cost, all worth knowing before touching it:
+
+- **The re-arm cannot be a backgrounded child.** The first version used
+  `setsid sh -c "sleep 10; ..." &`; `systemd-suspend.service` deactivated 380 ms
+  later and systemd killed its cgroup with the child inside. setsid escapes the
+  session and the TTY, not the cgroup. It runs under `systemd-run` now, which
+  gets a transient unit of its own.
+- **A `delay` inhibitor around the window is impossible from here.** logind
+  refuses it — *"Failed to inhibit: The operation inhibition has been requested
+  for is already running"* — because the hook runs inside the very sleep
+  operation it would be inhibiting. Asking for it failed the whole unit in 38 ms
+  and left WoWLAN off, which is worse than the race it was meant to close.
+- Both failures ended the same way: **WoWLAN disarmed permanently**, so the phone
+  could not be woken over the network at all. That is why the safety net is
+  `rhodep-wowlan-check.timer`, which reconciles the state every minute instead of
+  trusting a moment, skipping the resume window via `/run/rhodep-wowlan.resuming`.
+
+The alternative, for the record, was patching NM or taking `wlan0` away from it
+and driving wpa_supplicant directly — which already does the right thing here,
+logging *"Do not deauthenticate as part of interface deinit since WoWLAN is
+enabled"* just as NM pulls the rug out from under it.
 
 **The USB adapter has a second, unrelated version of this.** Across the same
 suspend the dongle was never de-enumerated — VBUS held, `role=host` held, and the

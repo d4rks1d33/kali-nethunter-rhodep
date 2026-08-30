@@ -3094,16 +3094,41 @@ already done.
 
     Three threads for whoever picks this up, in order of promise:
 
-    - **The firmware files are missing.** `sec_s3fwrn5_firmware.bin` and
-      `sec_s3fwrn5_rfreg.bin` are both absent, and `s3fwrn5_nci_post_setup()`
-      returns early when the first one cannot be loaded, so
-      `s3fwrn5_nci_rf_configure()` never runs. Note the driver only reaches the
-      RF configuration after an actual firmware *update*, so a factory-programmed
-      chip is expected to keep its own RF settings -- but this chip has never
-      been configured by this driver and that assumption is untested. The blobs
-      are not on the phone: the `super` partition was scanned end to end, 8 GB,
-      and contains no such string, so the stock vendor image is gone. They would
-      have to come from a downloaded rhodep firmware package.
+    - **The part is an S3NRN4V, and its RF configuration is done by userspace.**
+      LineageOS's device tree for rhodep names the blobs it extracts, and they
+      are not the ones mainline looks for:
+
+	# NFC firmware
+	vendor/etc/sec_s3nrn4v_hwreg.bin
+	vendor/etc/sec_s3nrn4v_swreg.bin
+	vendor/firmware/sec_s3nrn4v_firmware.bin
+
+      So the chip is an **S3NRN4V**, not the S3FWRN5 whose name the driver
+      carries -- close enough that the NCI layer, the GPIO topology and the
+      power sequence all match, which is why it enumerates, but not the same
+      part. And there are **two** register files, `hwreg` and `swreg`, where
+      mainline's `s3fwrn5_nci_rf_configure()` expects a single `rfreg`.
+
+      That difference matters more than the names. Android drives this part with
+      `android.hardware.nfc-service.sec` and `vendor/etc/libnfc-sec-vendor.conf`
+      (both in the same device tree), which means **the RF registers are
+      programmed from userspace over proprietary NCI commands**, not by the
+      kernel. Mainline's driver only touches RF configuration after it performs
+      a firmware update, and never otherwise. The proprietary notification the
+      driver cannot decode, GID 0xf OID 0x3f, almost certainly belongs to that
+      Samsung protocol.
+
+      So the shape of the remaining work is clearer than it was: replay what the
+      Samsung HAL does, using those two register blobs, through
+      `NCI_PROP_SET_RFREG` and friends -- which mainline already implements as
+      0x22, 0x26 and 0x27. That is a real piece of work, but it is a known one.
+
+      The blobs are not on the phone -- the `super` partition was scanned end to
+      end, 8 GB, and the stock vendor image is gone -- but they are inside any
+      LineageOS build for rhodep, in the `payload.bin` of the OTA zip. The other
+      images that come with it are no use for this: `boot`/`vendor_boot` are
+      kernel and ramdisk, `super_empty` is empty by definition, `vbmeta` is
+      verification metadata.
     - **Decode `0xf3f`.** It carries one payload byte and arrives immediately
       after RF_DISCOVER. That byte is the most direct evidence available about
       why nothing is found, and printing it is a two-line change.

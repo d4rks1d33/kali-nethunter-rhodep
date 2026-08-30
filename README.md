@@ -743,6 +743,261 @@ general and are why the screen frames what it does the way it does:
     domain with a real Let's Encrypt cert, so the browser trusts the MITM
     proxy on its own without ever attempting downgrade.
 
+**Cloudflare Quick Tunnels do not replace the deSEC domain either.** The
+obvious question after the deSEC+LE flow works is whether a free
+`cloudflared tunnel --url ...` (which hands out a random
+`*.trycloudflare.com` subdomain with a Cloudflare cert) could skip the
+domain-registration step entirely. Four blockers, one architectural, one
+per-site:
+
+  * **Evilginx v3.3 has no HTTP-only listener.** `core/http_proxy.go:1633`
+    goes `net.Listen("tcp", …)` → `vhost.TLS(c)` on every accepted
+    connection; a plain HTTP byte sequence fails the TLS ClientHello parse
+    and the goroutine returns silently. `cloudflared tunnel --url
+    http://…` -- the natural HTTP-origin config -- therefore never gets a
+    single request through. `--url https://…` + `--no-tls-verify` +
+    `--origin-server-name <hostname>` works, but the tunnel and evilginx
+    still both terminate TLS, meaning three back-to-back TLS terminations
+    (browser↔CF, CF↔evilginx, evilginx↔real site) with the SNI game
+    played twice, and Cloudflare has to be told the exact SNI evilginx is
+    now listening for. There is a chicken-and-egg for the SNI value:
+    trycloudflare only assigns the random hostname *after* cloudflared
+    starts, so the phishlet has to be re-hostnamed and cloudflared
+    relaunched with `--origin-server-name <that hostname>` -- doable but
+    fragile.
+  * **No wildcards under trycloudflare.com, no config-file support.** Quick
+    tunnels give exactly one flat random hostname; the docs are explicit
+    that config-file ingress is unsupported here. The Instagram phishlet
+    proxies five sibling hostnames under one phish domain (`www`, `m`,
+    `static`, `scontent`, `i`); collapsing them all to the one
+    trycloudflare hostname means the CDN and API subdomains cannot be
+    rewritten separately, which is the exact bug that puts the login
+    "stuck on the logo". Wildcards only exist under Named Tunnels on a
+    user-owned zone -- so a real free-of-cost solution still needs a real
+    domain.
+  * **Brotli silently breaks sub_filters.** Cloudflare rewrites the
+    outbound `Accept-Encoding` to `br, gzip` on the way to the origin. Go's
+    `net/http` transport transparently decodes `gzip` responses but NOT
+    brotli, so when the real origin (Instagram, and every modern site)
+    responds `Content-Encoding: br`, evilginx sees raw compressed bytes
+    and its `sub_filter`/`patchUrls` regexes fail without a warning. The
+    victim gets the original, unmodified HTML/JS pointing at
+    `instagram.com`. Evilginx v3 has no header-rewrite knob for this;
+    you'd need to patch it to strip `br` from `Accept-Encoding` before
+    proxying. Same failure mode as "stuck on the logo" but from a
+    completely different cause than the one above -- one that only shows
+    up in production, once Cloudflare is in the path.
+  * **200 concurrent in-flight cap, no SSE, and CF Trust & Safety.** A
+    single-victim demo probably works. Two victims fanning out ~40
+    subresource fetches each will hit HTTP 429s during login. Cloudflare
+    also propagates `CF-Ray`, `CF-Connecting-IP`, `CF-IPCountry` and the
+    `__cf_bm` bot-management cookie to the origin -- fingerprinting the
+    tunnel is trivial from the target's side, and Trust & Safety can (and
+    routinely does) kill trycloudflare tunnels used for credential
+    phishing mid-op.
+
+Verdict: quick tunnels are architecturally viable only for single-hostname
+phishlets against sites that do not use brotli and expect small load. For
+the Instagram target we already work with, they are strictly worse than the
+deSEC+LE setup that exists today.
+
+**Instagram itself is the hard part, and it is not solved.** With the AP,
+the wildcard cert, the CDN proxying and the `session: true` fix in place,
+the login page is served correctly and the browser reaches it without any
+TLS warning. And yet the login `<form>` never mounts: the page stops at
+the Instagram logo splash. The debug trail below is what has been
+established so far, so the next person poking at this does not repeat the
+dead-ends:
+
+  * **Served HTML is byte-identical to the real one** modulo the URL
+    rewrites -- 419 KB vs 416 KB, same 67 vs 69 `<script>` count, same
+    `data-btmanifest` version, same `<script type="application/json">`
+    Bootloader payloads, same rsrcMap listing 358-360 bundle URLs. The
+    reverse proxy is doing its job on the HTML.
+  * **All bundles that ARE fetched come through byte-perfect.** The 298 KB
+    tier-one JS bundle at `rsrc.php/v4/yo/r/XrOVaBLe-P9.js` is delivered
+    identically from `static.cdninstagram.com` and from
+    `static.cdninstagram.dedyn.io` (checked with `wc -c` and `head -c 40`).
+    No corruption, no half-decoded brotli, no truncation.
+  * **26 subresources return HTTP 200, zero fail, zero console errors,
+    zero JS exceptions.** Verified with headless Chromium driven by CDP
+    (`Network.enable` + `Runtime.consoleAPICalled` +
+    `Runtime.exceptionThrown`). And yet `body.children.length` stays at 2
+    (the `id=splash-screen` div plus the trailing `<script>`s), no `<form>`,
+    no `<input type=password>`, `window.Bootloader === undefined`,
+    `window.PolarisAppID === undefined`. React hydration never completes.
+  * **Same code path works fine against the real domain.** Same headless
+    Chromium, same UA, same network -- loading `www.instagram.com/accounts/
+    login/` directly gives `divs: 119, pw: 1`, i.e. the form is there. So
+    the browser and the network are not at fault; the proxy is doing
+    something the SPA does not like.
+  * **The Bootloader silently stops fetching partway through the graph.**
+    The real load fetches 25 JS bundles; the proxied load fetches only 13.
+    The 12 missing bundles are exactly the ones that carry the
+    `PolarisLoginForm` and its dependencies (`v4/y4/r/HUrPRMPbjNh.js`,
+    `v4iQvT4/yE/l/en_US/M-LBWHhsGRV.js`, etc). The bootloader gets far
+    enough to know they exist (they are in the served rsrcMap) but never
+    requires them.
+  * **Bootloader is designed to fail silently.** Reading the SSR payload,
+    `BootloaderConfig` is initialised with `silentDups: true`,
+    `jsRetryAbortNum: 2`, `timeout: 60000`. Any lazy-load failure gets
+    swallowed with no console output. Adding a `Runtime.enable` + full
+    console + exception capture over CDP confirms: nothing is thrown,
+    nothing is logged, the SPA just parks.
+  * **The classic anti-proxy checks are not the cause.**
+      - `location.hostname` cannot be redefined -- Chromium marks
+        `Location.prototype.hostname`'s descriptor non-configurable and
+        the `Object.defineProperty` call throws `Cannot redefine property:
+        hostname`. But leaving it as the phishing hostname does NOT change
+        anything: there is no visible hostname allowlist in the Instagram
+        bundles that gates mount.
+      - `document.domain` CAN be overridden and was, no effect.
+      - CSP is not the killer: evilginx strips
+        `Content-Security-Policy`/`Report-Only`/`X-Frame-Options` from
+        responses (`rm_headers` in `OnResponse`), so no nonce mismatch.
+        The proxy's response headers were dumped and neither CSP header is
+        present.
+      - `edge-chat.facebook.com` WebSocket and `www.facebook.com/
+        ig_xsite_user_info/` fetch are NOT the killer either. Adding a
+        `js_inject` that stubs `window.WebSocket` for `edge-chat` and
+        short-circuits `fetch` for `ig_xsite_user_info` does execute (the
+        console log fires), but the bundle never even reaches the point
+        of calling either -- the failure happens earlier in hydration.
+      - Cookie seeding is not the killer. Evilginx's own debug log shows
+        it captures `csrftoken`, `datr`, `ig_did`, `ps_l`, `ps_n` into the
+        session store, but only forwards `csrftoken` to the browser (the
+        `Set-Cookie` headers of the proxy's response are the evidence).
+        Seeding `datr`, `mid`, `ig_did`, `ig_nrcb` into `document.cookie`
+        from the js_inject also does not unblock hydration.
+  * **What has NOT been ruled out (candidates for the next attempt):**
+      - The `data-btmanifest="1046380673_main"` hash embedded in the HTML
+        is a bundle-manifest version; the SPA may be checking it against
+        something the proxy alters (though HTMLs are byte-identical, so
+        this seems unlikely).
+      - The `brsid` inside the `envjson` element and the `hsi` in
+        `SiteData` are session correlators; if the proxy's response
+        includes a value that has already been "consumed" against
+        `www.instagram.com` and the client verifies against a rotating
+        token, that could hang.
+      - The `charlesbel`/`tijme` phishlet lineage uses
+        `sub_filters` with `search: '{hostname_regexp}'` +
+        `replace: '{hostname_regexp}'` over `text/html`, `text/javascript`,
+        `application/json`, `application/javascript`,
+        `application/x-javascript`. In evilginx v3 that pattern is a no-op
+        (self-replacement), but its purpose in v2 was to force
+        re-evaluation of hostname rewrites through the specific mime
+        types. There may be an alternate `{hostname_regexp}` filter that
+        does catch a hostname the current phishlet's `auto_filter` misses.
+      - No public working Instagram phishlet exists as of late 2024/early
+        2025. The lineage repo (`An0nUD4Y/Evilginx2-Phishlets`) is taken
+        down by GitHub for ToS. `simplerhacking/Evilginx3-Phishlets`, the
+        most-starred public catalog, explicitly does NOT ship an Instagram
+        phishlet and gates a working one behind their paid Masterclass.
+        The comment thread at
+        `github.com/simplerhacking/Evilginx3-Phishlets/pull/15` documents
+        multiple people hitting the exact same "stops on splash screen /
+        blank page" symptom and nobody publishing a fix -- so if this ends
+        up unfixable without paying, it is because it is unfixable
+        without paying.
+
+The `phishlets/instagram.yaml` in the port currently ships with the CDN
+proxying + `session: true` fix, extra `sub_filters` for `static`, `scontent`
+and `i`, and a defensive `js_inject` that (a) waits for the login form via
+`MutationObserver` before hooking the submit, (b) attempts to fake
+`document.domain` (works) and `location.hostname` (silently rejected), (c)
+stubs the `edge-chat.facebook.com` WebSocket and the
+`www.facebook.com/ig_xsite_user_info/` fetch, and (d) seeds
+`datr`/`mid`/`ig_did`/`ig_nrcb` into `document.cookie`.
+
+None of that was enough on its own. The actual gate turned out to be an
+anti-MITM byte-integrity check that Instagram ships inside the tier-one
+bundle, in the module called `ServerJSPayloadListener`:
+
+```js
+function e(el){
+  if (el instanceof HTMLScriptElement) {
+    var t = el.dataset.contentLen;
+    if (!(el.dataset.processed
+          || el.textContent.length.toString() !== t)) {
+      // parse and dispatch payload
+    }
+    // otherwise: silently skip. No log, no throw.
+  }
+}
+```
+
+Every `<script type="application/json" data-sjs>` block in the served HTML
+carries a `data-content-len="N"` attribute -- the byte length its
+`textContent` had at the origin. `ServerJSPayloadListener.process()`
+compares that against the current `textContent.length` and, if they
+disagree, **drops the entire payload without a log entry, without an
+exception, and without any signal in DevTools**. The design is explicitly
+there to defeat MITM byte modification. It is one of the few genuinely
+undetectable-from-inside failures a browser can have.
+
+The evilginx `patchUrls` pass rewrites `www.instagram.com` (14 chars) ->
+`www.cdninstagram.dedyn.io` (24 chars) everywhere in the response body,
+including inside each `<script data-sjs>` payload. Every rewritten URL
+adds 10 bytes. Across a `Bootloader.handlePayload` payload with hundreds
+of rsrcMap entries, the drift is +1000-2000 bytes. Evilginx does NOT
+update `data-content-len` after the mutation, so every touched payload
+gets silently discarded by Instagram's listener. Empirically: a curl
+capture of the served HTML shows 30 `data-sjs` scripts and 6 of them
+mismatch (deltas from +28 to +1630 bytes), including two
+`Bootloader.handlePayload` payloads and the tier-two `ScheduledServerJS`
+payload. Those six carry `SiteData`, `BootloaderConfig`, `DTSGInitData`,
+`LSD`, `ServerNonce`, `CurrentUserInitialData`, `SprinkleConfig` and the
+CSS-loader / retry-config modules. With them silently dropped,
+`Bootloader.require("SiteData")` returns `undefined` via
+`ErrorGuard.applyWithGuard`'s swallow-and-log, the tier-two JS chunk
+carrying `PolarisLoginForm` is never demanded, and the splash sticks.
+
+The fix is a `sub_filter` that inserts an inline `<script>` right after
+the opening `<head>` -- so it executes before ANY of Instagram's inline
+bundles -- that monkey-patches `Element.prototype.getAttribute` and
+overrides the `dataset.contentLen` getter to return the CURRENT
+`textContent.length` on every read, regardless of what the attribute
+actually says. The listener's compare then becomes `x === x`, the guard
+passes, every payload is dispatched, and the login form mounts. A second
+sweep in `js_inject` before `</body>` also directly rewrites the
+attribute as belt-and-braces, and a `MutationObserver` catches
+late-inserted payloads. Verified end-to-end: headless Chromium against
+the proxied lure produces `divs: 119, pw: 1` (identical to real IG),
+console log shows `[nhp-inject] fixed N data-content-len mismatches` on
+each visit, and the login form renders in real Chrome on the AP.
+
+Two follow-ups that are not addressed and are known to be worth chasing:
+
+  * **Slow first paint on Chrome.** The head-injected patch runs
+    synchronously, which is exactly what makes it win the race against
+    the listener, but the form still takes a couple of seconds longer to
+    appear than on the real site. Some of that is the AP's uplink and
+    evilginx re-encrypting each subresource; some may be the patched
+    `getAttribute` running on every element in the DOM. Worth measuring
+    later with `--enable-tracing`.
+  * **Credentials come in blank; only cookies are captured.** With 2FA
+    enabled on the victim account, the classic
+    `unenc_password` interception via `sendPass()` does not fire before
+    the browser sends the real POST, so evilginx's session has empty
+    `username`/`password` fields. The captured `tokens` (session cookies)
+    are still usable -- they include the post-2FA `sessionid`, so
+    replaying them into a browser lands directly inside the account.
+    That is what the "Captured sessions" strip in the Phishkin3 module
+    exposes.
+
+**Captured sessions in the app.** The Phishkin3 screen tails evilginx's
+`data.db` every 5 s and lists every captured session: username (or "(no
+credentials captured)" for the 2FA case), phishlet, cookie count, remote
+IP, session id fragment. Each row has "Show cookies" (opens a scrollable
+Netscape-format dump ready to paste into a Cookie Editor extension --
+domain, path, HttpOnly flag, name, value, one per line) and "Delete"
+(`sed -i` on the BuntDB backing file, keyed on the exact `session_id`
+substring so it removes just the one record). The read goes through the
+DBus helper's `RunCommand` path because the store is 0600 root-owned;
+the delete goes the same way for the same reason. No polkit prompt storm
+-- the helper is authorised once at app start and the calls piggyback on
+that.
+
 Also worth documenting because it is not obvious: nethunter-pro-app also
 carries `rhodep-make-captiveportal`, a generator that turns a git repo of a
 static login page into a wifipumpkin3 captive portal (clones, folds
@@ -991,7 +1246,7 @@ docs/                       extra notes
 
 # The kernel (shared with the pmOS port)
 
-## The 86 applied patches (`kernel/patches/`, applied in this order)
+## The 88 applied patches (`kernel/patches/`, applied in this order)
 
 The order below is the aport's `source=` order, which is what `patch` sees; it
 is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
@@ -1109,6 +1364,10 @@ is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
                                        programmed after a firmware download
 0103 s3fwrn5-tunable-fw-cfg-clock       clk_speed was hardcoded 0xff; the
                                        vendor stack uses 0x11
+0104 s3fwrn5-dual-opcode-rfreg-transfer  newer parts move the whole transfer
+                                       to opcode 0x2a; ours is one of them
+0105 s3fwrn5-map-the-mifare-classic-protocol-value  cards were found and then
+                                       dropped for an unmapped protocol
 ```
 
 0062 and 0063 are kept but neither changes the glitched lines they were written

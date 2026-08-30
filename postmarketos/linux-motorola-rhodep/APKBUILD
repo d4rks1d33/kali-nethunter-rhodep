@@ -115,6 +115,8 @@ source="
 	0101-arm64-dts-qcom-rhodep-nfc-s3fwrn5.patch
 	0102-nfc-s3fwrn5-rf-configure-without-fw-update.patch
 	0103-nfc-s3fwrn5-tunable-fw-cfg-clock.patch
+	0104-nfc-s3fwrn5-dual-opcode-rfreg-transfer.patch
+	0105-nfc-s3fwrn5-map-the-mifare-classic-protocol-value.patch
 "
 options="!check !strip !tracedeps pmb:cross-native"
 _carch="arm64"
@@ -254,4 +256,6 @@ bb61237e744ef998b5c3fce46e7537826eb7f1767b29d7342d0d9d4c6cf666da13cbcdc0a50a3093
 6a400579756d2956b269215e3f10418bbad561e51d2b6bf62056c61b4f92cad282987c273bc63f53a636f621af40b19fccaa6f5e8b66b8800f86e6f8afafafb7  0101-arm64-dts-qcom-rhodep-nfc-s3fwrn5.patch
 cd603afe600c027ef1fdb73d8f7e72acd4f285ce93d34b3b7088883609cf2cb9fe39549e6e58c1f17ae5027f69e27a42dba612b2670c73e87f29026dcf7e9dca  0102-nfc-s3fwrn5-rf-configure-without-fw-update.patch
 8f503c4c6d8b653c83ea50ecb79db25d84ccfc85e9c4c9dca58b82b812d573b3003ed771d4e0cb20dae86d7463fcd3c218b18676851549c7a11f5da8e07f7b54  0103-nfc-s3fwrn5-tunable-fw-cfg-clock.patch
+24bf11d6c71ca7285cce19184db53cb9b34bdfcecaa2da2e14f4b0acc8265323a4b9f2c7c4c33a206aa5757d2a7e607c0e9a09685d1058feee6142614130e623  0104-nfc-s3fwrn5-dual-opcode-rfreg-transfer.patch
+f5c96060651d862f3ef2e70ad20022e0a0ecabdc986686e0562a091fa21810643f4c750ff94446ebe47e68e9a3793834d9afb9fdb624aa42da7401471cf535ad  0105-nfc-s3fwrn5-map-the-mifare-classic-protocol-value.patch
 "

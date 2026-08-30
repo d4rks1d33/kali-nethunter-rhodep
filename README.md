@@ -2964,8 +2964,9 @@ already done.
 
    Steps 1 to 3 are mechanical. Patch 0092 should be replaced, not extended.
 
-10. **NFC.** Samsung `sec-nfc` (S3NRN) at 0x27, with ven=tlmm48, firm=tlmm8,
-    irq=tlmm9 and clk_req=tlmm7.
+10. **NFC — the controller is alive and talking NCI; it does not read cards yet.**
+    Samsung S3FWRN5 at 0x27, with ven=tlmm48, firm=tlmm8, irq=tlmm9 and
+    clk_req=tlmm7.
 
     This got cheaper without anyone intending it: the chip sits on
     `qupv3_se7_i2c`, which is mainline's `i2c7`, and **patch 0052 already
@@ -3058,13 +3059,64 @@ already done.
     declares no SAR property at all, so the SAR being absent proves nothing
     about the NFC.
 
-    So the next step is to find what powers the part. Nothing in the vendor tree
-    declares an NFC supply for this board, which means it is either a rail that
-    is up anyway, or a load switch driven by something not in the device tree.
-    Adding the `s3fwrn5` node and letting the driver run its own sequence is
-    cheap and worth doing regardless -- it will fail at probe if the address
-    still does not ACK, which is no worse than today, and it removes the
-    possibility that hand-driven GPIOs are missing something the driver does.
+    **And the driver was the answer.** With patch 0101 adding the node, the part
+    that had never once acknowledged its address does all of this:
+
+	/sys/bus/i2c/devices/2-0027   name s3fwrn5-i2c, driver bound
+	/sys/class/nfc/nfc0           registered
+	i2cdetect                     0x27 now reads UU
+	/proc/interrupts              s3fwrn5_i2c on tlmm 9, counting
+	neard                         Powered true, protocols Felica, MIFARE,
+	                              Jewel, ISO-DEP, ISO-15693
+
+    Those protocols are not a driver constant -- the chip reports them in its
+    NCI CORE_INIT reply. The controller is powered, enumerated and talking.
+
+    **So the hand testing was what was wrong**, not the hardware. Driving VEN
+    with `gpioset` and probing was not equivalent to what the driver does: the
+    driver runs the full sequence with `wake` held correctly throughout, and the
+    node brings a pinctrl state that takes the enable pins off the pull-down
+    they idle at. Worth remembering as a method lesson -- "I drove the GPIO and
+    it did not answer" is a weaker statement than it sounds.
+
+    **What does not work yet is reading a card.** Two were tried, an EMV card
+    and a MIFARE one, with nothing detected. The NCI trace shows why it is not a
+    simple failure:
+
+	nci_send_cmd: opcode 0x103            RF_DISCOVER
+	nci_rf_disc_rsp_packet: status 0x0    accepted
+	nci_ntf_packet: GID=0xf, OID=0x3f     proprietary notification
+	nci: unsupported ntf opcode 0xf3f
+
+    Discovery starts and the chip agrees to it. Then it sends a proprietary
+    notification the driver has no handler for -- `s3fwrn5_nci_prop_ops` knows
+    0x22, 0x26, 0x27 and 0x28, all RF register commands, and nothing else.
+
+    Three threads for whoever picks this up, in order of promise:
+
+    - **The firmware files are missing.** `sec_s3fwrn5_firmware.bin` and
+      `sec_s3fwrn5_rfreg.bin` are both absent, and `s3fwrn5_nci_post_setup()`
+      returns early when the first one cannot be loaded, so
+      `s3fwrn5_nci_rf_configure()` never runs. Note the driver only reaches the
+      RF configuration after an actual firmware *update*, so a factory-programmed
+      chip is expected to keep its own RF settings -- but this chip has never
+      been configured by this driver and that assumption is untested. The blobs
+      are not on the phone: the `super` partition was scanned end to end, 8 GB,
+      and contains no such string, so the stock vendor image is gone. They would
+      have to come from a downloaded rhodep firmware package.
+    - **Decode `0xf3f`.** It carries one payload byte and arrives immediately
+      after RF_DISCOVER. That byte is the most direct evidence available about
+      why nothing is found, and printing it is a two-line change.
+    - **The RF front end may want its own supply.** No board in the vendor tree
+      declares one for NFC -- not the Samsung boards, and not the NXP or ST ones
+      either -- which suggests it is wired rather than switched, but that is an
+      inference from absence.
+
+    Getting this far needed `neard`, which is not installed by default:
+    `apt-get install neard`, then `busctl --system set-property org.neard
+    /org/neard/nfc0 org.neard.Adapter Powered b true`. Bringing the device up by
+    hand over netlink does not work -- it returns EINVAL and leaves the enable
+    pin high, which looks exactly like a dead chip.
 
 12. **Fingerprint, and unlocking the screen with it.** Focaltech, driven on
     Android by a proprietary HAL (`fingerprint.focaltech.default.so`). No

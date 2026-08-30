@@ -15,6 +15,7 @@ from . import phishkin3        # noqa: F401
 from . import wifite          # noqa: F401
 from . import pwnagotchi       # noqa: F401
 from . import pineapple        # noqa: F401
+from . import driftnet         # noqa: F401
 # Payloads / exploitation
 from . import payloads         # noqa: F401
 from . import set_tool         # noqa: F401

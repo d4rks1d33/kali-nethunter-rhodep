@@ -444,9 +444,9 @@ adapter anyway. Its face and status are on the web UI at `http://<phone>:8080`.
 
 **`nethunter-pro-app/`** — the NetHunter Pro control panel, a GTK4/libadwaita
 app for Phosh that drives the port's tools from a touch UI instead of a
-terminal: pwnagotchi, wifipumpkin3, Phishkin3 (wp3 + evilginx2), CARsenal (CAN
-bus), nmap, HID/BadUSB attacks, an evil twin, VNC, Docker, and the rest. Each
-is a module screen.
+terminal: pwnagotchi, wifipumpkin3, Phishkin3 (wp3 + evilginx2), driftnet,
+CARsenal (CAN bus), nmap, HID/BadUSB attacks, an evil twin, VNC, Docker, and
+the rest. Each is a module screen.
 
 The Docker screen keeps the engine off until asked. Start and Stop drive
 **both** `docker.service` and `docker.socket` -- the socket first on start so the
@@ -697,10 +697,51 @@ about how Android treats the AP:
     resolver is bypassed entirely. The pragmatic fix, since the AP IP is
     private (`172.16.0.1`), is to publish that private IP as the public A
     record for every subdomain the phishlet uses (`apex`, `www`, `static`,
-    `scontent`, `i`, `m`). Public resolvers happily serve private IPs; the
-    result is the same `172.16.0.1` whether the client asked the AP's spoof
-    or Cloudflare's DoH, and Chrome connects to the AP either way. TTL 3600
-    (deSEC minimum is 900).
+     `scontent`, `i`, `m`). Public resolvers happily serve private IPs; the
+     result is the same `172.16.0.1` whether the client asked the AP's spoof
+     or Cloudflare's DoH, and Chrome connects to the AP either way. TTL 3600
+     (deSEC minimum is 900).
+
+The **driftnet** screen sniffs image bytes off unencrypted HTTP on a capture
+interface. `driftnet -a` (adjunct mode) writes each captured image into its
+OWN temp directory and announces the filename on stdout; a small in-shell
+watchdog reads those announcements and hard-links each file into
+`~/Pictures/driftnet-images/` (with a timestamped prefix so runs never collide)
+before driftnet's `-m` rotation evicts it, so the permanent collection
+survives both driftnet's own housekeeping and the module being stopped.
+`~` is expanded against `$SUDO_USER`'s home rather than root's, and each
+copied file is `chown`-ed back to that user -- the module runs as root for
+pcap and for chown, but the images land under the login user's home. A
+second mode swaps the file save-out for driftnet's built-in HTTP viewer on
+`http://<phone>:9090`; the "Open web viewer" row is hidden unless that mode
+is picked AND driftnet is running, because it 404s otherwise and the first
+UX round hit exactly that.
+
+Two things worth naming here because they are true of driftnet in 2026 in
+general and are why the screen frames what it does the way it does:
+
+  * **HTTPS is not sniffable by design.** TLS negotiates a per-session key
+    from the server's certificate; a passive tap sees random-looking bytes
+    and cannot recover images from them. Google Images, Instagram, every
+    social network, every bank -- HTTPS everywhere means driftnet's actual
+    hit rate is close to zero on modern browsers hitting modern sites. The
+    module's description says so up-front. Where it does still work: HTTP
+    fallbacks (`http://neverssl.com`, old CDNs, IoT devices' plain HTTP),
+    the captive-portal probe traffic Android generates on join
+    (`connectivitycheck.gstatic.com`), and any HTTP that transits the AP.
+  * **SSL stripping is dead too.** sslstrip (2009) turned HTTPS into HTTP
+    inside a MITM by rewriting `https://` to `http://` in served responses,
+    which is exactly the kind of "downgrade HTTPS to HTTP so driftnet can
+    read it" that comes up first when discussing this. Three defenses
+    landed since then and killed it against anything worth stripping: HSTS
+    (a site returning `Strict-Transport-Security` locks the browser onto
+    HTTPS for a year), the HSTS preload list (Chrome/Firefox/Safari ship
+    ~150 000 hardcoded HTTPS-only hosts including every big site and every
+    `.dev`/`.app`/`.new` TLD), and browser HTTPS-first / HTTPS-only modes.
+    The realistic path for capturing plaintext of a real target's traffic
+    in 2026 is not stripping but the phishkin3 flow above -- a look-alike
+    domain with a real Let's Encrypt cert, so the browser trusts the MITM
+    proxy on its own without ever attempting downgrade.
 
 Also worth documenting because it is not obvious: nethunter-pro-app also
 carries `rhodep-make-captiveportal`, a generator that turns a git repo of a
@@ -916,8 +957,8 @@ extra-tools/          not needed to boot or to make a call: tools that make the
                       (install.sh; on-demand services, needs otg on)
   nethunter-pro-app/  the NetHunter Pro control panel (GTK4/libadwaita for
                       Phosh): pwnagotchi, wifipumpkin3, Phishkin3 (wp3 +
-                      evilginx2, 95 phishlets), CARsenal, Docker, nmap, HID,
-                      VNC and more, from a touch UI (install.sh + dbus helper)
+                      evilginx2), driftnet, CARsenal, Docker, nmap, HID, VNC
+                      and more, from a touch UI (install.sh + dbus helper)
   cleanup/            weekly disk-space cleanup (caches, journal, coredumps)
                       + a permanent journal cap; weekly systemd timer (install.sh)
 scripts/
@@ -950,7 +991,7 @@ docs/                       extra notes
 
 # The kernel (shared with the pmOS port)
 
-## The 82 applied patches (`kernel/patches/`, applied in this order)
+## The 83 applied patches (`kernel/patches/`, applied in this order)
 
 The order below is the aport's `source=` order, which is what `patch` sees; it
 is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
@@ -1060,6 +1101,8 @@ is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
                                        panel stuck; ask for a modeset
 0099 rhodep-charger-interrupt           without it nothing pushes a uevent on
                                        unplug and UPower never notices
+0100 rhodep-l9-at-1v8                   the rail was running at the bottom of
+                                       the PMIC's range, 1504 mV
 ```
 
 0062 and 0063 are kept but neither changes the glitched lines they were written
@@ -2952,6 +2995,46 @@ already done.
     supplies, so whatever else the part needs -- a rail turned on elsewhere, the
     32 kHz clk_req, or simply not ACKing until something speaks NCI to it -- has
     still to be found. Establish that before writing or porting any driver.
+
+    **Since then, three things were settled and one is still open.**
+
+    **The driver question is answered: mainline's `s3fwrn5` is the right one**,
+    and not by the name. Its binding's own example is `s3fwrn5@27` -- the same
+    address. The power-on sequence is identical value for value and delay for
+    delay: enable high, wake low, 20 ms, enable low, and both wait
+    `EN_WAIT_TIME` = 20. The vendor aliases `wake` to `firm` on one pin
+    (`pdata->wake = pdata->firm`), which is exactly mainline's single
+    `wake-gpios` doing double duty as firmware-mode and wake. And the vendor's
+    build forces `CONFIG_SEC_NFC_PRODUCT_N5`, where the Kconfig spells N5 out as
+    "RN5/RNx" -- S3FW**RN5**. The chip also demonstrably speaks NCI: the vendor
+    hardcodes `2F 30 01 00`, a well formed proprietary NCI command. So the work
+    is a device tree node, not a driver port. Note this changes the userspace
+    story: `s3fwrn5` puts the NCI stack in the kernel and expects `neard`, where
+    the vendor exposes `/dev/sec-nfc` for Android's libnfc-nci.
+
+    **VEN is active low**, which the earlier probe above had backwards.
+    `SEC_NFC_PW_ON` is 0 unless `CONFIG_SEC_NFC_PRODUCT_N3` is defined, and no
+    build in the vendor tree defines it. Probing with VEN *high* is probing a
+    part the driver considers powered off. Retested properly, holding VEN low
+    with `gpioset` and confirming the pin with debugfs: **still no ACK**. Worth
+    knowing that VEN already sits low at rest on this port, so the chip has been
+    "enabled" all along.
+
+    **The clock is not a software problem.** No `clocks` property for NFC exists
+    anywhere in the vendor tree; the three boards with `clock-names = "OSC_NFC"`
+    have no matching `clocks` and would fail `clk_get()` too.
+    `CONFIG_SEC_NFC_GPIO_CLK` is `default n` and is not defined by any of the
+    vendor's build files, so the whole clock path is compiled out and
+    `clk_req-gpio` is never even parsed. Whatever feeds the part is wired.
+
+    **What is still open is power, and there is now a concrete finding.** The
+    part never asserts `clk_req` (tlmm 7 reads low with VEN asserted), which is
+    what a live controller does to ask for its clock -- so it looks unpowered
+    rather than unresponsive. Chasing that turned up patch 0100: **pm6125 L9 was
+    running at 1504 mV**, the bottom of the range the device tree declared,
+    because nothing asked for a voltage. Everything on that rail is a 1.8 V
+    load. That is now fixed, and whether it wakes the NFC up is the next thing
+    to test.
 
 12. **Fingerprint, and unlocking the screen with it.** Focaltech, driven on
     Android by a proprietary HAL (`fingerprint.focaltech.default.so`). No

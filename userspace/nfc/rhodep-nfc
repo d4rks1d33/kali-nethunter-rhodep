@@ -3,21 +3,63 @@
 #
 # Talks the kernel's NFC generic-netlink interface directly (family "nfc"),
 # the same one neard and nfcpy use underneath. No third-party modules: this
-# runs on the phone's stock Python. neard must NOT be holding the adapter at
-# the same time -- only one program can poll at once. Stop it first:
-#     sudo systemctl stop neard    (or: sudo pkill -f neard)
-#
-# Usage:
-#     sudo rhodep-nfc read        # poll once, print the first card, exit
-#     sudo rhodep-nfc watch       # keep polling, print every card seen
-#     sudo rhodep-nfc info        # show the adapter and its protocols
-#
-# Root is required: the NFC netlink commands are privileged.
-#
-# What it shows: for NFC-A (MIFARE, ISO-DEP type A) the UID, ATQA (SENS_RES),
-# SAK (SEL_RES) and, when present, the ATS; for NFC-B the SENSB_RES; for NFC-F
-# (FeliCa) the SENSF_RES; for NFC-V (ISO 15693) the DSFID and UID. It then
-# names the card from SAK/protocol the way a reader would.
+# runs on the phone's stock Python. See docs/nfc.md in the port repo for the
+# full story and for how to write your own software against the controller.
+
+HELP = r"""rhodep-nfc -- read NFC tags from a terminal on the Moto G82 (rhodep)
+
+Usage:
+    sudo rhodep-nfc [command]
+
+Commands:
+    read            poll, print the first card, and exit         (default)
+    watch           keep polling, print every card presented
+    raw             like watch, but dump every activation attribute
+                    uninterpreted -- for tags whose protocol this tool does
+                    not know how to name
+    info            show the adapter and the protocols it advertises
+    help, --help    this text
+
+Notes:
+    Root is required: the NFC netlink commands are privileged.
+
+    Only one program may drive the adapter at a time. Stop neard first:
+        sudo systemctl stop neard        (or: sudo pkill -f neard)
+
+    Present the card to the upper back of the phone, near the camera.
+
+What each read shows:
+    For NFC-A (MIFARE, ISO-DEP Type 4) the UID, ATQA (SENS_RES), SAK
+    (SEL_RES) and, when present, the ATS; for NFC-B the SENSB_RES; for NFC-F
+    (FeliCa) the SENSF_RES; for NFC-V (ISO 15693) the DSFID and UID. The card
+    is then named from SAK and protocol the way a reader would.
+
+Raw capture:
+    'raw' prints, for every activated target, each netlink attribute the
+    kernel returned as label + hex, including any this tool has no name for
+    (shown as "attr <N>"). Use it to analyse a card whose protocol is not yet
+    handled: capture the bytes, identify the technology from them, then add it
+    (see below). The attributes come straight from the RF activation
+    notification -- SENS/SEL/NFCID for Type A, SENSB/SENSF for B/F, the
+    ISO15693 fields for V -- so raw is the ground truth the named output is
+    built from.
+
+Adding a new protocol or technology:
+    1. Poll it with 'raw' and note which attributes come back and their bytes.
+    2. If the technology is a new NFC protocol the chip can discover, add its
+       bit to the PROTO dict (bit positions are enum nfc_prot in the kernel's
+       include/uapi/linux/nfc.h). ALL_PROTOS is rebuilt from PROTO, so poll
+       will start asking for it automatically.
+    3. If it is a new activation attribute, add its number to the NFC_ATTR_*
+       constants (same header, enum nfc_attrs) and to ATTR_NAMES so raw labels
+       it, then read it in print_target() to show it in the named output.
+    4. To name a new card, extend name_card(): match on SAK, on the protocol,
+       or on the technology-specific bytes you captured with raw.
+    5. If the kernel itself drops the card with "not the desired protocol" in
+       dmesg, the controller is reporting a vendor protocol value the NCI core
+       does not map. That is a driver change, not a change here: see
+       s3fwrn5_nci_get_rfprotocol() (patch 0105) and add the value there.
+"""
 
 import socket
 import struct
@@ -76,6 +118,22 @@ NFC_ATTR_IM_PROTOCOLS = 13
 NFC_ATTR_TARGET_ISO15693_DSFID = 26
 NFC_ATTR_TARGET_ISO15693_UID = 27
 NFC_ATTR_TARGET_ATS = 32
+
+# Names for the attributes an activation can carry, so 'raw' can label what it
+# knows and still print what it does not. Extend this when the kernel gains a
+# new NFC_ATTR_TARGET_* -- see enum nfc_attrs in include/uapi/linux/nfc.h.
+ATTR_NAMES = {
+    NFC_ATTR_PROTOCOLS: "PROTOCOLS",
+    NFC_ATTR_TARGET_INDEX: "TARGET_INDEX",
+    NFC_ATTR_TARGET_SENS_RES: "SENS_RES (ATQA)",
+    NFC_ATTR_TARGET_SEL_RES: "SEL_RES (SAK)",
+    NFC_ATTR_TARGET_NFCID1: "NFCID1 (UID)",
+    NFC_ATTR_TARGET_SENSB_RES: "SENSB_RES",
+    NFC_ATTR_TARGET_SENSF_RES: "SENSF_RES",
+    NFC_ATTR_TARGET_ISO15693_DSFID: "ISO15693_DSFID",
+    NFC_ATTR_TARGET_ISO15693_UID: "ISO15693_UID",
+    NFC_ATTR_TARGET_ATS: "ATS",
+}
 
 # protocol bit positions, from enum nfc_prot in the uapi
 PROTO = {
@@ -341,7 +399,28 @@ def cmd_info(nl):
             print("    - %s" % human)
 
 
-def _poll_loop(nl, idx, once):
+def print_target_raw(t):
+    """Every attribute the kernel returned, uninterpreted: label + hex.
+
+    This is the ground truth for a card whose protocol is not yet named. What
+    it cannot label it still prints, as "attr <N>", so a new technology's
+    bytes are never lost.
+    """
+    idx = struct.unpack("I", t[NFC_ATTR_TARGET_INDEX][:4])[0] \
+        if NFC_ATTR_TARGET_INDEX in t else "?"
+    print("  raw target #%s -- %d attribute(s):" % (idx, len(t)))
+    for atype in sorted(t):
+        data = t[atype]
+        name = ATTR_NAMES.get(atype, "attr %d" % atype)
+        line = "    %-18s %s" % (name + ":", hexs(data) if data else "(empty)")
+        # For short fixed-width fields, also show the integer value.
+        if data and len(data) <= 4:
+            val = int.from_bytes(data, "little")
+            line += "   (= 0x%x, %d)" % (val, val)
+        print(line)
+
+
+def _poll_loop(nl, idx, once, printer):
     nl.join_events()
     start_poll(nl, idx)
     print("polling -- present a card to the upper back of the phone "
@@ -357,7 +436,7 @@ def _poll_loop(nl, idx, once):
                         key = bytes(uid) or repr(sorted(t.items()))
                         if once or key not in seen:
                             seen.add(key)
-                            print_target(t)
+                            printer(t)
                             print()
                     if once:
                         return
@@ -377,38 +456,48 @@ def _poll_loop(nl, idx, once):
         stop_poll(nl, idx)
 
 
-def cmd_read(nl):
+def _run(nl, once, printer):
     dev = find_device(nl)
     if not dev:
         raise SystemExit("no NFC device found")
     idx, name, protos, powered = dev
     ensure_up(nl, idx, powered)
-    _poll_loop(nl, idx, once=True)
+    _poll_loop(nl, idx, once, printer)
+
+
+def cmd_read(nl):
+    _run(nl, once=True, printer=print_target)
 
 
 def cmd_watch(nl):
-    dev = find_device(nl)
-    if not dev:
-        raise SystemExit("no NFC device found")
-    idx, name, protos, powered = dev
-    ensure_up(nl, idx, powered)
-    _poll_loop(nl, idx, once=False)
+    _run(nl, once=False, printer=print_target)
+
+
+def cmd_raw(nl):
+    _run(nl, once=False, printer=print_target_raw)
 
 
 def main():
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "read"
+    if cmd in ("help", "--help", "-h"):
+        print(HELP)
+        return
+    commands = {
+        "info": cmd_info,
+        "read": cmd_read,
+        "watch": cmd_watch,
+        "raw": cmd_raw,
+    }
+    if cmd not in commands:
+        # Reject before asking for root, so a typo does not look like a
+        # permission problem.
+        sys.stderr.write("unknown command: %s\n\n" % cmd)
+        raise SystemExit(HELP)
     if os.geteuid() != 0:
         raise SystemExit("run as root (the NFC netlink commands are "
                          "privileged): sudo rhodep-nfc ...")
-    cmd = sys.argv[1] if len(sys.argv) > 1 else "read"
     nl = Netlink()
-    if cmd == "info":
-        cmd_info(nl)
-    elif cmd == "read":
-        cmd_read(nl)
-    elif cmd == "watch":
-        cmd_watch(nl)
-    else:
-        raise SystemExit(__doc__)
+    commands[cmd](nl)
 
 
 if __name__ == "__main__":

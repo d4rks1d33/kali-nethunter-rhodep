@@ -57,6 +57,18 @@ list; everything here is a from-scratch community port.
 > **Bluetooth** was found with its service masked and a random controller
 > address; `userspace/bluetooth/install.sh` fixes both. See that directory.
 
+> **NFC reads cards.** The Samsung S3NRN4V runs on the in-tree `s3fwrn5` with
+> patches 0101-0105. One thing is not optional and is easy to miss: the module
+> needs `rfreg_dual=1`, without which it comes up on the older register
+> transfer, answers on the I2C bus, and reads *nothing* because its antenna is
+> never configured — a "polls but sees no card" ghost that cost real time to
+> find. `userspace/nfc/install.sh` drops
+> `/etc/modprobe.d/s3fwrn5-rhodep.conf` (which sets it), installs the
+> `rhodep-nfc` terminal reader, and protects both. The RF register blobs
+> (`sec_s3fwrn5_rfreg.bin`, `sec_s3fwrn5_swreg.bin`) ship and are protected with
+> the vendor NFC blobs. Verified reading a MIFARE Classic 1K and an EMV card.
+> Card emulation is a separate, larger job — see [`docs/nfc.md`](docs/nfc.md).
+
 > In-call audio does not exist yet, and is not a modem problem: Qualcomm voice
 > audio goes modem <-> ADSP <-> codec and mainline has no q6voice (MVM/CVS/CVP)
 > at all. Scoped in HANDOFF-SESSION4.md session 14.

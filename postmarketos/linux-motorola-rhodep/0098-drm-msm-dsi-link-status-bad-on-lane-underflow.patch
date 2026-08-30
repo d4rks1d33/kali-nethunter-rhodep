@@ -57,6 +57,21 @@ avoids it by programming a command DMA window that mainline never writes,
 which is a separate and so far unsuccessful line of work documented in
 docs/display-cmd-dma-window-wip/.
 
+Two things about the retry policy, both of which were wrong in the first
+version of this patch and both of which produced a panel that stopped
+recovering after the third fault of the boot:
+
+The count is forgotten after a quiet minute. Otherwise DSI_LINK_RETRY_MAX
+is not a guard against a modeset loop, it is a limit on how many times the
+panel is ever allowed to come back -- two recoveries during boot plus one
+under test used it up, and the next real fault was met with "link keeps
+failing" and a permanently corrupt screen.
+
+And the latch is taken last, once the request is certain. Taken before the
+interval and cap checks, an early return leaves it held by a request that
+was never sent; since only msm_dsi_host_power_on() clears it, and that runs
+on the modeset the request would have caused, nothing ever clears it again.
+
 --- a/drivers/gpu/drm/msm/dsi/dsi_host.c
 +++ b/drivers/gpu/drm/msm/dsi/dsi_host.c
 @@ -22,7 +22,9 @@
@@ -69,7 +84,7 @@ docs/display-cmd-dma-window-wip/.
  
  #include "dsi.h"
  #include "dsi.xml.h"
-@@ -93,6 +95,32 @@
+@@ -93,6 +95,39 @@
  #define DSI_ERR_STATE_MDP_FIFO_UNDERFLOW	0x0008
  #define DSI_ERR_STATE_INTERLEAVE_OP_CONTENTION	0x0010
  #define DSI_ERR_STATE_PLL_UNLOCKED		0x0020
@@ -99,10 +114,17 @@ docs/display-cmd-dma-window-wip/.
 + */
 +#define DSI_LINK_RETRY_INTERVAL_MS	5000
 +#define DSI_LINK_RETRY_MAX		3
++/*
++ * How long the link has to behave before the retry count is forgotten. Without
++ * this the count is a lifetime cap rather than a storm guard: the panel stops
++ * recovering after the third underflow the phone ever sees, which is not what
++ * "keeps failing" is supposed to mean.
++ */
++#define DSI_LINK_QUIET_MS		60000
  
  #define DSI_CLK_CTRL_ENABLE_CLKS	\
  		(DSI_CLK_CTRL_AHBS_HCLK_ON | DSI_CLK_CTRL_AHBM_SCLK_ON | \
-@@ -151,6 +179,21 @@
+@@ -151,6 +186,21 @@
  	struct work_struct err_work;
  	struct workqueue_struct *workqueue;
  
@@ -124,7 +146,7 @@ docs/display-cmd-dma-window-wip/.
  	/* DSI 6G TX buffer*/
  	struct drm_gem_object *tx_gem_obj;
  	struct drm_gpuvm *vm;
-@@ -1612,6 +1655,70 @@
+@@ -1612,6 +1662,85 @@
  	return len;
  }
  
@@ -166,26 +188,41 @@ docs/display-cmd-dma-window-wip/.
 +		return;
 +
 +	/*
-+	 * One request per link bring-up. Without this a bad second produces
-+	 * dozens of them -- sixty underflows in six seconds has been measured
-+	 * on this panel -- and userspace would be asked to redo the modeset
-+	 * while it is still doing the last one. Cleared in
-+	 * msm_dsi_host_power_on(), which is this driver's equivalent of the
-+	 * link coming back up.
++	 * A quiet spell means the previous bout is over and the count starts
++	 * again. This has to come first: without it DSI_LINK_RETRY_MAX stops
++	 * being a guard against a modeset loop and becomes a limit on how many
++	 * times the panel is ever allowed to recover.
 +	 */
-+	if (test_and_set_bit(DSI_LINK_STATUS_BAD_PENDING, &msm_host->link_flags))
++	if (msm_host->link_retry_count &&
++	    time_after(jiffies, msm_host->link_retry_last +
++			       msecs_to_jiffies(DSI_LINK_QUIET_MS)))
++		msm_host->link_retry_count = 0;
++
++	if (msm_host->link_retry_count >= DSI_LINK_RETRY_MAX) {
++		DRM_DEV_ERROR_RATELIMITED(&msm_host->pdev->dev,
++					  "link failing repeatedly, not asking again for %u s\n",
++					  DSI_LINK_QUIET_MS / 1000);
 +		return;
++	}
 +
 +	if (msm_host->link_retry_count &&
 +	    time_before(jiffies, msm_host->link_retry_last +
-+				 msecs_to_jiffies(DSI_LINK_RETRY_INTERVAL_MS)))
++			        msecs_to_jiffies(DSI_LINK_RETRY_INTERVAL_MS)))
 +		return;
 +
-+	if (msm_host->link_retry_count >= DSI_LINK_RETRY_MAX) {
-+		DRM_DEV_ERROR(&msm_host->pdev->dev,
-+			      "link keeps failing, leaving it alone\n");
++	/*
++	 * The latch goes last, once the request is certain to be made. Setting
++	 * it before the checks above would leave it held by a request that was
++	 * never sent, and only msm_dsi_host_power_on() clears it -- so a
++	 * modeset that never happens would mean it is never cleared, and the
++	 * panel never recovers again.
++	 *
++	 * One request per link bring-up: sixty underflows in six seconds has
++	 * been measured, and userspace must not be asked to redo the modeset
++	 * while it is still doing the last one.
++	 */
++	if (test_and_set_bit(DSI_LINK_STATUS_BAD_PENDING, &msm_host->link_flags))
 +		return;
-+	}
 +
 +	msm_host->link_retry_last = jiffies;
 +	msm_host->link_retry_count++;
@@ -195,7 +232,7 @@ docs/display-cmd-dma-window-wip/.
  static void dsi_err_worker(struct work_struct *work)
  {
  	struct msm_dsi_host *msm_host =
-@@ -1622,6 +1729,13 @@
+@@ -1622,6 +1751,13 @@
  	if (status & DSI_ERR_STATE_MDP_FIFO_UNDERFLOW)
  		dsi_sw_reset(msm_host);
  
@@ -209,7 +246,7 @@ docs/display-cmd-dma-window-wip/.
  	/* It is safe to clear here because error irq is disabled. */
  	msm_host->err_work_state = 0;
  
-@@ -1684,6 +1798,9 @@
+@@ -1684,6 +1820,9 @@
  		if (status & DSI_FIFO_STATUS_CMD_MDP_FIFO_UNDERFLOW)
  			msm_host->err_work_state |=
  					DSI_ERR_STATE_MDP_FIFO_UNDERFLOW;
@@ -219,7 +256,7 @@ docs/display-cmd-dma-window-wip/.
  	}
  }
  
-@@ -2147,6 +2264,7 @@
+@@ -2147,6 +2286,7 @@
  		return -ENOMEM;
  
  	INIT_WORK(&msm_host->err_work, dsi_err_worker);
@@ -227,7 +264,7 @@ docs/display-cmd-dma-window-wip/.
  
  	msm_dsi->id = msm_host->id;
  
-@@ -2160,6 +2278,7 @@
+@@ -2160,6 +2300,7 @@
  
  	DBG("");
  	if (msm_host->workqueue) {
@@ -235,7 +272,7 @@ docs/display-cmd-dma-window-wip/.
  		destroy_workqueue(msm_host->workqueue);
  		msm_host->workqueue = NULL;
  	}
-@@ -2592,6 +2711,8 @@
+@@ -2592,6 +2733,8 @@
  	dsi_ctrl_enable(msm_host, phy_shared_timings, phy);
  
  	msm_host->power_on = true;
@@ -244,7 +281,7 @@ docs/display-cmd-dma-window-wip/.
  	mutex_unlock(&msm_host->dev_mutex);
  
  	return 0;
-@@ -2768,3 +2889,9 @@
+@@ -2768,3 +2911,9 @@
  
  	return msm_host->dsc;
  }

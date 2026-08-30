@@ -3193,6 +3193,13 @@ already done.
     both the power and transport driver. Disassembling the routine that consumes
     `RF_HW_FILE_NAME` would give the exact opcode sequence instead of guesses.
 
+    **Everything from this is held.** `neard` and `wlr-randr` are on
+    `apt-mark hold`; the two s3fwrn5 modules, the patched `cw2217_battery.ko`,
+    the firmware blobs and the new debug scripts are registered with
+    `rhodep-protect-files`, so an `apt` run or a stray editor cannot quietly
+    undo any of it. The blobs and the OTA they came from live in
+    `_common/vendor-blobs/`.
+
     Getting this far needed `neard`, which is not installed by default:
     `apt-get install neard`, then `busctl --system set-property org.neard
     /org/neard/nfc0 org.neard.Adapter Powered b true`. Bringing the device up by
@@ -3402,6 +3409,11 @@ already done.
     No underruns or DSI errors at any of them, 48 Hz included, which was the one
     furthest from anything previously tested.
 
+    Held: the kernel side is patches 0094 and 0097, and the image that carries
+    them is `kali-boot-v126-nfc.img`. Nothing here needs a userspace file, so
+    there is nothing to protect beyond the patch series itself, which
+    `scripts/check-patch-sync.sh` guards across its three copies.
+
     **Seamless switching is left, and deliberately left.** Every switch is a
     full modeset, so the display blanks once. That was judged not worth chasing
     while the feature works: one black flash when you change a setting is not a
@@ -3411,8 +3423,8 @@ already done.
     rate automatically -- dropping to 60 Hz on a low battery would blank the
     screen every time it happened, and that *would* be a problem.
 
-17. **The fuel gauge says `Full` at 100% even on battery — fixed in patch 0096,
-    verification pending.** This is the one that quietly cost a day of testing: with
+17. **The fuel gauge said `Full` at 100% even on battery — fixed and verified.**
+    This is the one that quietly cost a day of testing: with
     the charger unplugged and the gauge at 100%, `status` reads `Full` instead
     of `Discharging`, UPower reports `on-battery: no`, and PowerDevil applies the
     plugged-in policy -- so a locked screen never leads to a suspend. Every
@@ -3453,6 +3465,21 @@ already done.
     Worth fixing before any further power measurement, not only for the
     suspend policy: anything reasoning about "is it on battery" is wrong at 100%,
     which includes the measurement in item 6.
+
+    **Done, and it took two patches rather than one.** 0096 fixes the gauge, and
+    on the device at 100% with the cable out it now reads `Discharging` at
+    -278 mA where it used to read `Full`. That alone was not enough: UPower's
+    `OnBattery` stayed false, because the daemon asks the *charger*, not the
+    gauge, and the charger node had no interrupt -- so nothing ever pushed a
+    uevent and UPower kept believing what it read at boot, observed still
+    saying `online: yes` ten minutes after the cable came out. Patch 0099 gives
+    it the interrupt the vendor uses, tlmm 12. Measured end to end: two seconds
+    from unplugging to `OnBattery: true`, with no `udevadm trigger`, and zero
+    interrupts per second on battery so it costs nothing.
+
+    Held: the patched `cw2217_battery.ko` is registered with
+    `rhodep-protect-files`, since it was installed as a module over ssh and
+    would otherwise be replaced by the next kernel `.deb`.
 
     **Patch 0096 does exactly that**, and since `CONFIG_BATTERY_CW2217=m` it went
     onto the phone as a module over ssh with no reflash -- same vermagic,

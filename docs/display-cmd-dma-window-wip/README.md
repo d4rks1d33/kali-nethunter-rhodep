@@ -1,7 +1,17 @@
-# Glitched lines while the brightness moves — investigation, parked
+# Glitched lines while the brightness moves — investigation
 
-Status: **cause characterised, not fixed.** The patch in this directory is a
-dead end kept for the next attempt, not something to build.
+**Recovery is done and verified; prevention is still open.** Patch 0098 turns a
+permanently corrupt screen into a half-second blank: the underflow is detected,
+the connector's link-status goes BAD, KWin redoes the modeset and the panel's
+power on sequence brings it back. Confirmed on the device, including the case
+that broke the first attempt -- several faults minutes apart, each one
+recovering.
+
+What follows is about stopping the underflow from happening at all, which
+nothing here has yet achieved.
+
+Status: **cause characterised, prevention not fixed.** The patch in this
+directory is a dead end kept for the next attempt, not something to build.
 
 The symptom is a band of corrupted lines across the panel, seen while the
 brightness ramps under a repainting compositor. It has been in the port since

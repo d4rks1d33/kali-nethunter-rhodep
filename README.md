@@ -2536,9 +2536,16 @@ already done.
    So a working tile needs a small C++/QML plugin against libkscreen, which is a
    project rather than an afternoon.
 
-2. **The glitched lines while the brightness ramps down.** Still open, but no
-   longer a guess -- the measurements below are the useful part, because the
-   obvious explanation has already been tried and is wrong.
+2. **The glitched lines while the brightness ramps down.** The lines still
+   happen. What no longer happens is the screen staying broken: patch 0098
+   detects the underflow and asks userspace to redo the modeset, and the panel
+   comes back on its own. Confirmed on the phone -- the display blanks for
+   roughly half a second and carries on, where before it stayed corrupt until
+   the screen was locked and unlocked by hand.
+
+   So this entry is now about **prevention**, which is still open. The
+   measurements below are the useful part, because the obvious explanations
+   have already been tried and are wrong.
 
    It is not simply "the DCS write lands mid-frame". Patch 0062 added `bl_lpm`,
    which sends the brightness in LP escape mode so the host must leave the HS

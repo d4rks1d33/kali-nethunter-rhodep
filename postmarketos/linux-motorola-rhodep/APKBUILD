@@ -110,6 +110,7 @@ source="
 	0096-power-supply-cw2217-no-full-while-discharging.patch
 	0097-drm-panel-nt37701-offer-all-four-refresh-rates.patch
 	0098-drm-msm-dsi-link-status-bad-on-lane-underflow.patch
+	0099-arm64-dts-qcom-rhodep-charger-interrupt.patch
 "
 options="!check !strip !tracedeps pmb:cross-native"
 _carch="arm64"
@@ -244,4 +245,5 @@ bb61237e744ef998b5c3fce46e7537826eb7f1767b29d7342d0d9d4c6cf666da13cbcdc0a50a3093
 9c96e062ea91e27b7b0f38bc5c85776c7f5bc5b8ad28a34ca606dc79856440336b6d6f099585eae6776b840a4a18ef7ccf414a028af5801c793081a62499c50e  0096-power-supply-cw2217-no-full-while-discharging.patch
 0623c17e6fded6bbb170e8273d737c000c7577c92eabb1429d557a981ff6bdd7f10f899f890835844a0a32efc61fa3e3f77de5ce9100e3a3fafbe4780bb3e5e6  0097-drm-panel-nt37701-offer-all-four-refresh-rates.patch
 060f0f9b762418a41566576a7a07b22e5fd23872307a0e42e62475c3857a5251f0edcc89a5509d6e566c8e761942d26bb0faaa76d6e7e992b05fd08adc5b9c52  0098-drm-msm-dsi-link-status-bad-on-lane-underflow.patch
+615fa97a8a6021c1f3e8025f8f6dd69b7b1ab222d73f0f6cf65d1b476929715ad0124282e17efb2dd2d14d1137a10f4644cb3c4432e8601b7d318061d6aa8c68  0099-arm64-dts-qcom-rhodep-charger-interrupt.patch
 "

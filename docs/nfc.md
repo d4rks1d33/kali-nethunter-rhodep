@@ -107,11 +107,12 @@ netlink directly. Run as root, with neard stopped.
 
     sudo systemctl stop neard
 
-    sudo rhodep-nfc info     # adapter and its protocols
-    sudo rhodep-nfc read     # poll, print the first card, exit
-    sudo rhodep-nfc watch    # keep printing every card presented
-    sudo rhodep-nfc raw      # dump every activation attribute, uninterpreted
-    rhodep-nfc --help        # full usage, and how to add a protocol
+    sudo rhodep-nfc info               # adapter and its protocols
+    sudo rhodep-nfc read              # poll, print the first card, exit
+    sudo rhodep-nfc watch             # keep printing every card presented
+    sudo rhodep-nfc raw [file.pcap]   # capture every NCI frame, hex + pcap
+    sudo rhodep-nfc attrs             # dump activation attributes only
+    rhodep-nfc --help                 # full usage, and how to add a protocol
 
 Example, a bank card:
 
@@ -123,10 +124,27 @@ Example, a bank card:
 It names the card from SAK and protocol the way a reader would, and prints the
 UID, ATQA, SAK, ATS, and the type-B/F/V specific fields when present.
 
-For a card whose protocol it does not yet know how to name, `raw` prints every
-netlink attribute the kernel returned as label + hex, including any the tool
-has no name for (shown as `attr <N>`). That is the ground truth to analyse an
-unknown tag: capture the bytes, work out the technology, then teach the tool.
+To analyse a card whose protocol is not yet handled, `raw` is the real tool.
+It taps the kernel's `PF_NFC`/`SOCK_RAW` socket, which gets a copy of **every
+NCI frame** exchanged with the controller in both directions — the whole wire
+conversation with the presented tag, every command, response and APDU. It
+prints each frame live (direction, type, hex, and a name for common NCI
+messages) and, given a path, writes a pcap:
+
+    sudo rhodep-nfc raw /tmp/card.pcap
+
+The pcap uses link type USER0; in Wireshark use *Decode As* to point the NCI
+dissector at it, or read the hex. Each record is `[dev][dir|type<<1]` followed
+by the raw NCI frame, exactly as the kernel delivered it.
+
+This is not an RF sniffer: the S3NRN4V only reports what it itself transacts,
+so `raw` cannot capture a transaction between two *other* devices (for that you
+need a Proxmark). But for a tag you present to the phone it is the complete,
+byte-exact conversation.
+
+`attrs` is the lighter, handshake-only view: the parsed activation attributes
+as label + hex, including any the tool has no name for (`attr <N>`).
+
 `rhodep-nfc --help` explains exactly where to add a new protocol bit, a new
 activation attribute, or a new card name — and when the change belongs in the
 driver instead (an unmapped vendor protocol value, patch 0105).

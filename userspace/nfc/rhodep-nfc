@@ -14,9 +14,13 @@ Usage:
 Commands:
     read            poll, print the first card, and exit         (default)
     watch           keep polling, print every card presented
-    raw             like watch, but dump every activation attribute
-                    uninterpreted -- for tags whose protocol this tool does
-                    not know how to name
+    raw [file.pcap] capture every NCI frame to/from the controller: hex live,
+                    and, if a path is given, a pcap for Wireshark. This is the
+                    whole wire conversation with a presented tag -- every
+                    command, response and APDU -- for analysing an unknown
+                    protocol
+    attrs           keep polling and dump every activation attribute
+                    uninterpreted -- a quick look at just the handshake fields
     info            show the adapter and the protocols it advertises
     help, --help    this text
 
@@ -34,15 +38,26 @@ What each read shows:
     (FeliCa) the SENSF_RES; for NFC-V (ISO 15693) the DSFID and UID. The card
     is then named from SAK and protocol the way a reader would.
 
-Raw capture:
-    'raw' prints, for every activated target, each netlink attribute the
-    kernel returned as label + hex, including any this tool has no name for
-    (shown as "attr <N>"). Use it to analyse a card whose protocol is not yet
-    handled: capture the bytes, identify the technology from them, then add it
-    (see below). The attributes come straight from the RF activation
-    notification -- SENS/SEL/NFCID for Type A, SENSB/SENSF for B/F, the
-    ISO15693 fields for V -- so raw is the ground truth the named output is
-    built from.
+Raw frame capture:
+    'raw' taps the kernel's NFC raw socket, which receives a copy of every NCI
+    frame exchanged with the controller in both directions, and prints each as
+    direction + type + hex, with a short name for common NCI messages. Give it
+    a path and it also writes a pcap:
+
+        sudo rhodep-nfc raw /tmp/card.pcap
+
+    Open the pcap in Wireshark; each record is [dev][dir|type<<1] then the NCI
+    frame. The link type is USER0, so use 'Decode As' to point the NCI
+    dissector at it, or just read the hex. This is the ground truth for
+    analysing an unknown protocol: it is the actual conversation with the tag.
+
+    What it can NOT do: sniff RF between two other devices. The chip is not a
+    passive RF sniffer; it only reports what it itself transacts. For that you
+    need a Proxmark, not this phone.
+
+    'attrs' is the lighter option: it prints just the parsed activation
+    attributes (SENS/SEL/NFCID for Type A, SENSB/SENSF for B/F, the ISO15693
+    fields for V), including any this tool has no name for (as "attr <N>").
 
 Adding a new protocol or technology:
     1. Poll it with 'raw' and note which attributes come back and their bytes.
@@ -119,9 +134,24 @@ NFC_ATTR_TARGET_ISO15693_DSFID = 26
 NFC_ATTR_TARGET_ISO15693_UID = 27
 NFC_ATTR_TARGET_ATS = 32
 
-# Names for the attributes an activation can carry, so 'raw' can label what it
-# knows and still print what it does not. Extend this when the kernel gains a
-# new NFC_ATTR_TARGET_* -- see enum nfc_attrs in include/uapi/linux/nfc.h.
+# PF_NFC raw socket -- a passive tap that receives a copy of every NCI frame
+# the kernel exchanges with the controller, both directions. This is the wire
+# between the driver and the chip, not the RF between the chip and a third
+# party: the S3NRN4V is not an RF sniffer, it only reports what it itself
+# transacts. But that is the whole real conversation with a presented tag --
+# every command, every response, every APDU -- which is exactly what you
+# analyse to work out an unknown protocol.
+AF_NFC = 39
+NFC_SOCKPROTO_RAW = 0
+NFC_RAW_HEADER_SIZE = 2       # [dev_index][direction|payload_type<<1]
+NFC_DIRECTION_RX = 0x00
+NFC_DIRECTION_TX = 0x01
+RAW_PAYLOAD_NAMES = {0: "LLCP", 1: "NCI", 2: "HCI", 3: "DIGITAL",
+                     4: "PROPRIETARY"}
+
+# Names for the attributes an activation can carry, so 'attrs' can label what
+# it knows and still print what it does not. Extend this when the kernel gains
+# a new NFC_ATTR_TARGET_* -- see enum nfc_attrs in include/uapi/linux/nfc.h.
 ATTR_NAMES = {
     NFC_ATTR_PROTOCOLS: "PROTOCOLS",
     NFC_ATTR_TARGET_INDEX: "TARGET_INDEX",
@@ -256,8 +286,7 @@ class Netlink:
         self.sock.setsockopt(SOL_NETLINK, NETLINK_ADD_MEMBERSHIP,
                              self.event_grp)
 
-    def recv_event(self):
-        data = self.sock.recv(65536)
+    def _parse_events(self, data):
         off = 0
         out = []
         while off + 16 <= len(data):
@@ -269,6 +298,19 @@ class Netlink:
                 out.append((genl_cmd, parse_attrs(data[off + 20: off + ln])))
             off += align4(ln)
         return out
+
+    def recv_event(self):
+        return self._parse_events(self.sock.recv(65536))
+
+    def recv_event_nonblock(self):
+        """Events if any are waiting, else raise BlockingIOError. Lets the
+        raw-capture loop poll the event socket without stalling on it."""
+        self.sock.setblocking(False)
+        try:
+            data = self.sock.recv(65536)
+        finally:
+            self.sock.setblocking(True)
+        return self._parse_events(data)
 
 
 # ---- the NFC side --------------------------------------------------------
@@ -386,7 +428,7 @@ def stop_poll(nl, idx):
 
 # ---- commands ------------------------------------------------------------
 
-def cmd_info(nl):
+def cmd_info(nl, args):
     dev = find_device(nl)
     if not dev:
         raise SystemExit("no NFC device found")
@@ -465,16 +507,159 @@ def _run(nl, once, printer):
     _poll_loop(nl, idx, once, printer)
 
 
-def cmd_read(nl):
+def cmd_read(nl, args):
     _run(nl, once=True, printer=print_target)
 
 
-def cmd_watch(nl):
+def cmd_watch(nl, args):
     _run(nl, once=False, printer=print_target)
 
 
-def cmd_raw(nl):
+def cmd_attrs(nl, args):
     _run(nl, once=False, printer=print_target_raw)
+
+
+# ---- raw frame capture ---------------------------------------------------
+
+class PcapWriter:
+    """Minimal pcap file for the captured frames.
+
+    Link type is LINKTYPE_USER0 (147): Wireshark has no built-in dissector
+    keyed to it, so the bytes land as data you can read by hand or point a
+    dissector at. Each record is [dev][dir|type<<1] then the NCI frame, i.e.
+    exactly what the kernel put on the raw socket, so nothing is lost. To have
+    Wireshark decode NCI, in 'Decode As' map DLT_USER0 to the NCI dissector.
+    """
+
+    LINKTYPE_USER0 = 147
+
+    def __init__(self, path):
+        self.f = open(path, "wb")
+        # global header: magic, ver 2.4, no tz, no sigfigs, snaplen, linktype
+        self.f.write(struct.pack("<IHHiIII", 0xA1B2C3D4, 2, 4, 0, 0,
+                                 65535, self.LINKTYPE_USER0))
+
+    def write(self, when, raw):
+        sec = int(when)
+        usec = int((when - sec) * 1_000_000)
+        self.f.write(struct.pack("<IIII", sec, usec, len(raw), len(raw)))
+        self.f.write(raw)
+        self.f.flush()
+
+    def close(self):
+        self.f.close()
+
+
+def open_raw_socket():
+    try:
+        s = socket.socket(AF_NFC, socket.SOCK_RAW, NFC_SOCKPROTO_RAW)
+    except OSError as e:
+        raise SystemExit("cannot open the NFC raw socket (%s). Need root and "
+                         "CAP_NET_RAW." % e)
+    s.settimeout(0.5)
+    return s
+
+
+def decode_frame(raw):
+    """Split the kernel's raw record into (dev, direction, type_name, body)."""
+    if len(raw) < NFC_RAW_HEADER_SIZE:
+        return None
+    dev = raw[0]
+    flags = raw[1]
+    direction = "TX" if (flags & 1) else "RX"
+    ptype = (flags >> 1) & 0x7
+    return dev, direction, RAW_PAYLOAD_NAMES.get(ptype, "type%d" % ptype), \
+        raw[NFC_RAW_HEADER_SIZE:]
+
+
+def name_nci(body):
+    """A short human tag for common NCI frames, for the live view only."""
+    if len(body) < 1:
+        return ""
+    mt = (body[0] >> 5) & 0x7          # message type
+    gid = body[0] & 0x0F
+    oid = body[1] & 0x3F if len(body) > 1 else 0
+    kinds = {0: "DATA", 1: "CMD", 2: "RSP", 3: "NTF"}
+    if mt == 0:
+        return "data conn %d" % gid
+    label = {
+        (0x0, 0x00): "CORE_RESET", (0x0, 0x01): "CORE_INIT",
+        (0x0, 0x02): "CORE_SET_CONFIG", (0x0, 0x03): "CORE_GET_CONFIG",
+        (0x1, 0x00): "RF_DISCOVER_MAP", (0x1, 0x03): "RF_DISCOVER",
+        (0x1, 0x04): "RF_DISCOVER_SELECT", (0x1, 0x05): "RF_INTF_ACTIVATED",
+        (0x1, 0x06): "RF_DEACTIVATE",
+    }.get((gid, oid), "GID=%x OID=%02x" % (gid, oid))
+    return "%s %s" % (kinds.get(mt, "?"), label)
+
+
+def cmd_raw(nl, args):
+    """Capture every NCI frame to/from the controller: hex live, and pcap.
+
+    The kernel's raw socket is a passive tap; it does not itself drive
+    discovery. So we start polling too, exactly like watch, and then print
+    the traffic that flows while a tag is present.
+    """
+    out = None
+    pcap = None
+    if args:
+        out = args[0]
+        pcap = PcapWriter(out)
+
+    dev = find_device(nl)
+    if not dev:
+        raise SystemExit("no NFC device found")
+    idx, name, protos, powered = dev
+    ensure_up(nl, idx, powered)
+
+    raw = open_raw_socket()
+    nl.join_events()
+    start_poll(nl, idx)
+    print("capturing NCI frames -- present a tag to the upper back of the "
+          "phone (Ctrl-C to stop)")
+    if out:
+        print("writing pcap to %s" % out)
+
+    import time as _time
+    n = 0
+    have_target = False
+    try:
+        while True:
+            # Drain any activation events so we can re-poll after a lift.
+            try:
+                for cmd, attrs in nl.recv_event_nonblock():
+                    if cmd == NFC_EVENT_TARGETS_FOUND:
+                        have_target = True
+                    elif cmd == NFC_EVENT_TARGET_LOST and have_target:
+                        have_target = False
+                        stop_poll(nl, idx)
+                        start_poll(nl, idx)
+            except BlockingIOError:
+                pass
+
+            try:
+                data = raw.recv(4096)
+            except socket.timeout:
+                continue
+            d = decode_frame(data)
+            if not d:
+                continue
+            dv, direction, ptype, body = d
+            n += 1
+            note = name_nci(body) if ptype == "NCI" else ""
+            print("  #%-4d %s %-4s len=%-3d %s   %s" % (
+                n, direction, ptype, len(body),
+                " ".join("%02x" % b for b in body),
+                note))
+            if pcap:
+                pcap.write(_time.time(), data)
+    except KeyboardInterrupt:
+        print("\nstopped -- %d frame(s) captured" % n)
+    finally:
+        stop_poll(nl, idx)
+        raw.close()
+        if pcap:
+            pcap.close()
+            print("pcap closed: %s" % out)
 
 
 def main():
@@ -486,6 +671,7 @@ def main():
         "info": cmd_info,
         "read": cmd_read,
         "watch": cmd_watch,
+        "attrs": cmd_attrs,
         "raw": cmd_raw,
     }
     if cmd not in commands:
@@ -497,7 +683,7 @@ def main():
         raise SystemExit("run as root (the NFC netlink commands are "
                          "privileged): sudo rhodep-nfc ...")
     nl = Netlink()
-    commands[cmd](nl)
+    commands[cmd](nl, sys.argv[2:])
 
 
 if __name__ == "__main__":

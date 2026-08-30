@@ -991,7 +991,7 @@ docs/                       extra notes
 
 # The kernel (shared with the pmOS port)
 
-## The 83 applied patches (`kernel/patches/`, applied in this order)
+## The 84 applied patches (`kernel/patches/`, applied in this order)
 
 The order below is the aport's `source=` order, which is what `patch` sees; it
 is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
@@ -1103,6 +1103,8 @@ is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
                                        unplug and UPower never notices
 0100 rhodep-l9-at-1v8                   the rail was running at the bottom of
                                        the PMIC's range, 1504 mV
+0101 rhodep-nfc-s3fwrn5                 the part is an S3FWRN5 and mainline has
+                                       the driver; not known to work yet
 ```
 
 0062 and 0063 are kept but neither changes the glitched lines they were written
@@ -3328,6 +3330,55 @@ already done.
     by inspection, not a fix by measurement. `rhodep-batwatch` logs capacity,
     status, current and charger presence to `/root/batwatch.log` so the moment
     is captured rather than waited for.
+
+18. **The regulator constraints are Sony's, not Motorola's.** This port started
+    from `sm6375-sony-xperia-murray-pdx225.dts`, which is the reasonable thing
+    to do when nobody has ported the SoC before and that is the only other
+    board using it. But the `&rpm_requests` block came across whole, and a
+    normalised diff of the two shows it is still **a literal copy** apart from
+    the one line since corrected. The voltages therefore describe Sony's board.
+
+    Most rails are harmless because the vendor's own value happens to equal the
+    minimum of the declared range. The ones that do not are a real problem, and
+    they share the mechanism found in patch 0100: mainline's RPM regulator
+    driver never reads the hardware, and `machine_constraints_voltage()` only
+    votes a voltage of its own when `min == max`. A rail declared with a wide
+    range whose consumer merely calls `regulator_enable()` is therefore left
+    wherever the RPM defaults it, which is the bottom of the LDO's range.
+
+	rail          would sit at   vendor wants   what it feeds
+	pm6125_l11        1624 mV        1800 mV    UFS vccq2, WCD9370 IO
+	pm6125_l10        1624 mV        1800 mV    USB HS phy vdda18
+	pm6125_l4         1104 mV        1232 mV    UFS phy PLL, DSI vdda
+	pm6125_l24        2704 mV        2960 mV    UFS VCC
+	pmr735a_l7        2704 mV        3080 mV    USB vdda33
+	pm6125_s6          320 mV        1352 mV    FAN53870 vin1
+
+    **L11 is the one to fix first: 1.624 V is below the 1.7 V minimum UFS VCCQ2
+    is specified for**, so the storage has been running out of spec since the
+    port began. L24 at 2.704 V against a 2.96 V VCC is the same story on the
+    other UFS rail.
+
+    **And L21 is worse than a voltage.** This port declares it 3.0-3.312 V and
+    hands it to the WiFi as `vdd-3.3-ch1`, copied from murray. rhodep's own
+    vendor tree explicitly *deletes* that assignment
+    (`/delete-property/ vdd-3.3-ch1-supply` in `blair-moto-rhodep-base.dts`) and
+    gives L21A to the **front camera's `cam_vdig`** instead -- 1.2 V on EVT and
+    DVT1, 2.5 V on DVT2. Nothing has been damaged because `ath10k_snoc` only
+    calls `regulator_bulk_enable()` and never asks for a voltage, so the rail
+    stays where it is. But the description is false, turning the WiFi on powers
+    the front camera's digital rail, and anything that ever votes 3.3 V there
+    would be putting it across a 1.2 V load.
+
+    None of this is speculative: every row was read out of
+    `holi-regulators-pm6125.dtsi` and the rhodep overlays and compared against
+    this device tree. What has *not* been done is measuring the rails, and that
+    should come first -- `qcom,init-voltage` is what the vendor asks for, not
+    necessarily what the board needs, and the two UFS rails are worth confirming
+    before touching storage.
+
+    Do this rail by rail with a reason for each, not as a bulk copy. The one
+    fixed so far, L9, took a measurement to justify and a boot to confirm.
 
 # License
 Kernel patches: GPL-2.0. Packaging/glue: MIT. Vendor firmware blobs: proprietary,

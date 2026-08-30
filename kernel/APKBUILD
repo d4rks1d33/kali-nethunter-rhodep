@@ -112,6 +112,7 @@ source="
 	0098-drm-msm-dsi-link-status-bad-on-lane-underflow.patch
 	0099-arm64-dts-qcom-rhodep-charger-interrupt.patch
 	0100-arm64-dts-qcom-rhodep-l9-at-1v8.patch
+	0101-arm64-dts-qcom-rhodep-nfc-s3fwrn5.patch
 "
 options="!check !strip !tracedeps pmb:cross-native"
 _carch="arm64"
@@ -248,4 +249,5 @@ bb61237e744ef998b5c3fce46e7537826eb7f1767b29d7342d0d9d4c6cf666da13cbcdc0a50a3093
 060f0f9b762418a41566576a7a07b22e5fd23872307a0e42e62475c3857a5251f0edcc89a5509d6e566c8e761942d26bb0faaa76d6e7e992b05fd08adc5b9c52  0098-drm-msm-dsi-link-status-bad-on-lane-underflow.patch
 615fa97a8a6021c1f3e8025f8f6dd69b7b1ab222d73f0f6cf65d1b476929715ad0124282e17efb2dd2d14d1137a10f4644cb3c4432e8601b7d318061d6aa8c68  0099-arm64-dts-qcom-rhodep-charger-interrupt.patch
 43d346b06f37065bda6a14a6b5e877be2f4ad5c5f8ea85132836657facdce874cfc6d1548d4469d91d5f9e15530f88f4869d44f72122c3071ce56b52f597b1a4  0100-arm64-dts-qcom-rhodep-l9-at-1v8.patch
+6a400579756d2956b269215e3f10418bbad561e51d2b6bf62056c61b4f92cad282987c273bc63f53a636f621af40b19fccaa6f5e8b66b8800f86e6f8afafafb7  0101-arm64-dts-qcom-rhodep-nfc-s3fwrn5.patch
 "

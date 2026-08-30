@@ -3027,14 +3027,42 @@ already done.
     vendor's build files, so the whole clock path is compiled out and
     `clk_req-gpio` is never even parsed. Whatever feeds the part is wired.
 
-    **What is still open is power, and there is now a concrete finding.** The
-    part never asserts `clk_req` (tlmm 7 reads low with VEN asserted), which is
-    what a live controller does to ask for its clock -- so it looks unpowered
-    rather than unresponsive. Chasing that turned up patch 0100: **pm6125 L9 was
-    running at 1504 mV**, the bottom of the range the device tree declared,
-    because nothing asked for a voltage. Everything on that rail is a 1.8 V
-    load. That is now fixed, and whether it wakes the NFC up is the next thing
-    to test.
+    **What is still open is power.** The part never asserts `clk_req` (tlmm 7
+    reads low with VEN asserted), which is what a live controller does to ask
+    for its clock, so it looks unpowered rather than unresponsive.
+
+    Chasing that turned up patch 0100: **pm6125 L9 was running at 1504 mV**, the
+    bottom of the range the device tree declared, because nothing asked for a
+    voltage, and everything on that rail is a 1.8 V load. Fixed, verified at
+    1800 mV, and Bluetooth -- which has been running its vddio off that rail at
+    1504 mV all along -- still works. **It did not wake the NFC up.** Worth
+    keeping anyway; it was wrong on its own terms.
+
+    Two more things were established while testing it, both worth having:
+
+    - Retested in **bootloader mode** as well (FIRM high, which is how the part
+      is put into firmware download), with L9 at 1.8 V and the pins confirmed in
+      debugfs. Still nothing, and the IRQ line never moves either. So this is
+      not "the firmware is missing and it only answers to the downloader".
+    - A full scan of that bus shows **the SAR sensor at 0x2c is missing too**.
+      The vendor declares `sx937x@2c` on the same `qupv3_se7_i2c`, and only the
+      camera PMIC at 0x35 answers. Two of the three devices the vendor puts on
+      this bus are silent.
+
+    That last one would be the tidy explanation -- neither part is fitted on
+    this unit -- except that the bootloader says otherwise, and it is specific:
+    `/chosen` carries `mmi,nfc = samsung` alongside `mmi,fps = true` and
+    `mmi,ecompass = true`, and those describe hardware that *is* fitted. It
+    declares no SAR property at all, so the SAR being absent proves nothing
+    about the NFC.
+
+    So the next step is to find what powers the part. Nothing in the vendor tree
+    declares an NFC supply for this board, which means it is either a rail that
+    is up anyway, or a load switch driven by something not in the device tree.
+    Adding the `s3fwrn5` node and letting the driver run its own sequence is
+    cheap and worth doing regardless -- it will fail at probe if the address
+    still does not ACK, which is no worse than today, and it removes the
+    possibility that hand-driven GPIOs are missing something the driver does.
 
 12. **Fingerprint, and unlocking the screen with it.** Focaltech, driven on
     Android by a proprietary HAL (`fingerprint.focaltech.default.so`). No

@@ -991,7 +991,7 @@ docs/                       extra notes
 
 # The kernel (shared with the pmOS port)
 
-## The 84 applied patches (`kernel/patches/`, applied in this order)
+## The 86 applied patches (`kernel/patches/`, applied in this order)
 
 The order below is the aport's `source=` order, which is what `patch` sees; it
 is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
@@ -1103,8 +1103,12 @@ is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
                                        unplug and UPower never notices
 0100 rhodep-l9-at-1v8                   the rail was running at the bottom of
                                        the PMIC's range, 1504 mV
-0101 rhodep-nfc-s3fwrn5                 the part is an S3FWRN5 and mainline has
-                                       the driver; not known to work yet
+0101 rhodep-nfc-s3fwrn5                 the part is an S3NRN4V, close enough
+                                       that mainline's s3fwrn5 drives it
+0102 s3fwrn5-rf-configure-without-fw-update  RF registers were only ever
+                                       programmed after a firmware download
+0103 s3fwrn5-tunable-fw-cfg-clock       clk_speed was hardcoded 0xff; the
+                                       vendor stack uses 0x11
 ```
 
 0062 and 0063 are kept but neither changes the glitched lines they were written
@@ -3136,6 +3140,58 @@ already done.
       declares one for NFC -- not the Samsung boards, and not the NXP or ST ones
       either -- which suggests it is wired rather than switched, but that is an
       inference from absence.
+
+    **The vendor blobs are now in hand**, extracted from a LineageOS build and
+    kept in `_common/vendor-blobs/` along with the OTA zip they came from, so
+    nobody has to download 1.1 GB again. Getting them out took a minimal
+    protobuf parser for `payload.bin` -- the manifest is protobuf and there was
+    no library -- then `debugfs` on the resulting 632 MB `vendor` image.
+
+    What they bought, and what they did not:
+
+    - **The RF registers can be loaded.** Patch 0102 reaches
+      `s3fwrn5_nci_rf_configure()` without a firmware download, and with
+      `sec_s3nrn4v_hwreg.bin` in place of the file mainline names, the chip
+      accepted all 3232 bytes and answered the closing command:
+      `rfreg configuration update: success`.
+    - **It still does not read a card.** EMV and MIFARE, repeatedly, zero
+      interrupts. Nothing changed.
+
+    Three things were tried on top and all three failed, recorded so they are
+    not tried again:
+
+    - **`clk_speed = 0x11`**, the value the vendor config carries against
+      mainline's hardcoded `0xff`. Made no difference. Left as a module
+      parameter by patch 0103 since sweeping it is now free.
+    - **Loading the second register file.** The vendor loads two, `RF_HW` and
+      `RF_SW`; mainline knows one. Sending `sec_s3nrn4v_swreg.bin` as a second
+      session makes the chip stop answering `PROP_STOP_RFREG` -- a five second
+      timeout, not an error status, which means silence rather than rejection.
+    - **Concatenating them** into one 3568-byte image, on the reading that the
+      firmware carries its own defaults for both contiguously and each block
+      self-terminates with a 16-byte footer ending in `"DEF\0"` whose fourth
+      byte is a type selector, `0x00` for HW and `0x01` for SW. The checksum
+      came out at `0x5b9a` exactly as predicted. The chip timed out the same
+      way. So the footer structure is real but the transfer is not one session.
+
+    And one thing that made it worse: **calling `nci_core_reset()` after the RF
+    configuration**, which the firmware-update path does and this one omits. It
+    is not safe from `post_setup()`, which runs inside `nci_open_device()`'s own
+    init sequence -- re-entering the request machinery returned `-EPROTO` and
+    left the adapter refusing to power on at all, even with no rfreg file
+    present. Reverted.
+
+    After all that the chip needed the rfreg file removed to come back to a
+    working baseline: `Powered: true`, all five protocols, answering on i2c.
+    **It enumerates as well as it ever did, and reads nothing.** That is where
+    this stands.
+
+    The remaining certainty is that the answer is in `libnfc-nci.so` from the
+    vendor image -- the RF register protocol lives entirely in userspace, which
+    is confirmed rather than assumed: the vendor's own kernel driver is a
+    chardev with no NCI in it at all, and its config names `/dev/sec-nfc` as
+    both the power and transport driver. Disassembling the routine that consumes
+    `RF_HW_FILE_NAME` would give the exact opcode sequence instead of guesses.
 
     Getting this far needed `neard`, which is not installed by default:
     `apt-get install neard`, then `busctl --system set-property org.neard

@@ -1115,9 +1115,11 @@ the next boot if the phone was off (`Persistent=true`). Run it by hand with
   one-sided ramp, before going quiet, so peak and RMS look like signal on a dead
   input. Count sign changes instead.
 - **Sensors work** (SSC/ADSP over FastRPC) — see the "What works" list and
-  `userspace/sensors/`. Still not done, each for want of a driver: NFC (Samsung
-  `sec-nfc`), fingerprint (proprietary Focaltech HAL) and the camera (only the
-  PMIC is up; it does not capture yet — see below).
+  `userspace/sensors/`. **NFC reads cards** — the Samsung S3NRN4V is driven by
+  the in-tree `s3fwrn5` with patches 0101-0105; see [`docs/nfc.md`](docs/nfc.md)
+  and the `userspace/nfc/` reader tool. Card emulation is not done yet. Still
+  not done for want of a driver: fingerprint (proprietary Focaltech HAL) and the
+  camera (only the PMIC is up; it does not capture yet — see below).
 - **GPS: a satellite fix reboots the phone, cell-id positioning does not.** The
   location service answers every query, and a session in `cellid` mode runs
   indefinitely and reports positions. Ask for `standalone` — an actual GNSS fix

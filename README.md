@@ -950,7 +950,7 @@ docs/                       extra notes
 
 # The kernel (shared with the pmOS port)
 
-## The 80 applied patches (`kernel/patches/`, applied in this order)
+## The 81 applied patches (`kernel/patches/`, applied in this order)
 
 The order below is the aport's `source=` order, which is what `patch` sees; it
 is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
@@ -1056,6 +1056,8 @@ is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
                                        say on-battery: no, so it never slept
 0097 nt37701-offer-all-four-refresh-rates  48/60/90/120 selectable at runtime
                                        instead of one picked at power on
+0098 dsi-link-status-bad-on-lane-underflow  a lane FIFO underflow leaves the
+                                       panel stuck; ask for a modeset
 ```
 
 0062 and 0063 are kept but neither changes the glitched lines they were written

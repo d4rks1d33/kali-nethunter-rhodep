@@ -2547,6 +2547,15 @@ already done.
    measurements below are the useful part, because the obvious explanations
    have already been tried and are wrong.
 
+   Two things to know before measuring anything here. `bl_lpm` is now ruled out
+   with numbers rather than by eye -- 64 underflows with it on, 64 with it off,
+   same workload -- and it is a runtime parameter, so that took no reflash. And
+   **the bench cannot be used repeatedly while patch 0098 is installed**: it
+   produces around 64 underflows in twenty seconds against one in real use,
+   which exhausts 0098's three recoveries inside a single run and leaves the
+   DPU timing out on every commit at 5.6 fps until a reboot. Run it once from a
+   clean boot. The handoff has the details.
+
    It is not simply "the DCS write lands mid-frame". Patch 0062 added `bl_lpm`,
    which sends the brightness in LP escape mode so the host must leave the HS
    burst first and the write lands between frames by construction. Tested

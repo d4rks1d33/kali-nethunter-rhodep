@@ -315,6 +315,40 @@ than doing it in the kernel, which is also what downstream ends up doing. The
 kernel-doc explicitly says the property is "not limited to DP or link training",
 and equally explicitly warns that userspace may ignore it.
 
+## The bench cannot be used as a measuring tool while 0098 is installed
+
+Worth knowing before trusting any number from it.
+
+`rhodep-repaint-bench <n> <label> 1` produces about **64 underflows in twenty
+seconds**, where real use produces one. That exhausts 0098's budget of three
+recoveries inside a single run, the driver gives up as designed, and every fault
+after that goes unrecovered. What the run measures from then on is a broken
+display.
+
+Two measurements were lost to this before it was understood:
+
+- A run that reported **0 underflows** looked like a result. The screen was
+  already black: no frames, so nothing to collide with.
+- Left in that state the pipeline degrades further, and `dmesg` fills with
+
+	[dpu error] enc35 intf1 ctl start interrupt wait failed
+	[dpu error] wait for commit done returned -22
+
+  The DPU waits out its timeout on every commit. A repaint bench with no
+  brightness ramp measured **5.6 fps against a normal 113.8**, which is how the
+  state was finally identified rather than dismissed as the phone feeling slow.
+  Only a reboot clears it.
+
+So: run the bench **once**, from a clean boot, and reboot before trusting a
+second number. A no-brightness run (`rhodep-repaint-bench 15 label`) is safe and
+is the right way to check whether the display is healthy before starting.
+
+**This also raises a real question about 0098's retry cap.** Giving up leaves
+the system worse than never having tried -- a corrupt screen becomes a
+five-frames-per-second one. Retrying indefinitely at a long interval may be the
+better trade. Not changed yet, because the cap has never been reached in normal
+use: the phone's owner sees one fault, one recovery, and carries on.
+
 ## Dead ends, so nobody repeats them
 
 - **Refresh rate makes no visible difference to the error rate.** Once patch
@@ -332,7 +366,12 @@ and equally explicitly warns that userspace may ignore it.
   fix attempt. Note `dsi_err_worker()` uses `pr_err_ratelimited`, so counts are
   capped at roughly ten per five seconds and a genuinely bad run undercounts.
 
-- **Brightness in LP instead of HS** (patch 0062): no change.
+- **Brightness in LP instead of HS** (patch 0062): no change, and now measured
+  rather than eyeballed. Same workload, same twenty seconds, `bl_lpm` flipped at
+  runtime between runs: **64 underflows with it on, 64 with it off.** The
+  parameter is 0644, so this needs no reflash and takes effect per write. The
+  earlier "the lines look identical" entry was right; this is the number behind
+  it.
 - **`clk_scale` 100 → 230**: no change to the glitch, and it added a crimson
   tint. The vendor's own DSI clock for the 60 Hz timing is 400 MHz against the
   383.3 MHz mainline computes, a 4% shortfall; 230 puts it at 881 MHz, above

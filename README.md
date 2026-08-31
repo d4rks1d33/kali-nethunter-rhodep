@@ -3786,36 +3786,48 @@ already done.
     status, current and charger presence to `/root/batwatch.log` so the moment
     is captured rather than waited for.
 
-18. **The regulator constraints are Sony's, not Motorola's.** This port started
-    from `sm6375-sony-xperia-murray-pdx225.dts`, which is the reasonable thing
-    to do when nobody has ported the SoC before and that is the only other
-    board using it. But the `&rpm_requests` block came across whole, and a
-    normalised diff of the two shows it is still **a literal copy** apart from
-    the one line since corrected. The voltages therefore describe Sony's board.
+18. **The regulator constraints are Sony's, not Motorola's -- gone through, rail
+    by rail.** This port started from `sm6375-sony-xperia-murray-pdx225.dts`,
+    which is the reasonable thing to do when nobody has ported the SoC before and
+    that is the only other board using it. But the `&rpm_requests` block came
+    across whole, a literal copy, so the voltages described Sony's board. Every
+    rail that mattered has now been pinned to what rhodep's own vendor tree asks
+    for, each built and checked on the device.
 
-    Most rails are harmless because the vendor's own value happens to equal the
-    minimum of the declared range. The ones that do not are a real problem, and
-    they share the mechanism found in patch 0100: mainline's RPM regulator
-    driver never reads the hardware, and `machine_constraints_voltage()` only
-    votes a voltage of its own when `min == max`. A rail declared with a wide
-    range whose consumer merely calls `regulator_enable()` is therefore left
-    wherever the RPM defaults it, which is the bottom of the LDO's range.
+    Most rails were harmless because the vendor's own value happened to equal the
+    minimum of the declared range. The ones that did not shared the mechanism
+    found in patch 0100: mainline's RPM regulator driver never reads the
+    hardware, and `machine_constraints_voltage()` votes a voltage of its own
+    whenever both `min` and `max` are set (it then rounds the declared minimum up
+    to the LDO's 8 mV grid). A rail whose consumer merely calls
+    `regulator_enable()` therefore sat at that rounded minimum, not at what the
+    board wanted.
 
-	rail          would sit at   vendor wants   what it feeds
-	pm6125_l11        1624 mV        1800 mV    UFS vccq2, WCD9370 IO
-	pm6125_l10        1624 mV        1800 mV    USB HS phy vdda18
-	pm6125_l4         1104 mV        1232 mV    UFS phy PLL, DSI vdda
-	pm6125_l24        2704 mV        2960 mV    UFS VCC
-	pmr735a_l7        2704 mV        3080 mV    USB vdda33
-	pm6125_s6          320 mV        1352 mV    FAN53870 vin1
+	rail          sat at    now      what it feeds                 patch
+	pm6125_l11    1624 mV   1800 mV  UFS vccq2, WCD9370 IO          0106
+	pm6125_l24    2704 mV   2960 mV  UFS VCC                        0107
+	pm6125_l4     1104 mV   1232 mV  UFS phy PLL, DSI vdda          0108
+	pm6125_l10    1624 mV   1800 mV  USB HS phy vdda18              0108
+	pmr735a_l7    2704 mV   3080 mV  USB HS phy vdda33              0108
+	pm6125_l21    3000 mV   off      front camera cam_vdig (0109)   0109
 
-    **L11 is the one to fix first: 1.624 V is below the 1.7 V minimum UFS VCCQ2
-    is specified for**, so the storage has been running out of spec since the
-    port began. L24 at 2.704 V against a 2.96 V VCC is the same story on the
-    other UFS rail.
+    **Done and verified on the device.** The two UFS rails came first because
+    they were the real risk: L11's VCCQ2 was below the 1.7 V minimum it is
+    specified for, and L24's VCC below the 2.96 V the SK Hynix H9HQ15AECMBDAR
+    operates at, so the storage had been out of spec since the port began. After
+    0106/0107 both read their pinned value, UFS enumerates clean and a 64 MiB
+    write/read past dropped caches matches. 0108 raised the USB and DSI rails
+    (all upward, so display and USB only moved toward spec) with no regression.
+    `pm6125_s6` was left alone: it is not a voltage bug, just the refcount
+    accounting fixed separately in patch 0090.
 
-    **And L21 is worse than a voltage.** This port declares it 3.0-3.312 V and
-    hands it to the WiFi as `vdd-3.3-ch1`, copied from murray. rhodep's own
+    What is left is confirming the rails with a meter, which needs opening the
+    phone -- not done, and the functional checks (UFS integrity, WiFi/audio/
+    display/USB all working) are the best evidence available without it.
+
+    **L21 was worse than a voltage** (patch 0109). This port declared it
+    3.0-3.312 V and handed it to the WiFi as `vdd-3.3-ch1`, copied from murray.
+    rhodep's own
     vendor tree explicitly *deletes* that assignment
     (`/delete-property/ vdd-3.3-ch1-supply` in `blair-moto-rhodep-base.dts`) and
     gives L21A to the **front camera's `cam_vdig`** instead -- 1.2 V on EVT and
@@ -3829,25 +3841,19 @@ already done.
     reads the hardware, and if the rail is below 3.0 V it forces it up. The
     device showed exactly that -- `l21: Bringing 0uV into 3000000-3000000uV` --
     so with the WiFi holding it enabled the rail sat at 3.0 V, on a load the
-    vendor drives at 2.5 V. **Fixed in patch 0109**: drop `vdd-3.3-ch1` from the
-    WiFi (it is optional -- the vendor removes it and the WCN3990 runs without
-    it), which leaves L21 with no consumer, so nothing enables it and the rail
-    stays off in the bootloader's safe state. Verified on device: WiFi still
-    associates on 5 GHz with L21 now off.
+    vendor drives at 2.5 V. 0109 dropped `vdd-3.3-ch1` from the WiFi (it is
+    optional -- the vendor removes it and the WCN3990 runs without it), which
+    leaves L21 with no consumer, so nothing enables it and the rail stays off in
+    the bootloader's safe state. Verified on device: WiFi still associates on
+    5 GHz with L21 now off. When the front camera is described, L21 becomes its
+    `cam_vdig` at the vendor voltage -- see the camera item above.
 
-    None of this is speculative: every row was read out of
+    None of this was speculative: every row was read out of
     `holi-regulators-pm6125.dtsi` and the rhodep overlays and compared against
-    this device tree. What has *not* been done is measuring the rails, and that
-    should come first -- `qcom,init-voltage` is what the vendor asks for, not
-    necessarily what the board needs, and the two UFS rails are worth confirming
-    before touching storage.
-
-    Do this rail by rail with a reason for each, not as a bulk copy. Fixed so
-    far, each measured on device: L9 (0100), the two UFS rails L11/L24
-    (0106/0107), the USB/DSI rails L4/L10/L7 (0108), and L21 dropped from the
-    WiFi (0109). What is left is confirming the physical rails with a meter --
-    `qcom,init-voltage` is what the vendor asks for, not proof of what the pin
-    carries.
+    this device tree, then built and confirmed rail by rail on the phone. The
+    one thing not done is putting a meter on the pins -- `qcom,init-voltage` is
+    what the vendor asks for, not proof of what the pin carries -- and that needs
+    opening the phone.
 
 # License
 Kernel patches: GPL-2.0. Packaging/glue: MIT. Vendor firmware blobs: proprietary,

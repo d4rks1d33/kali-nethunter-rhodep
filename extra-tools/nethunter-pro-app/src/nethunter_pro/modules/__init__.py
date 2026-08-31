@@ -5,10 +5,13 @@ from . import net_control      # noqa: F401
 from . import docker           # noqa: F401
 from . import sysinfo          # noqa: F401
 # Recon
+from . import net_discovery    # noqa: F401
 from . import nmap             # noqa: F401
 from . import searchsploit     # noqa: F401
+from . import routersploit     # noqa: F401
 # Wi-Fi
 from . import wifi_attacks     # noqa: F401
+from . import deauth           # noqa: F401
 from . import evil_twin        # noqa: F401
 from . import wifipumpkin      # noqa: F401
 from . import phishkin3        # noqa: F401

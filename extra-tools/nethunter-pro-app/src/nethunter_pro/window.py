@@ -98,6 +98,56 @@ class MainWindow(Adw.ApplicationWindow):
         # On a narrow screen, move to the content page after a pick.
         if self.split.get_collapsed():
             self.split.set_show_content(True)
+        # Also update the sidebar selection so the highlighted row matches
+        # the visible screen when we jump programmatically (e.g. via
+        # NetDiscovery's "Send to nmap" button).
+        for row in self.listbox:
+            if getattr(row, "_module", None) is module:
+                self.listbox.select_row(row)
+                break
+
+    # -- programmatic module switch ---------------------------------
+    def activate_module(self, module_id: str, target: str | None = None):
+        """Switch to a named module, optionally prefilling a target string.
+
+        `module_id` is the Python module basename that the target class
+        was registered from (e.g. "nmap", "routersploit"). It matches
+        `type(module).__module__.rsplit(".",1)[-1]` for every module the
+        app knows about. If a matching module exposes a `set_target(str)`
+        method (a lightweight contract we added for cross-module deep-
+        links), we call it after switching; otherwise the switch still
+        happens and the target is discarded silently. Returns True if
+        the switch succeeded, False if no module by that id was found --
+        the caller can fall back to copying the value to the clipboard.
+        """
+        for module in self.modules:
+            mod_id = type(module).__module__.rsplit(".", 1)[-1]
+            if mod_id != module_id:
+                continue
+            self._select(module)
+            if target is not None:
+                try:
+                    setter = getattr(module, "set_target", None)
+                    if callable(setter):
+                        setter(target)
+                except Exception:
+                    pass
+            return True
+        return False
+
+    def get_active_module(self):
+        """The NHModule currently visible in the content stack.
+
+        Used by NetDiscovery after activate_module() to discover the
+        widget names of the destination module for prefill, on the
+        off chance a module we linked to does not implement
+        set_target() yet.
+        """
+        name = self.stack.get_visible_child_name()
+        for module in self.modules:
+            if module.title == name:
+                return module
+        return None
 
 
 class NetHunterProApp(Adw.Application):

@@ -1260,7 +1260,7 @@ docs/                       extra notes
 
 # The kernel (shared with the pmOS port)
 
-## The 91 applied patches (`kernel/patches/`, applied in this order)
+## The 92 applied patches (`kernel/patches/`, applied in this order)
 
 The order below is the aport's `source=` order, which is what `patch` sees; it
 is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
@@ -1388,6 +1388,8 @@ is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
                                         NAND wants; pinned to 2.96 V like the vendor
 0108 rhodep-usb-dsi-rails-to-vendor     L4/L10/L7 (UFS PLL+DSI, USB vdda18/33)
                                         sat at their floors; pinned to vendor voltage
+0109 rhodep-drop-l21-from-wifi          L21 is the front camera's cam_vdig on this
+                                        board, not a WiFi rail; drop the stale supply
 ```
 
 0062 and 0063 are kept but neither changes the glitched lines they were written
@@ -3803,11 +3805,21 @@ already done.
     vendor tree explicitly *deletes* that assignment
     (`/delete-property/ vdd-3.3-ch1-supply` in `blair-moto-rhodep-base.dts`) and
     gives L21A to the **front camera's `cam_vdig`** instead -- 1.2 V on EVT and
-    DVT1, 2.5 V on DVT2. Nothing has been damaged because `ath10k_snoc` only
-    calls `regulator_bulk_enable()` and never asks for a voltage, so the rail
-    stays where it is. But the description is false, turning the WiFi on powers
-    the front camera's digital rail, and anything that ever votes 3.3 V there
-    would be putting it across a 1.2 V load.
+    DVT1, 2.5 V on DVT2. This unit is PVT, which best-matches the DVT2 tree, so
+    L21A physically feeds the front camera at ~2.5 V.
+
+    The rail did not "stay where it is", as this once claimed. `ath10k_snoc`
+    only calls `regulator_bulk_enable()`, true, but the regulator core's
+    `machine_constraints_voltage()` runs at PMIC-register time regardless of any
+    consumer: with min and max both set (3.0/3.312 V) `apply_uV` is armed, it
+    reads the hardware, and if the rail is below 3.0 V it forces it up. The
+    device showed exactly that -- `l21: Bringing 0uV into 3000000-3000000uV` --
+    so with the WiFi holding it enabled the rail sat at 3.0 V, on a load the
+    vendor drives at 2.5 V. **Fixed in patch 0109**: drop `vdd-3.3-ch1` from the
+    WiFi (it is optional -- the vendor removes it and the WCN3990 runs without
+    it), which leaves L21 with no consumer, so nothing enables it and the rail
+    stays off in the bootloader's safe state. Verified on device: WiFi still
+    associates on 5 GHz with L21 now off.
 
     None of this is speculative: every row was read out of
     `holi-regulators-pm6125.dtsi` and the rhodep overlays and compared against
@@ -3816,8 +3828,12 @@ already done.
     necessarily what the board needs, and the two UFS rails are worth confirming
     before touching storage.
 
-    Do this rail by rail with a reason for each, not as a bulk copy. The one
-    fixed so far, L9, took a measurement to justify and a boot to confirm.
+    Do this rail by rail with a reason for each, not as a bulk copy. Fixed so
+    far, each measured on device: L9 (0100), the two UFS rails L11/L24
+    (0106/0107), the USB/DSI rails L4/L10/L7 (0108), and L21 dropped from the
+    WiFi (0109). What is left is confirming the physical rails with a meter --
+    `qcom,init-voltage` is what the vendor asks for, not proof of what the pin
+    carries.
 
 # License
 Kernel patches: GPL-2.0. Packaging/glue: MIT. Vendor firmware blobs: proprietary,

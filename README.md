@@ -2744,6 +2744,20 @@ it is either not started or a research project.
    CSIPHY/CSID/TFE nodes, and the S5KJN1 sensor node. First meaningful test
    after that is a raw capture, not a photo.
    [`CAMERA-SENSORS-FEASIBILITY.md`](docs/CAMERA-SENSORS-FEASIBILITY.md)
+
+   A rail is already spoken for when the *front* camera gets described: **PM6125
+   L21 (`pm6125_l21`) is the front camera's `cam_vdig`**, not a WiFi rail. The
+   port had it wired to the WiFi as `vdd-3.3-ch1` (copied from the Sony murray
+   dts); patch 0109 dropped that, so L21 now sits with no consumer. When the
+   front sensor is added, give it `cam_vdig-supply = <&pm6125_l21>` and set the
+   node to the vendor's voltage for this board's revision -- **2.5 V on
+   DVT2/PVT** (this unit is PVT), 1.2 V on EVT/DVT1 -- i.e. change L21's
+   constraint from the current 3.0-3.312 V to `min == max` at the right value.
+   The vendor spells this out: `blair-moto-rhodep-base.dts` does
+   `/delete-property/ vdd-3.3-ch1-supply` on the icnss/WiFi and the DVT2 camera
+   overlay redefines `&L21A` to 1.5-3.0 V, init 2.5 V, feeding `sensor_front`'s
+   `cam_vdig`. The rear camera's `cam_vdig` is separate -- it comes from the
+   FAN53870 (LDO1, 1.056 V), not from L21.
 6. **NFC and fingerprint** — the two that are left of what used to be the "hard
    three". NFC is a Samsung `sec-nfc` on i2c7 with no mainline driver;
    fingerprint is a proprietary Focaltech HAL. Older technical notes (I2C

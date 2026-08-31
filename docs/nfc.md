@@ -163,17 +163,75 @@ during the port:
   driver raises it in `open` and only drops it in `close`. Do not toggle it
   under the driver's feet.
 
-## Card emulation (host card emulation) -- not yet
+## Card emulation -- listen works, tag activation is the open point
 
-Emulating a tag so another reader sees the phone is a separate, larger job:
+Started. `rhodep-nfc listen [uid [sak]]` puts the controller into listen mode.
+Two kernel patches back it:
 
-- The mainline NCI core only signals listen-mode activation for **NFC-DEP**
-  (peer-to-peer). It has no path to present as a **Type 2/Type 4 tag**, which
-  is what emulating a MIFARE card means.
-- The `s3fwrn5` driver allocates its device with zero listen protocols and
-  sends no proprietary listen-configuration commands.
+- **0110** makes the s3fwrn5 device advertise `NFC_PROTO_NFC_DEP_MASK`, which is
+  the only target protocol the mainline NCI core wires up. Without it
+  `nfc_genl_start_poll` rejects any `tm_protocols` and the chip never listens.
+- **0111** teaches the NCI core to present an NFC-A tag: it adds the config tags
+  `LA_BIT_FRAME_SDD` (0x30), `LA_PLATFORM_CONFIG` (0x31) and `LA_NFCID1` (0x33),
+  carries a UID and a SAK from userspace on `START_POLL` (reusing
+  `NFC_ATTR_TARGET_NFCID1` and `NFC_ATTR_TARGET_SEL_RES`, no ABI change), maps
+  T2T to the FRAME interface in `RF_DISCOVER_MAP` for listen, offers only NFC-A
+  passive listen when a UID is set (NFC-F would bring the chip up as NFC-DEP),
+  and signals `nfc_tm_activated` for T2T as well as NFC-DEP.
 
-So emulating even a harmless MIFARE against a Flipper needs new work in both
-the NCI core's listen path and the driver, plus confirming from the vendor HAL
-that the S3NRN4V exposes card emulation at all. It is on the list as research,
-not as a quick follow-up.
+### What is proven on the device
+
+- **The chip enters listen and a reader activates it.** With NFC-A + NFC-F
+  offered (no UID), presenting a phone activates the controller -- dmesg shows
+  `rf_intf_activated_ntf`, `data_exch_rf_tech_and_mode 0x82`, an ATR_REQ. So the
+  hardware can be a listen target; this is not a hardware wall.
+- **The S3NRN4V accepts a fixed 7-byte NFCID1.** `CORE_SET_CONFIG` with
+  `LA_NFCID1` = the card's UID returns `status 0x0`. That was the open hardware
+  question -- the chip does not force a random UID. All nine listen SET_CONFIGs
+  (BIT_FRAME_SDD, PLATFORM_CONFIG, NFCID1, SEL_INFO, ...) return `status 0x0`.
+- Target card measured for emulation: MIFARE Classic 1K, **ATQA 0x0044, SAK
+  0x08, UID 04:35:3d:6a:f7:54:80** (7 bytes, NXP 0x04 prefix).
+
+### The open point
+
+When only **NFC-A** passive listen is offered (as a plain tag, SEL_INFO without
+the NFC-DEP bit, T2T mapped to FRAME), the chip **accepts the whole config but
+does not activate** when a tag reader (NFC Tools on another phone) is presented
+-- no `rf_intf_activated_ntf` at all. With NFC-F/NFC-DEP added it activates, but
+as a P2P peer (`0x82`), which a tag reader ignores. So the reader either does
+not drive NFC-A the way this chip expects in tag listen, or a listen parameter
+is still missing (candidates: `LN_ATR_RES`, a proprietary s3fwrn5 listen-enable
+command, or an RF-register profile in `sec_s3fwrn5_swreg.bin` that the vendor
+loads for CE). To pin this down needs a capture of a reader activating a real
+NFC-A tag, side by side with the chip in tag listen.
+
+### The plan by layers (the goal is extensible protocols)
+
+In Android the .apk did the tag protocol; the chip only did the RF/listen. The
+same split is the target here: the kernel does listen + a generic data path,
+userspace implements each tag protocol as a handler. So a new protocol later is
+a userspace handler, not a kernel change.
+
+- **Layer 1 -- NFC-A listen + fixed UID.** For UID-only readers (most building
+  doors): the UID is delivered in the hardware anticollision, the reader takes
+  it and sends nothing more, so no data path is needed. This is where 0110+0111
+  land -- once the NFC-A tag activation above is solved, a UID-only door should
+  work with just `listen <uid> <sak>`.
+- **Layer 2 -- Type 2 READ.** Readers that send `30 <blk>`. Needs a listen data
+  path kernel<->userspace: route `nfc_tm_data_received` (today hardcoded to
+  LLCP, `net/nfc/core.c`) to a target `PF_NFC`/`SOCK_SEQPACKET`, and a
+  `Type2Handler` in userspace. This is the one kernel change that unlocks every
+  higher layer.
+- **Layer 3 -- MIFARE Classic (Crypto1).** Only if the door authenticates a
+  sector. Needs the sector key (crack offline from captured nonces with
+  mfkey32/mfoc), and the RF timing of Crypto1 is tight enough that it likely
+  needs a hardware CE mode in the firmware -- high risk.
+- **Layer 4 -- ISO-DEP / Type 4 (HCE).** APDUs, like Android HCE. Reuses the
+  Layer 2 data path; `Type4Handler` dispatches by AID.
+
+### First thing to do when resuming
+
+Capture, with `rhodep-nfc raw`, what a reader actually sends when it activates a
+real NFC-A tag, and confirm whether the target door is UID-only (does it stop at
+the anticollision, or send `30 00` / `60 xx`?). That decides whether Layer 1 is
+enough or Layer 2 is needed.

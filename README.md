@@ -67,7 +67,9 @@ list; everything here is a from-scratch community port.
 > `rhodep-nfc` terminal reader, and protects both. The RF register blobs
 > (`sec_s3fwrn5_rfreg.bin`, `sec_s3fwrn5_swreg.bin`) ship and are protected with
 > the vendor NFC blobs. Verified reading a MIFARE Classic 1K and an EMV card.
-> Card emulation is a separate, larger job — see [`docs/nfc.md`](docs/nfc.md).
+> Card emulation is started (`rhodep-nfc listen`): the chip enters NFC-A listen
+> and accepts a fixed UID; presenting a specific tag to a reader is the open
+> point — see [`docs/nfc.md`](docs/nfc.md).
 
 > In-call audio does not exist yet, and is not a modem problem: Qualcomm voice
 > audio goes modem <-> ADSP <-> codec and mainline has no q6voice (MVM/CVS/CVP)
@@ -457,8 +459,8 @@ adapter anyway. Its face and status are on the web UI at `http://<phone>:8080`.
 **`nethunter-pro-app/`** — the NetHunter Pro control panel, a GTK4/libadwaita
 app for Phosh that drives the port's tools from a touch UI instead of a
 terminal: pwnagotchi, wifipumpkin3, Phishkin3 (wp3 + evilginx2), driftnet,
-CARsenal (CAN bus), nmap, HID/BadUSB attacks, an evil twin, VNC, Docker, and
-the rest. Each is a module screen.
+Network Discovery, RouterSploit, CARsenal (CAN bus), nmap, HID/BadUSB
+attacks, an evil twin, VNC, Docker, and the rest. Each is a module screen.
 
 The Docker screen keeps the engine off until asked. Start and Stop drive
 **both** `docker.service` and `docker.socket` -- the socket first on start so the
@@ -1010,6 +1012,101 @@ the delete goes the same way for the same reason. No polkit prompt storm
 -- the helper is authorised once at app start and the calls piggyback on
 that.
 
+The **Network Discovery** screen is the first thing you reach in the Recon
+section, because knowing what else is on the Wi-Fi with you is where every
+LAN pentest starts. It runs an arp-scan sweep of the local subnet in
+~2 seconds and then enriches every discovered device through a parallel
+lookup chain -- gateway PTR first (dnsmasq on the router usually
+auto-registers DHCP client hostnames, so a reverse query at the router
+returns whatever name the device announced when it joined), then mDNS/
+Bonjour via a primed avahi-browse cache (Apple TVs, printers, HomePods,
+Chromecasts, most consumer IoT), then NetBIOS via nbtscan (Windows,
+Android with SMB on), then a system PTR fallback, then unicast SSDP
+M-SEARCH with a `<friendlyName>` scrape (Sonos, Samsung/LG TVs, Xbox,
+Windows with UPnP), then a Roku ECP probe on 8060 for the `user-device-name`
+field, and finally a TCP connect on 62078 which is the Apple lockdownd
+port -- open on iPhones and iPads even when they refuse everything else,
+so an otherwise-silent device gets tagged as "Apple mobile device".
+
+The whole chain is one `bash -c` pipeline, backgrounded per host, with a
+1-2 s per-source timeout so the wall clock stays around 5-8 s for a /24.
+`bash` is explicit and not `sh` because the script uses `IFS=$'\t'` ANSI-C
+quoting to read arp-scan's tab-separated output, which dash treats as five
+literal characters instead of a tab -- that silently splits the vendor
+"(Unknown: locally administered)" into "(Unknown: locally adminis" +
+"ered)" and the app rendered "ered)" as the title of every
+MAC-randomised device until the switch to bash. Row rendering prefers the
+hostname if it's a real one, falls back to a cleaned-up vendor string
+("Huawei" instead of "HUAWEI TECHNOLOGIES CO.,LTD"), and only shows the
+IP inside the expanded view -- the title stays human-first. Placeholder
+hostnames from certain resolvers (`_gateway`, `dev.opt` on Huawei,
+`openwrt.lan`, etc.) are treated as "no useful name" so the vendor wins.
+
+The one thing this screen doesn't do: name devices with MAC
+randomisation + mDNS off + LAN discovery permission denied (modern
+iPhones on Private Wi-Fi Address, Android 12+ with LAN access off). Those
+devices are silent by design -- they don't answer SSDP, mDNS, ICMP,
+lockdownd, or anything else on any port -- and the only way to identify
+them is to scrape the router's admin UI for its DHCP lease table, which
+requires per-vendor credentials. That path (Huawei mesh JSON API, TP-Link
+LuCI, ASUS appGet.cgi, Netgear SOAP, Fritz!Box TR-064, Ubiquiti UniFi) is
+in the follow-up list because it needs a credentials dialog and per-brand
+scrapers.
+
+Each row expands to show IP, MAC, the full vendor string and the hostname
+source, plus three action buttons: **Copy IP**, **Send to nmap** and
+**Send to RouterSploit**. The last two go through a small cross-module
+deep-link contract on the main window (`activate_module(module_id,
+target)`) plus a `set_target(str)` method on the destination module; the
+sidebar switches, the highlight moves, and the target field is prefilled,
+so you never have to type an IP twice.
+
+The **RouterSploit** screen drives the framework at `/opt/routersploit`
+without ever leaving the GUI. RouterSploit ships 360 modules: 143 exploits
+grouped per vendor (2wire, cisco, dlink, huawei, linksys, mikrotik,
+netgear, tplink, ubiquiti, zte and ~15 more), 171 default-credential
+brute-forcers per protocol (SSH, FTP, Telnet, HTTP, SNMP), 32 payloads, 6
+encoders and 4 scanners (`autopwn`, `router_scan`, `camera_scan`,
+`misc_scan`). Each exploit declares its runtime options with `Opt*`
+class attributes -- `OptIP`, `OptPort`, `OptBool`, `OptString`,
+`OptWordlist` -- and the screen parses those out of the source files
+with a regex reader so the form fields match the module. Bool options
+become libadwaita `SwitchRow`s; everything else becomes `EntryRow`s
+with the module's default pre-filled. There are four sections in a
+combo at the top: `Scanners`, `Exploits by vendor`, `Default-credential
+brute-force`, and `Search` (substring match across path/name/description
+of all 360 modules).
+
+Every run goes through `rsf.py`'s non-interactive shape:
+
+    python3 -u /opt/routersploit/rsf.py -m <module> \
+        -s "<opt1> <val1>" -s "<opt2> <val2>" ...
+
+The `-u` matters: without it RouterSploit buffers all output through its
+`printer_queue` and only flushes on clean exit -- so anything killed by
+the Stop button drops its output on the floor. With `-u` every line the
+framework prints streams live to the OutputView through the DBus
+helper's `StartStream` path. `Check` uses a different shape (the
+framework's `-m` mode does not expose the `check` verb): it drives the
+interactive REPL from a heredoc (`use <mod>; set ...; check; exit`) so
+the safe-probe path stays a single click. All runs are as root because
+the modules do raw sockets, SSH bind, SNMP, ARP scans, and paramiko
+key crypto.
+
+**Paramiko 4.0 fix.** RouterSploit's `core/ssh/ssh_client.py` still
+imports `paramiko.DSSKey`, which the paramiko 4.0 release removed
+because DSA has been cryptographically broken since ~2015 and OpenSSH
+>= 7.0 does not accept it either. The stock module crashes with
+`AttributeError: module 'paramiko' has no attribute 'DSSKey'` the first
+time any SSH-touching module (which is 60% of the exploit and cred
+tree) tries to load a key. The port patches `login_pkey` to auto-detect
+the key type via `PKey.from_path()` -- writing the PEM blob to a
+short-lived temp file, letting paramiko pick RSAKey/ECDSAKey/Ed25519Key
+by inspecting the header, and rejecting DSA cleanly via
+`paramiko.UnknownKeyType`. Side benefit: the port now also picks up
+ECDSA and Ed25519 keys, which the original type-sniffing if/elif
+skipped entirely. Backup lives at `ssh_client.py.bak-paramiko4`.
+
 Also worth documenting because it is not obvious: nethunter-pro-app also
 carries `rhodep-make-captiveportal`, a generator that turns a git repo of a
 static login page into a wifipumpkin3 captive portal (clones, folds
@@ -1129,7 +1226,8 @@ the next boot if the phone was off (`Persistent=true`). Run it by hand with
 - **Sensors work** (SSC/ADSP over FastRPC) — see the "What works" list and
   `userspace/sensors/`. **NFC reads cards** — the Samsung S3NRN4V is driven by
   the in-tree `s3fwrn5` with patches 0101-0105; see [`docs/nfc.md`](docs/nfc.md)
-  and the `userspace/nfc/` reader tool. Card emulation is not done yet. Still
+   and the `userspace/nfc/` reader tool. Card emulation is started (patches
+   0110-0111: NFC-A listen, fixed UID); tag activation is the open point. Still
   not done for want of a driver: fingerprint (proprietary Focaltech HAL) and the
   camera (only the PMIC is up; it does not capture yet — see below).
 - **GPS: a satellite fix reboots the phone, cell-id positioning does not.** The
@@ -1226,8 +1324,9 @@ extra-tools/          not needed to boot or to make a call: tools that make the
                       (install.sh; on-demand services, needs otg on)
   nethunter-pro-app/  the NetHunter Pro control panel (GTK4/libadwaita for
                       Phosh): pwnagotchi, wifipumpkin3, Phishkin3 (wp3 +
-                      evilginx2), driftnet, CARsenal, Docker, nmap, HID, VNC
-                      and more, from a touch UI (install.sh + dbus helper)
+                      evilginx2), driftnet, Network Discovery, RouterSploit,
+                      CARsenal, Docker,
+                      nmap, HID, VNC and more (install.sh + dbus helper)
   cleanup/            weekly disk-space cleanup (caches, journal, coredumps)
                       + a permanent journal cap; weekly systemd timer (install.sh)
 scripts/
@@ -1260,7 +1359,7 @@ docs/                       extra notes
 
 # The kernel (shared with the pmOS port)
 
-## The 92 applied patches (`kernel/patches/`, applied in this order)
+## The 94 applied patches (`kernel/patches/`, applied in this order)
 
 The order below is the aport's `source=` order, which is what `patch` sees; it
 is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
@@ -1390,6 +1489,10 @@ is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
                                         sat at their floors; pinned to vendor voltage
 0109 rhodep-drop-l21-from-wifi          L21 is the front camera's cam_vdig on this
                                         board, not a WiFi rail; drop the stale supply
+0110 nfc-s3fwrn5-declare-nfc-dep-for-listen  advertise NFC-DEP so the chip can
+                                        enter listen mode (card emulation, step 1)
+0111 nfc-nci-set-a-fixed-nfcid1-for-listen  let userspace set LA_NFCID1, so the
+                                        emulated card can answer with a chosen UID
 ```
 
 0062 and 0063 are kept but neither changes the glitched lines they were written
@@ -3248,22 +3351,56 @@ already done.
    mode it asks for at most 150 mA, about 12% duty. That is why it stays lit
    there and not here.
 
-   What it actually takes:
+   So the current comes from the PWM, and that is where this dead-ends.
+   **Tried, and it is blocked in the secure firmware, not in the kernel.** The
+   whole path was built and driven on the device:
 
-   1. `qcom,pm6125-pwm` in `drivers/leds/rgb/leds-qcom-lpg.c`. Mainline has
-      pm8916, pm8350c, pmi632 and others but not this one, and an entry is six
-      lines: the vendor's node is `qcom,pwms@b300`, `reg = <0xb300>`,
-      `qcom,num-lpg-channels = <1>`, which maps onto `.num_channels = 1` and
-      `.base = 0xb300`. Upstreamable on its own.
-   2. The LPG node in the PM6125 device tree, and PM6125 gpio8 muxed to `func1`.
-   3. `pwm-leds` instead of `gpio-leds`, period 50 us, brightness scaled into
-      the torch range rather than the strobe one.
-   4. Somewhere to keep tlmm 49 asserted -- `leds-pwm` has no enable property,
-      so this is the part that needs a decision rather than transcription.
+   - `qcom,pm6125-pwm` was added to `drivers/leds/rgb/leds-qcom-lpg.c`
+     (one channel, `.base = 0xb300`, modelled on `pm8916_pwm_data`) plus the
+     pm6125.dtsi node, gpio8 muxed to `func1`, and a `pwm-leds` torch on
+     `<&pm6125_pwm 0 50000>`. The LED class appears, the PWM chip registers,
+     and `white:torch` shows up.
+   - It also needed a driver fix that is worth recording: the PM6125 PWM block
+     reports `LPG_SUBTYPE_REG = 0x1`, which no case in `lpg_apply_freq()`
+     handles, so it fell into the default and wrote `BIT(4)` (the LPG size bit)
+     instead of `BIT(2)` (PWM). Measured `base=0xb300 subtype=0x1`, period
+     saturating to 2953125000 ns. 0x1 is the older/basic QPNP PWM subtype and
+     belongs on the `LPG_SUBTYPE_PWM` path (the driver already *reads* it back
+     with `BIT(2)` in `lpg_pwm_get_state`).
 
-   Steps 1 to 3 are mechanical. Patch 0092 should be replaced, not extended.
+   - **But every write to the LPG block is rejected by the SPMI arbiter**:
 
-10. **NFC — the controller is alive and talking NCI; it does not read cards yet.**
+	spmi spmi-0: disallowed SPMI write to sid=0, addr=0xB341
+	spmi spmi-0: disallowed SPMI write to sid=0, addr=0xB343
+	... 0xB342 0xB344 0xB346 0xB347
+
+     The arbiter (v5) only lets a master write a peripheral it *owns*
+     (`bus->apid_data[apid].write_ee != pmic_arb->ee` in
+     `drivers/spmi/spmi-pmic-arb.c`), and that ownership table is programmed by
+     XBL/TrustZone at boot -- the kernel only reads it. The PM6125's regulators
+     (PPID 0x14) and GPIOs (0xC0) are owned by the AP and write fine; the LPG
+     block (PPID 0xB3) is not, so its registers can never be programmed from
+     Linux. Consistent with this, the vendor DT leaves `qcom,pwms@b300` at
+     `status = "disabled"` -- stock never drove it over SPMI from the AP either.
+     And tlmm 49 alone (`gpio-leds`) only produces an occasional stray flash:
+     the LED driver IC needs the PWM to actually light, and the PWM is walled
+     off.
+
+   So this is a **secure-firmware ownership limitation, not a missing driver**,
+   the same class of wall as the watchdog reset. The reverted work is not
+   wasted: the `qcom,pm6125-pwm` support (with the subtype-0x1 fix) is correct
+   and upstreamable for any board where the AP *does* own the LPG. It is not
+   carried here because on rhodep it can only register an inert PWM chip.
+   Patch 0092 stays as the plain `gpio-leds` node, which at least claims the pin.
+
+10. **NFC — reads cards; card emulation is started, tag activation is open.**
+    Reading works (patches 0101-0105, `userspace/nfc/rhodep-nfc read`). Card
+    emulation: patches 0110-0111 get the chip into NFC-A listen with a fixed
+    UID/SAK and the chip accepts it, but it does not yet activate as a plain
+    NFC-A tag against a reader — see [`docs/nfc.md`](docs/nfc.md) for the state,
+    the measured card, and the plan by layers. The history below is how the
+    reader was brought up.
+
     Samsung S3FWRN5 at 0x27, with ven=tlmm48, firm=tlmm8, irq=tlmm9 and
     clk_req=tlmm7.
 

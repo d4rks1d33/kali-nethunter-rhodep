@@ -121,6 +121,8 @@ source="
 	0107-arm64-dts-qcom-rhodep-l24-vcc-at-2v96.patch
 	0108-arm64-dts-qcom-rhodep-usb-dsi-rails-to-vendor.patch
 	0109-arm64-dts-qcom-rhodep-drop-l21-from-wifi.patch
+	0110-nfc-s3fwrn5-declare-nfc-dep-for-listen.patch
+	0111-nfc-nci-set-a-fixed-nfcid1-for-listen.patch
 "
 options="!check !strip !tracedeps pmb:cross-native"
 _carch="arm64"
@@ -266,4 +268,6 @@ f5c96060651d862f3ef2e70ad20022e0a0ecabdc986686e0562a091fa21810643f4c750ff94446eb
 723070a27be3fefb7053ad510f0b35ffb2bdb30b03e5543835f07d1cd4c93795a69fddae91f3077bff9645dcf12ad156196b8ed8ef6ad7ddeadadb11209e9109  0107-arm64-dts-qcom-rhodep-l24-vcc-at-2v96.patch
 8f58112f6905e34dd5a996084486a5ba8fbf90749d5b9a4c0fd1a8564cc3b30e26b6e257f9967ee44de0ede6770e6698b217af5956cd54c0e894db6ace076abc  0108-arm64-dts-qcom-rhodep-usb-dsi-rails-to-vendor.patch
 b09dc4871cb41d466260e0bb5252a1b909b89f1ac5a42752967352fc83311754c4d3ab007562ac59871f2d09d8148400ae9760221ebb241a2a8b75f179bd6c6a  0109-arm64-dts-qcom-rhodep-drop-l21-from-wifi.patch
+a002cb6caefa3cca3e9b8d9ef8755424217aef04535fad8f4f631af63a8e8ba20a755cd900e367260e719d67ed8ce5e3cebd240e3a71889eeec7c03c91dd665f  0110-nfc-s3fwrn5-declare-nfc-dep-for-listen.patch
+fa59c12b9028406f94a07afc5359ac7d8e833ad9e624cfedb4201438bacfd2a49c874a4d557c5826353ecb89841f21a3440d9f360a1a91a80994467b797f3a1c  0111-nfc-nci-set-a-fixed-nfcid1-for-listen.patch
 "

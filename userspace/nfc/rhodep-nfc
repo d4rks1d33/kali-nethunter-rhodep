@@ -22,6 +22,14 @@ Commands:
     attrs           keep polling and dump every activation attribute
                     uninterpreted -- a quick look at just the handshake fields
     info            show the adapter and the protocols it advertises
+    listen [uid [sak]]  card emulation: enter listen mode so an external reader
+                    sees the phone as an NFC-A tag. With no uid, a random
+                    NFCID1 (proves listen works). With a uid, e.g.
+                    listen 04:35:3d:6a:f7:54:80, ask the controller to answer
+                    with that UID. An optional sak (SEL_RES) hex picks the tag
+                    type the reader sees: 08 = MIFARE Classic, 20 = ISO-DEP,
+                    00 = bare NFC-A. Answering the tag protocol (Type 2 READ)
+                    is still later work; see docs/nfc.md
     help, --help    this text
 
 Notes:
@@ -118,6 +126,14 @@ NFC_CMD_STOP_POLL = 7
 NFC_CMD_GET_TARGET = 8
 NFC_EVENT_TARGETS_FOUND = 9
 NFC_EVENT_TARGET_LOST = 12
+NFC_EVENT_TM_ACTIVATED = 11
+NFC_EVENT_TM_DEACTIVATED = 13
+EVENT_NAMES = {
+    9: "TARGETS_FOUND",
+    11: "TM_ACTIVATED (a reader activated us as a tag)",
+    12: "TARGET_LOST",
+    13: "TM_DEACTIVATED",
+}
 
 NFC_ATTR_DEVICE_INDEX = 1
 NFC_ATTR_DEVICE_NAME = 2
@@ -130,6 +146,7 @@ NFC_ATTR_TARGET_SENSB_RES = 8
 NFC_ATTR_TARGET_SENSF_RES = 9
 NFC_ATTR_DEVICE_POWERED = 12
 NFC_ATTR_IM_PROTOCOLS = 13
+NFC_ATTR_TM_PROTOCOLS = 14
 NFC_ATTR_TARGET_ISO15693_DSFID = 26
 NFC_ATTR_TARGET_ISO15693_UID = 27
 NFC_ATTR_TARGET_ATS = 32
@@ -176,6 +193,9 @@ PROTO = {
 }
 # a mask covering everything the chip advertised
 ALL_PROTOS = sum(1 << b for b in PROTO)
+# NFC-DEP is the only target protocol the mainline NCI core wires up for
+# listen mode, so it is the mask that makes the controller enter listen.
+NFC_PROTO_NFC_DEP_MASK = 1 << 5
 
 
 def align4(n):
@@ -419,6 +439,27 @@ def start_poll(nl, idx):
     nl.request(NFC_CMD_START_POLL, payload)
 
 
+def start_listen(nl, idx, uid=None, sak=None):
+    # Target mode. The kernel's start_poll takes tm_protocols the same way it
+    # takes im_protocols; passing only tm makes the controller listen instead
+    # of poll. NFC-DEP is the only tm protocol the NCI core acts on, and it is
+    # enough to get the chip into NFC-A passive listen -- the anticollision is
+    # done in hardware, so a reader sees a card.
+    #
+    # If a uid (NFCID1) is given, pass it as NFC_ATTR_TARGET_NFCID1; the kernel
+    # feeds it to LA_NFCID1 so the controller answers with that UID. If a sak
+    # (SEL_RES) is given, it goes to LA_SEL_INFO -- which tag type the reader
+    # sees (0x00 bare NFC-A, 0x08 MIFARE Classic, 0x20 ISO-DEP). Needs the
+    # "set NFCID1 and SEL_RES for listen" patch.
+    payload = (nla_u32(NFC_ATTR_DEVICE_INDEX, idx)
+               + nla_u32(NFC_ATTR_TM_PROTOCOLS, NFC_PROTO_NFC_DEP_MASK))
+    if uid:
+        payload += nla(NFC_ATTR_TARGET_NFCID1, uid)
+    if sak is not None:
+        payload += nla(NFC_ATTR_TARGET_SEL_RES, bytes([sak & 0xff]))
+    nl.request(NFC_CMD_START_POLL, payload)
+
+
 def stop_poll(nl, idx):
     try:
         nl.request(NFC_CMD_STOP_POLL, nla_u32(NFC_ATTR_DEVICE_INDEX, idx))
@@ -517,6 +558,69 @@ def cmd_watch(nl, args):
 
 def cmd_attrs(nl, args):
     _run(nl, once=False, printer=print_target_raw)
+
+
+def parse_uid(s):
+    # accept 04:35:3d:6a:f7:54:80 or 04353d6af75480
+    h = s.replace(":", "").replace(" ", "")
+    try:
+        b = bytes.fromhex(h)
+    except ValueError:
+        raise SystemExit("bad UID %r: give hex, e.g. 04:35:3d:6a:f7:54:80" % s)
+    if not 1 <= len(b) <= 10:
+        raise SystemExit("UID must be 1..10 bytes, got %d" % len(b))
+    return b
+
+
+def cmd_listen(nl, args):
+    # Card emulation: put the controller into listen mode so an external reader
+    # sees the phone as an NFC-A card. The chip does the NFC-A anticollision in
+    # hardware. Without a UID this is milestone 1 (a random NFCID1, just proves
+    # listen works); with `listen <uid>` the controller is asked to answer with
+    # that UID (LA_NFCID1) -- milestone 2, to emulate a specific card. Whether
+    # the chip honours a fixed 7-byte UID is what this tests. Answering the tag
+    # protocol (Type 2 READ) is still later work -- see docs/nfc.md. Watch
+    # `rhodep-nfc raw` in another shell to see the NCI.
+    uid = parse_uid(args[0]) if args else None
+    sak = None
+    if len(args) > 1:
+        try:
+            sak = int(args[1], 16) if args[1].lower().startswith("0x") \
+                else int(args[1], 16)
+        except ValueError:
+            raise SystemExit("bad SAK %r: give hex, e.g. 08 or 0x08" % args[1])
+    dev = find_device(nl)
+    if not dev:
+        raise SystemExit("no NFC device found")
+    idx, name, protos, powered = dev
+    if not (protos & NFC_PROTO_NFC_DEP_MASK):
+        print("warning: this device does not advertise NFC-DEP; the kernel "
+              "will likely reject listen (needs the s3fwrn5 NFC-DEP patch)")
+    ensure_up(nl, idx, powered)
+    nl.join_events()
+    try:
+        start_listen(nl, idx, uid, sak)
+    except OSError as e:
+        raise SystemExit("kernel rejected listen (%s). The driver must "
+                         "advertise a target protocol and the firmware must "
+                         "allow listen -- see docs/nfc.md." % e)
+    if uid:
+        print("listening as NFC-A tag with UID %s -- present a reader to the "
+              "upper back of the phone and check the UID it reports. (Ctrl-C "
+              "to stop)" % ":".join("%02x" % b for b in uid))
+    else:
+        print("listening -- the phone should now look like an NFC-A tag. Bring "
+              "another phone/reader up to the upper back of the phone. (Ctrl-C "
+              "to stop)")
+    try:
+        while True:
+            for cmd, attrs in nl.recv_event():
+                name = EVENT_NAMES.get(cmd, "event 0x%x" % cmd)
+                print("  kernel event: %s" % name)
+    except KeyboardInterrupt:
+        print("\nstopped")
+    finally:
+        stop_poll(nl, idx)
 
 
 # ---- raw frame capture ---------------------------------------------------
@@ -673,6 +777,7 @@ def main():
         "watch": cmd_watch,
         "attrs": cmd_attrs,
         "raw": cmd_raw,
+        "listen": cmd_listen,
     }
     if cmd not in commands:
         # Reject before asking for root, so a typo does not look like a

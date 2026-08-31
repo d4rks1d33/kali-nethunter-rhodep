@@ -1,0 +1,161 @@
+From: Kali NetHunter rhodep port
+Subject: [PATCH] nfc: nci: present an NFC-A Type 2 tag in listen mode
+
+Card emulation, milestone 2. Milestone 1 (the s3fwrn5 NFC-DEP patch) gets the
+controller into listen mode, but it only ever comes up as NFC-DEP (P2P), so a
+tag reader ignores it. To emulate a card the controller has to present itself
+as an NFC-A tag with a chosen UID and SAK.
+
+Three things were missing in the NCI core:
+
+  - RF_DISCOVER_MAP never mapped the T2T protocol to the FRAME interface in
+    LISTEN mode, so the controller had no way to be activated as a tag.
+  - nci_start_poll only sent the NFC-DEP listen parameters. Add LA_BIT_FRAME_SDD
+    and LA_PLATFORM_CONFIG (so SENS_RES/ATQA is right), LA_NFCID1 (the UID) and
+    LA_SEL_INFO (the SAK), all from userspace via START_POLL, reusing the
+    existing NFC_ATTR_TARGET_NFCID1 and NFC_ATTR_TARGET_SEL_RES attributes (no
+    ABI change). When emulating, only NFC-A passive listen is offered.
+  - The listen-activation notification only signalled tm activation for
+    NFC-DEP. Signal it for T2T too (NFC_PROTO_MIFARE_MASK), so rf_mode becomes
+    NFC_RF_TARGET and userspace is told the tag was activated.
+
+The SEL_RES is chosen by userspace because which value makes a given reader
+activate is a reader question (0x00 bare NFC-A, 0x08 MIFARE Classic, 0x20
+ISO-DEP). Whether the S3NRN4V honours a fixed 7-byte NFCID1 and completes the
+NFC-A anticollision as a tag is what this makes testable. Answering the tag
+protocol (Type 2 READ) still needs a listen data path, which is later work.
+
+--- a/include/net/nfc/nci.h
++++ b/include/net/nfc/nci.h
+@@ -122,6 +122,9 @@
+ /* NCI Configuration Parameter Tags */
+ #define NCI_PN_ATR_REQ_GEN_BYTES				0x29
+ #define NCI_LN_ATR_RES_GEN_BYTES				0x61
++#define NCI_LA_BIT_FRAME_SDD					0x30
++#define NCI_LA_PLATFORM_CONFIG					0x31
++#define NCI_LA_NFCID1						0x33
+ #define NCI_LA_SEL_INFO						0x32
+ #define NCI_LF_PROTOCOL_TYPE					0x50
+ #define NCI_LF_CON_BITR_F					0x54
+--- a/include/net/nfc/nfc.h
++++ b/include/net/nfc/nfc.h
+@@ -178,6 +178,9 @@
+ 	struct nfc_target *active_target;
+ 	bool dep_link_up;
+ 	struct nfc_genl_data genl_data;
++	u8 emu_nfcid1[NFC_NFCID1_MAXSIZE];
++	u8 emu_nfcid1_len;
++	u8 emu_sel_res;
+ 	u32 supported_protocols;
+ 
+ 	struct list_head secure_elements;
+--- a/net/nfc/netlink.c
++++ b/net/nfc/netlink.c
+@@ -49,6 +49,9 @@
+ 	[NFC_ATTR_VENDOR_ID] = { .type = NLA_U32 },
+ 	[NFC_ATTR_VENDOR_SUBCMD] = { .type = NLA_U32 },
+ 	[NFC_ATTR_VENDOR_DATA] = { .type = NLA_BINARY },
++	[NFC_ATTR_TARGET_NFCID1] = { .type = NLA_BINARY,
++				     .len = NFC_NFCID1_MAXSIZE },
++	[NFC_ATTR_TARGET_SEL_RES] = { .type = NLA_U8 },
+ 
+ };
+ 
+@@ -830,6 +833,20 @@
+ 
+ 	mutex_lock(&dev->genl_data.genl_data_mutex);
+ 
++	dev->emu_nfcid1_len = 0;
++	dev->emu_sel_res = 0;
++	if (info->attrs[NFC_ATTR_TARGET_NFCID1]) {
++		u32 len = nla_len(info->attrs[NFC_ATTR_TARGET_NFCID1]);
++
++		if (len && len <= NFC_NFCID1_MAXSIZE) {
++			memcpy(dev->emu_nfcid1,
++			       nla_data(info->attrs[NFC_ATTR_TARGET_NFCID1]), len);
++			dev->emu_nfcid1_len = len;
++		}
++	}
++	if (info->attrs[NFC_ATTR_TARGET_SEL_RES])
++		dev->emu_sel_res = nla_get_u8(info->attrs[NFC_ATTR_TARGET_SEL_RES]);
++
+ 	rc = nfc_start_poll(dev, im_protocols, tm_protocols);
+ 	if (!rc)
+ 		dev->genl_data.poll_req_portid = info->snd_portid;
+--- a/net/nfc/nci/core.c
++++ b/net/nfc/nci/core.c
+@@ -205,6 +205,15 @@
+ 			(*num)++;
+ 		}
+ 
++		/* Map T2T listen to the FRAME interface so the controller can
++		 * present itself as an NFC-A tag (card emulation). */
++		if (*num < NCI_MAX_NUM_MAPPING_CONFIGS) {
++			cfg[*num].rf_protocol = NCI_RF_PROTOCOL_T2T;
++			cfg[*num].mode = NCI_DISC_MAP_MODE_LISTEN;
++			cfg[*num].rf_interface = NCI_RF_INTERFACE_FRAME;
++			(*num)++;
++		}
++
+ 		if (*num == NCI_MAX_NUM_MAPPING_CONFIGS)
+ 			break;
+ 	}
+@@ -288,10 +297,14 @@
+ 			NCI_NFC_A_PASSIVE_LISTEN_MODE;
+ 		cmd.disc_configs[cmd.num_disc_configs].frequency = 1;
+ 		cmd.num_disc_configs++;
+-		cmd.disc_configs[cmd.num_disc_configs].rf_tech_and_mode =
+-			NCI_NFC_F_PASSIVE_LISTEN_MODE;
+-		cmd.disc_configs[cmd.num_disc_configs].frequency = 1;
+-		cmd.num_disc_configs++;
++		/* Card emulation (fixed NFCID1) presents an NFC-A tag only;
++		 * NFC-F listen brings the chip up as NFC-DEP instead. */
++		if (!ndev->nfc_dev->emu_nfcid1_len) {
++			cmd.disc_configs[cmd.num_disc_configs].rf_tech_and_mode =
++				NCI_NFC_F_PASSIVE_LISTEN_MODE;
++			cmd.disc_configs[cmd.num_disc_configs].frequency = 1;
++			cmd.num_disc_configs++;
++		}
+ 	}
+ 
+ 	nci_send_cmd(ndev, NCI_OP_RF_DISCOVER_CMD,
+@@ -868,6 +881,22 @@
+ 			pr_err("failed to set listen parameters\n");
+ 	}
+ 
++	if (nfc_dev->emu_nfcid1_len) {
++		__u8 v;
++
++		/* Present as an NFC-A tag with the chosen NFCID1/SAK. */
++		v = 0x04;
++		nci_set_config(ndev, NCI_LA_BIT_FRAME_SDD, 1, &v);
++		v = 0x00;
++		nci_set_config(ndev, NCI_LA_PLATFORM_CONFIG, 1, &v);
++		nci_set_config(ndev, NCI_LA_NFCID1,
++			       nfc_dev->emu_nfcid1_len, nfc_dev->emu_nfcid1);
++		v = nfc_dev->emu_sel_res;
++		/* SEL_INFO (SAK) from userspace; overrides the NFC-DEP value
++		 * so a reader sees a tag, not a P2P peer. */
++		nci_set_config(ndev, NCI_LA_SEL_INFO, 1, &v);
++	}
++
+ 	param.im_protocols = im_protocols;
+ 	param.tm_protocols = tm_protocols;
+ 	rc = nci_request(ndev, nci_rf_discover_req, &param,
+--- a/net/nfc/nci/ntf.c
++++ b/net/nfc/nci/ntf.c
+@@ -882,6 +882,14 @@
+ 					       ndev->remote_gb_len);
+ 			if (err != NCI_STATUS_OK)
+ 				pr_err("error when signaling tm activation\n");
++		} else if (err == NCI_STATUS_OK &&
++			   ntf.rf_protocol == NCI_RF_PROTOCOL_T2T) {
++			/* Activated as an NFC-A tag (card emulation). */
++			err = nfc_tm_activated(ndev->nfc_dev,
++					       NFC_PROTO_MIFARE_MASK,
++					       NFC_COMM_PASSIVE, NULL, 0);
++			if (err != NCI_STATUS_OK)
++				pr_err("error when signaling tm activation\n");
+ 		}
+ 	}
+ 

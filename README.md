@@ -1260,7 +1260,7 @@ docs/                       extra notes
 
 # The kernel (shared with the pmOS port)
 
-## The 88 applied patches (`kernel/patches/`, applied in this order)
+## The 90 applied patches (`kernel/patches/`, applied in this order)
 
 The order below is the aport's `source=` order, which is what `patch` sees; it
 is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
@@ -1381,7 +1381,11 @@ is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
 0104 s3fwrn5-dual-opcode-rfreg-transfer  newer parts move the whole transfer
                                        to opcode 0x2a; ours is one of them
 0105 s3fwrn5-map-the-mifare-classic-protocol-value  cards were found and then
-                                       dropped for an unmapped protocol
+                                        dropped for an unmapped protocol
+0106 rhodep-l11-vccq2-at-1v8            UFS VCCQ2 sat at 1624 mV, below the
+                                        1.7 V floor; pinned to 1.8 V like the vendor
+0107 rhodep-l24-vcc-at-2v96             UFS VCC sat at 2704 mV vs the 2.96 V the
+                                        NAND wants; pinned to 2.96 V like the vendor
 ```
 
 0062 and 0063 are kept but neither changes the glitched lines they were written

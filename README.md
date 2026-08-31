@@ -1260,7 +1260,7 @@ docs/                       extra notes
 
 # The kernel (shared with the pmOS port)
 
-## The 90 applied patches (`kernel/patches/`, applied in this order)
+## The 91 applied patches (`kernel/patches/`, applied in this order)
 
 The order below is the aport's `source=` order, which is what `patch` sees; it
 is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
@@ -1386,6 +1386,8 @@ is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
                                         1.7 V floor; pinned to 1.8 V like the vendor
 0107 rhodep-l24-vcc-at-2v96             UFS VCC sat at 2704 mV vs the 2.96 V the
                                         NAND wants; pinned to 2.96 V like the vendor
+0108 rhodep-usb-dsi-rails-to-vendor     L4/L10/L7 (UFS PLL+DSI, USB vdda18/33)
+                                        sat at their floors; pinned to vendor voltage
 ```
 
 0062 and 0063 are kept but neither changes the glitched lines they were written

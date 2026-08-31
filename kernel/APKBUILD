@@ -119,6 +119,7 @@ source="
 	0105-nfc-s3fwrn5-map-the-mifare-classic-protocol-value.patch
 	0106-arm64-dts-qcom-rhodep-l11-vccq2-at-1v8.patch
 	0107-arm64-dts-qcom-rhodep-l24-vcc-at-2v96.patch
+	0108-arm64-dts-qcom-rhodep-usb-dsi-rails-to-vendor.patch
 "
 options="!check !strip !tracedeps pmb:cross-native"
 _carch="arm64"
@@ -262,4 +263,5 @@ cd603afe600c027ef1fdb73d8f7e72acd4f285ce93d34b3b7088883609cf2cb9fe39549e6e58c1f1
 f5c96060651d862f3ef2e70ad20022e0a0ecabdc986686e0562a091fa21810643f4c750ff94446ebe47e68e9a3793834d9afb9fdb624aa42da7401471cf535ad  0105-nfc-s3fwrn5-map-the-mifare-classic-protocol-value.patch
 64741013e43d49851450d28652d7dc57d079a64a0e6206abc24941199598dc5888141401388d330f9160072349a7151d4e08a9b0c247e5b3a3f3422ecd2aab09  0106-arm64-dts-qcom-rhodep-l11-vccq2-at-1v8.patch
 723070a27be3fefb7053ad510f0b35ffb2bdb30b03e5543835f07d1cd4c93795a69fddae91f3077bff9645dcf12ad156196b8ed8ef6ad7ddeadadb11209e9109  0107-arm64-dts-qcom-rhodep-l24-vcc-at-2v96.patch
+8f58112f6905e34dd5a996084486a5ba8fbf90749d5b9a4c0fd1a8564cc3b30e26b6e257f9967ee44de0ede6770e6698b217af5956cd54c0e894db6ace076abc  0108-arm64-dts-qcom-rhodep-usb-dsi-rails-to-vendor.patch
 "

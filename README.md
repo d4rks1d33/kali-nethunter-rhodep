@@ -4103,10 +4103,6 @@ already done.
     and run non-arm64 images. Costs nothing at runtime when unused; it is left off
     only because nothing here needed it yet.
 
-    Worth noting so no one burns time on it: **Nessus ships official native arm64
-    builds**, so it does not need QEMU -- reach for the aarch64 package rather than
-    emulating the x86 one.
-
 # License
 Kernel patches: GPL-2.0. Packaging/glue: MIT. Vendor firmware blobs: proprietary,
 not included (extract from your own device). See `LICENSE`.

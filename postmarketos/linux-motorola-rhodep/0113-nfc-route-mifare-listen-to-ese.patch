@@ -32,8 +32,16 @@ When steering to the eSE, three things differ from host emulation:
     LF_T3T_FLAGS = 0 (no Type-3 listen slots) -- and then offer NFC-A + NFC-F
     listen. NFC-F now only powers the analog front-end; the NFC-A field reaches
     the eSE.
---- a/include/net/nfc/nci.h	2026-09-01 19:23:56.198492000 +0000
-+++ b/include/net/nfc/nci.h	2026-09-01 19:24:01.308492002 +0000
+Even with the eSE enabled and the routing in place the field is not delivered to
+it, so also bring up the eSE's ETSI HCI network before discovery: CORE_CONN_CREATE
+to the eSE NFCEE with the HCI_ACCESS interface, nci_hci_dev_session_init(), and
+put the eSE's HCI host (0xC0 on this Samsung part) on the admin-gate whitelist.
+This is what st-nci does for its secure element; the generic NCI/HCI helpers are
+all exported, so it is done inline from the emulation path (once, guarded by
+hci_dev->conn_info) without a full discover_se port.
+
+--- a/include/net/nfc/nci.h	2026-09-01 22:59:53.266251007 +0000
++++ b/include/net/nfc/nci.h	2026-09-01 22:57:03.430301012 +0000
 @@ -132,6 +132,7 @@
  #define NCI_LA_NFCID1						0x33
  #define NCI_LA_SEL_INFO						0x32
@@ -42,8 +50,8 @@ When steering to the eSE, three things differ from host emulation:
  #define NCI_LF_CON_BITR_F					0x54
  
  /* NCI Configuration Parameters masks */
---- a/include/net/nfc/nci_core.h	2026-09-01 18:05:45.032132009 +0000
-+++ b/include/net/nfc/nci_core.h	2026-09-01 18:06:04.613519004 +0000
+--- a/include/net/nfc/nci_core.h	2026-09-01 22:59:46.862251004 +0000
++++ b/include/net/nfc/nci_core.h	2026-09-01 22:57:03.430301012 +0000
 @@ -254,6 +254,12 @@
  	__u8			manufact_id;
  	__u32			manufact_specific_info;
@@ -57,8 +65,8 @@ When steering to the eSE, three things differ from host emulation:
  	/* Save RF Discovery ID or NFCEE ID under conn_create */
  	struct dest_spec_params cur_params;
  	/* Save destination type under conn_create */
---- a/net/nfc/nci/ntf.c	2026-09-01 18:05:45.034132009 +0000
-+++ b/net/nfc/nci/ntf.c	2026-09-01 18:06:19.137519011 +0000
+--- a/net/nfc/nci/ntf.c	2026-09-01 22:59:53.267251007 +0000
++++ b/net/nfc/nci/ntf.c	2026-09-01 22:57:03.430301012 +0000
 @@ -958,6 +958,24 @@
  
  	nfcee_ntf = (struct nci_nfcee_discover_ntf *)skb->data;
@@ -84,8 +92,8 @@ When steering to the eSE, three things differ from host emulation:
  	/* NFCForum NCI 9.2.1 HCI Network Specific Handling
  	 * If the NFCC supports the HCI Network, it SHALL return one,
  	 * and only one, NFCEE_DISCOVER_NTF with a Protocol type of
---- a/net/nfc/nci/core.c	2026-09-01 18:05:45.039132009 +0000
-+++ b/net/nfc/nci/core.c	2026-09-01 19:24:36.476697005 +0000
+--- a/net/nfc/nci/core.c	2026-09-01 22:59:53.269251007 +0000
++++ b/net/nfc/nci/core.c	2026-09-01 22:59:27.460619009 +0000
 @@ -301,12 +301,13 @@
  			NCI_NFC_A_PASSIVE_LISTEN_MODE;
  		cmd.disc_configs[cmd.num_disc_configs].frequency = 1;
@@ -106,7 +114,93 @@ When steering to the eSE, three things differ from host emulation:
  		cmd.disc_configs[cmd.num_disc_configs].rf_tech_and_mode =
  			NCI_NFC_F_PASSIVE_LISTEN_MODE;
  		cmd.disc_configs[cmd.num_disc_configs].frequency = 1;
-@@ -873,12 +874,18 @@
+@@ -861,6 +862,85 @@
+ 	return nci_set_config(ndev, NCI_LF_CON_BITR_F, 1, &val);
+ }
+ 
++/* Admin-gate parameter ids (ETSI HCI), not in the generic headers. */
++#define NCI_HCI_ADMIN_PARAM_WHITELIST		0x03
++
++/* HCI host id of the embedded secure element on this Samsung part (from the
++ * vendor libnfc-nci.conf: "0x00(Host), 0xC0(Ese) and 0x80(UICC)"). This is the
++ * HCI-network address, distinct from the eSE's NFCEE id (0x83). */
++#define NCI_HCI_HOST_ID_ESE			0xc0
++
++/* Minimal HCI gate table: only the admin gate is mandatory for
++ * nci_hci_dev_session_init(); the identity and link management gates keep the
++ * generic init happy. The eSE's own contactless gates are created by the eSE
++ * host itself, so we do not open them here. */
++static const struct nci_hci_gate nci_ese_hci_gates[] = {
++	{ NCI_HCI_ADMIN_GATE,	     NCI_HCI_ADMIN_PIPE,     0x00 },
++	{ NCI_HCI_LINK_MGMT_GATE,    NCI_HCI_LINK_MGMT_PIPE, 0x00 },
++	{ NCI_HCI_IDENTITY_MGMT_GATE, NCI_HCI_INVALID_PIPE,  0x00 },
++};
++
++/* Bring up the ETSI HCI network to the embedded secure element and put its host
++ * on the admin whitelist. Enabling the eSE NFCEE and routing the MIFARE listen
++ * to it is not enough on this controller: the field is only delivered to the
++ * eSE once its HCI host has been admitted to the network. Modelled on
++ * st_nci_hci_network_init(). Best-effort: on failure card emulation simply
++ * falls back to the (non-working) direct route, so the adapter still comes up. */
++static int nci_ese_hci_network_init(struct nci_dev *ndev)
++{
++	struct core_conn_create_dest_spec_params *dest_params;
++	struct dest_spec_params spec_params;
++	u8 white_list[1];
++	int r;
++
++	/* The generic conn_create rsp only attaches the new logical connection
++	 * to hci_dev if cur_params.id == hci_dev->nfcee_id. Our NFCEE_DISCOVER
++	 * handler leaves hci_dev->nfcee_id at the last NTF (the UICC), so point
++	 * it at the eSE first. */
++	ndev->hci_dev->nfcee_id = ndev->ese_nfcee_id;
++
++	dest_params = kzalloc(sizeof(*dest_params) + sizeof(spec_params),
++			      GFP_KERNEL);
++	if (!dest_params)
++		return -ENOMEM;
++
++	dest_params->type = NCI_DESTINATION_SPECIFIC_PARAM_NFCEE_TYPE;
++	dest_params->length = sizeof(spec_params);
++	spec_params.id = ndev->ese_nfcee_id;
++	spec_params.protocol = NCI_NFCEE_INTERFACE_HCI_ACCESS;
++	memcpy(dest_params->value, &spec_params, sizeof(spec_params));
++
++	r = nci_core_conn_create(ndev, NCI_DESTINATION_NFCEE, 1,
++				 sizeof(*dest_params) + sizeof(spec_params),
++				 dest_params);
++	if (r != NCI_STATUS_OK)
++		goto out;
++
++	if (!ndev->hci_dev->conn_info) {
++		r = -EPROTO;
++		goto out;
++	}
++
++	ndev->hci_dev->init_data.gate_count = ARRAY_SIZE(nci_ese_hci_gates);
++	memcpy(ndev->hci_dev->init_data.gates, nci_ese_hci_gates,
++	       sizeof(nci_ese_hci_gates));
++	scnprintf(ndev->hci_dev->init_data.session_id,
++		  sizeof(ndev->hci_dev->init_data.session_id), "%s", "S3NRN4V0");
++
++	r = nci_hci_dev_session_init(ndev);
++	if (r != NCI_HCI_ANY_OK)
++		goto out;
++
++	white_list[0] = NCI_HCI_HOST_ID_ESE;
++	r = nci_hci_set_param(ndev, NCI_HCI_ADMIN_GATE,
++			      NCI_HCI_ADMIN_PARAM_WHITELIST,
++			      white_list, sizeof(white_list));
++
++out:
++	kfree(dest_params);
++	return r;
++}
++
+ static void nci_rf_set_listen_mode_routing_req(struct nci_dev *ndev,
+ 					       const void *opt)
+ {
+@@ -873,12 +953,18 @@
  	cmd.more = 0;
  	cmd.num_entries = 0;
  
@@ -128,7 +222,7 @@ When steering to the eSE, three things differ from host emulation:
  	tech->power_state = NCI_LMRT_POWER_STATE_ALL;
  	tech->technology = NCI_NFC_RF_TECHNOLOGY_A;
  	p += sizeof(*tech);
-@@ -894,14 +901,16 @@
+@@ -894,14 +980,16 @@
  	p += sizeof(*proto);
  	cmd.num_entries++;
  
@@ -150,7 +244,7 @@ When steering to the eSE, three things differ from host emulation:
  	proto->power_state = NCI_LMRT_POWER_STATE_ALL;
  	proto->protocol = NCI_RF_PROTOCOL_MIFARE;
  	p += sizeof(*proto);
-@@ -990,25 +999,61 @@
+@@ -990,25 +1078,69 @@
  		 * here corrupts the high ATQA byte). */
  		__u8 dur[2];
  
@@ -213,11 +307,19 @@ When steering to the eSE, three things differ from host emulation:
 +		}
 +
 +		/* If the embedded secure element that holds a provisioned MIFARE
-+		 * card was found, enable it so it can answer over RF. The MIFARE
-+		 * listen is then routed to it in the routing table below. */
-+		if (ndev->ese_nfcee_id)
++		 * card was found, enable it so it can answer over RF, and bring
++		 * up its HCI network (once) so the controller will actually
++		 * deliver the field to it. The MIFARE listen is then routed to it
++		 * in the routing table below. */
++		if (ndev->ese_nfcee_id) {
 +			nci_nfcee_mode_set(ndev, ndev->ese_nfcee_id,
 +					   NCI_NFCEE_ENABLE);
++			if (!ndev->hci_dev->conn_info) {
++				int hr = nci_ese_hci_network_init(ndev);
++
++				pr_info("eSE HCI network init: %d\n", hr);
++			}
++		}
 +
 +		/* Program the listen mode routing table. NFC-A / T2T go to the
 +		 * host; the MIFARE protocol goes to the eSE if we have one (see

@@ -1244,6 +1244,13 @@ the next boot if the phone was off (`Persistent=true`). Run it by hand with
   [`GNSS-SM6375.md`](docs/interconnect-sm6375-wip/GNSS-SM6375.md)
 - Single USB-C port + no mainline Type-C driver → charge vs OTG is not automatic
   (manual `otg on|off`, defaults to charging). See `packages/rhodep-usb-otg`.
+- **Docker can fail to start after an out-of-band kernel/module bump** with
+  `iptables ... CHAIN_ADD failed ... chain PREROUTING` — a stale `/lib/modules`
+  `.ko` set that no longer matches the flashed boot image (a `=y`-vs-`=m` netfilter
+  mismatch, not a vermagic mismatch). The durable fix is to flash a boot image
+  built from the same apk as the modules (what the stable image does); an
+  on-device rescue is documented under "The `.ko` files must match the flashed
+  boot image (Docker case study)" in "Updating the kernel: what you have to redo".
 
 ---
 
@@ -1778,6 +1785,64 @@ In short: a new kernel means redo the patches, rebuild the headers and DKMS
 modules, and re-register the immutable driver files. The `.ko` immutability is
 intentional friction — it stops an accidental `rm`, at the cost of one
 `release` + re-register per kernel bump, which you are doing anyway.
+
+### The `.ko` files must match the flashed boot image (Docker case study)
+
+The kernel that runs is the `Image` **inside the flashed boot.img**; the modules
+that `modprobe` loads are the loose `.ko` files under `/lib/modules/<KVER>/`.
+Those two are built from the same `.config` **only if you flash the boot image
+built from the same apk as the modules**. During iterative test builds it is easy
+to flash a new boot.img while an older module tree is still on disk (or vice
+versa), and then anything that has flipped between `=y` and `=m` between the two
+builds breaks — the running kernel has the code built in, but a stale `.ko` for
+the same code is still on disk.
+
+Concretely this broke Docker. `systemctl start docker` failed with:
+
+```
+failed to register "bridge" driver: ... iptables ... CHAIN_ADD failed
+  (No such file or directory): chain PREROUTING
+```
+
+Docker's iptables rules `modprobe nft_nat` to get the nat chain type; per
+`modules.dep`, `nft_nat` pulls in `nf_conntrack`, `nf_nat`, `nf_defrag_ipv4/6`.
+Those four were built into the *running* kernel (`CONFIG_NF_CONNTRACK=y`,
+`NF_NAT=y`, `NF_DEFRAG_IPV4=y`), but stale `.ko` files for them (from an older
+build where they were `=m`) were still on disk. The kernel rejected them —
+
+```
+nf_defrag_ipv4: exports duplicate symbol nf_defrag_ipv4_disable (owned by kernel)
+```
+
+— which surfaces as `modprobe: Exec format error`. That failed the whole
+`nft_nat` load, so the `ip nat` table had no `PREROUTING` base chain and Docker
+could not add its jump. (`vermagic` matched, so this is *not* a version-mismatch;
+it is a `=y`-vs-`=m` set mismatch.)
+
+**Correct fix: rebuild and flash a boot image that matches the modules** — i.e.
+do what building the stable image already does. The stable image is built from
+one `linux-motorola-rhodep` apk, and both the boot.img `Image` and the
+`/lib/modules/<KVER>` tree come from that same apk, so `=y`/`=m` are consistent
+by construction. After any kernel/config change, re-cut the boot.img from the
+same apk you took the modules from (see "Building the kernel" and the `scripts/`
+image builders) rather than leaving a boot image from a different build in place.
+
+**On-device rescue (when you just need Docker back without reflashing):** delete
+the stale `.ko` files whose symbols are now built in, then rebuild the dep index:
+
+```sh
+# these are the ones that went =m -> =y and now conflict
+cd /lib/modules/$(uname -r)/kernel
+mv net/netfilter/nf_conntrack.ko net/netfilter/nf_nat.ko \
+   net/ipv4/netfilter/nf_defrag_ipv4.ko net/ipv6/netfilter/nf_defrag_ipv6.ko  /root/stale-mods/
+depmod -a
+modprobe nft_chain_nat nft_nat   # now load cleanly; iptables nat works; docker starts
+```
+
+To find the offenders generically: any `.ko` whose exported symbol appears in
+`/proc/kallsyms` as owned by the kernel (no `[module]` tag) is built in and its
+loose file must go. This is a patch on the running filesystem only; the durable
+fix is the matching boot image above.
 
 ---
 

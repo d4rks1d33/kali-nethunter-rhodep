@@ -39,10 +39,23 @@ from ..vendor.blespam.engine import (
 from ..widgets import OutputView, toast
 
 RUNNER = "/usr/libexec/nethunter-pro-blespam"
+RECOVER = "/usr/libexec/nethunter-pro-blespam-recover"
 
-INTERVAL_DEFAULT_MS = 20
-INTERVAL_MIN_MS = 20
-INTERVAL_MAX_MS = 1000
+# Advertising interval controls how often the radio retransmits the
+# currently-loaded payload. 100 ms is the sweet spot -- fast enough for
+# iOS/Windows pop-ups to notice, slow enough not to melt the chip.
+ADV_INTERVAL_DEFAULT_MS = 100
+ADV_INTERVAL_MIN_MS = 20
+ADV_INTERVAL_MAX_MS = 1000
+
+# Payload change rate is how often the host asks the chip to swap in a
+# new payload. This is where the wedges happened -- the original port
+# had it locked to the advertising interval (~20 ms) and the QCA chip
+# gave up after a few thousand swaps. 200 ms (5 Hz) matches the pattern
+# the Android app uses.
+PAYLOAD_CHANGE_DEFAULT_MS = 200
+PAYLOAD_CHANGE_MIN_MS = 100
+PAYLOAD_CHANGE_MAX_MS = 5000
 
 
 def _list_adapters() -> list[str]:
@@ -129,11 +142,27 @@ class Blespam(NHModule):
         opts.add(self.adapter_combo)
 
         self.interval = Adw.SpinRow.new_with_range(
-            INTERVAL_MIN_MS, INTERVAL_MAX_MS, 10)
+            ADV_INTERVAL_MIN_MS, ADV_INTERVAL_MAX_MS, 10)
         self.interval.set_title("Advertising interval (ms)")
-        self.interval.set_subtitle("HCI unit is 0.625 ms; minimum 20 ms")
-        self.interval.set_value(INTERVAL_DEFAULT_MS)
+        self.interval.set_subtitle(
+            "How often the radio re-transmits the loaded payload; "
+            "HCI unit 0.625 ms; minimum 20 ms")
+        self.interval.set_value(ADV_INTERVAL_DEFAULT_MS)
         opts.add(self.interval)
+
+        # Second knob added after the wedge investigation: how often the
+        # host swaps the payload. See engine.py:MIN_PAYLOAD_CHANGE_MS
+        # -- <100 ms is where the QCA chip starts wedging. The engine
+        # will clamp anyway, but making the field respect the same
+        # floor stops the user from thinking they set it lower.
+        self.payload_change = Adw.SpinRow.new_with_range(
+            PAYLOAD_CHANGE_MIN_MS, PAYLOAD_CHANGE_MAX_MS, 50)
+        self.payload_change.set_title("Payload change rate (ms)")
+        self.payload_change.set_subtitle(
+            "How often the host swaps to the next payload; keep >=100 "
+            "to prevent the QCA controller from wedging")
+        self.payload_change.set_value(PAYLOAD_CHANGE_DEFAULT_MS)
+        opts.add(self.payload_change)
 
         self.mode = Adw.ComboRow(title="Order")
         self.mode.set_model(Gtk.StringList.new(
@@ -164,6 +193,21 @@ class Blespam(NHModule):
         self.stop_btn.connect("clicked", lambda _b: self._stop())
         actions.add_suffix(self.stop_btn)
         opts.add(actions)
+
+        # Recovery row: if the chip is wedged (Operation not supported
+        # 95, or after a hardware error the engine could not recover
+        # from), this button runs the serdev unbind/bind dance. That's
+        # the one thing short of a reboot that reliably brings the QCA
+        # WCN399x back. See helper/blespam-recover for the details.
+        recover_row = Adw.ActionRow(
+            title="Recover radio",
+            subtitle="Unbind/rebind the Bluetooth serdev driver -- use "
+                     "if Start fails with 'Operation not supported'")
+        self.recover_btn = Gtk.Button(
+            label="Recover", valign=Gtk.Align.CENTER)
+        self.recover_btn.connect("clicked", lambda _b: self._recover())
+        recover_row.add_suffix(self.recover_btn)
+        opts.add(recover_row)
         box.append(opts)
 
         # ---- packet filter / selection helpers -------------------
@@ -393,13 +437,16 @@ class Blespam(NHModule):
         cfg = {
             "packet_ids": titles,
             "interval_ms": int(self.interval.get_value()),
+            "payload_change_ms": int(self.payload_change.get_value()),
             "mode": mode,
             "tx_power": tx,
             "dev_id": dev_id,
         }
         self.output.append(
-            "# starting blespam on %s: %d packets, %d ms, %s, TX %s\n"
-            % (adapter, len(titles), cfg["interval_ms"], mode, tx))
+            "# starting blespam on %s: %d packets, adv %dms / swap %dms, "
+            "%s, TX %s\n"
+            % (adapter, len(titles), cfg["interval_ms"],
+               cfg["payload_change_ms"], mode, tx))
         self._proc = Process(
             [RUNNER, json.dumps(cfg)],
             self._on_runner_line,
@@ -446,6 +493,15 @@ class Blespam(NHModule):
         elif kind == "error":
             self.output.append("[error] %s\n"
                                % evt.get("message", ""))
+        elif kind == "recovery":
+            # Emitted from the engine's self-heal loop. Not fatal --
+            # just surface it so the user sees the chip is unhappy but
+            # the run continues. If we ever see "unrecoverable" the
+            # runner is about to exit anyway.
+            k = evt.get("kind", "?")
+            reason = evt.get("reason", "?")
+            self.output.append(
+                "[self-heal:%s] %s\n" % (k, reason))
         else:
             self.output.append(line + "\n")
 
@@ -454,3 +510,46 @@ class Blespam(NHModule):
         self.start_btn.set_sensitive(True)
         self.stop_btn.set_sensitive(False)
         self.output.append("[runner exited: %d]\n" % code)
+
+    # -------------------------------------------------------- recover
+    def _recover(self) -> None:
+        """Fire the serdev unbind/bind helper as root.
+
+        Only makes sense when the chip is wedged -- if the runner is
+        currently up, killing the radio out from under it would leave
+        the engine deadlocked. So we refuse to run in that case.
+        """
+        if self._proc is not None and self._proc.running:
+            toast(self.app_window,
+                  "Stop the run first, then recover")
+            return
+        if not os.path.exists(RECOVER):
+            self.output.append(
+                "[error] recover helper not installed at %s\n" % RECOVER)
+            return
+        self.output.append("# recovering hci0 via serdev unbind/bind\n")
+        self.recover_btn.set_sensitive(False)
+
+        # A one-shot Process (no streaming needed for a ~5s helper,
+        # but Process gives us the DBus-root path for free).
+        proc = Process(
+            [RECOVER],
+            self.output.append,
+            self._on_recover_done,
+            root=True,
+        )
+        proc.start()
+        # Stash it so on_recover_done can null it and re-enable the
+        # button.
+        self._recover_proc = proc
+
+    def _on_recover_done(self, code: int) -> None:
+        self.recover_btn.set_sensitive(True)
+        if code == 0:
+            self.output.append(
+                "[recover] hci0 is UP RUNNING; Start should work now\n")
+            toast(self.app_window, "Radio recovered")
+        else:
+            self.output.append(
+                "[recover] exit %d -- try again, or reboot the phone\n"
+                % code)

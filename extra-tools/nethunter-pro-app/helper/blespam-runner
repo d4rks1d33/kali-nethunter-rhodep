@@ -15,7 +15,8 @@ script with a config JSON on argv, and the script:
 The config JSON on argv looks like:
 
     {"packet_ids": ["fastpair-airpods-pro", ...],
-     "interval_ms": 20,
+     "interval_ms": 100,        // radio advertising interval
+     "payload_change_ms": 200,  // how often the host swaps payloads
      "mode": "Sequential",
      "tx_power": "High",
      "dev_id": 0}
@@ -77,7 +78,13 @@ def main() -> int:
 
     dev_id = int(cfg.get("dev_id", 0))
     packet_ids = set(cfg.get("packet_ids") or [])
-    interval_ms = int(cfg.get("interval_ms", 20))
+    interval_ms = int(cfg.get("interval_ms", 100))
+    # Old configs (from the pre-self-heal engine) didn't have a separate
+    # payload_change knob -- they used the advertising interval as the
+    # host loop rate too, which is exactly what wedges the QCA chip.
+    # Take the field if it's there, otherwise pick a sane default that
+    # is decoupled from the advertising interval.
+    payload_change_ms = int(cfg.get("payload_change_ms", 200))
     mode = cfg.get("mode", MODE_SEQUENTIAL)
     tx_power = cfg.get("tx_power", DEFAULT_TX_POWER)
 
@@ -120,8 +127,14 @@ def main() -> int:
     def on_packet(title: str, adv: bytes) -> None:
         emit("packet", title=title, hex=adv.hex(" ").upper())
 
+    def on_recovery(kind: str, reason: str) -> None:
+        # Emitted from the engine's self-heal loop -- the GUI shows
+        # these as amber log lines so the user can see the chip is
+        # complaining without the run appearing to have died.
+        emit("recovery", kind=kind, reason=reason)
+
     engine = SpamEngine(on_state=on_state, on_error=on_error,
-                        on_packet=on_packet)
+                        on_packet=on_packet, on_recovery=on_recovery)
 
     def stop(_sig=None, _frame=None) -> None:
         engine.stop()
@@ -129,7 +142,8 @@ def main() -> int:
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
 
-    engine.start(picked, interval_ms=interval_ms, mode=mode,
+    engine.start(picked, interval_ms=interval_ms,
+                 payload_change_ms=payload_change_ms, mode=mode,
                  tx_power=tx_power, dev_id=dev_id)
 
     # Block here -- the engine drives its own thread. done is set from

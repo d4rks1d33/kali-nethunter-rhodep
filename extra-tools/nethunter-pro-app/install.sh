@@ -49,6 +49,8 @@ install -Dm755 "$here/helper/rhodep-phishkin3-launch" \
     /usr/libexec/nethunter-pro-phishkin3-launch
 install -Dm755 "$here/helper/blespam-runner" \
     /usr/libexec/nethunter-pro-blespam
+install -Dm755 "$here/helper/blespam-recover" \
+    /usr/libexec/nethunter-pro-blespam-recover
 
 # Retire the stand-alone Bluetooth LE Spam launcher: the engine lives
 # inside the NetHunter Pro app now (module `blespam`, backend at

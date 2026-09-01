@@ -32,7 +32,21 @@ HCI_EVENT_PKT = 0x04
 
 EVT_COMMAND_COMPLETE = 0x0E
 EVT_COMMAND_STATUS = 0x0F
+# 0x10 is the Hardware Error event -- the chip's way of saying "I have
+# lost my mind, please close and reopen me". On the QCA WCN399x this is
+# what gets fired when the LE controller queue overflows after too many
+# rapid payload swaps. See engine.py:_recover_heavy for what to do when
+# we see one of these.
+EVT_HARDWARE_ERROR = 0x10
+EVT_NUM_COMPLETED_PACKETS = 0x13
 EVT_LE_META_EVENT = 0x3E
+
+# HCI status codes we care about. See Bluetooth Core spec Vol 4, Part E
+# §1.3 for the full table.
+HCI_STATUS_OK = 0x00
+HCI_STATUS_COMMAND_DISALLOWED = 0x0C   # radio busy, LE state wrong, ...
+HCI_STATUS_INVALID_PARAMETERS = 0x12   # bad length/opcode, or QCA
+                                       # "redundant reset" flavour
 
 # OGF (opcode group field)
 OGF_LINK_CTL = 0x01 << 10
@@ -59,6 +73,28 @@ def _pack_command(opcode: int, params: bytes) -> bytes:
 
 class HciError(Exception):
     """Raised when a HCI command fails or the controller is unreachable."""
+
+
+class HciHardwareError(HciError):
+    """The controller emitted a Hardware Error event (HCI event 0x10).
+
+    On the QCA WCN399x this is the signal that the firmware's internal
+    LE controller state is corrupted -- typically because the host has
+    been swapping the advertising payload faster than the firmware can
+    reconcile with the radio's TX schedule. The only in-band recovery
+    is to close the HCI user channel and reopen it, which makes the
+    kernel driver run `qca_regulator_disable` / `qca_regulator_enable`
+    and re-download the firmware -- see engine.py:_recover_heavy.
+
+    The ``code`` attribute holds the vendor-specific Hardware_Code byte.
+    On the QCA firmware the codes we've seen are 0x0D (LE controller
+    queue overflow) and 0x0F (UART sync lost), both meaning the same
+    thing from the caller's point of view.
+    """
+    def __init__(self, code: int):
+        super().__init__(
+            "HCI Hardware Error event 0x%02X -- chip needs restart" % code)
+        self.code = code
 
 
 class HciDevice:
@@ -121,6 +157,19 @@ class HciDevice:
         """Send a HCI command and wait for its Command Complete event.
 
         Returns the status byte of the command (0 == success).
+
+        Along the way we watch for other events on the socket:
+
+          * Hardware Error (0x10) always raises :class:`HciHardwareError`
+            no matter which command we were waiting for. That event is
+            unconditional -- the chip is dead, keep going and the next
+            command times out too.
+          * Num_Completed_Packets (0x13) is drained silently. It is
+            informational (broadcast advertising doesn't really need
+            back-pressure) but leaving it in the kernel recv queue means
+            our next `_recv` picks it up instead of the event we want.
+          * LE Meta events and any other unrelated notifications are
+            drained silently for the same reason.
         """
         if self._fd is None:
             raise HciError("HCI device is not open")
@@ -134,6 +183,13 @@ class HciDevice:
             if not data or data[0] != HCI_EVENT_PKT:
                 continue
             evt = data[1]
+            if evt == EVT_HARDWARE_ERROR:
+                # Hardware_Error_Code is the byte right after the event
+                # length. Some controllers omit the byte and just fire
+                # the event as a two-byte packet -- default to 0x00 in
+                # that case.
+                code = data[3] if len(data) >= 4 else 0
+                raise HciHardwareError(code)
             if evt == EVT_COMMAND_COMPLETE and len(data) >= 6:
                 # data[2] = length, data[3] = num packets, data[4:6] = opcode LE
                 (cmd_op,) = struct.unpack("<H", data[4:6])

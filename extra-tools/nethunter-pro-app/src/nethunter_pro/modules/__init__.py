@@ -65,6 +65,7 @@ from . import usb_arsenal      # noqa: F401
 from . import bluetooth        # noqa: F401
 from . import ble_prov         # noqa: F401
 from . import ble_track        # noqa: F401
+from . import ble_attack       # noqa: F401
 from . import blespam          # noqa: F401
 from . import blueducky        # noqa: F401
 from . import carsenal         # noqa: F401

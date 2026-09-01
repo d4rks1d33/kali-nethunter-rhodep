@@ -177,42 +177,82 @@ def _classify_mac(mac: str) -> tuple[str, str, str]:
     return "?", "unknown", ""
 
 
-# Which attack module handles which category. The lambdas return the
-# ``target`` string in the shape the destination module expects.
+# Which attack modules apply to each category. This is the routing
+# table iot_recon uses to expose per-target attack buttons; each
+# entry is (button_label, destination_module_id, target_shape_key).
+#
+# Vector ordering mirrors the ranking from the "IoT attack from
+# outside the LAN" research pass:
+#
+#   1. BLE direct-attack (unpaired GATT, WhisperPair) -- ble_attack
+#   2. Setup-mode soft-AP capture                     -- iot_setup
+#   3. Cloud pivot via rogue AP + DNS/NTP shift        -- karma + evil_twin
+#   4. BLE provisioning sniff (Matter, Tuya, ESP-IDF) -- ble_prov
+#   5. Deauth-driven persistent DoS -> setup mode      -- deauth
+#
+# So when we know which category a device belongs to, we surface the
+# most productive vectors *first*.
 _ATTACK_MAP: dict[str, list[tuple[str, str, str]]] = {
-    # category -> [(button_label, module_id, target_builder_key)]
-    "tv":            [("Remote / cast", "tv_remote", "ip"),
-                      ("IoT playbooks", "iot_hacking", "ip")],
-    "chromecast":    [("Remote / cast", "tv_remote", "ip"),
-                      ("Setup-AP hunt", "wifi_direct", "ssid"),
-                      ("IoT playbooks", "iot_hacking", "ip")],
-    "smart_speaker": [("IoT playbooks", "iot_hacking", "ip"),
-                      ("Setup-AP hunt", "wifi_direct", "ssid")],
-    "printer":       [("IoT (PRET)",    "iot_hacking", "ip"),
-                      ("Setup-AP hunt", "wifi_direct", "ssid")],
-    "camera":        [("IoT playbooks", "iot_hacking", "ip"),
-                      ("BLE recon",     "ble_prov", "mac")],
-    "smart_plug":    [("IoT playbooks", "iot_hacking", "ip"),
-                      ("Setup-AP hunt", "wifi_direct", "ssid")],
-    "thermostat":    [("IoT playbooks", "iot_hacking", "ip"),
-                      ("BLE recon",     "ble_prov", "mac")],
-    "vacuum":        [("IoT playbooks", "iot_hacking", "ip")],
-    "esp32":         [("Setup-AP hunt", "wifi_direct", "ssid"),
-                      ("BLE recon",     "ble_prov", "mac")],
-    "router":        [("PMKID capture", "pmkid", "bssid"),
-                      ("Handshake",     "handshake", "bssid_full"),
-                      ("Attacks",       "wifi_attacks", "bssid")],
-    "iot":           [("IoT playbooks", "iot_hacking", "ip"),
-                      ("Setup-AP hunt", "wifi_direct", "ssid")],
-    "phone":         [("Karma spoof",   "karma", "mac"),
-                      ("Probe recon",   "probe_harvester", "mac")],
-    "console":       [("IoT playbooks", "iot_hacking", "ip")],
-    "drone":         [("Wi-Fi Direct",  "wifi_direct", "ssid")],
-    "nas":           [("IoT playbooks", "iot_hacking", "ip")],
-    "tv:apple":      [("Remote / cast", "tv_remote", "ip")],
-    "chipset":       [("IoT playbooks", "iot_hacking", "ip")],
-    "unknown":       [("IoT playbooks", "iot_hacking", "ip"),
-                      ("Probe recon",   "probe_harvester", "mac")],
+    "tv":            [("Remote / cast",    "tv_remote",    "ip"),
+                      ("Deauth to setup",  "deauth",       "bssid"),
+                      ("Cloud pivot AP",   "karma",        "ssid"),
+                      ("IoT playbooks",    "iot_hacking",  "ip")],
+    "chromecast":    [("Remote / cast",    "tv_remote",    "ip"),
+                      ("Setup-AP hunt",    "iot_setup",    "ssid"),
+                      ("Wi-Fi Direct",     "wifi_direct",  "ssid"),
+                      ("Cloud pivot AP",   "karma",        "ssid")],
+    "smart_speaker": [("Setup-AP hunt",    "iot_setup",    "ssid"),
+                      ("BLE attack",       "ble_attack",   "mac"),
+                      ("Cloud pivot AP",   "karma",        "ssid"),
+                      ("IoT playbooks",    "iot_hacking",  "ip")],
+    "printer":       [("IoT (PRET)",       "iot_hacking",  "ip"),
+                      ("Setup-AP hunt",    "iot_setup",    "ssid"),
+                      ("Wi-Fi Direct",     "wifi_direct",  "ssid")],
+    "camera":        [("Setup-AP hunt",    "iot_setup",    "ssid"),
+                      ("BLE attack",       "ble_attack",   "mac"),
+                      ("BLE provisioning", "ble_prov",     "mac"),
+                      ("Deauth (defeat)",  "deauth",       "bssid"),
+                      ("Cloud pivot AP",   "karma",        "ssid"),
+                      ("IoT playbooks",    "iot_hacking",  "ip")],
+    "smart_plug":    [("Setup-AP hunt",    "iot_setup",    "ssid"),
+                      ("BLE attack",       "ble_attack",   "mac"),
+                      ("BLE provisioning", "ble_prov",     "mac"),
+                      ("Cloud pivot AP",   "karma",        "ssid"),
+                      ("IoT playbooks",    "iot_hacking",  "ip")],
+    "thermostat":    [("BLE provisioning", "ble_prov",     "mac"),
+                      ("BLE attack",       "ble_attack",   "mac"),
+                      ("Setup-AP hunt",    "iot_setup",    "ssid"),
+                      ("IoT playbooks",    "iot_hacking",  "ip")],
+    "vacuum":        [("Setup-AP hunt",    "iot_setup",    "ssid"),
+                      ("BLE attack",       "ble_attack",   "mac"),
+                      ("IoT playbooks",    "iot_hacking",  "ip")],
+    "esp32":         [("Setup-AP hunt",    "iot_setup",    "ssid"),
+                      ("BLE provisioning", "ble_prov",     "mac"),
+                      ("BLE attack",       "ble_attack",   "mac"),
+                      ("Wi-Fi Direct",     "wifi_direct",  "ssid")],
+    "router":        [("PMKID capture",    "pmkid",        "bssid"),
+                      ("Handshake",        "handshake",    "bssid_full"),
+                      ("Attacks",          "wifi_attacks", "bssid"),
+                      ("Deauth flood",     "deauth",       "bssid")],
+    "iot":           [("Setup-AP hunt",    "iot_setup",    "ssid"),
+                      ("BLE attack",       "ble_attack",   "mac"),
+                      ("BLE provisioning", "ble_prov",     "mac"),
+                      ("Cloud pivot AP",   "karma",        "ssid"),
+                      ("IoT playbooks",    "iot_hacking",  "ip")],
+    "phone":         [("Karma spoof",      "karma",        "mac"),
+                      ("Probe recon",      "probe_harvester", "mac"),
+                      ("BLE spam DoS",     "blespam",      "mac"),
+                      ("BLE attack",       "ble_attack",   "mac")],
+    "console":       [("IoT playbooks",    "iot_hacking",  "ip"),
+                      ("Deauth",           "deauth",       "bssid")],
+    "drone":         [("Wi-Fi Direct",     "wifi_direct",  "ssid"),
+                      ("BLE attack",       "ble_attack",   "mac")],
+    "nas":           [("IoT playbooks",    "iot_hacking",  "ip")],
+    "tv:apple":      [("Remote / cast",    "tv_remote",    "ip")],
+    "chipset":       [("IoT playbooks",    "iot_hacking",  "ip")],
+    "unknown":       [("Probe recon",      "probe_harvester", "mac"),
+                      ("BLE attack",       "ble_attack",   "mac"),
+                      ("IoT playbooks",    "iot_hacking",  "ip")],
 }
 
 
@@ -249,6 +289,13 @@ class IoTRecon(NHModule):
         self._devices: dict[str, dict] = {}
         self._rows: list[Adw.ExpanderRow] = []
         self._scan_running = False
+        # Cooperative-cancel flag: each background scanner checks it
+        # between iterations and bails when true.
+        self._stop_requested = False
+        # Subprocess handles we own during a run -- terminate() them
+        # from _stop_scan so we don't leak tcpdump / btmon / airodump
+        # when the user hits Stop halfway.
+        self._child_procs: list[subprocess.Popen] = []
 
     def build(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -274,8 +321,9 @@ class IoTRecon(NHModule):
             title="LAN subnet (CIDR, optional)")
         cfg.add(self.subnet)
 
-        self.duration = Adw.SpinRow.new_with_range(10, 300, 10)
-        self.duration.set_title("Scan duration (s)")
+        self.duration = Adw.SpinRow.new_with_range(10, 3600, 10)
+        self.duration.set_title(
+            "Max scan duration (s) -- 0 = until Stop")
         self.duration.set_value(30)
         cfg.add(self.duration)
 
@@ -283,11 +331,16 @@ class IoTRecon(NHModule):
             title="Sweep",
             subtitle="Wi-Fi + BLE + LAN (if a subnet is set) "
                      "-- all in parallel")
-        self.scan_btn = Gtk.Button(label="Sweep",
+        self.scan_btn = Gtk.Button(label="Start",
                                    valign=Gtk.Align.CENTER)
         self.scan_btn.add_css_class("suggested-action")
         self.scan_btn.connect("clicked", lambda _b: self._start_scan())
         run_row.add_suffix(self.scan_btn)
+        self.stop_btn = Gtk.Button(label="Stop",
+                                   valign=Gtk.Align.CENTER)
+        self.stop_btn.set_sensitive(False)
+        self.stop_btn.connect("clicked", lambda _b: self._stop_scan())
+        run_row.add_suffix(self.stop_btn)
         cfg.add(run_row)
         box.append(cfg)
 
@@ -332,17 +385,25 @@ class IoTRecon(NHModule):
             toast(self.app_window, "Sweep already in progress")
             return
         self._scan_running = True
+        self._stop_requested = False
+        self._child_procs = []
         self.scan_btn.set_sensitive(False)
+        self.stop_btn.set_sensitive(True)
         self.state_row.set_subtitle("scanning…")
         self._devices = {}
         self._render()
+        # 0 = run until user hits Stop. Anything else is a hard cap.
         duration = int(self.duration.get_value())
+        if duration <= 0:
+            duration = 86400  # a day: effectively "run forever"
         iface_ap = self.iface_ap.get_text().strip() or "wlan1mon"
         iface_ble = self.iface_ble.get_text().strip() or "hci0"
         subnet = self.subnet.get_text().strip()
 
         # Kick each scanner in its own thread; each drops findings
         # into ``self._devices`` and re-renders on the GTK thread.
+        # Each scanner honours self._stop_requested / kills its own
+        # subprocess when the user hits Stop.
         threading.Thread(
             target=self._scan_air_ap, args=(iface_ap, duration),
             daemon=True).start()
@@ -360,12 +421,40 @@ class IoTRecon(NHModule):
             target=self._scan_wifi_direct, args=(duration,),
             daemon=True).start()
 
-        # Watchdog: unlock the button after duration + a small buffer.
-        GLib.timeout_add_seconds(duration + 3, self._scan_finished)
+        # Watchdog: fire _scan_finished after the hard cap OR let
+        # _stop_scan short-circuit it. Store the id so Stop can
+        # remove the timer early.
+        self._watchdog_id = GLib.timeout_add_seconds(
+            duration + 3, self._scan_finished)
+
+    def _stop_scan(self) -> None:
+        """User pressed Stop -- kill every child subprocess and let
+        the scanner threads observe self._stop_requested and bail."""
+        if not self._scan_running:
+            return
+        self._stop_requested = True
+        for p in list(self._child_procs):
+            try:
+                p.terminate()
+            except Exception:
+                pass
+        # Cancel the duration-cap watchdog and finalise now.
+        wid = getattr(self, "_watchdog_id", None)
+        if wid is not None:
+            try:
+                GLib.source_remove(wid)
+            except Exception:
+                pass
+            self._watchdog_id = None
+        self._scan_finished()
 
     def _scan_finished(self) -> bool:
+        if not self._scan_running:
+            return False
         self._scan_running = False
+        self._stop_requested = True  # signal any remaining threads
         self.scan_btn.set_sensitive(True)
+        self.stop_btn.set_sensitive(False)
         self.state_row.set_subtitle(
             "done -- %d devices" % len(self._devices))
         self._render()
@@ -398,16 +487,33 @@ class IoTRecon(NHModule):
 
     # ------------------------------------------------- individual scans
     def _scan_air_ap(self, iface: str, duration: int) -> None:
-        """airodump-ng one-shot for a duration -- feeds AP rows."""
+        """airodump-ng one-shot -- feeds AP rows. We register the
+        subprocess with self._child_procs so the Stop button can
+        terminate it mid-scan."""
         script = (
             "rm -f /tmp/nhp-iot-air-*; "
-            "timeout %d airodump-ng --output-format csv "
-            "  -w /tmp/nhp-iot-air %s >/dev/null 2>&1 || true; "
-            "cat /tmp/nhp-iot-air-01.csv 2>/dev/null || true"
-        ) % (duration, iface)
-        result = _blocking_run(script, root=True, timeout=duration + 10)
-        if not result:
+            "airodump-ng --output-format csv "
+            "  -w /tmp/nhp-iot-air %s >/dev/null 2>&1"
+        ) % iface
+        proc = self._spawn(script, root=True)
+        if proc is None:
             return
+        # Watch until either duration elapses or Stop is pressed.
+        start = time.time()
+        while True:
+            if self._stop_requested:
+                break
+            if proc.poll() is not None:
+                break
+            if time.time() - start > duration:
+                break
+            time.sleep(0.5)
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+        # Read the CSV whether we finished early or hit the cap.
+        result = _read_file("/tmp/nhp-iot-air-01.csv")
         for row in (result or "").splitlines():
             parts = [p.strip() for p in row.split(",")]
             if len(parts) < 14 or ":" not in parts[0]:
@@ -422,21 +528,21 @@ class IoTRecon(NHModule):
         GLib.idle_add(self._render)
 
     def _scan_air_probes(self, iface: str, duration: int) -> None:
-        """Sniff probe requests via tcpdump for a fixed window and
-        parse the client MACs + SSIDs the same way probe_harvester
-        does. We keep it simple here -- no IE fingerprint, just
-        MAC + SSID buckets."""
-        cmd = ("timeout %d tcpdump -i %s -e -s0 "
+        """Sniff probe requests via tcpdump. Reads line by line and
+        bails when Stop is pressed or the duration cap elapses."""
+        cmd = ("tcpdump -i %s -e -s0 "
                 "'type mgt subtype probereq' -l 2>/dev/null"
-                ) % (duration, iface)
-        try:
-            proc = subprocess.Popen(
-                ["sh", "-c", cmd], stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL, text=True)
-        except OSError:
+                ) % iface
+        proc = self._spawn(cmd, root=True, stdout_pipe=True)
+        if proc is None:
             return
+        start = time.time()
         try:
             while True:
+                if self._stop_requested:
+                    break
+                if time.time() - start > duration:
+                    break
                 line = proc.stdout.readline()
                 if not line:
                     break
@@ -450,23 +556,28 @@ class IoTRecon(NHModule):
                 self._record(Sighting(
                     source="probe", mac=mac, ssid=ssid))
         finally:
-            proc.terminate()
+            try:
+                proc.terminate()
+            except Exception:
+                pass
         GLib.idle_add(self._render)
 
     def _scan_ble(self, adapter: str, duration: int) -> None:
-        """btmon (root) reads HCI logs; parse MAC + Name (complete)."""
+        """btmon reads HCI logs. Same start-vs-stop dance as the
+        probe sniffer."""
         idx = adapter.replace("hci", "") or "0"
-        cmd = ("timeout %d btmon --index %s 2>/dev/null"
-                ) % (duration, idx)
-        try:
-            proc = subprocess.Popen(
-                ["sudo", "sh", "-c", cmd], stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL, text=True)
-        except OSError:
+        cmd = "btmon --index %s 2>/dev/null" % idx
+        proc = self._spawn(cmd, root=True, stdout_pipe=True)
+        if proc is None:
             return
         buf: list[str] = []
+        start = time.time()
         try:
             while True:
+                if self._stop_requested:
+                    break
+                if time.time() - start > duration:
+                    break
                 line = proc.stdout.readline()
                 if not line:
                     break
@@ -485,15 +596,15 @@ class IoTRecon(NHModule):
                         source="ble", mac=m_mac.group(1),
                         name=name))
         finally:
-            proc.terminate()
+            try:
+                proc.terminate()
+            except Exception:
+                pass
         GLib.idle_add(self._render)
 
     def _scan_lan(self, subnet: str) -> None:
         """Fast ping sweep + arp table dump so we get IP<->MAC pairs
-        for anything on the same LAN as us. Not much value unless we
-        are already on the target network -- but the operator may be
-        running IoT Recon from inside a compromised host, and having
-        LAN evidence in the mix helps."""
+        for anything on the same LAN as us."""
         script = (
             "nmap -sn -T4 -n --min-parallelism 16 %s >/dev/null "
             "2>&1 || true; "
@@ -501,10 +612,19 @@ class IoTRecon(NHModule):
             "echo '---mdns---'; "
             "avahi-browse -art -p 2>/dev/null | head -300 || true"
         ) % subnet
-        result = _blocking_run(script, root=False, timeout=60)
-        if not result:
+        proc = self._spawn(script, root=False, stdout_pipe=True)
+        if proc is None:
             return
+        # Read everything (LAN sweep is short-lived by nature; the
+        # user pressing Stop terminates the subprocess so read()
+        # returns whatever nmap managed to produce).
+        try:
+            result = proc.stdout.read() or ""
+        except Exception:
+            result = ""
         for line in (result or "").splitlines():
+            if self._stop_requested:
+                break
             m = re.match(r"^(\d+\.\d+\.\d+\.\d+)\s.*lladdr\s+"
                          r"([0-9a-f:]{17})", line)
             if m:
@@ -524,17 +644,20 @@ class IoTRecon(NHModule):
         GLib.idle_add(self._render)
 
     def _scan_wifi_direct(self, duration: int) -> None:
-        """Cheap: scan visible SSIDs on wlan0 in managed mode. The
-        wifi_direct + iot_setup modules do this properly; here we
-        just harvest any SSID that looks like a soft-AP setup name."""
+        """Cheap: scan visible SSIDs on wlan0 in managed mode."""
         script = (
             "iw dev wlan0 scan 2>/dev/null | "
             "awk '/^BSS/ {bss=$2} "
             "     /SSID/ {sub(/^\\s+SSID:\\s?/,\"\"); "
             "             if($0!=\"\") print bss\"|\"$0}' | head -200"
         )
-        result = _blocking_run(script, root=True,
-                                timeout=duration + 5)
+        proc = self._spawn(script, root=True, stdout_pipe=True)
+        if proc is None:
+            return
+        try:
+            result = proc.stdout.read() or ""
+        except Exception:
+            result = ""
         if not result:
             return
         setup_re = re.compile(
@@ -553,6 +676,31 @@ class IoTRecon(NHModule):
                 source="wifi_direct", mac=bssid, ssid=ssid,
                 extra="setup-AP"))
         GLib.idle_add(self._render)
+
+    # ------------------------------------------------- spawn helpers
+    def _spawn(self, script: str, root: bool = False,
+               stdout_pipe: bool = False) -> subprocess.Popen | None:
+        """Fork a shell subprocess and register it with
+        ``self._child_procs`` so the Stop button can terminate it.
+
+        ``root=True`` prefixes ``sudo -n`` because the app is
+        supposed to have already authorized the helper earlier -- if
+        the noninteractive escalation fails we return None and the
+        scanner just doesn't produce output for that source."""
+        try:
+            argv = ["sh", "-c", script]
+            if root:
+                argv = ["sudo", "-n"] + argv
+            proc = subprocess.Popen(
+                argv,
+                stdout=subprocess.PIPE if stdout_pipe
+                        else subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                text=True)
+            self._child_procs.append(proc)
+            return proc
+        except OSError:
+            return None
 
     # ------------------------------------------------- state fold
     def _record(self, s: Sighting) -> None:
@@ -721,7 +869,26 @@ def _classify_ssid(ssid: str) -> tuple[str, str]:
     return "unknown", ""
 
 
+def _read_file(path: str) -> str:
+    """Best-effort file read. Returns empty string if the file is
+    missing or not readable."""
+    try:
+        with open(path) as fp:
+            return fp.read()
+    except OSError:
+        return ""
+
+
 # ---------------------------------------------------- blocking runner
+def _read_file(path: str) -> str:
+    """Small helper: read a file if it exists, empty string otherwise."""
+    try:
+        with open(path) as fp:
+            return fp.read()
+    except OSError:
+        return ""
+
+
 def _blocking_run(script: str, root: bool, timeout: int) -> str:
     """Small wrapper for background scanners. The rest of the app
     uses ``run_async`` / ``Process`` because everything is bound to

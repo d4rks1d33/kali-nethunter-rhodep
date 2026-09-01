@@ -185,6 +185,66 @@ _YOUTUBE_ID_RE = re.compile(
     r"youtube\.com/live/)([A-Za-z0-9_-]{11})")
 
 
+# Direct-cast-friendly extensions and prefixes. If a URL ends in one
+# of these we assume it's already a stream and hand it straight to
+# ``cast_url`` without going through yt-dlp -- saves a fork and lets
+# the operator cast their own hosted mp4/hls/dash without needing
+# yt-dlp on the box.
+_DIRECT_MEDIA_EXT = (
+    ".mp4", ".m4v", ".webm", ".mkv", ".mov",
+    ".mp3", ".m4a", ".ogg", ".wav", ".flac",
+    ".m3u8", ".mpd",
+    ".jpg", ".jpeg", ".png", ".gif", ".webp",
+)
+
+
+def _is_direct_media(url: str) -> bool:
+    low = url.lower().split("?", 1)[0].split("#", 1)[0]
+    return any(low.endswith(ext) for ext in _DIRECT_MEDIA_EXT)
+
+
+def resolve_stream_url(url: str, timeout: int = 15) -> str | None:
+    """Turn a video-hosting-site URL into a direct stream URL that
+    Chromecast (or any DIAL-ish media receiver) can play.
+
+    Uses ``yt-dlp`` if it's installed. Supports YouTube, Vimeo,
+    Dailymotion, Twitch VODs, Facebook, and about a thousand other
+    sites; picks the best mp4/webm progressive stream or an HLS
+    playlist. Returns ``None`` if yt-dlp isn't installed or the
+    URL isn't recognised.
+
+    Callers should short-circuit direct-media URLs (``.mp4`` etc.)
+    with :func:`_is_direct_media` before calling this -- yt-dlp
+    happily rewraps them but the fork is a waste.
+    """
+    if not url:
+        return None
+    yt = subprocess.run(
+        ["which", "yt-dlp"], capture_output=True, text=True)
+    if yt.returncode != 0:
+        return None
+    # ``-g`` prints the resolved URL, no download. We prefer mp4
+    # first, then any progressive, then HLS as fallback. Format
+    # spec picks the best combined stream up to 1080p to keep
+    # Chromecast happy.
+    fmt = ("best[ext=mp4][height<=1080]/"
+           "best[height<=1080]/best")
+    try:
+        r = subprocess.run(
+            ["yt-dlp", "--no-warnings", "--no-playlist",
+             "-f", fmt, "-g", url],
+            capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return None
+    except Exception:
+        return None
+    if r.returncode != 0:
+        return None
+    # yt-dlp -g prints one URL per line; take the first (video).
+    line = (r.stdout or "").strip().splitlines()
+    return line[0] if line else None
+
+
 def parse_youtube_id(url_or_id: str) -> str | None:
     """Pull a YouTube video ID out of an arbitrary URL or return the
     ID unchanged if the input already is one.
@@ -523,6 +583,41 @@ class Driver:
 
     async def cast_url(self, url: str) -> str:
         return "not implemented"
+
+    async def cast_video(self, url: str) -> str:
+        """Play a video from any URL: direct media (mp4/hls/mkv),
+        Vimeo, Dailymotion, Twitch, YouTube, self-hosted -- the
+        driver decides how to fulfil it.
+
+        Fast paths:
+
+          * bare ``.mp4`` / ``.m3u8`` / ``.webm`` etc. -> ``cast_url``
+            because the receiver can play the URL directly.
+          * YouTube URL or 11-char ID -> ``cast_youtube`` (native
+            YouTube protocol -- much better UX than embedding).
+
+        Everything else goes through ``yt-dlp -g`` which resolves
+        the video-hosting page into a direct stream URL. On drivers
+        that don't have Chromecast-style media playback the
+        resolved URL is at least passed to ``cast_url`` which may
+        or may not work depending on the platform.
+        """
+        if not url:
+            return "no URL"
+        # YouTube first -- native protocol is better than a
+        # yt-dlp-resolved URL.
+        if parse_youtube_id(url) is not None:
+            return await self.cast_youtube(url)
+        # Direct media URL -> straight to cast_url, no fork.
+        if _is_direct_media(url):
+            return await self.cast_url(url)
+        # Everything else: try yt-dlp to resolve.
+        resolved = await asyncio.to_thread(resolve_stream_url, url)
+        if not resolved:
+            return ("could not resolve URL. Install yt-dlp "
+                    "(`sudo apt install yt-dlp`) and try again, "
+                    "or paste the direct .mp4 / .m3u8 URL.")
+        return await self.cast_url(resolved)
 
     async def cast_youtube(self, url_or_id: str) -> str:
         """Open a YouTube video on the TV.
@@ -1905,23 +2000,24 @@ class TVRemote(NHModule):
         cast_row.add_suffix(cast_btn)
         extras.add(cast_row)
 
-        # YouTube entry: takes a full URL, a shorts URL, a youtu.be
-        # link, or a bare 11-character ID and dispatches to the
-        # driver's native YouTube path -- Chromecast's YouTubeController,
-        # Roku's /launch/837?contentID=, Android TV's vnd.youtube:,
-        # or the generic DIAL /apps/YouTube fallback.
-        self.youtube_entry = Adw.EntryRow(
-            title="YouTube (URL, youtu.be, or 11-char ID)")
-        extras.add(self.youtube_entry)
-        yt_row = Adw.ActionRow(
-            title="Play on YouTube app",
-            subtitle="Chromecast, Roku, Android TV, or any DIAL TV "
-                     "(Samsung / LG / Sony / Vizio)")
-        yt_btn = Gtk.Button(label="Play", valign=Gtk.Align.CENTER)
-        yt_btn.add_css_class("suggested-action")
-        yt_btn.connect("clicked", lambda _b: self._cast_youtube())
-        yt_row.add_suffix(yt_btn)
-        extras.add(yt_row)
+        # Generic video URL: YouTube gets the native path, direct
+        # media URLs (.mp4/.hls/.m3u8/.webm/.mkv/etc.) go straight
+        # to cast_url, and anything else (Vimeo, Dailymotion,
+        # Twitch, self-hosted pages) is resolved by yt-dlp to a
+        # direct stream URL and then cast.
+        self.video_entry = Adw.EntryRow(
+            title="Video URL (YouTube, Vimeo, Dailymotion, "
+                  "direct mp4/hls, ...)")
+        extras.add(self.video_entry)
+        vid_row = Adw.ActionRow(
+            title="Play video",
+            subtitle="yt-dlp resolves it, driver casts it")
+        vid_btn = Gtk.Button(label="Play",
+                             valign=Gtk.Align.CENTER)
+        vid_btn.add_css_class("suggested-action")
+        vid_btn.connect("clicked", lambda _b: self._cast_video())
+        vid_row.add_suffix(vid_btn)
+        extras.add(vid_row)
         box.append(extras)
 
         # ---- output log ------------------------------------------
@@ -2160,23 +2256,19 @@ class TVRemote(NHModule):
         self._run_driver(d.cast_url(url),
                          lambda s: self.output.append("  -> %s\n" % s))
 
-    def _cast_youtube(self) -> None:
+    def _cast_video(self) -> None:
+        """Play any video URL. The driver's ``cast_video`` routes it
+        to the right underlying path based on the URL shape."""
         d = self._selected_driver
         if d is None:
             toast(self.app_window, "Pick a TV + protocol first")
             return
-        url = self.youtube_entry.get_text().strip()
+        url = self.video_entry.get_text().strip()
         if not url:
-            toast(self.app_window,
-                  "Paste a YouTube URL or a video ID first")
+            toast(self.app_window, "Paste a video URL first")
             return
-        vid = parse_youtube_id(url)
-        if vid is None:
-            toast(self.app_window,
-                  "That does not look like a YouTube URL or ID")
-            return
-        self.output.append("$ %s.youtube %s\n" % (d.id, vid))
-        self._run_driver(d.cast_youtube(url),
+        self.output.append("$ %s.video %s\n" % (d.id, url))
+        self._run_driver(d.cast_video(url),
                          lambda s: self.output.append(
                              "  -> %s\n" % s))
 

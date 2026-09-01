@@ -140,9 +140,10 @@ class Handshake(NHModule):
         ]))
         scan_group.add(self.band)
 
-        self.scan_duration = Adw.SpinRow.new_with_range(5, 120, 5)
-        self.scan_duration.set_title("Scan duration (seconds)")
-        self.scan_duration.set_value(20)
+        self.scan_duration = Adw.SpinRow.new_with_range(0, 3600, 5)
+        self.scan_duration.set_title(
+            "Max scan duration (s) -- 0 = until Stop")
+        self.scan_duration.set_value(0)
         scan_group.add(self.scan_duration)
 
         scan_action = Adw.ActionRow(
@@ -379,6 +380,8 @@ class Handshake(NHModule):
             band_arg = "--band a "
 
         duration = int(self.scan_duration.get_value())
+        # 0 means "run until the user hits Stop" -- skip the
+        # auto-stop timer entirely.
         cmd = ("airodump-ng %s--output-format csv "
                "-w %s %s") % (band_arg, SCAN_PREFIX, self._monitor_iface)
         self.output.append("$ %s (%ds)\n" % (cmd, duration))
@@ -390,7 +393,8 @@ class Handshake(NHModule):
         self.scan_btn.set_sensitive(False)
         self.scan_stop_btn.set_sensitive(True)
         GLib.timeout_add_seconds(2, self._tick_scan)
-        GLib.timeout_add_seconds(duration, self._auto_stop_scan)
+        if duration > 0:
+            GLib.timeout_add_seconds(duration, self._auto_stop_scan)
 
     def _auto_stop_scan(self) -> bool:
         if self._scan_proc is not None:

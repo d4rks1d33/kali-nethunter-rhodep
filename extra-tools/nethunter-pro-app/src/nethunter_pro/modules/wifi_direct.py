@@ -103,6 +103,8 @@ class WifiDirect(NHModule):
         self._proc: Process | None = None
         self._aps: dict[str, dict] = {}
         self._ap_rows: list[Adw.ExpanderRow] = []
+        # Timer id for the continuous sweep loop; None when idle.
+        self._sweep_id: int | None = None
 
     def build(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -118,15 +120,26 @@ class WifiDirect(NHModule):
         self.iface.set_text(DEFAULT_IFACE)
         cfg.add(self.iface)
 
+        self.continuous = Adw.SwitchRow(
+            title="Continuous sweep",
+            subtitle="Re-scan every 5 s until Stop is pressed")
+        cfg.add(self.continuous)
+
         row = Adw.ActionRow(
             title="Sweep",
-            subtitle="`iw scan` + P2P discovery; ~5 s")
-        self.scan_btn = Gtk.Button(label="Sweep",
+            subtitle="`iw scan` + P2P discovery")
+        self.scan_btn = Gtk.Button(label="Start",
                                    valign=Gtk.Align.CENTER)
         self.scan_btn.add_css_class("suggested-action")
         self.scan_btn.connect("clicked",
                               lambda _b: self._start_scan())
         row.add_suffix(self.scan_btn)
+        self.stop_btn = Gtk.Button(label="Stop",
+                                   valign=Gtk.Align.CENTER)
+        self.stop_btn.set_sensitive(False)
+        self.stop_btn.connect("clicked",
+                              lambda _b: self._stop_scan())
+        row.add_suffix(self.stop_btn)
         cfg.add(row)
         box.append(cfg)
 
@@ -145,6 +158,26 @@ class WifiDirect(NHModule):
         return box
 
     def _start_scan(self) -> None:
+        self.scan_btn.set_sensitive(False)
+        self.stop_btn.set_sensitive(True)
+        self._do_one_sweep()
+        # Continuous mode chains another sweep every 5 s; single-shot
+        # mode drops the Stop back to False in the on_done handler.
+        if self.continuous.get_active():
+            self._sweep_id = GLib.timeout_add_seconds(
+                5, self._do_one_sweep)
+
+    def _stop_scan(self) -> None:
+        if self._sweep_id is not None:
+            try:
+                GLib.source_remove(self._sweep_id)
+            except Exception:
+                pass
+            self._sweep_id = None
+        self.scan_btn.set_sensitive(True)
+        self.stop_btn.set_sensitive(False)
+
+    def _do_one_sweep(self) -> bool:
         iface = self.iface.get_text().strip() or DEFAULT_IFACE
 
         # Two sources of info:
@@ -164,6 +197,12 @@ class WifiDirect(NHModule):
         self.output.append("# scanning P2P / soft-APs\n")
 
         def done(r: Result) -> None:
+            # Single-shot mode: flip the buttons back to idle. In
+            # continuous mode the caller keeps them locked and the
+            # 5 s timer will call us again.
+            if self._sweep_id is None:
+                self.scan_btn.set_sensitive(True)
+                self.stop_btn.set_sensitive(False)
             aps = self._parse_scan(r.stdout or "")
             for row in self._ap_rows:
                 self.results_group.remove(row)
@@ -178,6 +217,8 @@ class WifiDirect(NHModule):
 
         run_async(["sh", "-c", script], done,
                   root=True, timeout=30)
+        # Keep the GLib timer alive as long as continuous mode is on.
+        return self._sweep_id is not None
 
     def _parse_scan(self, text: str) -> list[tuple[str, str]]:
         out: list[tuple[str, str]] = []

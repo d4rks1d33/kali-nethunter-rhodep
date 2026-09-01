@@ -202,9 +202,10 @@ class Deauth(NHModule):
         ]))
         scan_group.add(self.band)
 
-        self.scan_duration = Adw.SpinRow.new_with_range(5, 120, 5)
-        self.scan_duration.set_title("Scan duration (seconds)")
-        self.scan_duration.set_value(15)
+        self.scan_duration = Adw.SpinRow.new_with_range(0, 3600, 5)
+        self.scan_duration.set_title(
+            "Max scan duration (s) -- 0 = until Stop")
+        self.scan_duration.set_value(0)
         scan_group.add(self.scan_duration)
 
         scan_action = Adw.ActionRow(
@@ -526,8 +527,11 @@ class Deauth(NHModule):
         # Poll the CSV every 2s while the scan runs so the UI paints
         # results as they come in.
         self._scan_timer_id = GLib.timeout_add_seconds(2, self._tick_scan)
-        # And kill airodump after the duration.
-        GLib.timeout_add_seconds(duration, self._auto_stop_scan)
+        # And kill airodump after the duration -- unless duration is
+        # 0, in which case the user hits Stop when they want.
+        if duration > 0:
+            GLib.timeout_add_seconds(
+                duration, self._auto_stop_scan)
 
     def _auto_stop_scan(self) -> bool:
         # One-shot; only fires if user did not stop first.

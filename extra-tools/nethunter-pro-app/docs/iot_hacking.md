@@ -138,12 +138,49 @@ it back yet but it's there when we want the "what did I do" tab.
 
 ## Verified working
 
-First-run scan against the office LAN produced:
+Latest scan against the office LAN produced:
 
-  * 192.168.1.1 → Router (SSDP IGD match, confidence 60)
-  * 192.168.1.4 → Philips Android TV, confidence 100 (Chromecast
-    fingerprint via ports 8008/8009 + mDNS `_googlecast._tcp`)
+  * 192.168.1.1 → Router (Huawei), confidence **100** via 5 layered
+    SSDP matchers (InternetGatewayDevice, WANIPConnection,
+    WANCommonInterfaceConfig, Layer3Forwarding, UPnP dd.xml regex)
+  * 192.168.1.4 → Philips Android TV (Chromecast built-in),
+    confidence 100
   * 192.168.1.9 → Google Cast device, confidence 100
+  * unclassified MACs (locally-administered = phone MAC randomising)
+    correctly land in the Unclassified section
+
+The stack now ships:
+
+  * **30 fingerprint plugins**: airplay, bose-soundtouch, chromecast,
+    dahua, daikin-ac, enphase-envoy, esphome, generic-router, hikvision,
+    home-assistant, kasa, lifx, miio, nanoleaf, node-red, openevse,
+    philips-hue, printer, qnap, roku, rtsp-generic, shelly-gen1,
+    shelly-gen2, sonos, synology, tasmota, tuya, wemo, wiz, yeelight.
+  * **27 playbooks**: airplay, bose-soundtouch, chromecast, dahua,
+    daikin-ac, enphase, hikvision, home-assistant, kasa, lifx, miio,
+    nanoleaf, node-red, openevse, philips-hue, printer, roku,
+    router-recon, rtsp-camera, shelly-gen1, shelly-gen2, sonos,
+    synology, tasmota, tuya, wemo, wiz.
+
+## PRET (Printer Exploitation Toolkit) integration
+
+Whenever a device is classified as a printer (via `mdns _ipp._tcp` /
+`_printer._tcp` or the JetDirect port 9100), the device detail page
+grows three extra buttons that shell out to /opt/pret:
+
+  * **Print custom text (PJL)** — opens a text prompt, wraps the string
+    in PRET's `print "..."` command, and sends it via
+    `python2 /opt/pret/pret.py TARGET pjl -q -i cmds.txt`.
+  * **Print image file (PCL)** — opens a file chooser, hands the path
+    to PRET's `print <file>` which uses ImageMagick + Ghostscript to
+    convert to PCL before shipping.
+  * **Discover printers via SNMP** — runs `pret.py` with no args, which
+    triggers PRET's built-in SNMP discovery mode. Handy when a printer
+    has a static IP outside the DHCP pool that arp-scan missed.
+
+The subprocess output streams to the same `OutputView` as the playbook
+runner. If /opt/pret is missing the buttons still render but show
+"PRET not installed" and don't fire.
 
 ## Known gaps / next work
 

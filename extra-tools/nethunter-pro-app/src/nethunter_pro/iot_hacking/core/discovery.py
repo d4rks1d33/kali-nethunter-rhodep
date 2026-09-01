@@ -238,13 +238,111 @@ async def probe_kasa(timeout: float,
 async def probe_wiz(timeout: float,
                     on_reply: Callable[[str, bytes], None]) -> None:
     """WiZ bulbs broadcast on UDP 38899 with a JSON getPilot request."""
-    payload = b'{"method":"getPilot","params":{}}'
+    await _udp_broadcast(38899,
+                          b'{"method":"getPilot","params":{}}',
+                          timeout, on_reply)
+
+
+async def probe_lifx(timeout: float,
+                     on_reply: Callable[[str, bytes], None]) -> None:
+    """LIFX GetService packet on UDP 56700.
+
+    Header format is documented at
+    lan.developer.lifx.com/docs/header-description. We send GetService
+    (type 2) with an all-broadcast target, source=1.
+    """
+    # Frame (8 bytes) + Frame Address (16) + Protocol Header (12) = 36
+    # size(2 LE) | protocol/origin/tagged/addressable (2) |
+    #   source(4) | target(8) | reserved(6) | ack/res(1) | seq(1) |
+    #   reserved(8) | type(2) | reserved(2)
+    frame = struct.pack(
+        "<HHIQ6sBBQHH",
+        36,          # size
+        0x3400,      # flags: tagged=1, addressable=1, protocol=1024
+        1,           # source
+        0,           # target (broadcast)
+        b"\x00" * 6, # reserved
+        0,           # res_required
+        0,           # seq
+        0,           # reserved
+        2,           # type=GetService
+        0,           # reserved
+    )
+    await _udp_broadcast(56700, frame, timeout, on_reply)
+
+
+async def probe_tuya(timeout: float,
+                     on_reply: Callable[[str, bytes], None]) -> None:
+    """Tuya devices announce themselves on UDP 6666 / 6667 continuously.
+
+    Just listen -- they broadcast every ~10s.
+    """
+    for port in (6666, 6667):
+        await _udp_listen(port, timeout / 2, on_reply)
+
+
+async def probe_miio(timeout: float,
+                     on_reply: Callable[[str, bytes], None]) -> None:
+    """Xiaomi miIO devices reply to a handshake on UDP 54321.
+
+    Payload: `21 31` magic, length 0x0020, then 12 bytes of `ff` for the
+    unencrypted handshake variant, then 16 zeros for the token slot.
+    """
+    payload = (b"\x21\x31\x00\x20"          # magic + length
+               + b"\xff\xff\xff\xff"        # device id (broadcast)
+               + b"\xff" * 8                # timestamp / checksum slot
+               + b"\x00" * 16)              # empty token
+    await _udp_broadcast(54321, payload, timeout, on_reply)
+
+
+async def _udp_broadcast(port: int, payload: bytes, timeout: float,
+                         on_reply: Callable[[str, bytes], None]
+                         ) -> None:
+    """Common broadcast + collect pattern used by all UDP discovery probes."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     sock.setblocking(False)
     try:
         try:
-            sock.sendto(payload, ("255.255.255.255", 38899))
+            sock.sendto(payload, ("255.255.255.255", port))
+        except OSError:
+            return
+        deadline = _now() + timeout
+        while _now() < deadline:
+            try:
+                remaining = deadline - _now()
+                if remaining <= 0:
+                    break
+                await asyncio.wait_for(
+                    asyncio.get_event_loop().sock_recv(sock, 4096),
+                    timeout=remaining)
+            except asyncio.TimeoutError:
+                break
+            except OSError:
+                break
+            try:
+                data, addr = sock.recvfrom(4096)
+            except (BlockingIOError, OSError):
+                continue
+            on_reply(addr[0], data)
+    finally:
+        sock.close()
+
+
+async def _udp_listen(port: int, timeout: float,
+                      on_reply: Callable[[str, bytes], None]) -> None:
+    """Bind to ``port`` and wait for whatever shows up.
+
+    Used for protocols that broadcast periodically (Tuya, Chromecast
+    hello messages, ...). Bind may fail with EADDRINUSE if another
+    daemon owns the port; treat as best-effort.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.setblocking(False)
+    try:
+        try:
+            sock.bind(("", port))
         except OSError:
             return
         deadline = _now() + timeout
@@ -307,7 +405,7 @@ async def probe_tcp_ports(ip: str, ports: list[int],
 
 async def http_banner(ip: str, port: int = 80, path: str = "/",
                       timeout: float = 3.0) -> dict | None:
-    """Fetch a single HTTP endpoint. Returns {body, headers} or None.
+    """Fetch a single HTTP endpoint. Returns {status, body, headers}.
 
     Rolled with the stdlib rather than pulling aiohttp so the module
     works out of the box; aiohttp will come in when we start driving
@@ -344,12 +442,19 @@ async def http_banner(ip: str, port: int = 80, path: str = "/",
         head, body = text.split("\r\n\r\n", 1)
     else:
         head, body = text, ""
+    # Status code lives on the first line: "HTTP/1.0 200 OK"
+    status = 0
+    lines = head.splitlines()
+    if lines:
+        parts = lines[0].split()
+        if len(parts) >= 2 and parts[1].isdigit():
+            status = int(parts[1])
     headers: dict[str, str] = {}
-    for line in head.splitlines()[1:]:
+    for line in lines[1:]:
         if ":" in line:
             k, _, v = line.partition(":")
             headers[k.strip().lower()] = v.strip()
-    return {"body": body[:32000], "headers": headers}
+    return {"status": status, "body": body[:32000], "headers": headers}
 
 
 # --------------------------------------------------------- orchestrator
@@ -428,6 +533,9 @@ class Discovery:
                                           self._on_ssdp))
                 tg.create_task(probe_kasa(3, self._on_kasa))
                 tg.create_task(probe_wiz(3, self._on_wiz))
+                tg.create_task(probe_lifx(3, self._on_lifx))
+                tg.create_task(probe_tuya(4, self._on_tuya))
+                tg.create_task(probe_miio(3, self._on_miio))
                 # TCP port sweep on every known host, semaphored
                 for ip in list(self._hosts.keys()):
                     tg.create_task(self._sweep_ports(ip, tcp_sem))
@@ -516,6 +624,26 @@ class Discovery:
         self._hosts.setdefault(ip, {"mac": "", "vendor": "",
                                     "ports": []})
 
+    def _on_lifx(self, ip: str, data: bytes) -> None:
+        obs = self._obs.setdefault(ip, Observations())
+        obs.udp_reply[(ip, 56700)] = data
+        self._hosts.setdefault(ip, {"mac": "", "vendor": "",
+                                    "ports": []})
+
+    def _on_tuya(self, ip: str, data: bytes) -> None:
+        obs = self._obs.setdefault(ip, Observations())
+        # Tuya broadcasts arrive on both 6666 and 6667 depending on
+        # protocol version; key the whichever was seen most recently.
+        obs.udp_reply[(ip, 6666)] = data
+        self._hosts.setdefault(ip, {"mac": "", "vendor": "",
+                                    "ports": []})
+
+    def _on_miio(self, ip: str, data: bytes) -> None:
+        obs = self._obs.setdefault(ip, Observations())
+        obs.udp_reply[(ip, 54321)] = data
+        self._hosts.setdefault(ip, {"mac": "", "vendor": "",
+                                    "ports": []})
+
     # ------------------------------------------------ sweep helpers
     async def _sweep_ports(self, ip: str,
                            sem: asyncio.Semaphore) -> None:
@@ -528,30 +656,59 @@ class Discovery:
                          for p in open_ports]
 
     async def _http_banners_pass(self) -> None:
-        """Grab HTTP body for every host with 80/443/8080/8081 open."""
-        interesting = (80, 443, 8080, 8008, 8081, 8123, 8181, 5000,
-                       6052, 6053, 8443, 8090, 9000, 16021)
+        """Grab HTTP body for every host with an interesting web port.
+
+        The fingerprint DB targets several well-known paths beyond ``/``
+        (``/shelly``, ``/api/config``, ``/setup/eureka_info``,
+        ``/manifest.json``, ``/production.json``, ``/aircon/basic_info``
+        ...). We probe each of them when the corresponding port is
+        open so the plugin YAMLs can match on the body / headers.
+        """
+        # (port, path) tuples: the small set of URLs the shipped
+        # fingerprints look at. Keep it curated; each request is a
+        # round-trip we're going to pay for.
+        probes: list[tuple[int, str]] = [
+            (80, "/"),
+            (80, "/shelly"),
+            (80, "/api/config"),
+            (80, "/production.json"),
+            (80, "/aircon/basic_info"),
+            (80, "/common/basic_info"),
+            (80, "/rpc/Shelly.GetDeviceInfo"),
+            (80, "/cgi-bin/magicBox.cgi?action=getDeviceType"),
+            (443, "/"),
+            (8008, "/setup/eureka_info?options=detail"),
+            (8060, "/query/device-info"),
+            (8080, "/"),
+            (8090, "/info"),
+            (8123, "/manifest.json"),
+            (1400, "/xml/device_description.xml"),
+            (1880, "/red/settings.json"),
+            (5000, "/webman/index.cgi"),
+            (16021, "/"),
+        ]
         tasks = []
-        for ip, host in self._hosts.items():
-            for p in host.get("ports", []):
-                if p.number in interesting:
-                    tasks.append(self._one_http(ip, p.number))
-        # Bound concurrency
         sem = asyncio.Semaphore(10)
 
         async def guarded(coro):
             async with sem:
                 await coro
-        await asyncio.gather(*(guarded(t) for t in tasks),
-                             return_exceptions=True)
 
-    async def _one_http(self, ip: str, port: int) -> None:
-        resp = await http_banner(ip, port, "/", timeout=3)
+        for ip, host in self._hosts.items():
+            open_ports = {p.number for p in host.get("ports", [])}
+            for port, path in probes:
+                if port in open_ports:
+                    tasks.append(guarded(self._one_http(ip, port, path)))
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _one_http(self, ip: str, port: int, path: str = "/"
+                        ) -> None:
+        resp = await http_banner(ip, port, path, timeout=3)
         if resp is None:
             return
         obs = self._obs.setdefault(ip, Observations())
         scheme = "https" if port in (443, 8443) else "http"
-        obs.http["%s://%s:%d/" % (scheme, ip, port)] = resp
+        obs.http["%s://%s:%d%s" % (scheme, ip, port, path)] = resp
 
 
 # -------------------------------------------------- port name lookup

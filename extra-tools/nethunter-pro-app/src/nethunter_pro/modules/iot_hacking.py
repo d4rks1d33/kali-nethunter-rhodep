@@ -47,6 +47,11 @@ from ..iot_hacking.core.registry import DeviceRegistry
 from ..module import NHModule, register
 from ..widgets import OutputView, toast
 
+# PRET (Printer Exploitation Toolkit) integration path. Bundled at
+# /opt/pret on the phone; the printer_print / printer_discover helpers
+# below shell out to `python2 /opt/pret/pret.py`.
+PRET_DIR = "/opt/pret"
+
 
 # Human labels + Adwaita icons for every DeviceType, so the sidebar
 # grouping looks like something a person would design.
@@ -337,10 +342,15 @@ class IoTHacking(NHModule):
             row.add_row(Adw.ActionRow(
                 title="No playbooks apply yet",
                 subtitle="try running a full scan"))
-            return
         for pb in plays:
             for action in pb.actions:
                 self._render_action_row(row, dev, pb, action)
+
+        # Extra printer-specific tools that don't fit the YAML DSL
+        # because they need interactive input (custom text or an image
+        # path). Only shown when the device looks like a printer.
+        if dev.device_type == DeviceType.PRINTER:
+            self._render_pret_actions(row, dev)
 
     def _render_action_row(self, parent: Adw.ExpanderRow, dev: Device,
                            pb: Playbook, action: PlaybookAction) -> None:
@@ -410,3 +420,179 @@ class IoTHacking(NHModule):
             })
         except Exception as exc:  # noqa: BLE001
             self.output.append("[error] %s\n" % exc)
+
+    # ------------------------------------------------ PRET printer
+    def _render_pret_actions(self, parent: Adw.ExpanderRow,
+                             dev: Device) -> None:
+        """Extra printer buttons routed through /opt/pret.
+
+        PRET's ``print <file>|"text"`` subcommand converts an image to
+        PCL (via ImageMagick + Ghostscript) or sends raw text to the
+        printer. It needs the target host and a language; PJL is the
+        safest default and works on the vast majority of HP / Brother /
+        Canon / Xerox network printers.
+        """
+        import os
+        if not os.path.exists(PRET_DIR):
+            parent.add_row(Adw.ActionRow(
+                title="PRET not installed at /opt/pret",
+                subtitle="clone https://github.com/rub-nds/pret there "
+                         "to unlock the print-anything buttons"))
+            return
+
+        text_row = Adw.ActionRow(
+            title="Print custom text (PRET / PJL)",
+            subtitle="Opens a prompt; sends via PJL")
+        text_btn = Gtk.Button(label="Print…",
+                              valign=Gtk.Align.CENTER)
+        text_btn.add_css_class("destructive-action")
+        text_btn.connect(
+            "clicked",
+            lambda _b, d=dev: self._prompt_pret_text(d))
+        text_row.add_suffix(text_btn)
+        parent.add_row(text_row)
+
+        img_row = Adw.ActionRow(
+            title="Print image file (PRET / PCL)",
+            subtitle="Pick a file (jpg/png/pdf); ImageMagick converts")
+        img_btn = Gtk.Button(label="Choose…",
+                             valign=Gtk.Align.CENTER)
+        img_btn.add_css_class("destructive-action")
+        img_btn.connect(
+            "clicked",
+            lambda _b, d=dev: self._prompt_pret_image(d))
+        img_row.add_suffix(img_btn)
+        parent.add_row(img_row)
+
+        disc_row = Adw.ActionRow(
+            title="Discover printers via SNMP (PRET)",
+            subtitle="Broadcasts SNMP and lists every printer")
+        disc_btn = Gtk.Button(label="Scan",
+                              valign=Gtk.Align.CENTER)
+        disc_btn.connect("clicked",
+                         lambda _b: self._run_pret_discover())
+        disc_row.add_suffix(disc_btn)
+        parent.add_row(disc_row)
+
+    def _prompt_pret_text(self, dev: Device) -> None:
+        """Ask the user for a text string, then send it to the printer."""
+        dlg = Adw.MessageDialog(
+            transient_for=self.app_window,
+            heading="Print custom text",
+            body="This text will be printed on %s as a physical page. "
+                 "Continue?" % dev.label())
+        entry = Gtk.Entry(placeholder_text="text to print")
+        entry.set_activates_default(True)
+        dlg.set_extra_child(entry)
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("print", "Print")
+        dlg.set_response_appearance(
+            "print", Adw.ResponseAppearance.DESTRUCTIVE)
+        dlg.set_default_response("cancel")
+
+        def on_resp(_d, resp: str) -> None:
+            if resp != "print":
+                return
+            text = entry.get_text().strip()
+            if not text:
+                return
+            self._launch_pret(dev, text=text)
+        dlg.connect("response", on_resp)
+        dlg.present()
+
+    def _prompt_pret_image(self, dev: Device) -> None:
+        """File chooser → PRET print <file>."""
+        chooser = Gtk.FileDialog()
+        chooser.set_title("Pick image or PDF")
+
+        def on_file(_src, res, _user) -> None:
+            try:
+                f = chooser.open_finish(res)
+            except Exception:  # noqa: BLE001
+                return
+            if f is None:
+                return
+            path = f.get_path()
+            if path:
+                self._launch_pret(dev, file_path=path)
+        chooser.open(self.app_window, None, on_file, None)
+
+    def _launch_pret(self, dev: Device,
+                     text: str | None = None,
+                     file_path: str | None = None) -> None:
+        """Run ``pret.py TARGET pjl -q -i cmds.txt``.
+
+        PRET is Python 2. We invoke it via ``python2`` on the phone (kali
+        + pmOS both keep the interpreter around under that name for the
+        legacy tools). If neither ``python2`` nor ``python2.7`` is
+        available we fall back to ``python`` and hope for the best --
+        the runner emits a diagnostic if it explodes.
+        """
+        import shlex
+        import tempfile
+        # Build the PRET command file. PRET reads it with `load` / -i.
+        if text is not None:
+            payload = 'print "%s"' % text.replace('"', "'")
+        elif file_path is not None:
+            payload = "print %s" % file_path
+        else:
+            return
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".pret", delete=False)
+        tmp.write(payload + "\n")
+        tmp.write("exit\n")
+        tmp.close()
+
+        cmd = ["python2", PRET_DIR + "/pret.py", "-q", "-i", tmp.name,
+               dev.ip, "pjl"]
+        self.output.append("$ %s\n" % " ".join(shlex.quote(c) for c in cmd))
+        self._attack_task = self._submit(self._pret_stream(cmd))
+
+    async def _pret_stream(self, cmd: list[str]) -> None:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=PRET_DIR,
+            )
+        except FileNotFoundError:
+            # Try `python` if python2 isn't there.
+            cmd[0] = "python"
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                    cwd=PRET_DIR,
+                )
+            except FileNotFoundError:
+                self.output.append(
+                    "[error] python2 not installed; "
+                    "apt install python2 or run PRET manually\n")
+                return
+        assert proc.stdout is not None
+        while True:
+            try:
+                line = await proc.stdout.readline()
+            except Exception as e:  # noqa: BLE001
+                self.output.append("[read error] %s\n" % e)
+                break
+            if not line:
+                break
+            self.output.append(
+                line.decode("utf-8", errors="replace"))
+        rc = await proc.wait()
+        self.output.append("[pret exited: %d]\n" % rc)
+
+    def _run_pret_discover(self) -> None:
+        """Run ``pret.py`` with no args -- lists local printers via SNMP.
+
+        PRET's built-in discover mode broadcasts SNMP and emits every
+        printer it finds with model + hostname. Handy when the arp-scan
+        misses one (e.g. a printer with a static IP outside the DHCP
+        pool).
+        """
+        self.output.append("# PRET SNMP discovery\n")
+        cmd = ["python2", PRET_DIR + "/pret.py"]
+        self._attack_task = self._submit(self._pret_stream(cmd))

@@ -46,6 +46,7 @@ from . import phishkin3        # noqa: F401
 # Wi-Fi: post-exploit / research
 from . import fragattacks      # noqa: F401
 from . import ssid_confusion   # noqa: F401
+from . import krack            # noqa: F401
 from . import kr00k            # noqa: F401
 # Wi-Fi: all-in-one + long-lived
 from . import wifite          # noqa: F401

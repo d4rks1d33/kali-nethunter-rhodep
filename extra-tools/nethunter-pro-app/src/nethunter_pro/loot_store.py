@@ -116,22 +116,69 @@ class LootStore:
     def __init__(self, db_path: Path = _DB_PATH) -> None:
         self._db_path = db_path
         self._lock = threading.Lock()
+        # Hot-loop detector: if we open the DB more than N times in
+        # 5 s something is wrong -- probably a timer that never
+        # returns False. Print a stack once so we can find it.
+        self._connect_calls = 0
+        self._connect_window_start = 0.0
+        self._connect_warned = False
         db_path.parent.mkdir(parents=True, exist_ok=True)
         LOOT_ROOT.mkdir(parents=True, exist_ok=True)
         self._init_schema()
 
     # --------- connection helpers
+    def _hotloop_check(self) -> None:
+        """Alarm if the app is hammering the DB in a runaway timer."""
+        import time as _time
+        now = _time.time()
+        if now - self._connect_window_start > 5.0:
+            self._connect_window_start = now
+            self._connect_calls = 0
+        self._connect_calls += 1
+        if (self._connect_calls > 100 and not self._connect_warned):
+            self._connect_warned = True
+            import sys, traceback
+            print("!! loot_store hot loop: %d _connect() calls in "
+                  "5 s. Stack:" % self._connect_calls, file=sys.stderr)
+            traceback.print_stack(file=sys.stderr)
+            sys.stderr.flush()
+
     def _connect(self) -> sqlite3.Connection:
+        self._hotloop_check()
+        # NOTE: WAL mode intentionally NOT enabled. WAL leaves the
+        # ``.db-wal`` companion file open for the lifetime of every
+        # connection, and Python's ``sqlite3.Connection`` context
+        # manager only commits/rollbacks -- it does *not* close.
+        # The result on GTK apps that touch the DB from multiple
+        # timers is a runaway FD leak: hundreds of ``loot.db-wal``
+        # entries in /proc/PID/fd within seconds. Rollback journal
+        # is fine for our access pattern (one writer per record
+        # call, mostly-idle otherwise).
         con = sqlite3.connect(
             str(self._db_path), timeout=5.0,
-            detect_types=sqlite3.PARSE_DECLTYPES)
+            detect_types=sqlite3.PARSE_DECLTYPES,
+            check_same_thread=False)
         con.row_factory = sqlite3.Row
-        con.execute("PRAGMA journal_mode=WAL")
+        con.execute("PRAGMA journal_mode=DELETE")
         con.execute("PRAGMA foreign_keys=ON")
         return con
 
+    @contextlib.contextmanager
+    def _conn(self):
+        """Explicit-close context manager. The stdlib ``sqlite3``
+        connection is a *transaction* context manager, not a
+        resource one; using ``with`` on it commits but leaves the
+        connection open. Wrap it here so every callsite gets a
+        guaranteed close on scope exit."""
+        con = self._connect()
+        try:
+            yield con
+            con.commit()
+        finally:
+            con.close()
+
     def _init_schema(self) -> None:
-        with self._lock, self._connect() as con:
+        with self._lock, self._conn() as con:
             v = con.execute("PRAGMA user_version").fetchone()[0]
             if v < 1:
                 # First-time layout. Everything is TEXT except id/size/ts
@@ -171,7 +218,7 @@ class LootStore:
         if path:
             with contextlib.suppress(OSError):
                 size = os.path.getsize(path)
-        with self._lock, self._connect() as con:
+        with self._lock, self._conn() as con:
             cur = con.execute(
                 "INSERT INTO entries "
                 "(ts, module, type, target, path, size, notes) "
@@ -182,7 +229,7 @@ class LootStore:
 
     def set_wpasec(self, row_id: int, status: str, psk: str = "",
                    notes: str | None = None) -> None:
-        with self._lock, self._connect() as con:
+        with self._lock, self._conn() as con:
             if notes is None:
                 con.execute(
                     "UPDATE entries SET wpasec_status=?, wpasec_psk=? "
@@ -194,7 +241,7 @@ class LootStore:
                     (status, psk, notes, row_id))
 
     def append_notes(self, row_id: int, text: str) -> None:
-        with self._lock, self._connect() as con:
+        with self._lock, self._conn() as con:
             cur = con.execute(
                 "SELECT notes FROM entries WHERE id=?", (row_id,))
             row = cur.fetchone()
@@ -208,7 +255,7 @@ class LootStore:
         """Restat the file behind a row, e.g. after hcxdumptool grew the
         pcap. Kept out of the UI refresh loop so we only do IO when a
         module explicitly asks."""
-        with self._lock, self._connect() as con:
+        with self._lock, self._conn() as con:
             row = con.execute(
                 "SELECT path FROM entries WHERE id=?",
                 (row_id,)).fetchone()
@@ -233,31 +280,31 @@ class LootStore:
             q += " AND type=?"
             args.append(type)
         q += " ORDER BY ts DESC"
-        with self._lock, self._connect() as con:
+        with self._lock, self._conn() as con:
             return [LootEntry(**dict(r)) for r in con.execute(q, args)]
 
     def distinct_modules(self) -> list[str]:
-        with self._lock, self._connect() as con:
+        with self._lock, self._conn() as con:
             return [
                 r["module"] for r in con.execute(
                     "SELECT DISTINCT module FROM entries "
                     "ORDER BY module")]
 
     def distinct_types(self) -> list[str]:
-        with self._lock, self._connect() as con:
+        with self._lock, self._conn() as con:
             return [
                 r["type"] for r in con.execute(
                     "SELECT DISTINCT type FROM entries ORDER BY type")]
 
     def total_size(self) -> int:
-        with self._lock, self._connect() as con:
+        with self._lock, self._conn() as con:
             r = con.execute(
                 "SELECT COALESCE(SUM(size),0) AS s FROM entries"
             ).fetchone()
             return int(r["s"] or 0)
 
     def count(self) -> int:
-        with self._lock, self._connect() as con:
+        with self._lock, self._conn() as con:
             r = con.execute("SELECT COUNT(*) AS n FROM entries").fetchone()
             return int(r["n"] or 0)
 
@@ -269,7 +316,7 @@ class LootStore:
         stored path escaped that root the file is left in place with a
         note in ``notes``.
         """
-        with self._lock, self._connect() as con:
+        with self._lock, self._conn() as con:
             row = con.execute(
                 "SELECT path FROM entries WHERE id=?",
                 (row_id,)).fetchone()
@@ -290,7 +337,7 @@ class LootStore:
     def delete_older_than(self, seconds: int,
                           unlink: bool = True) -> int:
         cutoff = time.time() - seconds
-        with self._lock, self._connect() as con:
+        with self._lock, self._conn() as con:
             rows = con.execute(
                 "SELECT id, path FROM entries WHERE ts < ?",
                 (cutoff,)).fetchall()

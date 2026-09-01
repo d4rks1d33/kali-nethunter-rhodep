@@ -260,12 +260,33 @@ class Loot(NHModule):
 
     def _fill_combo(self, combo: Adw.ComboRow,
                     values: list[str], selected: str | None) -> None:
+        # Setting the model resets the selection index to 0, which
+        # fires `notify::selected` -- and *that* handler calls
+        # ``_reload`` again -> infinite loop. Block both filter
+        # handlers around the model swap so we can rebuild the UI
+        # without recursing back into ourselves.
         model = Gtk.StringList.new(values)
+        try:
+            combo.handler_block_by_func(self._on_filter_module)
+        except TypeError:
+            pass
+        try:
+            combo.handler_block_by_func(self._on_filter_type)
+        except TypeError:
+            pass
         combo.set_model(model)
         idx = 0
         if selected and selected in values:
             idx = values.index(selected)
         combo.set_selected(idx)
+        try:
+            combo.handler_unblock_by_func(self._on_filter_module)
+        except TypeError:
+            pass
+        try:
+            combo.handler_unblock_by_func(self._on_filter_type)
+        except TypeError:
+            pass
 
     def _build_entry_row(self, e: LootEntry) -> Adw.ActionRow:
         # Compose a subtitle: type · target · size · ts · wpa-sec status

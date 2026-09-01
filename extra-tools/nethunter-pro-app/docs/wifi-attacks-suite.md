@@ -51,6 +51,7 @@ flow through them.
 |---|---|---|
 | **FragAttacks** | Wrapper around Vanhoef's test suite (CVE-2020-24586..24588 + 26139..26147). One-click install of the upstream repo. **Requires ath9k_htc external USB dongle** — the phone's internal ath10k does not work. | `git`, `python3`; external `ath9k_htc` dongle |
 | **SSID Confusion** | CVE-2023-52424 rogue AP with SSID-A/SSID-B split, exploiting the SSID-not-in-KDF flaw. | `hostapd` |
+| **KRACK Attack** | Vanhoef's original krackattacks-scripts (CVE-2017-13077..13088). Rogue AP + retransmit handshake to detect nonce/replay-counter reuse in a target client. Also has an 802.11r FT roam test for AP-side vulns. | `git`, `python3`; ath9k_htc dongle preferred |
 | **Kr00k tester** | CVE-2019-15126: force disassoc + capture post-disassoc encrypted frames; tshark verdict. Broadcom/Cypress info-leak. | `airodump-ng`, `aireplay-ng`, `tshark` |
 
 ### All-in-one and long-lived

@@ -4081,6 +4081,32 @@ already done.
     what the vendor asks for, not proof of what the pin carries -- and that needs
     opening the phone.
 
+19. **Run x86 binaries under QEMU (`binfmt_misc`), for tools with no arm64 build.**
+    Everything userspace is already in place -- `qemu-user`, `qemu-user-binfmt`,
+    `binfmt-support`, `/usr/bin/qemu-x86_64` -- but transparent x86 execution does
+    not work, for two stacked reasons:
+
+    1. `/proc/sys/fs/binfmt_misc/` is not mounted (this one is just a mount:
+       `mount -t binfmt_misc none /proc/sys/fs/binfmt_misc`, or the
+       `systemd-binfmt.service` / `proc-sys-fs-binfmt_misc.mount` units).
+    2. The kernel is built with **`CONFIG_BINFMT_MISC=n`**
+       (`kernel/config/config-motorola-rhodep.aarch64:1011`,
+       `# CONFIG_BINFMT_MISC is not set`). Without it there is no mechanism for the
+       kernel to invoke QEMU automatically when it sees an x86 ELF, so the
+       installed qemu-user packages are inert.
+
+    The fix is a kernel-config change: set `CONFIG_BINFMT_MISC=y` (or `=m`), then
+    rebuild and flash a matching boot image (see "Updating the kernel" -- the
+    module set and the boot image must come from the same apk). After that,
+    mounting `binfmt_misc` and registering the QEMU handlers (binfmt-support does
+    this) makes x86/x86_64 binaries run transparently, which also lets Docker pull
+    and run non-arm64 images. Costs nothing at runtime when unused; it is left off
+    only because nothing here needed it yet.
+
+    Worth noting so no one burns time on it: **Nessus ships official native arm64
+    builds**, so it does not need QEMU -- reach for the aarch64 package rather than
+    emulating the x86 one.
+
 # License
 Kernel patches: GPL-2.0. Packaging/glue: MIT. Vendor firmware blobs: proprietary,
 not included (extract from your own device). See `LICENSE`.

@@ -128,12 +128,16 @@ if [ "$STATE" != "UP RUNNING" ]; then
     exit 1
 fi
 
-# 7) Unmask bluetooth so the next `systemctl start bluetooth` from the
-#    system works. We don't start it -- that's the app's job when the
-#    user closes the module.
+# 7) Unmask AND restart bluetooth. The unbind path masked the unit to
+#    stop bluetoothd from grabbing the controller mid-recover; if we
+#    only unmask, the user's phone Bluetooth stays visibly off until
+#    they toggle it in Phosh. Starting it here (capped so a wedged
+#    controller can't block us) matches what the user expects: a
+#    Recover click hands the radio back to the system.
 if command -v systemctl >/dev/null 2>&1; then
     timeout 5 systemctl unmask bluetooth >/dev/null 2>&1 || true
+    timeout 15 systemctl start bluetooth >/dev/null 2>&1 || true
 fi
 
-echo "OK: hci0 is UP RUNNING"
+echo "OK: hci0 is UP RUNNING, bluetooth service started"
 exit 0

@@ -102,13 +102,23 @@ def prepare_radio(dev_id: int = 0) -> None:
 
 
 def restore_radio(dev_id: int = 0) -> None:
-    """Give the radio back to the system.  The final bluetoothd start is fired
-    in the background so a wedged controller can never block the app close."""
+    """Give the radio back to the system.
+
+    Unmask the unit, bring the controller up, then start bluetoothd
+    synchronously so the user's phone Bluetooth is actually usable when
+    the module exits. The old code fired the systemctl start in the
+    background with a bogus ``... & || true`` -- the shell interprets
+    ``|| true`` after ``&`` as a separate command, so the start never
+    ran. That is why the phone appeared with 'Bluetooth off' after
+    every session.
+
+    A wedged controller could in theory make the start job block, so
+    we cap it with ``timeout 15`` -- the systemd job either succeeds
+    quickly (typical <2 s) or times out and we move on, and the app's
+    close path is not held hostage either way.
+    """
     _sysctl("unmask", "bluetooth")
     _sysctl("stop", "bluetooth")
     _sh(f"hciconfig {_dev_name(dev_id)} up")
     time.sleep(0.5)
-    _sh(
-        "nohup timeout 20 systemctl start bluetooth "
-        "> /dev/null 2>&1 & || true"
-    )
+    _sh("timeout 15 systemctl start bluetooth 2>/dev/null || true")

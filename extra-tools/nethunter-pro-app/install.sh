@@ -30,7 +30,7 @@ rm -f /usr/share/icons/hicolor/scalable/apps/org.kali.NetHunterPro.svg
 # a car for CARsenal, a pumpkin for wifipumpkin3, the pwnagotchi face for the
 # pwnagotchi module. Symbolic, under scalable/actions.
 for ic in nethunter-carsenal nethunter-wifipumpkin nethunter-pwnagotchi \
-          nethunter-docker; do
+          nethunter-docker nethunter-bjorn; do
     install -Dm644 "$here/data/icons/${ic}-symbolic.svg" \
         "/usr/share/icons/hicolor/scalable/actions/${ic}-symbolic.svg"
 done

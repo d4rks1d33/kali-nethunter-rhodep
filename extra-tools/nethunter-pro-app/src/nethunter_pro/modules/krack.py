@@ -365,11 +365,26 @@ class Krack(NHModule):
     def _install_repo(self, repo: str, dest: Path,
                        build: bool = True, venv: bool = True,
                        row: Adw.ActionRow | None = None,
-                       label: str = "") -> None:
+                       label: str = "",
+                       needs_py2to3: bool = False) -> None:
         """Common installer: clone into /opt/<name>, optionally build
         the modified hostapd, optionally create the Python venv, then
         chown the tree to kali:kali so the app can source venv/ from
-        the login user."""
+        the login user.
+
+        Vanhoef's forks are from 2017-2021 and need a handful of
+        compat patches to run on modern Kali (OpenSSL 3, Scapy 2.5,
+        Python 3.13). We apply them inline here so the operator gets
+        a working install without having to re-derive the patches
+        every time.
+
+        :param needs_py2to3: applies to ``krackattacks-poc-zerokey``
+            which was written in Python 2. When set, the main
+            script (``krack-all-zero-tk.py``) and ``wpaspy.py`` get
+            a small ``except X, e:`` -> ``except X as e:``,
+            ``print stmt`` -> ``print(stmt)`` sweep in addition to
+            the shebang swap.
+        """
         self.output.append("# installing %s to %s…\n" % (label, dest))
 
         parts = [
@@ -382,19 +397,107 @@ class Krack(NHModule):
             "fi" % (dest, repo, dest, dest),
         ]
         if build:
+            # Patch #1: OpenSSL 3 in Kali 2024+ dropped default
+            # visibility for a few EC key APIs Vanhoef's crypto_openssl
+            # calls. Ensure ``<openssl/provider.h>`` is included, which
+            # is where the surviving accessors live.
+            parts.append(
+                "if [ -f %s/src/crypto/crypto_openssl.c ] && "
+                "   ! grep -q 'openssl/provider.h' "
+                "        %s/src/crypto/crypto_openssl.c; then "
+                "  sed -i '/#include <openssl\\/opensslv.h>/a "
+                "#include <openssl/provider.h>' "
+                "     %s/src/crypto/crypto_openssl.c; "
+                "fi" % (dest, dest, dest))
             # Vanhoef repos ship a build.sh in krackattack/. Fall back
             # to a manual build if that script is missing.
             parts.append(
                 "if [ -x %s/krackattack/build.sh ]; then "
                 "  (cd %s/krackattack && ./build.sh); "
+                "elif [ -x %s/build.sh ]; then "
+                "  (cd %s && ./build.sh); "
                 "elif [ -f %s/hostapd/Makefile ]; then "
-                "  (cd %s/hostapd && cp -n defconfig .config; make -j2); "
-                "fi" % (dest, dest, dest, dest))
+                "  (cd %s/hostapd && cp -n defconfig .config; "
+                "   make -j2); "
+                "fi" % (dest, dest, dest, dest, dest, dest))
         if venv:
+            # We build the venv with python3.13 (NOT the newer 3.14
+            # that Kali ships as default python3): scapy 2.5.0 -- the
+            # only version that still exposes scapy.contrib.wpa_eapol
+            # AND works with Vanhoef's libwifi -- imports fine on
+            # 3.13 but not 3.14. Fall back to plain python3 if 3.13
+            # is not available on this host.
             parts.append(
+                "PY=$(command -v python3.13 || command -v python3); "
                 "if [ -x %s/krackattack/pysetup.sh ]; then "
-                "  (cd %s/krackattack && ./pysetup.sh); "
-                "fi" % (dest, dest))
+                # Prime the pysetup.sh venv to use the right python.
+                "  ( cd %s/krackattack && "
+                "    sed -i 's|python3 -m venv|'$PY' -m venv|' "
+                "         pysetup.sh; "
+                "    ./pysetup.sh ); "
+                "else "
+                # No pysetup.sh (older PoC layout): roll one by hand
+                # against the tester's requirements.txt if it exists,
+                # otherwise a hand-picked scapy+pycryptodome pair.
+                "  V=%s/krackattack/venv; "
+                "  $PY -m venv $V; "
+                "  . $V/bin/activate; "
+                "  pip install --quiet wheel; "
+                "  if [ -f /opt/krackattacks-scripts/krackattack/"
+                "requirements.txt ]; then "
+                "    pip install --quiet -r "
+                "      /opt/krackattacks-scripts/krackattack/"
+                "requirements.txt; "
+                "  else "
+                "    pip install --quiet scapy==2.5.0 pycryptodome; "
+                "  fi; "
+                "  sed -i 's/find_library(\"libc\")/"
+                "find_library(\"c\")/g' "
+                "    $V/lib/python*/site-packages/scapy/arch/bpf/"
+                "core.py 2>/dev/null || true; "
+                "fi"
+                % (dest, dest, dest))
+            # Patch #2: scapy 2.5 removed ``L2Socket`` from
+            # ``scapy.all``'s star export. Add an explicit import
+            # so libwifi/wifi.py's ``class MonitorSocket(L2Socket)``
+            # resolves.
+            parts.append(
+                "for wifi in %s/krackattack/libwifi/wifi.py "
+                "            %s/research/libwifi/wifi.py; do "
+                "  [ -f $wifi ] || continue; "
+                "  if ! grep -q 'scapy.arch.linux import L2Socket' "
+                "         $wifi; then "
+                "    sed -i '1a from scapy.arch.linux import "
+                "L2Socket' $wifi; "
+                "  fi; "
+                "done" % (dest, dest))
+        if needs_py2to3:
+            # PoC-zerokey is Python 2. Convert the two files that
+            # matter with a tiny in-place fixup.
+            parts.append(
+                "for f in %s/krackattack/krack-all-zero-tk.py "
+                "         %s/krackattack/wpaspy.py; do "
+                "  [ -f $f ] || continue; "
+                "  sed -i 's|/usr/bin/env python2|"
+                "/usr/bin/env python3|' $f; "
+                "  sed -i -E 's/except (subprocess.CalledProcessError|"
+                "Exception), (\\w+):/except \\1 as \\2:/g' $f; "
+                "  python3 -c \"import re,pathlib; "
+                "p=pathlib.Path('$f'); "
+                "p.write_text(re.sub(r'^(\\s*)print (.+)$', "
+                "r'\\1print(\\2)', p.read_text(), flags=re.M))\"; "
+                "done" % (dest, dest))
+            # Patch #3: the PoC main script does ``from scapy.all "
+            # import *`` and expects L2Socket to come with it. It
+            # doesn't (see #2); add the explicit import.
+            parts.append(
+                "if [ -f %s/krackattack/krack-all-zero-tk.py ] && "
+                "   ! grep -q 'scapy.arch.linux import L2Socket' "
+                "        %s/krackattack/krack-all-zero-tk.py; then "
+                "  sed -i '/from scapy.all import \\*/a "
+                "from scapy.arch.linux import L2Socket' "
+                "     %s/krackattack/krack-all-zero-tk.py; "
+                "fi" % (dest, dest, dest))
         parts.append("chown -R kali:kali %s || true" % dest)
         parts.append("echo ---installed---")
 
@@ -422,9 +525,12 @@ class Krack(NHModule):
                             row=self.tester_row, label="tester")
 
     def _install_poc(self) -> None:
+        # PoC is Python 2, needs the 2to3 sweep on top of the
+        # common OpenSSL / Scapy patches.
         self._install_repo(_POC_REPO, _POC_DIR,
                             row=self.poc_row,
-                            label="live-attack PoC")
+                            label="live-attack PoC",
+                            needs_py2to3=True)
 
     def _disable_hwcrypto(self) -> None:
         conf = (

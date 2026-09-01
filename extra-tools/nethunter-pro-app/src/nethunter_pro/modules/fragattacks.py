@@ -207,10 +207,30 @@ class FragAttacks(NHModule):
     # ------------------------------------------------------- install
     def _install(self) -> None:
         # Clone + venv + pip. Idempotent; if the repo already exists
-        # we just do a git pull. Runs as root because /opt is not
-        # writable by the login user; the venv inside gets chown'd
-        # to kali afterwards so the run step (which drops privs to
-        # source the venv from user context) can still read it.
+        # Runs as root because /opt is not writable by the login
+        # user; the venv inside gets chown'd to kali afterwards so
+        # the run step (which drops privs to source the venv from
+        # user context) can still read it.
+        #
+        # Vanhoef's fragattacks fork is from 2021 and needs three
+        # compat patches to run on modern Kali. All applied here so
+        # the operator gets a working install first-try:
+        #
+        #   * OpenSSL 3: add ``#include <openssl/provider.h>`` to
+        #     ``src/crypto/crypto_openssl.c`` (dropped default
+        #     visibility for the surviving EC accessors).
+        #   * Scapy 2.5: ``L2Socket`` no longer star-exports from
+        #     ``scapy.all``; import it explicitly in
+        #     ``research/libwifi/wifi.py``.
+        #   * Scapy 2.5: ``get_if_raw_hwaddr`` moved from
+        #     ``scapy.arch.common`` to ``scapy.arch.linux``;
+        #     rewrite the import in ``research/fraginternals.py``.
+        #
+        # We build the venv with python3.13 because scapy 2.5.0 --
+        # the only version that still ships ``scapy.contrib.wpa_eapol``
+        # AND works with libwifi -- fails to import on the newer
+        # 3.14 Kali ships as default. Falls back to plain python3
+        # if 3.13 isn't installed.
         self.output.append("# installing fragattacks…\n")
         script = (
             "set -e; "
@@ -220,16 +240,39 @@ class FragAttacks(NHModule):
             "else "
             "  git -C %s pull --ff-only; "
             "fi; "
+            "if [ -f %s/src/crypto/crypto_openssl.c ] && "
+            "   ! grep -q 'openssl/provider.h' "
+            "        %s/src/crypto/crypto_openssl.c; then "
+            "  sed -i '/#include <openssl\\/opensslv.h>/a "
+            "#include <openssl/provider.h>' "
+            "     %s/src/crypto/crypto_openssl.c; "
+            "fi; "
+            "( cd %s/research && ./build.sh ); "
+            "PY=$(command -v python3.13 || command -v python3); "
             "cd %s; "
-            "python3 -m venv .venv || true; "
+            "$PY -m venv .venv; "
             ". .venv/bin/activate; "
-            "pip install --disable-pip-version-check "
-            "  scapy pycryptodome; "
-            "chown -R kali:kali %s 2>/dev/null || true; "
+            "pip install --quiet --disable-pip-version-check "
+            "  wheel scapy==2.5.0 pycryptodome; "
+            "if [ -f %s/research/libwifi/wifi.py ] && "
+            "   ! grep -q 'scapy.arch.linux import L2Socket' "
+            "        %s/research/libwifi/wifi.py; then "
+            "  sed -i '1a from scapy.arch.linux import L2Socket' "
+            "     %s/research/libwifi/wifi.py; "
+            "fi; "
+            "sed -i 's|from scapy.arch.common import "
+            "get_if_raw_hwaddr|from scapy.arch.linux import "
+            "get_if_raw_hwaddr|' %s/research/fraginternals.py "
+            "  2>/dev/null || true; "
+            "chown -R kali:kali %s || true; "
             "echo ---installed---"
         ) % (
             _FRAG_DIR.parent, _FRAG_DIR, _FRAG_REPO, _FRAG_DIR,
+            _FRAG_DIR,
             _FRAG_DIR, _FRAG_DIR, _FRAG_DIR,
+            _FRAG_DIR, _FRAG_DIR,
+            _FRAG_DIR, _FRAG_DIR, _FRAG_DIR,
+            _FRAG_DIR, _FRAG_DIR,
         )
 
         def done(r: Result) -> None:

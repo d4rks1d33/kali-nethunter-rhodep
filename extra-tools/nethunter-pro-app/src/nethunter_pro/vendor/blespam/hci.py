@@ -48,12 +48,21 @@ HCI_STATUS_COMMAND_DISALLOWED = 0x0C   # radio busy, LE state wrong, ...
 HCI_STATUS_INVALID_PARAMETERS = 0x12   # bad length/opcode, or QCA
                                        # "redundant reset" flavour
 
-# OGF (opcode group field)
+# OGF (opcode group field) -- see Bluetooth Core spec Vol 4 Part E §5.4.1.
+# The OGF sits in the top 6 bits of the 16-bit opcode. The upstream port
+# had OGF_LINK_CTL = 0x01<<10 and CMD_RESET = 0x0003 | OGF_LINK_CTL,
+# claiming the result was 0x0C03 -- but 0x01<<10 is 0x0400 and 0x0403 is
+# *Periodic Inquiry Mode*, not Reset. Under HCI_CHANNEL_USER on this
+# QCA chip that command comes back with Invalid HCI Command Parameters
+# (0x12), which is exactly the '0x12 on reset' behaviour our reset()
+# was accidentally excusing. The correct HCI Reset lives in the Host
+# Controller & Baseband group (OGF=0x03), opcode 0x0C03.
 OGF_LINK_CTL = 0x01 << 10
+OGF_HOST_CTL = 0x03 << 10
 OGF_LE_CTL = 0x08 << 10
 
 # Common opcodes
-CMD_RESET = 0x0003 | OGF_LINK_CTL                      # 0x0C03
+CMD_RESET = 0x0003 | OGF_HOST_CTL                        # 0x0C03
 CMD_LE_SET_ADVERTISING_PARAMETERS = 0x0006 | OGF_LE_CTL  # 0x2006
 CMD_LE_SET_ADVERTISING_DATA = 0x0008 | OGF_LE_CTL        # 0x2008
 CMD_LE_SET_SCAN_RESPONSE_DATA = 0x0009 | OGF_LE_CTL      # 0x2009
@@ -211,16 +220,16 @@ class HciDevice:
     # -- controller commands -------------------------------------------------
 
     def reset(self, retries: int = 5, delay: float = 0.3) -> None:
-        """Reset the controller.  Right after the radio is released the
-        controller can be mid-transition and return COMMAND_DISALLOWED
-        (0x0C), so we retry.
+        """Reset the controller.
 
-        On the QCA wcn399x the freshly-bound user channel already
-        exposes a controller in the reset state, and issuing HCI_Reset
-        against it returns 0x12 "Invalid HCI Command Parameters" (the
-        firmware treats a redundant reset as an error). Treat that as
-        already-reset and move on -- the caller only needed to reach
-        a known-good state, and we are already there.
+        Right after the radio is released the controller can be mid-
+        transition and return COMMAND_DISALLOWED (0x0C), so we retry.
+        We used to also silently accept 0x12 "Invalid HCI Command
+        Parameters" because the upstream port had OGF_LINK_CTL where
+        OGF_HOST_CTL should have been, and the resulting opcode 0x0403
+        (Periodic Inquiry Mode) predictably came back with 0x12. That
+        is fixed now -- opcode is 0x0C03 and a real 0x12 means a real
+        problem.
         """
         last = None
         for _ in range(retries):
@@ -231,9 +240,6 @@ class HciDevice:
                 time.sleep(delay)
                 continue
             if status == 0:
-                return
-            if status == 0x12:
-                # QCA "redundant reset"; controller is already fresh.
                 return
             last = HciError(
                 "HCI Reset returned status 0x%02X" % status)

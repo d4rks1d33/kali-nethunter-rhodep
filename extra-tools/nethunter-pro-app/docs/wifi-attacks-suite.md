@@ -51,7 +51,7 @@ flow through them.
 |---|---|---|
 | **FragAttacks** | Wrapper around Vanhoef's test suite (CVE-2020-24586..24588 + 26139..26147). One-click install of the upstream repo. **Requires ath9k_htc external USB dongle** — the phone's internal ath10k does not work. | `git`, `python3`; external `ath9k_htc` dongle |
 | **SSID Confusion** | CVE-2023-52424 rogue AP with SSID-A/SSID-B split, exploiting the SSID-not-in-KDF flaw. | `hostapd` |
-| **KRACK Attack** | Vanhoef's original krackattacks-scripts (CVE-2017-13077..13088). Rogue AP + retransmit handshake to detect nonce/replay-counter reuse in a target client. Also has an 802.11r FT roam test for AP-side vulns. | `git`, `python3`; ath9k_htc dongle preferred |
+| **KRACK Attack** | Two modes in one module. **Tester** (`krackattacks-scripts`): rogue AP + user-enrolled target, 7 client checks + 802.11r AP test. **Live attack** (`krackattacks-poc-zerokey`): channel-based MITM against a real AP, forces the victim to reinstall an all-zero PTK, decrypts client→AP traffic into a pcap via `tap0`. Live attack needs 2 injection-capable interfaces. | `git`, `python3`; ideally 2× AR9271 dongles for live attack |
 | **Kr00k tester** | CVE-2019-15126: force disassoc + capture post-disassoc encrypted frames; tshark verdict. Broadcom/Cypress info-leak. | `airodump-ng`, `aireplay-ng`, `tshark` |
 
 ### All-in-one and long-lived
@@ -150,9 +150,29 @@ User frees space:
 ```
 
 wpa-sec API key file: ``~/.config/nethunter-pro/wpasec.key``
-(mode 600, plain text).
+(mode 600, plain text). If the file is missing but the system has
+Pwnagotchi installed, Loot auto-loads the key from
+``/etc/pwnagotchi/config.toml`` under the
+``[main.plugins.wpa-sec]`` section (read-only; never touches the
+Pwnagotchi config).
+
 Wigle API pair: ``~/.config/nethunter-pro/wigle.key`` (mode 600,
 ``user:token``).
+
+## Upstream repo layout
+
+The two modules that ``git clone`` third-party repos land under
+``/opt/`` so they persist across ``~`` cleanups:
+
+  * ``/opt/fragattacks`` -- vanhoefm/fragattacks
+  * ``/opt/krackattacks-scripts`` -- vanhoefm/krackattacks-scripts
+    (vulnerability tester)
+  * ``/opt/krackattacks-poc-zerokey`` -- vanhoefm/krackattacks-
+    poc-zerokey (offensive PoC used by the KRACK live attack)
+
+The installers run as root because ``/opt`` is not writable by
+the login user, then ``chown -R kali:kali`` the tree so the app
+can source their Python venvs without another privilege dance.
 
 ## Deep-link map
 

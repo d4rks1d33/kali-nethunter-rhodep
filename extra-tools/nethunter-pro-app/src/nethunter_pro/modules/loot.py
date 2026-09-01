@@ -29,6 +29,7 @@ a gschema entry.
 from __future__ import annotations
 
 import os
+import re
 import threading
 import time
 from datetime import datetime
@@ -47,6 +48,16 @@ from ..widgets import toast
 WPASEC_KEY_FILE = Path(
     os.environ.get("XDG_CONFIG_HOME")
     or os.path.expanduser("~/.config")) / "nethunter-pro" / "wpasec.key"
+
+# On a Kali system that already runs Pwnagotchi, the wpa-sec API key
+# will be sitting in the Pwnagotchi TOML config. Cheapest possible
+# key-provisioning is to read it from there the first time Loot is
+# opened, so the user doesn't have to hunt for it in two places.
+# We only *read* Pwnagotchi's config; we never write it.
+_PWNAGOTCHI_CONFIGS = (
+    "/etc/pwnagotchi/config.toml",
+    "/etc/pwnagotchi/default.toml",
+)
 
 # Types we know can be submitted to wpa-sec (pcap-based WPA/PMKID
 # captures). Other rows still show but the Submit button is disabled.
@@ -69,11 +80,53 @@ def _fmt_ts(ts: float) -> str:
     return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _pwnagotchi_wpasec_key() -> str:
+    """Scrape Pwnagotchi's TOML for its wpa-sec API key.
+
+    The config typically has a block like::
+
+        [main.plugins.wpa-sec]
+        enabled = true
+        api_key = "0123456789abcdef0123456789abcdef"
+
+    We grep the two well-known config paths in order (most-specific
+    first) and return the first non-empty api_key that sits inside
+    the ``[main.plugins.wpa-sec]`` section. We do NOT touch the file.
+    Returns "" if nothing usable is found.
+    """
+    section_re = re.compile(r"^\s*\[main\.plugins\.wpa-sec\]",
+                             re.IGNORECASE)
+    key_re = re.compile(
+        r"^\s*api_key\s*=\s*[\"']([0-9a-fA-F]{16,64})[\"']")
+    for path in _PWNAGOTCHI_CONFIGS:
+        try:
+            in_section = False
+            with open(path) as fp:
+                for line in fp:
+                    if line.lstrip().startswith("["):
+                        # Any new section terminates ours.
+                        in_section = bool(section_re.match(line))
+                        continue
+                    if in_section:
+                        m = key_re.match(line)
+                        if m:
+                            return m.group(1)
+        except OSError:
+            continue
+    return ""
+
+
 def _load_wpasec_key() -> str:
+    """Return our own wpa-sec API key. Falls back to Pwnagotchi's
+    config so a system that already scrapes into wpa-sec has one
+    fewer setting to enter."""
     try:
-        return WPASEC_KEY_FILE.read_text().strip()
+        own = WPASEC_KEY_FILE.read_text().strip()
+        if own:
+            return own
     except OSError:
-        return ""
+        pass
+    return _pwnagotchi_wpasec_key()
 
 
 def _save_wpasec_key(key: str) -> None:
@@ -134,9 +187,37 @@ class Loot(NHModule):
         self.wpasec_key_row = Adw.PasswordEntryRow(
             title="API key (Cookie: key=...)")
         self.wpasec_key_row.set_show_apply_button(True)
-        self.wpasec_key_row.set_text(_load_wpasec_key())
+        current_key = _load_wpasec_key()
+        self.wpasec_key_row.set_text(current_key)
         self.wpasec_key_row.connect("apply", self._on_key_apply)
         wp.add(self.wpasec_key_row)
+        # If we pulled the key out of Pwnagotchi's config rather
+        # than our own file, surface that in a sibling row so the
+        # user can confirm it. Also expose an explicit "Import"
+        # button that writes it into our own wpasec.key -- some
+        # people want the two configs decoupled from that point on.
+        pw_key = _pwnagotchi_wpasec_key()
+        own_key = ""
+        try:
+            own_key = WPASEC_KEY_FILE.read_text().strip()
+        except OSError:
+            pass
+        if pw_key and not own_key:
+            src_row = Adw.ActionRow(
+                title="Pwnagotchi key detected",
+                subtitle="Loaded " + pw_key[:8] + "… from "
+                          "/etc/pwnagotchi/config.toml")
+            src_btn = Gtk.Button(label="Import",
+                                 valign=Gtk.Align.CENTER)
+            src_btn.add_css_class("suggested-action")
+            src_btn.connect(
+                "clicked",
+                lambda _b: (
+                    _save_wpasec_key(pw_key),
+                    toast(self.app_window,
+                          "Pwnagotchi key imported")))
+            src_row.add_suffix(src_btn)
+            wp.add(src_row)
 
         key_link_row = Adw.ActionRow(
             title="Don't have a key?",

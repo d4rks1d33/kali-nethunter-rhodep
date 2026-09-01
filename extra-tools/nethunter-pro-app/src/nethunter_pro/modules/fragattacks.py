@@ -33,7 +33,7 @@ Two important caveats surfaced up-front in the UI:
    into the phone's USB-C port works though.
 
 2. **Software.** The tool is not packaged in Kali. The module clones
-   it from GitHub under ``~/.local/share/nethunter-pro/fragattacks``
+   it from GitHub under ``/opt/fragattacks``
    the first time you hit "Install", pip-installs the dependencies
    in a venv, and reads test names from the manifest. You need
    network access on the phone the first time.
@@ -52,8 +52,7 @@ from ..module import NHModule, register
 from ..widgets import OutputView, toast
 
 _FRAG_REPO = "https://github.com/vanhoefm/fragattacks.git"
-_FRAG_DIR = Path(os.path.expanduser(
-    "~/.local/share/nethunter-pro/fragattacks"))
+_FRAG_DIR = Path("/opt/fragattacks")
 _FRAG_MAIN = _FRAG_DIR / "research" / "fragattack.py"
 
 # A curated slice of the test-case names in fragattack.py, grouped
@@ -208,8 +207,10 @@ class FragAttacks(NHModule):
     # ------------------------------------------------------- install
     def _install(self) -> None:
         # Clone + venv + pip. Idempotent; if the repo already exists
-        # we just do a git pull. All under the user's own home so no
-        # root needed for the install step.
+        # we just do a git pull. Runs as root because /opt is not
+        # writable by the login user; the venv inside gets chown'd
+        # to kali afterwards so the run step (which drops privs to
+        # source the venv from user context) can still read it.
         self.output.append("# installing fragattacks…\n")
         script = (
             "set -e; "
@@ -224,10 +225,11 @@ class FragAttacks(NHModule):
             ". .venv/bin/activate; "
             "pip install --disable-pip-version-check "
             "  scapy pycryptodome; "
+            "chown -R kali:kali %s 2>/dev/null || true; "
             "echo ---installed---"
         ) % (
             _FRAG_DIR.parent, _FRAG_DIR, _FRAG_REPO, _FRAG_DIR,
-            _FRAG_DIR, _FRAG_DIR,
+            _FRAG_DIR, _FRAG_DIR, _FRAG_DIR,
         )
 
         def done(r: Result) -> None:
@@ -241,9 +243,8 @@ class FragAttacks(NHModule):
                 self.inst_row.set_subtitle(
                     "install failed — see log")
 
-        # Root is not needed for git+pip; the tool itself needs root
-        # only when running because of the raw sockets.
-        run_async(["sh", "-c", script], done, root=False,
+        # Root needed to write /opt.
+        run_async(["sh", "-c", script], done, root=True,
                   timeout=300)
 
     # ---------------------------------------------------------- run

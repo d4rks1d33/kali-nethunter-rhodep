@@ -1369,7 +1369,7 @@ docs/                       extra notes
 
 # The kernel (shared with the pmOS port)
 
-## The 95 applied patches (`kernel/patches/`, applied in this order)
+## The 96 applied patches (`kernel/patches/`, applied in this order)
 
 The order below is the aport's `source=` order, which is what `patch` sees; it
 is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
@@ -1507,12 +1507,17 @@ is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
                                         mode routing table (RF_SET_LISTEN_MODE_ROUTING)
                                         routes NFC-A/T2T to the host so the chip
                                         activates as a tag rather than a P2P peer
-0112 nfc-s3fwrn5-enumerate-nfcees        issue NFCEE_DISCOVER at the end of
-                                        nci_open_device so the embedded secure
-                                        element (the eSE that holds a provisioned
-                                        MIFARE transit card) is enumerated --
-                                        first step towards card emulation via the
-                                        eSE
+0112 nfc-s3fwrn5-enumerate-nfcees         issue NFCEE_DISCOVER at the end of
+                                         nci_open_device so the embedded secure
+                                         element (the eSE that holds a provisioned
+                                         MIFARE transit card) is enumerated --
+                                         first step towards card emulation via the
+                                         eSE
+0113 nfc-route-mifare-listen-to-ese       remember the eSE's NFCEE id (the one
+                                         that lists MIFARE), and on card emulation
+                                         NFCEE_MODE_SET-enable it and route the
+                                         MIFARE listen to it so the provisioned
+                                         card answers a reader
 ```
 
 0062 and 0063 are kept but neither changes the glitched lines they were written
@@ -3482,13 +3487,22 @@ already done.
     that an Android app provisioned into the phone's embedded secure element —
     takes the SE path instead: the applet persists in the eSE across the OS
     change and the eSE runs Crypto1 itself. Patch 0112 fixes the mainline NFCEE
-    code (it spoke NCI 1.0 to this NCI 2.0 part) and now enumerates the eSE from
-    Linux: NFCEE id 0x83, supported protocol 0x80 (MIFARE). What remains is to
-    enable that NFCEE and route the MIFARE listen to it (NFCEE_MODE_SET + a
-    MIFARE→0x83 entry in the routing table 0111 already builds, + RF_DISCOVER).
-    NFC-F (FeliCa) listen works. See [`docs/nfc.md`](docs/nfc.md) for the full
-    trace, the NFCEE decode, and the remaining steps. The history below is how
-    the reader was brought up.
+    code (it spoke NCI 1.0 to this NCI 2.0 part) and enumerates the eSE from
+    Linux: NFCEE id 0x83, supported protocol 0x80 (MIFARE). Patch 0113 does the
+    rest of the routing — learns the eSE id, NFCEE_MODE_SET-enables it, routes
+    the NFC-A technology + MIFARE protocol to it, drops the host LA_\* config so
+    the eSE owns the card identity, and suppresses the parasitic NFC-DEP peer
+    (LF_PROTOCOL_TYPE=0, LF_T3T_FLAGS=0). The controller accepts every command
+    with `status 0x0` — **but the card still does not answer a reader.** Tested
+    against the official SUBE app: no read, and the host sees no
+    `RF_NFCEE_ACTION_NTF` and no activation at all, so the NFC-A listen front-end
+    is not engaging and the field never reaches the eSE. Same wall as host
+    emulation. The leading missing piece is the ETSI HCI network init for the eSE
+    (CORE_CONN_CREATE + session + admin whitelist, à la `st-nci/se.c`), which
+    s3fwrn5 lacks; failing that, a Samsung RF profile the plain NCI path cannot
+    reproduce. NFC-F (FeliCa) listen works. See [`docs/nfc.md`](docs/nfc.md) for
+    the full trace, the NFCEE decode, and the open question. The history below is
+    how the reader was brought up.
 
     Samsung S3FWRN5 at 0x27, with ven=tlmm48, firm=tlmm8, irq=tlmm9 and
     clk_req=tlmm7.

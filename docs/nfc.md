@@ -519,29 +519,72 @@ so the card can answer with the screen off), `max_routing_table_size` 1170.
 Supported RF interfaces are 0x00/0x01/0x02/0x03 (NFCEE Direct, Frame, ISO-DEP,
 NFC-DEP).
 
-### What remains (next session)
+### The eSE routing is implemented (patch 0113), but the card still does not answer
 
-The card should answer a reader after three more steps, all standard NCI the
-controller already accepts:
+Patch 0113 does all of the routing, and the controller accepts every command:
 
-1. **Enable the eSE**: `NFCEE_MODE_SET(0x83, ENABLE)` -> `22 00 02 83 01`. Needs
-   a small addition (the generic `nci_nfcee_mode_set()` exists; it just has to be
-   called for 0x83, and the NFCEE_MODE_SET_NTF status checked).
-2. **Route MIFARE to the eSE**: reuse the `RF_SET_LISTEN_MODE_ROUTING` already
-   implemented in patch 0111, but change the destination of the MIFARE (0x80)
-   protocol entry from the host (0x00) to the eSE (0x83). Target frame:
-   `21 01 07 00 01 01 03 83 3f 80` (one protocol route: MIFARE -> NFCEE 0x83, all
-   power states). Drop the host-targeted NFC-A/T2T/host entries for this mode.
-3. **Listen**: `RF_DISCOVER` with NFC-A passive listen. The eSE then answers the
-   reader's REQA/anticollision/auth itself; the host sees nothing (as with the
-   autonomous FeliCa), which is expected and fine.
+1. **Learn the eSE id**: the NFCEE_DISCOVER_NTF handler records the id of the
+   NFCEE that lists the MIFARE protocol (0x83 here) as `ndev->ese_nfcee_id`.
+2. **Enable the eSE**: `NFCEE_MODE_SET(0x83, ENABLE)` on start of card emulation
+   -> status 0x0, plus the NFCEE_MODE_SET_NTF.
+3. **Route to the eSE**: `RF_SET_LISTEN_MODE_ROUTING` routes both the NFC-A
+   *technology* and the MIFARE protocol to NFCEE 0x83 -> status 0x0. (Routing the
+   technology, not just the protocol, matters: MIFARE selection happens at the
+   NFC-A technology level, so the eSE has to own the technology to present its
+   own ATQA/SAK/UID.)
+4. **Do not set any host LA_\* config** when routing to the eSE: the eSE owns the
+   NFC-A identity (the real card's UID/SAK/ATQA). Forcing a host LA_NFCID1 or
+   LA_SEL_INFO=0x08 (which also wrongly advertises ISO-DEP) would hide the card.
+5. **Neutralise the parasitic peer**: this controller does not light its listen
+   front-end for NFC-A alone -- it only wakes when NFC-F listen is also offered,
+   but NFC-F with firmware defaults arms an autonomous NFC-DEP (P2P) peer that
+   answers the reader itself. Clearing LF_PROTOCOL_TYPE (0x50 = 0) and
+   LF_T3T_FLAGS (0x3F = 0) suppresses that peer, so NFC-F listen only powers the
+   analog front-end. Verified: with this, the `data_exch_rf_tech_and_mode 0x82`
+   NFC-DEP activation that used to appear on every tap is gone.
+6. **Listen**: `RF_DISCOVER` with NFC-A + NFC-F passive listen -> status 0x0.
 
-Then present the phone to the actual transit reader (or a Proxmark) and confirm
-the eSE answers as the provisioned card. No userspace data path and no Crypto1
-in Linux are needed -- the eSE is the card.
+**Result: still no card.** Tested against the official SUBE app on another phone
+(which reads a physical MIFARE transit card over NFC, i.e. it is a real MIFARE
+reader): with the phone in this listen mode, the app reads nothing, and the host
+sees **no `RF_NFCEE_ACTION_NTF` and no activation at all** -- 40 s of silence
+after RF_DISCOVER. This holds whether MIFARE is routed to the eSE or to the host,
+and with or without the LF neutralisation. So the controller accepts the whole
+standard-NCI card-emulation setup with status 0x0 but the **NFC-A listen
+front-end never engages at RF** for the reader, and the field never reaches the
+eSE (`RF_NFCEE_ACTION_NTF`, GID 0x1 OID 0x9, would be the signal that it did).
 
-The larger, upstreamable version of this is real secure-element support in the
-s3fwrn5 driver (`discover_se`/`enable_se`/`se_io`, a mechanical port of
-`drivers/nfc/st-nci/se.c`; ~80% of the machinery already exists generically in
-`net/nfc/nci/`), which would also expose the eSE for APDU I/O. For just making
-the transit card work, steps 1-3 above are enough.
+### The open question, and what to try next
+
+The wall is the same one host emulation hit: this firmware does not arm an NFC-A
+tag/listen activation from a plain NCI listen sequence, even with the eSE as the
+route target. `RF_NFCEE_ACTION_NTF` never fires, so the CLF is not delivering the
+NFC-A field to the eSE. Leading candidates for the missing piece, from two rounds
+of investigation:
+
+- **ETSI HCI network init for the eSE.** NFCEE_MODE_SET enables the NFCEE at the
+  NCI layer, but the eSE's contactless gate may only come up after the HCI
+  network is initialised (CORE_CONN_CREATE to the NFCEE with HCI_ACCESS, session
+  init, the admin-gate WHITELIST, waiting for EVT_HOT_PLUG) -- the sequence
+  `drivers/nfc/st-nci/se.c` does. The s3fwrn5 driver has none of this. Without the
+  eSE host being on the HCI whitelist, the CLF may refuse to route the field to
+  it. This is the strongest candidate.
+- **`NFCEE_POWER_AND_LINK_CTRL`** (NCI 2.0, GID 0x2 OID 0x3, not in mainline):
+  Android sends it (its `OFFHOST_AID_ROUTE_PWR_STATE=0x3B` implies low-power
+  states) to keep the eSE powered and linked during listen. Try
+  `21 03 02 83 03` after MODE_SET; if it returns UNKNOWN_OID (0x08) the firmware
+  wants another mechanism.
+- **The Samsung-proprietary listen/RF path.** As with host emulation, it is
+  possible this firmware only arms the listen front-end through a vendor RF
+  profile that the HAL loads, which plain NCI does not reproduce.
+
+The decisive next diagnostic is to get the eSE's **HCI network up** (port the
+st-nci session/whitelist init to s3fwrn5, using the Samsung host/gate ids, not
+ST's) and re-test; if `RF_NFCEE_ACTION_NTF` then appears on a tap, the field is
+reaching the eSE and the rest is the applet. If it still does not, the block is
+the firmware RF profile, i.e. the same ceiling as host emulation.
+
+The larger, upstreamable version of all this is real secure-element support in
+the s3fwrn5 driver (`discover_se`/`enable_se`/`se_io`, a port of
+`drivers/nfc/st-nci/se.c`; most of the machinery already exists generically in
+`net/nfc/nci/`), which would also do the HCI init above.

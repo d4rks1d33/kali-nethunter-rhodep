@@ -156,16 +156,32 @@ class HciDevice:
 
     def reset(self, retries: int = 5, delay: float = 0.3) -> None:
         """Reset the controller.  Right after the radio is released the
-        controller can be mid-transition and return COMMAND_DISALLOWED, so we
-        retry."""
+        controller can be mid-transition and return COMMAND_DISALLOWED
+        (0x0C), so we retry.
+
+        On the QCA wcn399x the freshly-bound user channel already
+        exposes a controller in the reset state, and issuing HCI_Reset
+        against it returns 0x12 "Invalid HCI Command Parameters" (the
+        firmware treats a redundant reset as an error). Treat that as
+        already-reset and move on -- the caller only needed to reach
+        a known-good state, and we are already there.
+        """
         last = None
         for _ in range(retries):
             try:
-                self._command_ok(CMD_RESET)
-                return
+                status = self.command(CMD_RESET)
             except HciError as exc:  # noqa: PERF203
                 last = exc
                 time.sleep(delay)
+                continue
+            if status == 0:
+                return
+            if status == 0x12:
+                # QCA "redundant reset"; controller is already fresh.
+                return
+            last = HciError(
+                "HCI Reset returned status 0x%02X" % status)
+            time.sleep(delay)
         raise last  # type: ignore[misc]
 
     def set_advertising_parameters(
@@ -193,12 +209,21 @@ class HciDevice:
         self._command_ok(CMD_LE_SET_ADVERTISING_PARAMETERS, params)
 
     def set_advertising_data(self, data: bytes) -> None:
+        # HCI spec: length byte followed by a *fixed* 31-octet data
+        # field. Some chips accept a shorter tail, but the QCA wcn399x
+        # returns 0x12 "Invalid HCI Command Parameters" unless the
+        # buffer is exactly 32 bytes. Pad with zeros to match the spec.
         data = data[:31]
-        self._command_ok(CMD_LE_SET_ADVERTISING_DATA, struct.pack("<B", len(data)) + data)
+        payload = struct.pack("<B", len(data)) + data.ljust(31, b"\x00")
+        self._command_ok(CMD_LE_SET_ADVERTISING_DATA, payload)
 
     def set_scan_response_data(self, data: bytes) -> None:
+        # Same shape as set_advertising_data: length + fixed 31-octet
+        # field. The scan response is optional (data may be empty) but
+        # the length + padding are not.
         data = data[:31]
-        self._command_ok(CMD_LE_SET_SCAN_RESPONSE_DATA, struct.pack("<B", len(data)) + data)
+        payload = struct.pack("<B", len(data)) + data.ljust(31, b"\x00")
+        self._command_ok(CMD_LE_SET_SCAN_RESPONSE_DATA, payload)
 
     def set_advertise_enable(self, enabled: bool) -> None:
         self._command_ok(CMD_LE_SET_ADVERTISE_ENABLE, struct.pack("<B", 1 if enabled else 0))

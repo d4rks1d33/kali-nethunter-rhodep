@@ -82,6 +82,21 @@ class SpamEngine:
             hci.open()
             self._hci = hci
             hci.reset(retries=5, delay=0.5)
+            # If a previous session (or another tool like BlueDucky) left
+            # the chip with LE advertising still enabled, the next
+            # `set_advertising_parameters` returns 0x12 "Command Disallowed"
+            # -- the spec forbids changing parameters mid-advertise. So we
+            # tell the chip to stop advertising first, ignoring any error
+            # (0x0C "Command Disallowed" means it was already off, which
+            # is the state we want anyway). HCI Reset above is supposed to
+            # clear this too, but on the QCA wcn399x it does not always
+            # clear the LE controller state -- issuing an explicit
+            # Set_Advertise_Enable(false) after the reset is the reliable
+            # form.
+            try:
+                hci.set_advertise_enable(False)
+            except HciError:
+                pass
             hci.set_advertising_parameters(
                 interval_min=interval_to_hci_units(interval_ms),
                 interval_max=interval_to_hci_units(interval_ms),

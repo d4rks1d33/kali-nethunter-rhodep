@@ -4,7 +4,7 @@
 set -e
 here=$(dirname "$0")
 
-pip install --break-system-packages "$here[tv]"
+pip install --break-system-packages "$here[tv,iot]"
 
 # Desktop entry, icon, polkit action.
 install -Dm644 "$here/data/org.kali.NetHunterPro.desktop" \

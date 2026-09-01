@@ -1,0 +1,22 @@
+id: generic-router
+version: 1
+device_type: router
+vendor: Generic
+family: router
+threshold: 60
+matchers:
+  - name: ssdp-igd
+    type: ssdp
+    st: "urn:schemas-upnp-org:device:InternetGatewayDevice:1"
+    confidence: 60
+    extract:
+      server: '(.*)'
+  - name: upnp-igd-desc
+    type: upnp_dd
+    regex: 'InternetGatewayDevice|WANConnectionDevice|WANIPConnection'
+    confidence: 40
+    extract:
+      manufacturer: '<manufacturer>([^<]+)</manufacturer>'
+      modelName: '<modelName>([^<]+)</modelName>'
+metadata:
+  playbook: router-recon

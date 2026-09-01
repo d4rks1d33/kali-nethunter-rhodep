@@ -26,6 +26,30 @@ tv = [
     "adb-shell",
 ]
 
+# IoT Hacking module: the core discovery / fingerprint / playbook engine
+# only needs PyYAML. Everything else is optional and only pulled in when
+# a specific plugin is exercised. Playbooks that shell out to nmap /
+# hydra / mosquitto_pub etc. rely on the system-level tools that
+# install.sh's apt block already brings in.
+iot = [
+    "PyYAML",
+    "python-kasa",     # kasa plug driver used by kasa playbook
+    "python-miio",     # Xiaomi / Roborock / miIO ecosystem
+    "aiohttp",         # richer HTTP client for future playbooks
+    "aiocoap",         # CoAP probes (Shelly Gen1, IKEA)
+    "aiomqtt",         # MQTT anon-connect check
+    "soco",            # Sonos SOAP wrapper
+    "phue",            # Philips Hue
+    "pywizlight",      # WiZ bulbs
+    "yeelight",        # Yeelight
+    "aioshelly",       # Shelly Gen1 + Gen2
+    "pywemo",          # Belkin Wemo
+    "screenlogicpy",   # Pentair pool
+    "openevsehttp",    # OpenEVSE
+    "pyenphase",       # Enphase Envoy
+    "roombapy",        # iRobot Roomba
+]
+
 [project.scripts]
 nethunter-pro = "nethunter_pro.__main__:main"
 

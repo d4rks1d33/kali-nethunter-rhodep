@@ -9,6 +9,7 @@ from . import net_discovery    # noqa: F401
 from . import nmap             # noqa: F401
 from . import searchsploit     # noqa: F401
 from . import routersploit     # noqa: F401
+from . import tv_remote        # noqa: F401
 # Wi-Fi
 from . import wifi_attacks     # noqa: F401
 from . import deauth           # noqa: F401

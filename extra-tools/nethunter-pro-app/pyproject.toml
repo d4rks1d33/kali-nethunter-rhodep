@@ -10,6 +10,22 @@ readme = "README.md"
 license = { text = "GPL-2.0-or-later" }
 requires-python = ">=3.10"
 
+[project.optional-dependencies]
+# Smart TV remote control drivers. Each library is optional; the tv_remote
+# module degrades gracefully when a library is missing (that brand's driver
+# just becomes unavailable). Installing them all is ~30 MB.
+tv = [
+    "androidtvremote2",
+    "PyChromecast",
+    "samsungtvws",
+    "bscpylgtv",
+    "bravia-tv",
+    "roku",
+    "pyvizio",
+    "pyatv",
+    "adb-shell",
+]
+
 [project.scripts]
 nethunter-pro = "nethunter_pro.__main__:main"
 

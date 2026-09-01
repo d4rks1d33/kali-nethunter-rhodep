@@ -4,26 +4,29 @@ Subject: [PATCH] nfc: nci: present an NFC-A Type 2 tag in listen mode
 Card emulation, milestone 2. Milestone 1 (the s3fwrn5 NFC-DEP patch) gets the
 controller into listen mode, but it only ever comes up as NFC-DEP (P2P), so a
 tag reader ignores it. To emulate a card the controller has to present itself
-as an NFC-A tag with a chosen UID and SAK.
+as an NFC-A tag with a chosen UID and SAK, and crucially it must NOT be handed
+the NFC-DEP listen parameters, or the SAK it answers says "P2P peer" and a tag
+reader never starts the tag protocol.
 
-Three things were missing in the NCI core:
+Changes in the NCI core:
 
-  - RF_DISCOVER_MAP never mapped the T2T protocol to the FRAME interface in
-    LISTEN mode, so the controller had no way to be activated as a tag.
-  - nci_start_poll only sent the NFC-DEP listen parameters. Add LA_BIT_FRAME_SDD
-    and LA_PLATFORM_CONFIG (so SENS_RES/ATQA is right), LA_NFCID1 (the UID) and
-    LA_SEL_INFO (the SAK), all from userspace via START_POLL, reusing the
-    existing NFC_ATTR_TARGET_NFCID1 and NFC_ATTR_TARGET_SEL_RES attributes (no
-    ABI change). When emulating, only NFC-A passive listen is offered.
-  - The listen-activation notification only signalled tm activation for
-    NFC-DEP. Signal it for T2T too (NFC_PROTO_MIFARE_MASK), so rf_mode becomes
-    NFC_RF_TARGET and userspace is told the tag was activated.
+  - RF_DISCOVER_MAP maps T2T to the FRAME interface in LISTEN mode, so the
+    controller can be activated as a tag.
+  - nci_start_poll: when a UID is set (emulation), send a clean NFC-A listen
+    config -- LA_BIT_FRAME_SDD, LA_PLATFORM_CONFIG, LA_NFCID1, LA_SEL_INFO --
+    and do NOT call nci_set_listen_parameters() (which forces LA_SEL_INFO=0x40
+    NFC-DEP and the LF_* NFC-DEP parameters). The controller derives the UID
+    cascade size from the length of LA_NFCID1, so a 7-byte UID selects double
+    cascade on its own. UID and SAK come from userspace on START_POLL, reusing
+    NFC_ATTR_TARGET_NFCID1 and NFC_ATTR_TARGET_SEL_RES (no ABI change).
+  - RF_DISCOVER offers only NFC-A passive listen when emulating (NFC-F would
+    bring the chip up as NFC-DEP).
+  - The listen-activation notification signals nfc_tm_activated for T2T as well
+    as NFC-DEP, so rf_mode becomes NFC_RF_TARGET and userspace is told.
 
-The SEL_RES is chosen by userspace because which value makes a given reader
-activate is a reader question (0x00 bare NFC-A, 0x08 MIFARE Classic, 0x20
-ISO-DEP). Whether the S3NRN4V honours a fixed 7-byte NFCID1 and completes the
-NFC-A anticollision as a tag is what this makes testable. Answering the tag
-protocol (Type 2 READ) still needs a listen data path, which is later work.
+The SEL_RES is chosen by userspace (0x00 bare NFC-A, 0x08 MIFARE Classic, 0x20
+ISO-DEP). Answering the tag protocol (Type 2 READ) still needs a listen data
+path, which is later work; a UID-only reader needs nothing more than this.
 
 --- a/include/net/nfc/nci.h
 +++ b/include/net/nfc/nci.h
@@ -119,14 +122,28 @@ protocol (Type 2 READ) still needs a listen data path, which is later work.
  	}
  
  	nci_send_cmd(ndev, NCI_OP_RF_DISCOVER_CMD,
-@@ -868,6 +881,22 @@
- 			pr_err("failed to set listen parameters\n");
+@@ -854,7 +867,8 @@
+ 			return -EBUSY;
  	}
  
+-	if ((im_protocols | tm_protocols) & NFC_PROTO_NFC_DEP_MASK) {
++	if (((im_protocols | tm_protocols) & NFC_PROTO_NFC_DEP_MASK) &&
++	    !nfc_dev->emu_nfcid1_len) {
+ 		rc = nci_set_local_general_bytes(nfc_dev);
+ 		if (rc) {
+ 			pr_err("failed to set local general bytes\n");
+@@ -862,7 +876,22 @@
+ 		}
+ 	}
+ 
+-	if (tm_protocols & NFC_PROTO_NFC_DEP_MASK) {
 +	if (nfc_dev->emu_nfcid1_len) {
++		/* NFC-A tag (card emulation): send a clean NFC-A listen config,
++		 * NOT the NFC-DEP listen parameters, so a reader sees a tag and
++		 * not a P2P peer. The controller derives the UID cascade size
++		 * from the length of LA_NFCID1. */
 +		__u8 v;
 +
-+		/* Present as an NFC-A tag with the chosen NFCID1/SAK. */
 +		v = 0x04;
 +		nci_set_config(ndev, NCI_LA_BIT_FRAME_SDD, 1, &v);
 +		v = 0x00;
@@ -134,14 +151,11 @@ protocol (Type 2 READ) still needs a listen data path, which is later work.
 +		nci_set_config(ndev, NCI_LA_NFCID1,
 +			       nfc_dev->emu_nfcid1_len, nfc_dev->emu_nfcid1);
 +		v = nfc_dev->emu_sel_res;
-+		/* SEL_INFO (SAK) from userspace; overrides the NFC-DEP value
-+		 * so a reader sees a tag, not a P2P peer. */
 +		nci_set_config(ndev, NCI_LA_SEL_INFO, 1, &v);
-+	}
-+
- 	param.im_protocols = im_protocols;
- 	param.tm_protocols = tm_protocols;
- 	rc = nci_request(ndev, nci_rf_discover_req, &param,
++	} else if (tm_protocols & NFC_PROTO_NFC_DEP_MASK) {
+ 		rc = nci_set_listen_parameters(nfc_dev);
+ 		if (rc)
+ 			pr_err("failed to set listen parameters\n");
 --- a/net/nfc/nci/ntf.c
 +++ b/net/nfc/nci/ntf.c
 @@ -882,6 +882,14 @@

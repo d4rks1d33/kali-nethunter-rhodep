@@ -192,18 +192,44 @@ Two kernel patches back it:
 - Target card measured for emulation: MIFARE Classic 1K, **ATQA 0x0044, SAK
   0x08, UID 04:35:3d:6a:f7:54:80** (7 bytes, NXP 0x04 prefix).
 
-### The open point
+### The open point (narrowed down)
 
-When only **NFC-A** passive listen is offered (as a plain tag, SEL_INFO without
-the NFC-DEP bit, T2T mapped to FRAME), the chip **accepts the whole config but
-does not activate** when a tag reader (NFC Tools on another phone) is presented
--- no `rf_intf_activated_ntf` at all. With NFC-F/NFC-DEP added it activates, but
-as a P2P peer (`0x82`), which a tag reader ignores. So the reader either does
-not drive NFC-A the way this chip expects in tag listen, or a listen parameter
-is still missing (candidates: `LN_ATR_RES`, a proprietary s3fwrn5 listen-enable
-command, or an RF-register profile in `sec_s3fwrn5_swreg.bin` that the vendor
-loads for CE). To pin this down needs a capture of a reader activating a real
-NFC-A tag, side by side with the chip in tag listen.
+The chip **emulates in listen mode -- confirmed with a Flipper Zero** -- but it
+only comes up over **NFC-F**, never as an NFC-A tag. What was measured, all with
+the clean NFC-A config (patch 0111: `LA_BIT_FRAME_SDD`, `LA_PLATFORM_CONFIG`,
+`LA_NFCID1`, `LA_SEL_INFO`, no NFC-DEP `LF_*` parameters):
+
+- **NFC-A + NFC-F offered:** the Flipper detects the phone -- **as a FeliCa
+  (Type 3 / NFC-F)**. So the hardware does answer a reader in listen; it just
+  answers on F, not A.
+- **NFC-A only offered:** nothing. No reader (Flipper or NFC Tools) sees it, and
+  there is no `rf_intf_activated_ntf`. The chip accepts every SET_CONFIG and the
+  RF_DISCOVER (`status 0x0` on all), then sits silent -- it does **not** answer
+  the NFC-A anticollision as a tag.
+- Removing the NFC-DEP `LF_*` parameters (the clean config) does not stop the F
+  activation; the F path still works and shows up as FeliCa.
+
+So the S3NRN4V, driven by the plain NCI listen sequence, **does NFC-F listen but
+not NFC-A tag listen**. The hardware is capable (Android emulated on it); what is
+missing is whatever Android sends that the mainline core does not. The leading
+remaining candidate, from reading the vendor HAL, is
+**`RF_SET_LISTEN_MODE_ROUTING` (LMRT, GID 0x1 OID 0x1)** -- the HAL symbol
+`hal_nci_send_clearLmrt` proves libnfc-nci builds and sends a routing table, and
+the mainline NCI core never emits one. Without a listen-mode routing entry (a
+technology- or protocol-based route to the host, NFCEE 0x00), the controller may
+never arm NFC-A tag listen. Other candidates, less likely: `LN_ATR_RES`, a
+proprietary s3fwrn5 listen-enable command (the driver has none), or an
+RF-register profile the vendor loads for CE.
+
+### Next thing to try when resuming: the LMRT
+
+Add `RF_SET_LISTEN_MODE_ROUTING_CMD` before `RF_DISCOVER`, routing NFC-A (and
+ISO-DEP / T3T) to the host (NFCEE id 0x00). Investigate the exact routing entry
+Android uses (`DEFAULT_ROUTE`, `HOST_LISTEN_TECH_MASK` in the vendor conf) and
+build a technology-based route to the host. This is still standard NCI, so it
+stays upstreamable. If after the LMRT the chip activates on NFC-A (rf_protocol
+T2T), card emulation is unblocked and the rest is the userspace data path
+(Layer 2).
 
 ### The plan by layers (the goal is extensible protocols)
 

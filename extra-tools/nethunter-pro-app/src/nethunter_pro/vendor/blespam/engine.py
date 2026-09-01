@@ -167,6 +167,14 @@ class SpamEngine:
                 interval_max=interval_to_hci_units(interval_ms),
                 adv_type=ADV_TYPE_SCAN_IND,
             )
+            # Load the first payload before enabling so the very first
+            # advertising interval carries something the target can act
+            # on, not the empty default.
+            first = packets[0] if mode != MODE_RANDOM else random.choice(packets)
+            first_adv, first_scan = first.render(tx_byte)
+            hci.set_advertising_data(first_adv)
+            hci.set_scan_response_data(first_scan or b"")
+            hci.set_advertise_enable(True)
             self.on_state("advertising")
 
             idx = 0
@@ -189,18 +197,25 @@ class SpamEngine:
                     idx += 1
                 adv, scan = packet.render(tx_byte)
 
-                # The Android-style cycle: stop the radio, load a new
-                # payload, start the radio. That way the firmware sees
-                # each payload as an atomic transaction instead of an
-                # in-flight buffer swap while the radio is TXing.
+                # Live-update the payload while advertising stays
+                # enabled. The earlier disable->set_data->enable dance
+                # closed a ~8 ms window per swap where the radio was
+                # off entirely -- Plasma's Fast Pair scanner and the
+                # nearby-device UI on Android missed the ads during
+                # those gaps because they only listen for ~15 ms at a
+                # time. Live-update wedges the QCA controller if driven
+                # at 57 Hz, so we still keep the rate at 5 Hz via the
+                # payload_change_ms sleep at the bottom of the loop.
+                # Set_Advertising_Data is legal per HCI spec while
+                # advertising is enabled; it's only a bug if you hammer
+                # it faster than the firmware can drain the internal
+                # LE buffer.
                 try:
-                    hci.set_advertise_enable(False)
                     hci.set_advertising_data(adv)
                     if scan is not None:
                         hci.set_scan_response_data(scan)
                     else:
                         hci.set_scan_response_data(b"")
-                    hci.set_advertise_enable(True)
                     cmd_disallowed_streak = 0
                 except HciHardwareError as exc:
                     # This is the chip screaming that it wedged. There

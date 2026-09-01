@@ -578,20 +578,21 @@ of investigation:
   possible this firmware only arms the listen front-end through a vendor RF
   profile that the HAL loads, which plain NCI does not reproduce.
 
-Before any of that, a cheap test still to do: **present a Flipper Zero** (in NFC
-read mode) rather than the SUBE app. The result so far is only against SUBE,
-whose app logic might reject a card for its own reasons; a Flipper is a more
-permissive, lower-level reader, so it would show whether the controller activates
-NFC-A *at all* (as a tag, or the eSE via `RF_NFCEE_ACTION_NTF`) independently of
-any app. If even the Flipper sees nothing, that confirms the front-end is not
-engaging and rules out the app.
+**The Flipper test was done and rules out the app.** With the phone in this
+listen mode and a Flipper Zero in NFC read mode presented to the antenna, the
+Flipper stayed on "Reading..." and saw nothing, and the host again logged no
+activation and no `RF_NFCEE_ACTION_NTF`. A Flipper is a far more permissive,
+lower-level reader than the SUBE app, so this confirms the block is not app
+logic: the controller is simply **not lighting the NFC-A listen front-end at RF**,
+even though it accepts the whole SET_CONFIG / MODE_SET / routing / RF_DISCOVER
+sequence with status 0x0. Nothing is emitted on NFC-A, so no reader can see it
+and the field never reaches the eSE.
 
-The decisive next diagnostic (if the Flipper also shows nothing) is to get the
-eSE's **HCI network up** (port the st-nci session/whitelist init to s3fwrn5,
-using the Samsung host/gate ids, not ST's) and re-test; if `RF_NFCEE_ACTION_NTF`
-then appears on a tap, the field is reaching the eSE and the rest is the applet.
-If it still does not, the block is the firmware RF profile, i.e. the same ceiling
-as host emulation.
+The decisive next diagnostic is to get the eSE's **HCI network up** (port the
+st-nci session/whitelist init to s3fwrn5, using the Samsung host/gate ids, not
+ST's) and re-test; if `RF_NFCEE_ACTION_NTF` then appears on a tap, the field is
+reaching the eSE and the rest is the applet. If it still does not, the block is
+the firmware RF profile, i.e. the same ceiling as host emulation.
 
 The larger, upstreamable version of all this is real secure-element support in
 the s3fwrn5 driver (`discover_se`/`enable_se`/`se_io`, a port of

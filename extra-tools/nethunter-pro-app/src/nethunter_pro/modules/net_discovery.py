@@ -419,6 +419,31 @@ class NetDiscovery(NHModule):
         for m in ("top", "bottom", "start", "end"):
             getattr(box, "set_margin_" + m)(12)
 
+        # ---- band capabilities ------------------------------------
+        # Sanity-check for the operator: what bands can the current
+        # adapter actually reach? If wlan0 does not support 6 GHz,
+        # attacks that assume Wi-Fi 6E (SSID Confusion, some Fragattacks
+        # variants, MLO desync tests) will just fail. Show up front.
+        bands_group = Adw.PreferencesGroup(
+            title="Adapter capabilities",
+            description="From `iw phy` on the primary and, if present, "
+                        "the monitor phys. If 5/6 GHz are missing "
+                        "here, attacks that need them will not work.")
+        self.bands_row = Adw.ActionRow(
+            title="Bands",
+            subtitle="checking…")
+        bands_group.add(self.bands_row)
+        box.append(bands_group)
+        # Kick the check async so the UI paints instantly.
+        run_async(
+            ["sh", "-c",
+             "for p in $(ls /sys/class/ieee80211/ 2>/dev/null); do "
+             "  echo \"$p:\"; iw phy $p info 2>/dev/null | "
+             "  grep -E '^\\s*\\* [0-9]{4} MHz' | "
+             "  awk '{print $2}' | sort -u | head -30; "
+             "done"],
+            self._on_bands, root=False, timeout=10)
+
         # ---- network summary --------------------------------------
         self.summary_group = Adw.PreferencesGroup(title="This network")
         self.summary_row = Adw.ActionRow(
@@ -467,12 +492,244 @@ class NetDiscovery(NHModule):
         self.results_group.add(self._empty_row)
         box.append(self.results_group)
 
+        # ---- Wi-Fi AP surveyor ------------------------------------
+        # Scans the air with a monitor interface and, for every visible
+        # AP, tells the user which attacks are viable given the
+        # security posture. Deep-links straight to the attack module
+        # so the operator does not need to remember which target
+        # goes where.
+        surv_group = Adw.PreferencesGroup(
+            title="Wi-Fi AP surveyor",
+            description="Passive scan of nearby APs; per-AP verdicts + "
+                        "one-click hop to the right attack module.")
+        self.surv_iface = Adw.EntryRow(title="Monitor interface")
+        self.surv_iface.set_text("wlan1mon")
+        surv_group.add(self.surv_iface)
+
+        surv_action = Adw.ActionRow(
+            title="Sweep air",
+            subtitle="airodump-ng one-shot; 15 s")
+        self.surv_btn = Gtk.Button(label="Sweep",
+                                   valign=Gtk.Align.CENTER)
+        self.surv_btn.add_css_class("suggested-action")
+        self.surv_btn.connect(
+            "clicked", lambda _b: self._start_survey())
+        surv_action.add_suffix(self.surv_btn)
+        surv_group.add(surv_action)
+        box.append(surv_group)
+
+        self.surv_results = Adw.PreferencesGroup(
+            title="APs in range",
+            description="ESSID · BSSID · security · attack hints")
+        self._surv_empty = Adw.ActionRow(
+            title="No survey yet",
+            subtitle="Press Sweep with a monitor iface up")
+        self.surv_results.add(self._surv_empty)
+        self._surv_rows: list[Adw.ExpanderRow] = []
+        box.append(self.surv_results)
+
         # ---- streaming log ----------------------------------------
         self.output = OutputView()
         box.append(self.output)
 
         self._detect_network()
         return box
+
+    # ---------------------------------------------------- surveyor
+    def _start_survey(self) -> None:
+        iface = self.surv_iface.get_text().strip() or "wlan1mon"
+        # Wipe old CSVs and kick a 15 s airodump-ng scan. The CSV
+        # ends up at /tmp/nhp-surv-01.csv with two tables (APs and
+        # stations). We only care about the APs.
+        script = (
+            "rm -f /tmp/nhp-surv-*; "
+            "timeout 15 airodump-ng --output-format csv "
+            "  -w /tmp/nhp-surv %s >/dev/null 2>&1 || true; "
+            "cat /tmp/nhp-surv-01.csv 2>/dev/null || "
+            "  echo 'no csv'"
+        ) % iface
+        self.output.append("# surveying APs on " + iface + "…\n")
+        self.surv_btn.set_sensitive(False)
+
+        def done(r: Result) -> None:
+            self.surv_btn.set_sensitive(True)
+            self._render_survey(r.stdout or "")
+
+        run_async(["sh", "-c", script], done,
+                  root=True, timeout=30)
+
+    def _render_survey(self, csv_text: str) -> None:
+        aps = self._parse_survey(csv_text)
+        for r in self._surv_rows:
+            self.surv_results.remove(r)
+        self._surv_rows = []
+        self._surv_empty.set_visible(not aps)
+        if not aps:
+            return
+        # Sort by signal (RSSI, higher = closer)
+        try:
+            aps.sort(key=lambda a: int(a["power"] or "-999"),
+                     reverse=True)
+        except ValueError:
+            pass
+        for ap in aps[:30]:
+            self._surv_rows.append(self._make_surv_row(ap))
+
+    def _parse_survey(self, csv_text: str) -> list[dict]:
+        aps: list[dict] = []
+        for row in csv_text.splitlines():
+            row = row.strip()
+            if not row or row.startswith(("BSSID", "Station")):
+                continue
+            parts = [p.strip() for p in row.split(",")]
+            if len(parts) < 14 or ":" not in parts[0]:
+                continue
+            try:
+                aps.append({
+                    "bssid": parts[0],
+                    "channel": parts[3],
+                    "privacy": parts[5],
+                    "cipher": parts[6],
+                    "auth": parts[7],
+                    "power": parts[8],
+                    "beacons": parts[9],
+                    "essid": parts[13],
+                })
+            except IndexError:
+                continue
+        return aps
+
+    def _classify_ap(self, ap: dict) -> tuple[list[str], list[str]]:
+        """Return (attack_hints, vuln_hints) for the given AP row."""
+        priv = (ap["privacy"] or "").upper()
+        auth = (ap["auth"] or "").upper()
+        attacks = []
+        vulns = []
+        # OPEN -> obvious captive-portal / evil-twin target.
+        if "OPN" in priv or priv == "":
+            attacks.append("EvilTwin/open + captive portal (phishkin3)")
+            vulns.append("no encryption")
+        elif "WEP" in priv:
+            attacks.append("aircrack WEP (chopchop / fragmentation)")
+            vulns.append("WEP crackable in <10 min")
+        elif "WPA3" in priv and "WPA2" not in priv:
+            attacks.append("WPA3-SAE downgrade twin (Dragonblood)")
+            vulns.append("WPA3 pure, PMKID/deauth immune")
+        elif "WPA2" in priv or "WPA" in priv:
+            attacks.append("PMKID capture (hcxdumptool)")
+            attacks.append("Handshake capture + wpa-sec")
+            if "MGT" in auth or "EAP" in auth:
+                attacks.append(
+                    "EAPHammer rogue Enterprise AP")
+                vulns.append("Enterprise: watch for weak cert pin")
+            else:
+                attacks.append("EvilTwin WPA2 (if PSK known)")
+        # PMKID leak likelihood by vendor OUI. hcxdumptool works
+        # against almost every WPA2/WPA3-Transition AP; we do not
+        # try to be smarter here.
+
+        # WPS? airodump does not put WPS in CSV; use the wash-driven
+        # WPS module for the enum. We flag "check WPS" as a hint.
+        attacks.append("wash → wifi_attacks (check WPS)")
+        # If both WPA2 and WPA3 are advertised -> transition mode ->
+        # downgrade attack path.
+        if "WPA3" in priv and "WPA2" in priv:
+            attacks.insert(0, "WPA3→WPA2 downgrade twin")
+            vulns.append("WPA3-Transition (downgradeable)")
+        return attacks, vulns
+
+    def _make_surv_row(self, ap: dict) -> Adw.ExpanderRow:
+        title = ap["essid"] or "<hidden>"
+        subtitle = "%s · ch %s · %s dBm · %s %s" % (
+            ap["bssid"], ap["channel"] or "?",
+            ap["power"] or "?",
+            ap["privacy"] or "?",
+            ap["cipher"] or "")
+        row = Adw.ExpanderRow(title=title, subtitle=subtitle)
+        attacks, vulns = self._classify_ap(ap)
+
+        for v in vulns:
+            r = Adw.ActionRow(title="Weakness",
+                              subtitle=v)
+            row.add_row(r)
+
+        for a in attacks:
+            r = Adw.ActionRow(title="Attack", subtitle=a)
+            # Add a launcher button that deep-links to the module
+            # based on the hint text.
+            btn = Gtk.Button(label="Launch",
+                             valign=Gtk.Align.CENTER)
+            btn.connect(
+                "clicked",
+                lambda _b, ap=ap, hint=a:
+                    self._launch_attack(hint, ap))
+            r.add_suffix(btn)
+            row.add_row(r)
+        self.surv_results.add(row)
+        return row
+
+    def _on_bands(self, r: Result) -> None:
+        """Parse the frequencies each phy exposes and classify by
+        band. 2.4 GHz = 2400-2500, 5 GHz = 5100-5900, 6 GHz = 5925-7125.
+        """
+        out = r.stdout or ""
+        phys: dict[str, set[str]] = {}
+        current = None
+        for line in out.splitlines():
+            line = line.strip()
+            if line.endswith(":") and line.startswith("phy"):
+                current = line[:-1]
+                phys[current] = set()
+                continue
+            if current is None or not line.isdigit():
+                continue
+            f = int(line)
+            if 2400 <= f <= 2500:
+                phys[current].add("2.4 GHz")
+            elif 5100 <= f <= 5900:
+                phys[current].add("5 GHz")
+            elif 5925 <= f <= 7125:
+                phys[current].add("6 GHz (Wi-Fi 6E)")
+        if not phys:
+            self.bands_row.set_subtitle("no wireless phys detected")
+            return
+        parts = []
+        for p, bands in phys.items():
+            parts.append(p + ": " + (
+                ", ".join(sorted(bands)) or "(none)"))
+        self.bands_row.set_subtitle(" · ".join(parts))
+
+    def _launch_attack(self, hint: str, ap: dict) -> None:
+        """Route a hint text to the right module via deep-link."""
+        target = "|".join((ap["essid"] or "",
+                            ap["bssid"] or "",
+                            ap["channel"] or ""))
+        h = hint.lower()
+        if "pmkid" in h:
+            self.app_window.activate_module("pmkid", ap["bssid"])
+        elif "handshake" in h:
+            self.app_window.activate_module(
+                "handshake",
+                "%s|%s|%s" % (ap["bssid"],
+                              ap["channel"], ap["essid"]))
+        elif "eaphammer" in h or "enterprise" in h:
+            self.app_window.activate_module(
+                "eaphammer", target)
+        elif "wps" in h:
+            self.app_window.activate_module(
+                "wifi_attacks", ap["bssid"])
+        elif "captive" in h:
+            self.app_window.activate_module(
+                "phishkin3", target)
+        elif "downgrade" in h or "wpa3" in h or "twin" in h \
+                or "eviltwin" in h:
+            self.app_window.activate_module(
+                "evil_twin", target)
+        elif "wep" in h:
+            self.app_window.activate_module(
+                "wifite", ap["bssid"])
+        else:
+            toast(self.app_window, "No module for: " + hint)
 
     # ------------------------------------------------------- detect
     def _detect_network(self) -> None:

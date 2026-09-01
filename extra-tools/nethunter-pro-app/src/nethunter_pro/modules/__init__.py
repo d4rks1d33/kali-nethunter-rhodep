@@ -25,6 +25,7 @@ from . import net_discovery    # noqa: F401
 from . import nmap             # noqa: F401
 from . import searchsploit     # noqa: F401
 from . import routersploit     # noqa: F401
+from . import android_rce      # noqa: F401
 from . import tv_remote        # noqa: F401
 from . import iot_hacking      # noqa: F401
 from . import iot_setup        # noqa: F401
@@ -63,6 +64,7 @@ from . import duckhunter       # noqa: F401
 from . import hid              # noqa: F401
 from . import usb_arsenal      # noqa: F401
 from . import bluetooth        # noqa: F401
+from . import bluetoolkit      # noqa: F401
 from . import ble_prov         # noqa: F401
 from . import ble_track        # noqa: F401
 from . import ble_attack       # noqa: F401

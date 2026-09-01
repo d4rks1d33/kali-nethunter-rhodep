@@ -20,7 +20,14 @@ Verified on hardware with a MIFARE Classic 1K (UID, ATQA 0x0044, SAK 0x08) and
 an EMV card (ISO-DEP, SAK 0x20).
 
 **Card emulation (acting as a tag for another reader, e.g. a Flipper) does not
-work yet** and is not a small addition -- see the last section.
+work** and is not a small addition -- see the last section. Patch 0111 builds
+the full standard-NCI NFC-A listen setup (fixed NFCID1, T2T FRAME mapping, and
+the listen mode routing table the mainline core lacked, including a MIFARE 0x80
+route); the chip accepts all of it with `status 0x0` but never activates as an
+NFC-A tag when a reader is presented. Confirmed dead end from standard NCI: the
+NFC-A card-emulation state machine lives in Android's userspace `libnfc-nci`,
+and Linux mainline has no host card emulation path. NFC-F (FeliCa) listen does
+work.
 
 ## The one thing that must be set
 
@@ -210,26 +217,78 @@ the clean NFC-A config (patch 0111: `LA_BIT_FRAME_SDD`, `LA_PLATFORM_CONFIG`,
   activation; the F path still works and shows up as FeliCa.
 
 So the S3NRN4V, driven by the plain NCI listen sequence, **does NFC-F listen but
-not NFC-A tag listen**. The hardware is capable (Android emulated on it); what is
-missing is whatever Android sends that the mainline core does not. The leading
-remaining candidate, from reading the vendor HAL, is
-**`RF_SET_LISTEN_MODE_ROUTING` (LMRT, GID 0x1 OID 0x1)** -- the HAL symbol
-`hal_nci_send_clearLmrt` proves libnfc-nci builds and sends a routing table, and
-the mainline NCI core never emits one. Without a listen-mode routing entry (a
-technology- or protocol-based route to the host, NFCEE 0x00), the controller may
-never arm NFC-A tag listen. Other candidates, less likely: `LN_ATR_RES`, a
-proprietary s3fwrn5 listen-enable command (the driver has none), or an
-RF-register profile the vendor loads for CE.
+not NFC-A tag listen**. The hardware is capable (Android emulated on it); what
+was missing turned out to be the whole userspace card-emulation stack, not a
+single NCI command -- the LMRT below was implemented and tested and did not
+unblock it. See "Conclusion" at the end of this section for the full result.
 
-### Next thing to try when resuming: the LMRT
+### The LMRT -- implemented (patch 0111)
 
-Add `RF_SET_LISTEN_MODE_ROUTING_CMD` before `RF_DISCOVER`, routing NFC-A (and
-ISO-DEP / T3T) to the host (NFCEE id 0x00). Investigate the exact routing entry
-Android uses (`DEFAULT_ROUTE`, `HOST_LISTEN_TECH_MASK` in the vendor conf) and
-build a technology-based route to the host. This is still standard NCI, so it
-stays upstreamable. If after the LMRT the chip activates on NFC-A (rf_protocol
-T2T), card emulation is unblocked and the rest is the userspace data path
-(Layer 2).
+`RF_SET_LISTEN_MODE_ROUTING` is now built and sent. Patch 0111 adds the opcode
+(`GID 0x1 OID 0x1`), the command/response structs and the RSP handler to the
+mainline NCI core (mainline had none of it -- it only read
+`max_routing_table_size` from `CORE_INIT_RSP` and never programmed a table).
+When emulating, `nci_start_poll` sends the table just before `RF_DISCOVER`,
+routing three entries to the host NFCEE (id 0x00) for all power states (0x3f):
+
+- a **technology** entry for NFC-A (tech 0x00),
+- a **protocol** entry for T2T (0x02), and
+- a **protocol** entry for MIFARE Classic (the Samsung/NXP proprietary 0x80,
+  from index 5 of the `NFA_PROPRIETARY_CFG` remap -- MIFARE Classic is presented
+  under 0x80, not plain T2T).
+
+The MIFARE 0x80 protocol is deliberately **not** added to `RF_DISCOVER_MAP`: the
+controller rejects that command with `status 0x1` if 0x80 is listed there, so
+only T2T is mapped to the FRAME interface, while MIFARE is routed via the LMRT.
+
+**Measured on the phone -- every command is accepted, but it still does not
+activate.** With `nci` dynamic debug on and a MIFARE Classic 1K target
+(`rhodep-nfc listen 04:35:3d:6a:f7:54:80 0x08`):
+
+```
+NCI TX: GID=0x1, OID=0x0, plen=19   RF_DISCOVER_MAP           -> status 0x0
+NCI TX: GID=0x1, OID=0x1, plen=17   RF_SET_LISTEN_MODE_ROUTING -> status 0x0  (3 entries, incl. MIFARE 0x80)
+NCI TX: GID=0x1, OID=0x3, plen=3    RF_DISCOVER                -> status 0x0
+... then 30 s of total silence while a Flipper Zero (read mode) is on the
+    antenna: no nci_recv_frame, no RF_INTF_ACTIVATED_NTF ...
+NCI TX: GID=0x1, OID=0x6            RF_DEACTIVATE (timeout)    -> status 0x0
+```
+
+The Flipper detects **nothing**. This was tested with NFC-A only, with
+NFC-A + NFC-F, with and without the MIFARE 0x80 route, and with the corrected
+`LA_PLATFORM_CONFIG` cascade byte -- the result is the same every time: the chip
+accepts the full standard-NCI listen setup with `status 0x0` and then never
+answers the NFC-A anticollision. (With NFC-F offered it comes up as FeliCa, so
+the RF front-end and the listen path themselves work -- see above.)
+
+### Conclusion: NFC-A tag listen is not reachable from standard NCI on this chip
+
+The LMRT was necessary to even attempt it, but it is **not sufficient**, and
+disassembly of the vendor HAL (`nfc_nci_sec.so`, extracted from the LineageOS
+`vendor.img`) shows there is no missing magic command to add:
+
+- The vendor `hwreg`/`swreg` blobs are **RF analog register images** (they end in
+  the magic `"DEF\0"`), not NCI config -- patch 0104 already loads them via the
+  proprietary `2F 2A` dual-rfreg opcode, which is why NFC-F listen and reader
+  mode work. They contain no `LA_*` listen TLVs.
+- The HAL's `nfc_hal_pre_discover` sends nothing; `hal_nci_send_clearLmrt` only
+  builds a *clear* (`21 01 02 00 00`), identical in format to ours; and every
+  proprietary opcode (`2F 25/26/27/28/2A`) is rfreg / clock / trace during init,
+  never a "card emulation enable".
+- In Android the entire NFC-A card-emulation state machine lives in
+  **`libnfc-nci.so` in userspace** (the system partition), driven by the AOSP
+  NFA stack and HCE app routing -- the kernel `sec-nfc` driver is a pure
+  transport. Linux mainline's `net/nfc/` has never implemented host card
+  emulation for T2T/ISO-DEP; it only wires up NFC-DEP (P2P) listen. So there is
+  no in-kernel path that makes this controller arm NFC-A tag listen, and no
+  single vendor command that would.
+
+What is upstreamable and kept in 0111: the fixed-NFCID1 NFC-A listen config, the
+T2T FRAME mapping, and the `RF_SET_LISTEN_MODE_ROUTING` implementation the
+mainline core lacked. What is **not** achievable without porting a full
+userspace NCI/HCE stack (à la libnfc-nci) talking raw NCI over the driver: the
+actual NFC-A tag activation and the tag data path. That is the real remaining
+gap, and it is a large piece of new software, not a missing register or command.
 
 ### The plan by layers (the goal is extensible protocols)
 

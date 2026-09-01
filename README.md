@@ -1226,8 +1226,11 @@ the next boot if the phone was off (`Persistent=true`). Run it by hand with
 - **Sensors work** (SSC/ADSP over FastRPC) — see the "What works" list and
   `userspace/sensors/`. **NFC reads cards** — the Samsung S3NRN4V is driven by
   the in-tree `s3fwrn5` with patches 0101-0105; see [`docs/nfc.md`](docs/nfc.md)
-   and the `userspace/nfc/` reader tool. Card emulation is started (patches
-   0110-0111: NFC-A listen, fixed UID); tag activation is the open point. Still
+   and the `userspace/nfc/` reader tool. Card emulation does not work: patches
+   0110-0111 build the full standard-NCI NFC-A listen (fixed UID, T2T mapping,
+   listen mode routing table with a MIFARE route) and the chip accepts all of it,
+   but it never activates as an NFC-A tag — that state machine lives in Android's
+   userspace libnfc-nci, which Linux mainline has no equivalent for. Still
   not done for want of a driver: fingerprint (proprietary Focaltech HAL) and the
   camera (only the PMIC is up; it does not capture yet — see below).
 - **GPS: a satellite fix reboots the phone, cell-id positioning does not.** The
@@ -1491,8 +1494,12 @@ is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
                                         board, not a WiFi rail; drop the stale supply
 0110 nfc-s3fwrn5-declare-nfc-dep-for-listen  advertise NFC-DEP so the chip can
                                         enter listen mode (card emulation, step 1)
-0111 nfc-nci-set-a-fixed-nfcid1-for-listen  let userspace set LA_NFCID1, so the
-                                        emulated card can answer with a chosen UID
+0111 nfc-nci-set-a-fixed-nfcid1-for-listen  present an NFC-A Type 2 tag in listen:
+                                        userspace sets LA_NFCID1/SEL_INFO, T2T is
+                                        mapped to the FRAME interface, and a listen
+                                        mode routing table (RF_SET_LISTEN_MODE_ROUTING)
+                                        routes NFC-A/T2T to the host so the chip
+                                        activates as a tag rather than a P2P peer
 ```
 
 0062 and 0063 are kept but neither changes the glitched lines they were written
@@ -3393,13 +3400,19 @@ already done.
    carried here because on rhodep it can only register an inert PWM chip.
    Patch 0092 stays as the plain `gpio-leds` node, which at least claims the pin.
 
-10. **NFC — reads cards; card emulation is started, tag activation is open.**
+10. **NFC — reads cards; card emulation does not work (dead end from NCI).**
     Reading works (patches 0101-0105, `userspace/nfc/rhodep-nfc read`). Card
-    emulation: patches 0110-0111 get the chip into NFC-A listen with a fixed
-    UID/SAK and the chip accepts it, but it does not yet activate as a plain
-    NFC-A tag against a reader — see [`docs/nfc.md`](docs/nfc.md) for the state,
-    the measured card, and the plan by layers. The history below is how the
-    reader was brought up.
+    emulation: patches 0110-0111 build the complete standard-NCI NFC-A listen —
+    fixed UID/SAK, T2T→FRAME mapping, and the `RF_SET_LISTEN_MODE_ROUTING` table
+    the mainline core never had (with NFC-A tech + T2T + MIFARE 0x80 routed to
+    the host). The chip accepts every command with `status 0x0` but never
+    activates as an NFC-A tag when a reader is presented (tested with a Flipper
+    Zero: nothing). Vendor-HAL disassembly confirmed there is no missing NCI
+    command — the NFC-A card-emulation state machine lives entirely in Android's
+    userspace `libnfc-nci`, which Linux mainline has no equivalent for, so this
+    is not reachable without porting that stack. NFC-F (FeliCa) listen does work.
+    See [`docs/nfc.md`](docs/nfc.md) for the full result and evidence. The
+    history below is how the reader was brought up.
 
     Samsung S3FWRN5 at 0x27, with ven=tlmm48, firm=tlmm8, irq=tlmm9 and
     clk_req=tlmm7.

@@ -19,6 +19,18 @@ Changes in the NCI core:
     cascade size from the length of LA_NFCID1, so a 7-byte UID selects double
     cascade on its own. UID and SAK come from userspace on START_POLL, reusing
     NFC_ATTR_TARGET_NFCID1 and NFC_ATTR_TARGET_SEL_RES (no ABI change).
+  - RF_SET_LISTEN_MODE_ROUTING (LMRT): mainline never programs a listen mode
+    routing table. Without it the controller accepts the NFC-A listen config
+    but never activates as a tag (it has no route telling it to answer NFC-A /
+    T2T on the host). We add the opcode, command/response structs and handler,
+    and program a table routing NFC-A technology plus the T2T protocol and the
+    MIFARE Classic protocol (Samsung/NXP proprietary 0x80, from index 5 of the
+    NFA_PROPRIETARY_CFG remap) to the host NFCEE (0x00) for all power states,
+    just before RF_DISCOVER when emulating. MIFARE Classic is presented under
+    protocol 0x80, not plain T2T, so both are routed in the LMRT. Note the
+    MIFARE protocol is NOT added to RF_DISCOVER_MAP -- the controller rejects
+    that command (status 0x1) if 0x80 is listed there -- so only T2T is mapped
+    to the FRAME interface.
   - RF_DISCOVER offers only NFC-A passive listen when emulating (NFC-F would
     bring the chip up as NFC-DEP).
   - The listen-activation notification signals nfc_tm_activated for T2T as well
@@ -28,9 +40,20 @@ The SEL_RES is chosen by userspace (0x00 bare NFC-A, 0x08 MIFARE Classic, 0x20
 ISO-DEP). Answering the tag protocol (Type 2 READ) still needs a listen data
 path, which is later work; a UID-only reader needs nothing more than this.
 
---- a/include/net/nfc/nci.h
-+++ b/include/net/nfc/nci.h
-@@ -122,6 +122,9 @@
+--- a/include/net/nfc/nci.h	2026-09-01 02:32:20.973409009 +0000
++++ b/include/net/nfc/nci.h	2026-09-01 01:33:20.446946000 +0000
+@@ -112,6 +112,10 @@
+ #define NCI_RF_PROTOCOL_ISO_DEP					0x04
+ #define NCI_RF_PROTOCOL_NFC_DEP					0x05
+ #define NCI_RF_PROTOCOL_T5T					0x06
++/* Samsung/NXP proprietary protocol value for MIFARE Classic, remapped by the
++ * NFA_PROPRIETARY_CFG (index 5) in Android's libnfc-nci. A MIFARE Classic tag
++ * is routed and mapped under this protocol, not plain T2T. */
++#define NCI_RF_PROTOCOL_MIFARE					0x80
+ 
+ /* NCI RF Interfaces */
+ #define NCI_RF_INTERFACE_NFCEE_DIRECT				0x00
+@@ -122,6 +126,9 @@
  /* NCI Configuration Parameter Tags */
  #define NCI_PN_ATR_REQ_GEN_BYTES				0x29
  #define NCI_LN_ATR_RES_GEN_BYTES				0x61
@@ -40,8 +63,56 @@ path, which is later work; a UID-only reader needs nothing more than this.
  #define NCI_LA_SEL_INFO						0x32
  #define NCI_LF_PROTOCOL_TYPE					0x50
  #define NCI_LF_CON_BITR_F					0x54
---- a/include/net/nfc/nfc.h
-+++ b/include/net/nfc/nfc.h
+@@ -278,6 +285,37 @@
+ 					[NCI_MAX_NUM_MAPPING_CONFIGS];
+ } __packed;
+ 
++#define NCI_OP_RF_SET_LISTEN_MODE_ROUTING_CMD \
++				nci_opcode_pack(NCI_GID_RF_MGMT, 0x01)
++/* Listen mode routing table (LMRT) entry types */
++#define NCI_LMRT_TYPE_TECHNOLOGY				0x00
++#define NCI_LMRT_TYPE_PROTOCOL					0x01
++/* NFCEE id of the host (the AP itself) */
++#define NCI_NFCEE_ID_HOST					0x00
++/* Power states bitmask: switched on | switched off | battery off */
++#define NCI_LMRT_POWER_STATE_ALL				0x3f
++struct nci_lmrt_tech_entry {
++	__u8	type;		/* NCI_LMRT_TYPE_TECHNOLOGY */
++	__u8	len;		/* 3 */
++	__u8	nfcee_id;
++	__u8	power_state;
++	__u8	technology;
++} __packed;
++struct nci_lmrt_proto_entry {
++	__u8	type;		/* NCI_LMRT_TYPE_PROTOCOL */
++	__u8	len;		/* 3 */
++	__u8	nfcee_id;
++	__u8	power_state;
++	__u8	protocol;
++} __packed;
++#define NCI_MAX_NUM_LMRT_ENTRIES				4
++struct nci_rf_set_listen_mode_routing_cmd {
++	__u8	more;		/* 0 = last packet */
++	__u8	num_entries;
++	__u8	entries[NCI_MAX_NUM_LMRT_ENTRIES *
++			sizeof(struct nci_lmrt_tech_entry)];
++} __packed;
++
+ #define NCI_OP_RF_DISCOVER_CMD		nci_opcode_pack(NCI_GID_RF_MGMT, 0x03)
+ struct disc_config {
+ 	__u8	rf_tech_and_mode;
+@@ -377,6 +415,9 @@
+ 
+ #define NCI_OP_RF_DISCOVER_MAP_RSP	nci_opcode_pack(NCI_GID_RF_MGMT, 0x00)
+ 
++#define NCI_OP_RF_SET_LISTEN_MODE_ROUTING_RSP \
++				nci_opcode_pack(NCI_GID_RF_MGMT, 0x01)
++
+ #define NCI_OP_RF_DISCOVER_RSP		nci_opcode_pack(NCI_GID_RF_MGMT, 0x03)
+ 
+ #define NCI_OP_RF_DISCOVER_SELECT_RSP	nci_opcode_pack(NCI_GID_RF_MGMT, 0x04)
+--- a/include/net/nfc/nfc.h	2026-09-01 02:32:20.975409009 +0000
++++ b/include/net/nfc/nfc.h	2026-09-01 00:15:13.891657005 +0000
 @@ -178,6 +178,9 @@
  	struct nfc_target *active_target;
  	bool dep_link_up;
@@ -52,8 +123,8 @@ path, which is later work; a UID-only reader needs nothing more than this.
  	u32 supported_protocols;
  
  	struct list_head secure_elements;
---- a/net/nfc/netlink.c
-+++ b/net/nfc/netlink.c
+--- a/net/nfc/netlink.c	2026-09-01 02:32:20.977409009 +0000
++++ b/net/nfc/netlink.c	2026-09-01 00:15:13.891657005 +0000
 @@ -49,6 +49,9 @@
  	[NFC_ATTR_VENDOR_ID] = { .type = NLA_U32 },
  	[NFC_ATTR_VENDOR_SUBCMD] = { .type = NLA_U32 },
@@ -85,14 +156,18 @@ path, which is later work; a UID-only reader needs nothing more than this.
  	rc = nfc_start_poll(dev, im_protocols, tm_protocols);
  	if (!rc)
  		dev->genl_data.poll_req_portid = info->snd_portid;
---- a/net/nfc/nci/core.c
-+++ b/net/nfc/nci/core.c
-@@ -205,6 +205,15 @@
+--- a/net/nfc/nci/core.c	2026-09-01 02:32:20.979409009 +0000
++++ b/net/nfc/nci/core.c	2026-09-01 02:31:27.305126012 +0000
+@@ -205,6 +205,19 @@
  			(*num)++;
  		}
  
 +		/* Map T2T listen to the FRAME interface so the controller can
-+		 * present itself as an NFC-A tag (card emulation). */
++		 * present itself as an NFC-A tag (card emulation). The MIFARE
++		 * Classic protocol (proprietary 0x80) is NOT mapped here: the
++		 * controller rejects RF_DISCOVER_MAP (status 0x1) if 0x80 is
++		 * listed, so MIFARE is only routed via the listen mode routing
++		 * table below, and presented on the T2T/FRAME interface. */
 +		if (*num < NCI_MAX_NUM_MAPPING_CONFIGS) {
 +			cfg[*num].rf_protocol = NCI_RF_PROTOCOL_T2T;
 +			cfg[*num].mode = NCI_DISC_MAP_MODE_LISTEN;
@@ -103,7 +178,7 @@ path, which is later work; a UID-only reader needs nothing more than this.
  		if (*num == NCI_MAX_NUM_MAPPING_CONFIGS)
  			break;
  	}
-@@ -288,10 +297,14 @@
+@@ -288,10 +301,14 @@
  			NCI_NFC_A_PASSIVE_LISTEN_MODE;
  		cmd.disc_configs[cmd.num_disc_configs].frequency = 1;
  		cmd.num_disc_configs++;
@@ -122,7 +197,64 @@ path, which is later work; a UID-only reader needs nothing more than this.
  	}
  
  	nci_send_cmd(ndev, NCI_OP_RF_DISCOVER_CMD,
-@@ -854,7 +867,8 @@
+@@ -825,6 +842,56 @@
+ 	return nci_set_config(ndev, NCI_LF_CON_BITR_F, 1, &val);
+ }
+ 
++static void nci_rf_set_listen_mode_routing_req(struct nci_dev *ndev,
++					       const void *opt)
++{
++	struct nci_rf_set_listen_mode_routing_cmd cmd;
++	struct nci_lmrt_tech_entry *tech;
++	struct nci_lmrt_proto_entry *proto;
++	__u8 *p = cmd.entries;
++
++	memset(&cmd, 0, sizeof(cmd));
++	cmd.more = 0;
++	cmd.num_entries = 0;
++
++	/* Route NFC-A technology to the host so the controller answers the
++	 * anticollision itself and comes up as an NFC-A tag. */
++	tech = (struct nci_lmrt_tech_entry *)p;
++	tech->type = NCI_LMRT_TYPE_TECHNOLOGY;
++	tech->len = 3;
++	tech->nfcee_id = NCI_NFCEE_ID_HOST;
++	tech->power_state = NCI_LMRT_POWER_STATE_ALL;
++	tech->technology = NCI_NFC_RF_TECHNOLOGY_A;
++	p += sizeof(*tech);
++	cmd.num_entries++;
++
++	/* Route the Type 2 tag protocol to the host. */
++	proto = (struct nci_lmrt_proto_entry *)p;
++	proto->type = NCI_LMRT_TYPE_PROTOCOL;
++	proto->len = 3;
++	proto->nfcee_id = NCI_NFCEE_ID_HOST;
++	proto->power_state = NCI_LMRT_POWER_STATE_ALL;
++	proto->protocol = NCI_RF_PROTOCOL_T2T;
++	p += sizeof(*proto);
++	cmd.num_entries++;
++
++	/* Route the MIFARE Classic protocol (Samsung/NXP proprietary 0x80) to
++	 * the host as well. A MIFARE Classic card (SAK 0x08) is presented under
++	 * this protocol, not plain T2T, so without this entry the controller
++	 * accepts the NFC-A listen config but never activates for MIFARE. */
++	proto = (struct nci_lmrt_proto_entry *)p;
++	proto->type = NCI_LMRT_TYPE_PROTOCOL;
++	proto->len = 3;
++	proto->nfcee_id = NCI_NFCEE_ID_HOST;
++	proto->power_state = NCI_LMRT_POWER_STATE_ALL;
++	proto->protocol = NCI_RF_PROTOCOL_MIFARE;
++	p += sizeof(*proto);
++	cmd.num_entries++;
++
++	nci_send_cmd(ndev, NCI_OP_RF_SET_LISTEN_MODE_ROUTING_CMD,
++		     2 + (p - cmd.entries), &cmd);
++}
++
+ static int nci_start_poll(struct nfc_dev *nfc_dev,
+ 			  __u32 im_protocols, __u32 tm_protocols)
+ {
+@@ -854,7 +921,8 @@
  			return -EBUSY;
  	}
  
@@ -132,7 +264,7 @@ path, which is later work; a UID-only reader needs nothing more than this.
  		rc = nci_set_local_general_bytes(nfc_dev);
  		if (rc) {
  			pr_err("failed to set local general bytes\n");
-@@ -862,7 +876,22 @@
+@@ -862,7 +930,40 @@
  		}
  	}
  
@@ -140,24 +272,42 @@ path, which is later work; a UID-only reader needs nothing more than this.
 +	if (nfc_dev->emu_nfcid1_len) {
 +		/* NFC-A tag (card emulation): send a clean NFC-A listen config,
 +		 * NOT the NFC-DEP listen parameters, so a reader sees a tag and
-+		 * not a P2P peer. The controller derives the UID cascade size
-+		 * from the length of LA_NFCID1. */
++		 * not a P2P peer. */
 +		__u8 v;
 +
++		/* LA_BIT_FRAME_SDD and LA_PLATFORM_CONFIG together build the low
++		 * byte of SENS_RES (ATQA). The top two bits of LA_PLATFORM_CONFIG
++		 * encode the UID/cascade size and MUST agree with the length of
++		 * LA_NFCID1, or the controller accepts every SET_CONFIG (status
++		 * 0x0) yet never answers the anticollision: 4-byte UID -> single
++		 * cascade (0x00), 7-byte -> double (0x40), 10-byte -> triple
++		 * (0x80). LA_BIT_FRAME_SDD advertises a single anticollision bit
++		 * frame (0x04 is the NCI default; exactly one bit must be set). */
 +		v = 0x04;
 +		nci_set_config(ndev, NCI_LA_BIT_FRAME_SDD, 1, &v);
-+		v = 0x00;
++		if (nfc_dev->emu_nfcid1_len >= 10)
++			v = 0x80;
++		else if (nfc_dev->emu_nfcid1_len >= 7)
++			v = 0x40;
++		else
++			v = 0x00;
 +		nci_set_config(ndev, NCI_LA_PLATFORM_CONFIG, 1, &v);
 +		nci_set_config(ndev, NCI_LA_NFCID1,
 +			       nfc_dev->emu_nfcid1_len, nfc_dev->emu_nfcid1);
 +		v = nfc_dev->emu_sel_res;
 +		nci_set_config(ndev, NCI_LA_SEL_INFO, 1, &v);
++
++		/* Program the listen mode routing table so NFC-A / T2T are
++		 * routed to the host; without this the controller accepts the
++		 * NFC-A listen config but never activates as a tag. */
++		nci_request(ndev, nci_rf_set_listen_mode_routing_req, NULL,
++			    msecs_to_jiffies(NCI_RF_DISC_TIMEOUT));
 +	} else if (tm_protocols & NFC_PROTO_NFC_DEP_MASK) {
  		rc = nci_set_listen_parameters(nfc_dev);
  		if (rc)
  			pr_err("failed to set listen parameters\n");
---- a/net/nfc/nci/ntf.c
-+++ b/net/nfc/nci/ntf.c
+--- a/net/nfc/nci/ntf.c	2026-09-01 02:32:20.980409009 +0000
++++ b/net/nfc/nci/ntf.c	2026-09-01 00:15:13.891657005 +0000
 @@ -882,6 +882,14 @@
  					       ndev->remote_gb_len);
  			if (err != NCI_STATUS_OK)
@@ -173,3 +323,33 @@ path, which is later work; a UID-only reader needs nothing more than this.
  		}
  	}
  
+--- a/net/nfc/nci/rsp.c	2026-09-01 02:32:20.982409009 +0000
++++ b/net/nfc/nci/rsp.c	2026-09-01 00:15:13.892657005 +0000
+@@ -182,6 +182,16 @@
+ 	nci_req_complete(ndev, status);
+ }
+ 
++static void nci_rf_set_listen_mode_routing_rsp_packet(struct nci_dev *ndev,
++						      const struct sk_buff *skb)
++{
++	__u8 status = skb->data[0];
++
++	pr_debug("status 0x%x\n", status);
++
++	nci_req_complete(ndev, status);
++}
++
+ static void nci_rf_disc_rsp_packet(struct nci_dev *ndev,
+ 				   const struct sk_buff *skb)
+ {
+@@ -392,6 +402,10 @@
+ 		nci_rf_disc_map_rsp_packet(ndev, skb);
+ 		break;
+ 
++	case NCI_OP_RF_SET_LISTEN_MODE_ROUTING_RSP:
++		nci_rf_set_listen_mode_routing_rsp_packet(ndev, skb);
++		break;
++
+ 	case NCI_OP_RF_DISCOVER_RSP:
+ 		nci_rf_disc_rsp_packet(ndev, skb);
+ 		break;

@@ -1362,7 +1362,7 @@ docs/                       extra notes
 
 # The kernel (shared with the pmOS port)
 
-## The 94 applied patches (`kernel/patches/`, applied in this order)
+## The 95 applied patches (`kernel/patches/`, applied in this order)
 
 The order below is the aport's `source=` order, which is what `patch` sees; it
 is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
@@ -1500,6 +1500,12 @@ is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
                                         mode routing table (RF_SET_LISTEN_MODE_ROUTING)
                                         routes NFC-A/T2T to the host so the chip
                                         activates as a tag rather than a P2P peer
+0112 nfc-s3fwrn5-enumerate-nfcees        issue NFCEE_DISCOVER at the end of
+                                        nci_open_device so the embedded secure
+                                        element (the eSE that holds a provisioned
+                                        MIFARE transit card) is enumerated --
+                                        first step towards card emulation via the
+                                        eSE
 ```
 
 0062 and 0063 are kept but neither changes the glitched lines they were written
@@ -3400,19 +3406,24 @@ already done.
    carried here because on rhodep it can only register an inert PWM chip.
    Patch 0092 stays as the plain `gpio-leds` node, which at least claims the pin.
 
-10. **NFC — reads cards; card emulation does not work (dead end from NCI).**
+10. **NFC — reads cards; card emulation in progress via the secure element.**
     Reading works (patches 0101-0105, `userspace/nfc/rhodep-nfc read`). Card
-    emulation: patches 0110-0111 build the complete standard-NCI NFC-A listen —
-    fixed UID/SAK, T2T→FRAME mapping, and the `RF_SET_LISTEN_MODE_ROUTING` table
-    the mainline core never had (with NFC-A tech + T2T + MIFARE 0x80 routed to
-    the host). The chip accepts every command with `status 0x0` but never
-    activates as an NFC-A tag when a reader is presented (tested with a Flipper
-    Zero: nothing). Vendor-HAL disassembly confirmed there is no missing NCI
-    command — the NFC-A card-emulation state machine lives entirely in Android's
-    userspace `libnfc-nci`, which Linux mainline has no equivalent for, so this
-    is not reachable without porting that stack. NFC-F (FeliCa) listen does work.
-    See [`docs/nfc.md`](docs/nfc.md) for the full result and evidence. The
-    history below is how the reader was brought up.
+    emulation went down two paths. Host emulation (the chip emulates the tag)
+    is a dead end: patches 0110-0111 build the complete standard-NCI NFC-A listen
+    and the chip accepts every command with `status 0x0` but never activates as
+    a tag — that state machine lives in Android's userspace `libnfc-nci`, and a
+    MIFARE Classic tag cannot be emulated from the host on any platform (Crypto1
+    lives in the secure element). The real target — a MIFARE transit card (SUBE)
+    that an Android app provisioned into the phone's embedded secure element —
+    takes the SE path instead: the applet persists in the eSE across the OS
+    change and the eSE runs Crypto1 itself. Patch 0112 fixes the mainline NFCEE
+    code (it spoke NCI 1.0 to this NCI 2.0 part) and now enumerates the eSE from
+    Linux: NFCEE id 0x83, supported protocol 0x80 (MIFARE). What remains is to
+    enable that NFCEE and route the MIFARE listen to it (NFCEE_MODE_SET + a
+    MIFARE→0x83 entry in the routing table 0111 already builds, + RF_DISCOVER).
+    NFC-F (FeliCa) listen works. See [`docs/nfc.md`](docs/nfc.md) for the full
+    trace, the NFCEE decode, and the remaining steps. The history below is how
+    the reader was brought up.
 
     Samsung S3FWRN5 at 0x27, with ven=tlmm48, firm=tlmm8, irq=tlmm9 and
     clk_req=tlmm7.

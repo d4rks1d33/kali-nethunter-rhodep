@@ -19,15 +19,26 @@ Reading every passive tag technology the chip advertises:
 Verified on hardware with a MIFARE Classic 1K (UID, ATQA 0x0044, SAK 0x08) and
 an EMV card (ISO-DEP, SAK 0x20).
 
-**Card emulation (acting as a tag for another reader, e.g. a Flipper) does not
-work** and is not a small addition -- see the last section. Patch 0111 builds
-the full standard-NCI NFC-A listen setup (fixed NFCID1, T2T FRAME mapping, and
-the listen mode routing table the mainline core lacked, including a MIFARE 0x80
-route); the chip accepts all of it with `status 0x0` but never activates as an
-NFC-A tag when a reader is presented. Confirmed dead end from standard NCI: the
-NFC-A card-emulation state machine lives in Android's userspace `libnfc-nci`,
-and Linux mainline has no host card emulation path. NFC-F (FeliCa) listen does
-work.
+**Card emulation is a work in progress with a clear path.** Two approaches were
+tried; the second is the right one and is now unblocked:
+
+- **Host card emulation (the chip emulates the tag itself) does not work** and
+  is a dead end for MIFARE. Patch 0111 builds the full standard-NCI NFC-A listen
+  setup and the chip accepts all of it (`status 0x0`) but never activates as an
+  NFC-A tag; the NFC-A card-emulation state machine lives in Android's userspace
+  `libnfc-nci` and Linux mainline has no host path. And crucially a **MIFARE
+  Classic tag cannot be emulated from the host on any platform** -- Crypto1 lives
+  in the secure element, not the host.
+- **Secure-element card emulation (the right way) is reachable.** The target is a
+  transit card (SUBE) that an Android app provisioned into the phone's **embedded
+  secure element (eSE)**; the applet lives in the eSE's own secure storage,
+  survives the OS change, and the eSE runs the MIFARE/Crypto1 exchange
+  autonomously once the controller routes the field to it. Patch 0112 fixes the
+  mainline NFCEE code (which spoke NCI 1.0 to this NCI 2.0 part) and now
+  **enumerates the eSE from Linux**: NFCEE id **0x83**, whose one supported
+  protocol is **0x80 (MIFARE)**. What remains is to enable that NFCEE and route
+  the MIFARE protocol to it in listen mode. See "Card emulation via the secure
+  element" below. NFC-F (FeliCa) listen also works (autonomously, in firmware).
 
 ## The one thing that must be set
 
@@ -308,15 +319,18 @@ family, so this is written as a build spec, not a summary.**
   needs the data path below.
 - **ISO-DEP / Type 4 (HCE with APDUs) -- target, achievable.** This is real
   Android HCE: SELECT-by-AID and APDU exchange, dispatched in userspace.
-- **MIFARE Classic emulation (SAK 0x08, Crypto1) -- NOT achievable from the
-  host.** Confirmed from both the AOSP NFA source and the vendor HAL: libnfc-nci
-  does **not** emulate MIFARE Classic (no Crypto1, no sector/key logic); AOSP CE
-  covers only Type-3 (NFC-F), Type-4 (ISO-DEP) and NFC-DEP. `LEGACY_MIFARE_READER=1`
-  in the conf is a *reader/poll* flag, not emulation. MIFARE Classic CE requires
-  a licensed NXP MIFARE applet in a secure element (UICC/eSE), routed off-host --
-  never reachable from a Linux userspace stack. So the target MIFARE door can be
-  cloned as a plain NFC-A tag *only if* it authenticates by UID alone; if it runs
-  a Crypto1 sector auth, this chip cannot emulate it from Linux.
+- **MIFARE Classic emulation (SAK 0x08, Crypto1) from the *host* -- NOT
+  achievable, on any platform.** libnfc-nci does not emulate MIFARE Classic (no
+  Crypto1, no sector/key logic); AOSP host CE covers only Type-4 (ISO-DEP) and
+  Type-3 (NFC-F). `LEGACY_MIFARE_READER=1` in the conf is a *reader* flag.
+  Crypto1 lives in silicon (the SE), not the host.
+- **MIFARE Classic emulation via the *secure element* -- achievable, and is how
+  Android does it here.** The card is provisioned into the eSE; the eSE runs
+  Crypto1 autonomously; the host only has to enable the eSE NFCEE and route the
+  MIFARE protocol to it. This is the path patch 0112 opens and the section
+  "Card emulation via the secure element" describes. It works regardless of
+  whether the door does a Crypto1 sector auth, because the real card's keys and
+  data are inside the eSE.
 
 ### Step 1: make the chip actually activate (activation experiments)
 
@@ -448,3 +462,86 @@ PMIDs and we send the standard 0x30-0x34 tags, SET_CONFIG can return `status 0x0
 yet not take effect. This is worth checking against EXP-1/EXP-3 if the standard
 tags do not move the SENS_RES (confirm with CORE_GET_CONFIG whether the values
 read back).
+
+## Card emulation via the secure element (the working path)
+
+The host-emulation route above is a dead end for the actual goal: the target is
+a MIFARE Classic transit card (SUBE), and MIFARE Classic cannot be emulated from
+the host on any platform -- Crypto1 lives in a secure element. But that is
+exactly how the card works on Android: a transit app provisions the card into
+the phone's **embedded secure element (eSE)**, the applet lives in the eSE's own
+secure storage, and the eSE answers a reader autonomously (it runs Crypto1 in
+hardware) as long as the NFC controller routes the RF field to it. The eSE is
+independent of the application processor, so **the provisioned card survives the
+switch from Android to Linux** -- it is still in the eSE after flashing pmOS.
+
+So the job on Linux is not to emulate anything: it is to (1) find the eSE, (2)
+enable it, and (3) tell the controller to route the MIFARE listen to it. The
+host does nothing in real time; the eSE does the card.
+
+### The eSE is reachable from Linux (patch 0112)
+
+The mainline NFCEE code was written for NCI 1.0 and this controller is NCI 2.0
+(`nci_ver 0x20`), which broke enumeration in two places. Patch 0112 fixes both:
+
+- **NFCEE_DISCOVER_CMD**: NCI 2.0 dropped the Discovery Action byte, so the
+  command has no payload. Mainline sent the 1.0 one-byte action and the chip
+  answered `SYNTAX_ERROR (0x05)`. Fixed to send an empty command on NCI 2.0.
+- **NFCEE_DISCOVER_RSP**: NCI 2.0 shortened it to a single status byte (the
+  NFCEE count/details moved to per-NFCEE NFCEE_DISCOVER_NTFs). Mainline required
+  the 1.0 two-byte form and treated the reply as a protocol error. Fixed to
+  accept the 2.0 form and let the NTF complete the request.
+
+Patch 0112 also issues NFCEE_DISCOVER once at the end of `nci_open_device`
+(nothing in mainline ever does, since the s3fwrn5 driver has no `discover_se`).
+
+Measured on the phone, the well-formed exchange:
+
+```
+NFCEE_DISCOVER_CMD   GID=0x2 OID=0x0 plen=0        (empty, NCI 2.0)
+NFCEE_DISCOVER_RSP   status 0x0, num_nfcee 0x2
+NFCEE_DISCOVER_NTF   83 01 01 80 01 a0 01 02 00    -> NFCEE id 0x83
+NFCEE_DISCOVER_NTF   15 01 01 00 01 04 06 00 00 02 00 3b 01 00  -> NFCEE id 0x15
+```
+
+Decoding the NTFs (NCI 2.0: id, status, num_protocols, protocols[], num_tlvs,
+tlvs[]):
+
+- **NFCEE 0x83 -- the eSE.** status 0x01 (connected), one protocol **0x80
+  (MIFARE)**, one Samsung TLV `A0 01 02`. Its only protocol being MIFARE is the
+  signature of the transit-card applet. **This is where the SUBE card lives.**
+- **NFCEE 0x15 -- the UICC (SIM).** status 0x01, protocol 0x00 (undetermined),
+  a TLV whose value carries an ATR-like `3B`. Not relevant to the MIFARE card.
+
+And the controller's `nfcc_features` from CORE_INIT is `0x80067e1a`: technology-
+based routing supported, multiple power states (switched-on and switched-off,
+so the card can answer with the screen off), `max_routing_table_size` 1170.
+Supported RF interfaces are 0x00/0x01/0x02/0x03 (NFCEE Direct, Frame, ISO-DEP,
+NFC-DEP).
+
+### What remains (next session)
+
+The card should answer a reader after three more steps, all standard NCI the
+controller already accepts:
+
+1. **Enable the eSE**: `NFCEE_MODE_SET(0x83, ENABLE)` -> `22 00 02 83 01`. Needs
+   a small addition (the generic `nci_nfcee_mode_set()` exists; it just has to be
+   called for 0x83, and the NFCEE_MODE_SET_NTF status checked).
+2. **Route MIFARE to the eSE**: reuse the `RF_SET_LISTEN_MODE_ROUTING` already
+   implemented in patch 0111, but change the destination of the MIFARE (0x80)
+   protocol entry from the host (0x00) to the eSE (0x83). Target frame:
+   `21 01 07 00 01 01 03 83 3f 80` (one protocol route: MIFARE -> NFCEE 0x83, all
+   power states). Drop the host-targeted NFC-A/T2T/host entries for this mode.
+3. **Listen**: `RF_DISCOVER` with NFC-A passive listen. The eSE then answers the
+   reader's REQA/anticollision/auth itself; the host sees nothing (as with the
+   autonomous FeliCa), which is expected and fine.
+
+Then present the phone to the actual transit reader (or a Proxmark) and confirm
+the eSE answers as the provisioned card. No userspace data path and no Crypto1
+in Linux are needed -- the eSE is the card.
+
+The larger, upstreamable version of this is real secure-element support in the
+s3fwrn5 driver (`discover_se`/`enable_se`/`se_io`, a mechanical port of
+`drivers/nfc/st-nci/se.c`; ~80% of the machinery already exists generically in
+`net/nfc/nci/`), which would also expose the eSE for APDU I/O. For just making
+the transit card work, steps 1-3 above are enough.

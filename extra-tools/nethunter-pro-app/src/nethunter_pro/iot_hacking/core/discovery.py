@@ -21,6 +21,7 @@ import socket
 import struct
 import subprocess
 import time
+import xml.etree.ElementTree as ET
 from typing import Callable
 
 from .fingerprint import FingerprintEngine, Observations
@@ -31,6 +32,40 @@ from .registry import DeviceRegistry
 # ----------------------------------------------------------- helpers
 def _now() -> float:
     return time.monotonic()
+
+
+async def _iface_subnet(iface: str) -> str | None:
+    """Return the subnet the interface lives on, e.g. ``192.168.1.0/24``.
+
+    Reads ``ip -4 -o addr show dev IFACE`` and translates the
+    ``a.b.c.d/PREFIX`` field into ``network/PREFIX``. Returns None on
+    a downed interface or a /32 address.
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ip", "-4", "-o", "addr", "show", "dev", iface,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL)
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+    except (FileNotFoundError, asyncio.TimeoutError):
+        return None
+    text = out.decode(errors="replace")
+    m = re.search(r"inet\s+(\d+\.\d+\.\d+\.\d+)/(\d+)", text)
+    if not m:
+        return None
+    ip = m.group(1)
+    prefix = int(m.group(2))
+    if prefix >= 32:
+        return None
+    octs = [int(x) for x in ip.split(".")]
+    # Mask off host bits so we return the network address
+    mask = (0xFFFFFFFF << (32 - prefix)) & 0xFFFFFFFF
+    ip_int = (octs[0] << 24) | (octs[1] << 16) | (octs[2] << 8) | octs[3]
+    net_int = ip_int & mask
+    net = "%d.%d.%d.%d" % (
+        (net_int >> 24) & 0xFF, (net_int >> 16) & 0xFF,
+        (net_int >> 8) & 0xFF, net_int & 0xFF)
+    return "%s/%d" % (net, prefix)
 
 
 async def _sh(cmd: list[str], timeout: float = 10.0) -> str:
@@ -59,18 +94,28 @@ async def _sh(cmd: list[str], timeout: float = 10.0) -> str:
 
 # ----------------------------------------------------------- probes
 async def probe_arp(iface: str,
-                    on_host: Callable[[str, str, str], None]) -> None:
+                    on_host: Callable[[str, str, str], None],
+                    root_runner=None) -> None:
     """arp-scan the local network, emit (ip, mac, vendor) triples.
 
-    Uses the arp-scan binary (part of the app's install.sh deps). Falls
-    back silently if arp-scan is missing -- other probes still run.
+    ``arp-scan`` needs CAP_NET_RAW to open a raw packet socket, so it
+    fails silently when the GUI process runs as unprivileged ``kali``.
+    ``root_runner`` (when provided) is an async callable that runs the
+    command via the DBus root helper -- see :class:`Discovery` for the
+    wiring. We fall back to the plain subprocess for the CLI usage.
     """
-    out = await _sh(
-        ["arp-scan", "--interface=" + iface, "--localnet",
-         "--ouifile=/usr/share/arp-scan/ieee-oui.txt",
-         "--macfile=/dev/null"],
-        timeout=15,
-    )
+    argv = ["arp-scan", "--interface=" + iface, "--localnet",
+            "--ouifile=/usr/share/arp-scan/ieee-oui.txt",
+            "--macfile=/dev/null"]
+    if root_runner is not None:
+        out = await root_runner(argv, timeout=20)
+    else:
+        out = await _sh(argv, timeout=15)
+    _parse_arp_scan_output(out, on_host)
+
+
+def _parse_arp_scan_output(
+        out: str, on_host: Callable[[str, str, str], None]) -> None:
     for line in out.splitlines():
         # arp-scan lines: "IP\tMAC\tVENDOR"
         parts = line.split("\t")
@@ -84,6 +129,192 @@ async def probe_arp(iface: str,
         if not re.match(r"^[0-9a-fA-F:]{17}$", mac):
             continue
         on_host(ip, mac.upper(), vendor)
+
+
+async def probe_icmp_sweep(subnet: str,
+                            on_host: Callable[[str], None]) -> None:
+    """Ping every host in ``subnet`` and emit responsive IPs.
+
+    Backup discovery for when arp-scan can't run (unprivileged app,
+    misconfigured Wi-Fi) or when arp-scan misses a host (Windows PC
+    with the firewall dropping ARP replies to unknown senders is more
+    common than one would hope). ``ping -c 1 -W 1`` is what iputils
+    ships and works without root on Linux since it uses SOCK_DGRAM.
+    """
+    if "/" not in subnet:
+        return
+    try:
+        base, prefix = subnet.split("/")
+        prefix = int(prefix)
+    except ValueError:
+        return
+    if prefix < 24:
+        return  # avoid pinging a /16 by accident
+    octets = base.split(".")
+    if len(octets) != 4:
+        return
+    net = ".".join(octets[:3])
+    sem = asyncio.Semaphore(30)
+
+    async def one(ip: str) -> None:
+        async with sem:
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "ping", "-c", "1", "-W", "1", ip,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL)
+                rc = await proc.wait()
+                if rc == 0:
+                    on_host(ip)
+            except FileNotFoundError:
+                return
+
+    hosts = 2 ** (32 - prefix) - 2
+    tasks = [one("%s.%d" % (net, i)) for i in range(1, min(hosts, 254) + 1)]
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+
+async def probe_nmap_os(hosts: list[str], root_runner=None
+                          ) -> dict[str, dict]:
+    """Run nmap with OS + service detection against ``hosts``.
+
+    Returns ``{ip: {"vendor": str, "os": str, "os_accuracy": int,
+                     "hostname": str, "services": [{"port": int,
+                     "service": str, "version": str}, ...]}}``.
+
+    ``-O`` (OS detection) needs raw sockets, so this only produces
+    useful results through the DBus root runner. The plain-subprocess
+    fallback still runs the scan but nmap prints a warning and skips
+    the OS block -- the service versions are still valuable.
+    """
+    if not hosts:
+        return {}
+    argv = [
+        "nmap",
+        "-Pn",              # skip discovery: we already know hosts are up
+        "-sS",              # SYN scan
+        "-O",               # OS detection
+        "-sV",              # service + version
+        "--osscan-guess",   # accept a "close enough" OS match
+        "--max-os-tries", "1",
+        "--top-ports", "40",
+        "--host-timeout", "20s",
+        "-T4",
+        "--max-retries", "1",
+        "--min-parallelism", "10",
+        "-oX", "-",         # XML on stdout so we can parse
+    ] + list(hosts)
+    if root_runner is not None:
+        out = await root_runner(argv, timeout=90)
+    else:
+        out = await _sh(argv, timeout=90)
+    return _parse_nmap_xml(out)
+
+
+def _parse_nmap_xml(xml: str) -> dict[str, dict]:
+    """Best-effort parse of nmap's XML output.
+
+    Uses ElementTree from stdlib; we only look at ``<host>`` /
+    ``<address>`` / ``<hostname>`` / ``<os>`` / ``<port>`` / ``<service>``
+    so a mangled XML tail (nmap sometimes gets killed mid-write) still
+    yields whatever hosts landed before the crash.
+    """
+    if not xml or "<nmaprun" not in xml:
+        return {}
+    out: dict[str, dict] = {}
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        # Truncated output; drop trailing garbage until it parses.
+        cut = xml.rfind("</host>")
+        if cut < 0:
+            return {}
+        try:
+            root = ET.fromstring(xml[:cut] + "</host></nmaprun>")
+        except ET.ParseError:
+            return {}
+    for host in root.findall("host"):
+        ip = ""
+        vendor = ""
+        for addr in host.findall("address"):
+            atype = addr.get("addrtype", "")
+            if atype == "ipv4":
+                ip = addr.get("addr", "")
+            elif atype == "mac":
+                vendor = addr.get("vendor", "") or vendor
+        if not ip:
+            continue
+        rec: dict = {"vendor": vendor, "os": "", "os_accuracy": 0,
+                      "hostname": "", "services": []}
+        for hn in host.findall("hostnames/hostname"):
+            name = hn.get("name", "")
+            if name:
+                rec["hostname"] = name
+                break
+        # OS detection: take the highest-accuracy match.
+        best = None
+        best_acc = 0
+        for match in host.findall("os/osmatch"):
+            try:
+                acc = int(match.get("accuracy", "0"))
+            except ValueError:
+                acc = 0
+            if acc > best_acc:
+                best_acc = acc
+                best = match.get("name", "")
+        if best:
+            rec["os"] = best
+            rec["os_accuracy"] = best_acc
+        for p in host.findall("ports/port"):
+            state = p.find("state")
+            if state is None or state.get("state") != "open":
+                continue
+            try:
+                num = int(p.get("portid", "0"))
+            except ValueError:
+                continue
+            svc = p.find("service")
+            svc_name = svc.get("name", "") if svc is not None else ""
+            svc_ver = svc.get("product", "") if svc is not None else ""
+            if svc is not None and svc.get("version"):
+                svc_ver = (svc_ver + " " + svc.get("version")).strip()
+            rec["services"].append({
+                "port": num, "service": svc_name,
+                "version": svc_ver,
+            })
+        out[ip] = rec
+    return out
+
+
+async def probe_arp_neigh(iface: str,
+                            on_host: Callable[[str, str, str],
+                                              None]) -> None:
+    """Read the kernel's ARP cache and emit (ip, mac, "") triples.
+
+    After an ICMP sweep the kernel populated its neighbour table with
+    every host that answered. No root needed. Complementary to a real
+    arp-scan probe: catches Windows machines that answer ping but drop
+    arp-scan's crafted request.
+    """
+    out = await _sh(["ip", "-4", "neigh", "show", "dev", iface],
+                    timeout=5)
+    # Expected line shape: "IP lladdr MAC STATE" -- 4 tokens minimum.
+    # The upstream port was looking for >=5 which is why it never
+    # emitted any host in the field even though the cache was full.
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) < 4 or "lladdr" not in parts:
+            continue
+        ip = parts[0]
+        idx = parts.index("lladdr")
+        if idx + 1 >= len(parts):
+            continue
+        mac = parts[idx + 1]
+        if not re.match(r"^\d+\.\d+\.\d+\.\d+$", ip):
+            continue
+        if not re.match(r"^[0-9a-fA-F:]{17}$", mac):
+            continue
+        on_host(ip, mac.upper(), "")
 
 
 async def probe_mdns(timeout: float,
@@ -491,15 +722,23 @@ class Discovery:
     ``await discovery.run(iface)``. Signals fire on the registry as
     devices are found -- the UI subscribes to those, not to Discovery
     directly.
+
+    ``root_runner`` is an async ``(argv, timeout) -> str`` callable
+    that runs privileged commands via the DBus helper. When ``None``
+    (CLI usage / tests) we fall back to a plain subprocess -- which
+    means arp-scan produces zero rows under an unprivileged user, and
+    the ICMP-sweep + kernel ARP-cache fallbacks take over.
     """
     def __init__(self, registry: DeviceRegistry,
                  fingerprint: FingerprintEngine,
                  iface: str = "wlan0",
-                 tcp_ports: list[int] | None = None) -> None:
+                 tcp_ports: list[int] | None = None,
+                 root_runner=None) -> None:
         self.registry = registry
         self.fingerprint = fingerprint
         self.iface = iface
         self.tcp_ports = tcp_ports or DEFAULT_TCP_PORTS
+        self.root_runner = root_runner
         self._task: asyncio.Task | None = None
         self._stopping = False
         # per-host: {ip: {mac, vendor, ports:[], observations, ...}}
@@ -519,9 +758,67 @@ class Discovery:
         """Execute the full discovery pipeline once."""
         prog = on_progress or (lambda _msg: None)
 
-        # ---- L2 sweep (arp-scan): populate hosts dict ------------
+        # ---- L2 sweep: arp-scan (root) + ICMP + neigh table --------
+        # We layer three passes so the run works whether or not we
+        # have CAP_NET_RAW:
+        #   1. arp-scan through the root helper if available -- the
+        #      most complete answer, catches devices even if they
+        #      block ICMP.
+        #   2. ICMP sweep of the /24 (SOCK_DGRAM ping, no root
+        #      needed) -- catches Windows PCs that answer ping but
+        #      not crafted ARP.
+        #   3. Read /proc/net/arp (or `ip neigh`) after the sweep --
+        #      the kernel just populated it with everything that
+        #      answered ping.
         prog("arp-scan on " + self.iface)
-        await probe_arp(self.iface, self._on_arp_host)
+        await probe_arp(self.iface, self._on_arp_host,
+                          root_runner=self.root_runner)
+        subnet = await _iface_subnet(self.iface)
+        if subnet:
+            prog("ICMP sweep " + subnet)
+            hit_ips: set[str] = set()
+            await probe_icmp_sweep(subnet, hit_ips.add)
+            prog("reading kernel ARP cache")
+            await probe_arp_neigh(self.iface, self._on_arp_host)
+            for ip in hit_ips:
+                if ip not in self._hosts:
+                    self._hosts[ip] = {"mac": "", "vendor": "",
+                                        "ports": []}
+
+        # ---- nmap OS + service detection (root-only) --------------
+        # Nmap's OS fingerprinter gives us: vendor from the MAC OUI
+        # (even when arp-scan missed the row), an OS family guess
+        # ("HP LaserJet Printer", "Linux 4.19", "Apple iOS"),
+        # and service-version banners on the top 40 ports. All three
+        # feed the fingerprint engine -- an OS regex like "printer"
+        # /"iOS"/"Linux 3\." are much cheaper hints than crafting
+        # per-vendor mDNS or HTTP probes.
+        if self.root_runner is not None and self._hosts:
+            prog("nmap OS + services")
+            live_ips = [ip for ip in self._hosts]
+            try:
+                nmap = await probe_nmap_os(live_ips,
+                                            root_runner=self.root_runner)
+            except Exception:  # noqa: BLE001
+                nmap = {}
+            for ip, info in nmap.items():
+                host = self._hosts.setdefault(
+                    ip, {"mac": "", "vendor": "", "ports": []})
+                if info.get("vendor") and not host.get("vendor"):
+                    host["vendor"] = info["vendor"]
+                obs = self._obs.setdefault(ip, Observations())
+                obs.nmap = info
+                # If nmap discovered ports arp-scan/mdns didn't
+                # already list, add them so the fingerprint engine
+                # sees them.
+                existing_ports = {p.number for p in host["ports"]}
+                for svc in info.get("services", []):
+                    if svc["port"] in existing_ports:
+                        continue
+                    host["ports"].append(Port(
+                        number=svc["port"], protocol="tcp",
+                        service=svc.get("service", ""),
+                        banner=svc.get("version", "")))
 
         # ---- mDNS + SSDP + broadcast probes in parallel ---------
         prog("mDNS + SSDP + UDP broadcasts")
@@ -553,13 +850,27 @@ class Discovery:
             obs = self._obs.get(ip)
             if obs is None:
                 obs = Observations()
+            # If arp discovery couldn't get a MAC, fall back to the
+            # IP as the registry key. Otherwise every mac-less host
+            # collapses into a single dict entry and the UI shows
+            # exactly one row for the whole /24.
+            mac = host.get("mac", "") or ("ip:" + ip)
             dev = Device(
-                mac=host.get("mac", ""),
+                mac=mac,
                 ip=ip,
                 vendor=host.get("vendor", ""),
             )
             for p in host.get("ports", []):
                 dev.add_port(p)
+            # Nmap output goes into device metadata unconditionally so
+            # the UI can show ("Linux 4.19") on unclassified hosts.
+            if obs.nmap:
+                if obs.nmap.get("hostname"):
+                    dev.hostname = obs.nmap["hostname"]
+                if obs.nmap.get("os"):
+                    dev.metadata["os"] = obs.nmap["os"]
+                if obs.nmap.get("vendor") and not dev.vendor:
+                    dev.vendor = obs.nmap["vendor"]
             matches = self.fingerprint.score(dev, obs)
             for fp in matches:
                 if fp.matcher_name == "_aggregate":

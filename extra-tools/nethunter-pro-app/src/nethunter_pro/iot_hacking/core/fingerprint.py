@@ -223,6 +223,9 @@ class Observations:
         self.udp_reply: dict[tuple[str, int], bytes] = {}
         # SNMP sysDescr if any
         self.snmp_sysdescr: str = ""
+        # nmap -O -sV output normalised: {vendor, os, os_accuracy,
+        # hostname, services:[{port,service,version}]}
+        self.nmap: dict = {}
 
 
 # ------------------------------------------------------- matchers
@@ -414,6 +417,50 @@ def _first_group(m: re.Match) -> str:
         return m.group(0)
 
 
+def _m_nmap_os(rule: MatcherRule, _dev: Device, obs: Observations
+                ) -> dict[str, str] | None:
+    """Match nmap's OS-detection string against a regex.
+
+    Useful for fingerprinting printers, phones, routers by their
+    TCP/IP stack signature -- nmap emits things like
+    "HP LaserJet 4250 printer", "Apple iOS 14.X", "Linux 4.19",
+    "Cisco IOS 12.4", straight from its nmap-os-db.
+    """
+    regex = rule.params.get("os_regex")
+    if not regex or not obs.nmap:
+        return None
+    os_name = obs.nmap.get("os", "")
+    if not os_name:
+        return None
+    m = re.search(regex, os_name, re.I)
+    if not m:
+        return None
+    extracted = {"os": os_name}
+    for field_name, r in rule.extract.items():
+        em = re.search(r, os_name, re.I)
+        if em:
+            extracted[field_name] = _first_group(em)
+    return extracted
+
+
+def _m_nmap_service(rule: MatcherRule, _dev: Device, obs: Observations
+                     ) -> dict[str, str] | None:
+    """Match on a nmap service banner ("HP JetDirect", "Apache 2.4")."""
+    regex = rule.params.get("banner_regex")
+    if not regex or not obs.nmap:
+        return None
+    want_port = rule.params.get("port")
+    for svc in obs.nmap.get("services", []):
+        if want_port and int(want_port) != svc.get("port"):
+            continue
+        banner = "%s %s" % (svc.get("service", ""),
+                             svc.get("version", ""))
+        m = re.search(regex, banner, re.I)
+        if m:
+            return {"banner": banner.strip()}
+    return None
+
+
 _MATCHERS = {
     "port": _m_port,
     "mac_oui": _m_mac_oui,
@@ -423,4 +470,6 @@ _MATCHERS = {
     "http_header": _m_http_header,
     "udp_reply": _m_udp_reply,
     "upnp_dd": _m_upnp_dd,
+    "nmap_os": _m_nmap_os,
+    "nmap_service": _m_nmap_service,
 }

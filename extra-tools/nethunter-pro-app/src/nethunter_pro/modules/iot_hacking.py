@@ -34,6 +34,7 @@ from typing import Callable
 
 from gi.repository import Adw, GLib, Gtk
 
+from ..executor import run_async as executor_run_async
 from ..iot_hacking.core.discovery import Discovery
 from ..iot_hacking.core.exploit import (
     Playbook,
@@ -46,6 +47,29 @@ from ..iot_hacking.core.models import ActionCategory, Device, DeviceType
 from ..iot_hacking.core.registry import DeviceRegistry
 from ..module import NHModule, register
 from ..widgets import OutputView, toast
+
+
+async def _root_runner(argv, timeout=20):
+    """Async bridge to the DBus root helper.
+
+    The executor's ``run_async`` is thread-based with a callback; we
+    wrap it in a Future so the Discovery pipeline can ``await`` on it
+    like on any other coroutine. Returns the combined stdout+stderr as
+    a plain string -- Discovery only needs the arp-scan tabular text.
+    """
+    fut: asyncio.Future = asyncio.get_event_loop().create_future()
+
+    def done(result) -> None:
+        # Deliver from any thread -- schedule on the async loop that
+        # created the future.
+        loop = fut.get_loop()
+        if not fut.done():
+            loop.call_soon_threadsafe(
+                fut.set_result,
+                (result.stdout or "") + (result.stderr or ""))
+
+    executor_run_async(argv, done, root=True, timeout=timeout)
+    return await fut
 
 # PRET (Printer Exploitation Toolkit) integration path. Bundled at
 # /opt/pret on the phone; the printer_print / printer_discover helpers
@@ -76,6 +100,8 @@ _TYPE_META: dict[DeviceType, tuple[str, str]] = {
     DeviceType.EV_CHARGER:  ("EV chargers",       "battery-symbolic"),
     DeviceType.SOLAR:       ("Solar",             "weather-clear-symbolic"),
     DeviceType.POOL:        ("Pool controllers",  "weather-showers-symbolic"),
+    DeviceType.PHONE:       ("Phones",            "phone-symbolic"),
+    DeviceType.COMPUTER:    ("Computers",         "computer-symbolic"),
     DeviceType.UNKNOWN:     ("Unclassified",      "dialog-question-symbolic"),
 }
 
@@ -204,7 +230,8 @@ class IoTHacking(NHModule):
             return
         iface = self.iface_row.get_text().strip() or "wlan0"
         self._discovery = Discovery(
-            self.registry, self.fingerprint, iface=iface)
+            self.registry, self.fingerprint, iface=iface,
+            root_runner=_root_runner)
         self.output.append("# radar sweep on %s\n" % iface)
         self.scan_btn.set_sensitive(False)
         self.stop_btn.set_sensitive(True)
@@ -291,9 +318,18 @@ class IoTHacking(NHModule):
     def _render_device(self, parent: Adw.ExpanderRow,
                        dev: Device) -> None:
         title = dev.label()
-        subtitle = "%s -- %s" % (dev.ip or "?", dev.mac[:8] + "…")
+        subtitle_bits = [dev.ip or "?"]
+        if dev.mac:
+            subtitle_bits.append(dev.mac)
         if dev.vendor:
-            subtitle += "  (%s)" % dev.vendor
+            subtitle_bits.append(dev.vendor)
+        # Show nmap OS guess when we have one and the label was falling
+        # back to the IP -- that's the most common way an unclassified
+        # host lands here.
+        os_guess = dev.metadata.get("os", "")
+        if os_guess:
+            subtitle_bits.append(os_guess)
+        subtitle = " -- ".join(subtitle_bits)
         row = Adw.ExpanderRow(title=title, subtitle=subtitle)
         parent.add_row(row)
         self._device_rows[dev.mac] = row

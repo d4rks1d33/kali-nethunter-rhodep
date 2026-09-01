@@ -50,6 +50,8 @@ class DeviceType(str, Enum):
     EV_CHARGER = "ev_charger"
     SOLAR = "solar"
     POOL = "pool"
+    PHONE = "phone"
+    COMPUTER = "computer"
     UNKNOWN = "unknown"
 
 

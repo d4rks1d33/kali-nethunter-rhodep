@@ -47,6 +47,19 @@ install -Dm755 "$here/helper/rhodep-make-captiveportal" \
     /usr/libexec/nethunter-pro-make-captiveportal
 install -Dm755 "$here/helper/rhodep-phishkin3-launch" \
     /usr/libexec/nethunter-pro-phishkin3-launch
+install -Dm755 "$here/helper/blespam-runner" \
+    /usr/libexec/nethunter-pro-blespam
+
+# Retire the stand-alone Bluetooth LE Spam launcher: the engine lives
+# inside the NetHunter Pro app now (module `blespam`, backend at
+# `nethunter_pro.vendor.blespam`) and the .desktop + /opt drop just
+# duplicated it in the phone's app grid. Silent if it was never there.
+# We also remove /opt/Bluetooth-LE-Spam (the upstream Android Kotlin
+# source clone) since it is only there for reference and payloads.py
+# has the whole packet catalogue ported already.
+rm -f /usr/share/applications/bluetooth-le-spam.desktop
+rm -rf /opt/Bluetooth-LE-Spam-linux
+rm -rf /opt/Bluetooth-LE-Spam
 # World-readable index directory the phishkin3 module reads to surface
 # installed-cert domains in the picker. The launcher populates it on each run
 # (see refresh_cert_index()); the install just creates the empty dir so the

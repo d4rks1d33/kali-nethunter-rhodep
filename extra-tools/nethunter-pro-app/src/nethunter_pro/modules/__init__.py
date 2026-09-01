@@ -28,6 +28,7 @@ from . import duckhunter       # noqa: F401
 from . import hid              # noqa: F401
 from . import usb_arsenal      # noqa: F401
 from . import bluetooth        # noqa: F401
+from . import blespam          # noqa: F401
 from . import blueducky        # noqa: F401
 from . import carsenal         # noqa: F401
 from . import gps              # noqa: F401

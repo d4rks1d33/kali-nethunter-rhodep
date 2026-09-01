@@ -180,6 +180,31 @@ def _scan_ssdp(targets: list[str], timeout: float = 3.0) -> dict[str, dict]:
     return results
 
 
+_YOUTUBE_ID_RE = re.compile(
+    r"(?:youtu\.be/|youtube\.com/(?:watch\?v=|embed/|shorts/|v/)|"
+    r"youtube\.com/live/)([A-Za-z0-9_-]{11})")
+
+
+def parse_youtube_id(url_or_id: str) -> str | None:
+    """Pull a YouTube video ID out of an arbitrary URL or return the
+    ID unchanged if the input already is one.
+
+    Handles: youtu.be/<id>, youtube.com/watch?v=<id>,
+    youtube.com/embed/<id>, youtube.com/shorts/<id>,
+    youtube.com/live/<id>, and bare 11-char IDs.
+    """
+    s = (url_or_id or "").strip()
+    if not s:
+        return None
+    m = _YOUTUBE_ID_RE.search(s)
+    if m:
+        return m.group(1)
+    # Bare ID (11 chars, no url structure)
+    if re.fullmatch(r"[A-Za-z0-9_-]{11}", s):
+        return s
+    return None
+
+
 def _now() -> float:
     import time
     return time.monotonic()
@@ -499,6 +524,44 @@ class Driver:
     async def cast_url(self, url: str) -> str:
         return "not implemented"
 
+    async def cast_youtube(self, url_or_id: str) -> str:
+        """Open a YouTube video on the TV.
+
+        Drivers that speak YouTube natively (Chromecast, Roku,
+        AndroidTV, DIAL) override this. For everyone else we make a
+        best-effort try over the plain DIAL protocol -- ``POST
+        /apps/YouTube`` with ``v=<videoID>`` in the body is what
+        Samsung, LG, Sony and Vizio TVs register even when their
+        native remote APIs don't expose a YouTube deep-link. If the
+        TV doesn't answer any DIAL port, fall back to ``cast_url``
+        which will at best try to load the plain URL.
+        """
+        vid = parse_youtube_id(url_or_id)
+        if vid is None:
+            return "not a YouTube URL or video ID"
+
+        def dial_try() -> str | None:
+            import urllib.request
+            body = ("v=" + vid).encode("ascii")
+            for port in (8008, 8060, 9000, 8001, 56789):
+                try:
+                    req = urllib.request.Request(
+                        "http://%s:%d/apps/YouTube" % (self.ip, port),
+                        method="POST", data=body,
+                        headers={
+                            "Content-Type":
+                                "application/x-www-form-urlencoded"})
+                    urllib.request.urlopen(req, timeout=3).read()
+                    return "DIAL YouTube (%s) on :%d" % (vid, port)
+                except Exception:
+                    continue
+            return None
+
+        r = await asyncio.to_thread(dial_try)
+        if r is not None:
+            return r
+        return await self.cast_url(url_or_id)
+
     # -- helpers
     def _persist(self, patch: dict) -> None:
         all_creds = load_creds(self.ip)
@@ -604,6 +667,26 @@ class AndroidTVDriver(Driver):
             r.disconnect()
         return "launched " + app
 
+    async def cast_youtube(self, url_or_id: str) -> str:
+        """Android TV: send a launch-with-URI intent through the
+        Remote v2 protocol. The YouTube app registers ``vnd.youtube:``
+        as its scheme; ``send_launch_app_command`` on Android TV
+        Remote v2 accepts an arbitrary URI in the ``app`` slot and
+        the launcher resolves it to the right activity + VideoID
+        extra."""
+        vid = parse_youtube_id(url_or_id)
+        if vid is None:
+            return "not a YouTube URL or video ID"
+        r = await self._connected()
+        try:
+            # vnd.youtube:VIDEOID auto-plays because YouTube's Android
+            # app maps this scheme straight to WatchWhileActivity with
+            # the extra ``force_fullscreen=true``.
+            r.send_launch_app_command("vnd.youtube:" + vid)
+        finally:
+            r.disconnect()
+        return "opened vnd.youtube:" + vid
+
 
 # --------------------------------------------------------------- driver: Chromecast
 class ChromecastDriver(Driver):
@@ -689,6 +772,13 @@ class ChromecastDriver(Driver):
         return await asyncio.to_thread(run)
 
     async def cast_url(self, url: str) -> str:
+        # If the URL is actually a YouTube link, hand it off to the
+        # YouTube path -- ``play_media`` on a youtube.com URL just
+        # tries to render the HTML page and fails ungracefully.
+        vid = parse_youtube_id(url)
+        if vid is not None:
+            return await self.cast_youtube(vid)
+
         # Best-effort MIME guess. Cast supports mp4, webm, mp3, jpg, png,
         # HLS, DASH.
         content_type = "video/mp4"
@@ -710,6 +800,41 @@ class ChromecastDriver(Driver):
                 cast.media_controller.play_media(url, content_type)
                 cast.media_controller.block_until_active(timeout=6)
                 return "casting " + url
+            finally:
+                import pychromecast
+                pychromecast.discovery.stop_discovery(browser)
+        return await asyncio.to_thread(run)
+
+    async def cast_youtube(self, url_or_id: str) -> str:
+        """Chromecast native YouTube path: use pychromecast's
+        ``YouTubeController`` which sends the ``play_video`` message
+        over the YouTube receiver app (id ``233637DE``). Works on
+        Chromecast, Chromecast Ultra, Chromecast with Google TV,
+        Google Nest Hub, and every Chromecast-built-in TV."""
+        vid = parse_youtube_id(url_or_id)
+        if vid is None:
+            return "not a YouTube URL or video ID"
+
+        def run() -> str:
+            cast, browser = self._cast()
+            if cast is None:
+                return "device not reachable"
+            try:
+                # YouTubeController lives in pychromecast.controllers.
+                # It re-implements the YouTube "leanback" pairing
+                # protocol so a video ID is enough to start playback
+                # without any prior linking on the receiver.
+                try:
+                    from pychromecast.controllers.youtube \
+                        import YouTubeController
+                except ImportError:
+                    return ("pychromecast.controllers.youtube "
+                            "missing; upgrade pychromecast or fall "
+                            "back to cast_url")
+                yt = YouTubeController()
+                cast.register_handler(yt)
+                yt.play_video(vid)
+                return "playing YouTube video " + vid
             finally:
                 import pychromecast
                 pychromecast.discovery.stop_discovery(browser)
@@ -772,6 +897,17 @@ class RokuDriver(Driver):
              "spotify": "22297", "hulu": "2285", "disney": "291097"}
         app_id = m.get(app.lower(), app)
         return await asyncio.to_thread(self._post, "/launch/" + app_id)
+
+    async def cast_youtube(self, url_or_id: str) -> str:
+        """Roku launches YouTube with deep-link query parameters:
+        ``POST /launch/837?contentID=<videoID>&mediaType=video``.
+        The YouTube channel app (837) picks up the contentID and
+        starts playback on foreground."""
+        vid = parse_youtube_id(url_or_id)
+        if vid is None:
+            return "not a YouTube URL or video ID"
+        path = ("/launch/837?contentID=" + vid + "&mediaType=video")
+        return await asyncio.to_thread(self._post, path)
 
 
 # --------------------------------------------------------------- driver: Samsung
@@ -1112,6 +1248,37 @@ class DIALDriver(Driver):
                         method="POST", data=b"")
                     urllib.request.urlopen(req, timeout=3).read()
                     return "launched %s on :%d" % (app, port)
+                except Exception:
+                    continue
+            return "DIAL: no port answered"
+        return await asyncio.to_thread(run)
+
+    async def cast_youtube(self, url_or_id: str) -> str:
+        """DIAL launches YouTube with a body payload: the YouTube
+        DIAL spec says a ``POST /apps/YouTube`` with a
+        ``application/x-www-form-urlencoded`` body of ``v=<videoID>``
+        (optionally ``&t=<seconds>``) starts playback of that video
+        as soon as the app comes up. Works on every TV with a
+        YouTube DIAL registration (Vizio, Sony, LG pre-webOS-5,
+        many Samsung, cheap Android boxes)."""
+        vid = parse_youtube_id(url_or_id)
+        if vid is None:
+            return "not a YouTube URL or video ID"
+
+        def run() -> str:
+            import urllib.request
+            body = ("v=" + vid).encode("ascii")
+            for port in (8008, 8060, 9000, 8001, 56789):
+                try:
+                    req = urllib.request.Request(
+                        "http://%s:%d/apps/YouTube" % (self.ip, port),
+                        method="POST", data=body,
+                        headers={
+                            "Content-Type":
+                                "application/x-www-form-urlencoded"})
+                    urllib.request.urlopen(req, timeout=3).read()
+                    return "playing YouTube (%s) on :%d" % (
+                        vid, port)
                 except Exception:
                     continue
             return "DIAL: no port answered"
@@ -1732,11 +1899,29 @@ class TVRemote(NHModule):
         extras.add(self.cast_entry)
         cast_row = Adw.ActionRow(
             title="Cast URL",
-            subtitle="Only Chromecast/Chromecast-built-in")
+            subtitle="Chromecast, or best-effort media URL")
         cast_btn = Gtk.Button(label="Cast", valign=Gtk.Align.CENTER)
         cast_btn.connect("clicked", lambda _b: self._cast_url())
         cast_row.add_suffix(cast_btn)
         extras.add(cast_row)
+
+        # YouTube entry: takes a full URL, a shorts URL, a youtu.be
+        # link, or a bare 11-character ID and dispatches to the
+        # driver's native YouTube path -- Chromecast's YouTubeController,
+        # Roku's /launch/837?contentID=, Android TV's vnd.youtube:,
+        # or the generic DIAL /apps/YouTube fallback.
+        self.youtube_entry = Adw.EntryRow(
+            title="YouTube (URL, youtu.be, or 11-char ID)")
+        extras.add(self.youtube_entry)
+        yt_row = Adw.ActionRow(
+            title="Play on YouTube app",
+            subtitle="Chromecast, Roku, Android TV, or any DIAL TV "
+                     "(Samsung / LG / Sony / Vizio)")
+        yt_btn = Gtk.Button(label="Play", valign=Gtk.Align.CENTER)
+        yt_btn.add_css_class("suggested-action")
+        yt_btn.connect("clicked", lambda _b: self._cast_youtube())
+        yt_row.add_suffix(yt_btn)
+        extras.add(yt_row)
         box.append(extras)
 
         # ---- output log ------------------------------------------
@@ -1974,6 +2159,26 @@ class TVRemote(NHModule):
         self.output.append("$ %s.cast %s\n" % (d.id, url))
         self._run_driver(d.cast_url(url),
                          lambda s: self.output.append("  -> %s\n" % s))
+
+    def _cast_youtube(self) -> None:
+        d = self._selected_driver
+        if d is None:
+            toast(self.app_window, "Pick a TV + protocol first")
+            return
+        url = self.youtube_entry.get_text().strip()
+        if not url:
+            toast(self.app_window,
+                  "Paste a YouTube URL or a video ID first")
+            return
+        vid = parse_youtube_id(url)
+        if vid is None:
+            toast(self.app_window,
+                  "That does not look like a YouTube URL or ID")
+            return
+        self.output.append("$ %s.youtube %s\n" % (d.id, vid))
+        self._run_driver(d.cast_youtube(url),
+                         lambda s: self.output.append(
+                             "  -> %s\n" % s))
 
     # ----------------------------------------------------- async plumbing
     def _run_driver(self, coro, on_result) -> None:

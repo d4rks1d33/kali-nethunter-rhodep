@@ -28,6 +28,7 @@ from . import routersploit     # noqa: F401
 from . import tv_remote        # noqa: F401
 from . import iot_hacking      # noqa: F401
 from . import iot_setup        # noqa: F401
+from . import iot_recon        # noqa: F401
 # Wi-Fi: passive recon
 from . import probe_harvester  # noqa: F401
 from . import wifi_direct      # noqa: F401

@@ -60,7 +60,11 @@ class AndroidRCE(NHModule):
     description = ("Discover Android devices advertising ADB-over-"
                    "Wi-Fi, pair with a 6-digit PIN, drop into shell "
                    "or push a payload APK.")
-    required_tools = ["adb", "avahi-browse"]
+    # We accept either avahi-browse (needs avahi-daemon) OR nmap
+    # (which can do mDNS service discovery over broadcast without
+    # any local daemon). The build() code picks whichever is
+    # actually working at the moment.
+    required_tools = ["adb"]
 
     def __init__(self, app_window):
         super().__init__(app_window)
@@ -192,20 +196,65 @@ class AndroidRCE(NHModule):
 
     # ------------------------------------------------- discovery
     def _start_scan(self) -> None:
+        """avahi-browse needs ``avahi-daemon`` running; if it's not,
+        we start it (root, via the helper) and retry once. If avahi
+        is completely unavailable, fall back to nmap's broadcast
+        mDNS service discovery script -- no daemon needed."""
         if self._proc is not None and self._proc.running:
             return
         self._devices = {}
         self._render()
-        # avahi-browse in "streaming" mode; parse resolves.
-        # -r resolves, -p is parsable output, -a all services then
-        # we grep. Two services means two runs; we chain them.
-        script = (
-            "( avahi-browse -r -p " + _SERVICE_SHELL + " & "
-            "  avahi-browse -r -p " + _SERVICE_PAIR + " & "
-            "  wait "
-            ")"
-        )
         self.output.append("# scanning for ADB-over-Wi-Fi\n")
+
+        # Preflight: is avahi-daemon alive? If avahi-browse isn't
+        # even installed, jump straight to nmap.
+        script = (
+            "if command -v avahi-browse >/dev/null 2>&1; then "
+            "  if ! pgrep -x avahi-daemon >/dev/null; then "
+            "    systemctl start avahi-daemon 2>/dev/null || "
+            "      avahi-daemon --no-drop-root --daemonize "
+            "        2>/dev/null || true; "
+            "    sleep 1; "
+            "  fi; "
+            "  if pgrep -x avahi-daemon >/dev/null; then "
+            "    echo AVAHI; "
+            "  else "
+            "    echo NMAP; "
+            "  fi; "
+            "else "
+            "  echo NMAP; "
+            "fi"
+        )
+
+        def on_probe(r: Result) -> None:
+            mode = (r.stdout or "").strip().splitlines()[-1:] \
+                if r.stdout else ["NMAP"]
+            mode = mode[0] if mode else "NMAP"
+            if mode == "AVAHI":
+                self._scan_avahi()
+            else:
+                self._scan_nmap()
+
+        # Starting avahi-daemon needs root; the probe itself is fine
+        # non-root but the systemctl start needs it.
+        run_async(["sh", "-c", script], on_probe,
+                  root=True, timeout=10)
+        self.scan_btn.set_sensitive(False)
+        self.stop_btn.set_sensitive(True)
+
+    def _scan_avahi(self) -> None:
+        """Foreground avahi-browse streaming scan. Two services
+        (shell + pair) in parallel, resolved output. Runs until the
+        operator hits Stop."""
+        script = (
+            "avahi-browse -r -p " + _SERVICE_SHELL + " & "
+            "PID1=$!; "
+            "avahi-browse -r -p " + _SERVICE_PAIR + " & "
+            "PID2=$!; "
+            "trap 'kill $PID1 $PID2 2>/dev/null' EXIT; "
+            "wait"
+        )
+        self.output.append("# using avahi-browse\n")
 
         def on_line(text: str) -> None:
             self.output.append(text)
@@ -224,8 +273,80 @@ class AndroidRCE(NHModule):
             ["sh", "-c", script], on_line, on_done,
             root=False)
         self._proc.start()
-        self.scan_btn.set_sensitive(False)
-        self.stop_btn.set_sensitive(True)
+
+    def _scan_nmap(self) -> None:
+        """Fallback: nmap's ``dns-service-discovery`` NSE script
+        does a one-shot broadcast mDNS scan against the network and
+        prints service instances with hostnames, IPs and ports.
+        Runs against the phone's current LAN (192.168.0.0/16 +
+        10.0.0.0/8 default) unless the operator has set a specific
+        target in the manual section."""
+        self.output.append(
+            "# avahi-daemon unavailable; falling back to nmap\n")
+
+        script = (
+            "nmap --script dns-service-discovery "
+            "  -p 5353 -sU -T4 --host-timeout 30s "
+            "  --script-args='dns-service-discovery.services="
+            + _SERVICE_SHELL + "," + _SERVICE_PAIR + "' "
+            "  192.168.0.0/16 10.0.0.0/8 172.16.0.0/12 "
+            "  2>&1"
+        )
+
+        def on_line(text: str) -> None:
+            self.output.append(text)
+            for line in text.splitlines():
+                self._ingest_nmap(line)
+            self._render()
+
+        def on_done(code: int) -> None:
+            self.output.append(
+                "[nmap exited: %d]\n" % code)
+            self._proc = None
+            self.scan_btn.set_sensitive(True)
+            self.stop_btn.set_sensitive(False)
+
+        # Root because nmap needs raw sockets for -sU.
+        self._proc = Process(
+            ["sh", "-c", script], on_line, on_done, root=True)
+        self._proc.start()
+
+    def _ingest_nmap(self, line: str) -> None:
+        """nmap ``dns-service-discovery`` output looks like:
+             |_  _adb-tls-connect._tcp Address=192.168.1.42
+             |     Port=38715 Target=android-abcd.local
+        We keep a small state machine here: when we see a service
+        header we remember which one is active, then when we see
+        the Address/Port/Target lines we plug them into the
+        matching device row."""
+        # Service header.
+        m_svc = re.search(
+            r"(_adb-tls-(?:connect|pairing))\._tcp", line)
+        if m_svc:
+            self._nmap_svc = "_" + m_svc.group(1) + "._tcp"
+            return
+        # Address + Port on the same or subsequent line.
+        m_ip = re.search(r"Address=([\d.]+)", line)
+        m_port = re.search(r"Port=(\d+)", line)
+        m_target = re.search(r"Target=([^\s]+)", line)
+        svc = getattr(self, "_nmap_svc", None)
+        if not svc:
+            return
+        # Multiple pieces may show up on the same line; try each.
+        if m_ip:
+            ip = m_ip.group(1)
+            d = self._devices.setdefault(ip, {
+                "host": "", "ip": ip,
+                "shell_port": None, "pair_port": None,
+            })
+            if m_target:
+                d["host"] = m_target.group(1)
+            if m_port:
+                port = int(m_port.group(1))
+                if svc == _SERVICE_SHELL:
+                    d["shell_port"] = port
+                elif svc == _SERVICE_PAIR:
+                    d["pair_port"] = port
 
     def _stop_scan(self) -> None:
         if self._proc is not None:

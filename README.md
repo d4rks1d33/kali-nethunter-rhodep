@@ -88,6 +88,53 @@ list; everything here is a from-scratch community port.
 > in `/tmp` and therefore disposable. Audio has its own document,
 > [`AUDIO-SM6375.md`](docs/interconnect-sm6375-wip/AUDIO-SM6375.md).
 
+## Index
+
+- [What works](#what-works)
+- [What does not work](#what-does-not-work)
+- [Bugs](#bugs)
+- [Where to pick this up](#where-to-pick-this-up)
+- [Screenshots](#screenshots)
+- [Extra tools (`extra-tools/`)](#extra-tools-extra-tools)
+- [Known limitations](#known-limitations)
+- [Repository layout](#repository-layout)
+- [The kernel (shared with the pmOS port)](#the-kernel-shared-with-the-pmos-port)
+  - [Build & install a clean kernel image, end to end](#build--install-a-clean-kernel-image-end-to-end)
+  - [The 96 applied patches](#the-96-applied-patches-kernelpatches-applied-in-this-order)
+  - [Audio](#audio)
+  - [Kernel config notes (CRITICAL)](#kernel-config-notes-critical)
+  - [Building the kernel (pmbootstrap)](#building-the-kernel-pmbootstrap)
+  - [Turning the kernel apk into a Debian `linux-image` .deb](#turning-the-kernel-apk-into-a-debian-linux-image-deb)
+  - [Kernel headers (for DKMS / external Wi-Fi drivers)](#kernel-headers-for-dkms--external-wi-fi-drivers)
+  - [Updating the kernel: what you have to redo](#updating-the-kernel-what-you-have-to-redo)
+- [Building the Kali rootfs (debos)](#building-the-kali-rootfs-debos)
+- [Installing on the device](#installing-on-the-device)
+- [Day-to-day use](#day-to-day-use)
+  - [Update Kali + install the toolset](#update-kali--install-the-toolset-keep-the-custom-kernel-safe)
+  - [Login screen (GDM)](#login-screen-gdm-instead-of-the-phoshservice-autologin)
+  - [Extra sessions (Plasma Mobile, Lomiri, Xfce)](#extra-sessions-plasma-mobile-lomiri-xfce)
+  - [Suspend](#suspend)
+  - [SSH over the USB cable](#ssh-over-the-usb-cable)
+  - [Kali menu launchers under Plasma Mobile](#kali-menu-launchers-under-plasma-mobile)
+  - [Phone apps (dialer / SMS / contacts / files)](#phone-apps-dialer--sms--contacts--files)
+  - [USB WiFi adapter (monitor mode / injection)](#usb-wifi-adapter-monitor-mode--injection)
+- [Recovery / rollback](#recovery--rollback)
+- [How to continue the port (open work)](#how-to-continue-the-port-open-work)
+- [Nice to have in the future](#nice-to-have-in-the-future)
+- [License](#license)
+- [Credits](#credits)
+
+Component docs (each directory has its own README with the detail):
+`packages/rhodep-gpu-vulkan/` (Turnip/Vulkan) ·
+`packages/rhodep-gpu-opencl/` (rusticl/OpenCL) ·
+[`userspace/keyboard/README.md`](userspace/keyboard/README.md) (on-screen
+keyboard + the KWin X11/Java patch) ·
+[`userspace/apt/apply-holds.sh`](userspace/apt/apply-holds.sh) (apt holds +
+file protection) ·
+[`userspace/modem/README.md`](userspace/modem/README.md) ·
+[`docs/BUILD.md`](docs/BUILD.md) (end-to-end build checklist) ·
+[`extra-tools/README.md`](extra-tools/README.md)
+
 ## What works
 - Boots to **Phosh** (mobile GUI), user `kali` / password `1234`
 - **Plasma Mobile**, which is what this port is actually used on day to day —
@@ -662,6 +709,106 @@ docs/                       extra notes
 
 # The kernel (shared with the pmOS port)
 
+## Build & install a clean kernel image, end to end
+
+This is the exact, verified recipe for cutting a fresh boot image from the
+current tree and installing it **without** hitting the `=y`-vs-`=m` module
+mismatch described in "Updating the kernel" (the Docker case study). It is the
+sequence that was actually run to produce `out/kali-boot-rhodep-clean-*.img`.
+
+The one rule that makes it safe: **the `Image` inside the boot.img and the
+`/lib/modules/<KVER>` on the rootfs must come from the same kernel apk.** Flash
+one without updating the other and modules that flipped between built-in and
+loadable break silently — `vermagic` still matches, so nothing warns you.
+
+**1. Sync the aport with the repo and confirm the three copies agree.**
+```sh
+PMAPORTS=~/.local/var/pmbootstrap/cache_git/pmaports/device/testing/linux-motorola-rhodep
+cp kernel/APKBUILD                        "$PMAPORTS/APKBUILD"
+cp kernel/config/config-motorola-rhodep.aarch64 "$PMAPORTS/"
+cp kernel/patches/*.patch                 "$PMAPORTS/"
+sh scripts/check-patch-sync.sh            # must end with "the three copies agree"
+```
+
+**2. Build the kernel apk** (see "Building the kernel" for the environment):
+```sh
+pmbootstrap checksum linux-motorola-rhodep     # mandatory after ANY patch/config change
+pmbootstrap build --force linux-motorola-rhodep
+APK=~/.local/var/pmbootstrap/packages/edge/aarch64/linux-motorola-rhodep-7.2_rc5-r0.apk
+```
+
+**3. Sanity-check the apk before trusting it.** Any of these failing means do
+not flash:
+```sh
+mkdir -p /tmp/apkx && tar xf "$APK" -C /tmp/apkx
+find /tmp/apkx/usr/lib/modules -name '*.ko.zst' | head     # MUST be empty (zst hangs boot)
+find /tmp/apkx/usr/lib/modules -name '*.ko' -size 0 | head # MUST be empty (empty .ko)
+# audio stream id 0xa1 present in the DTB, IPA loader = self:
+dtc -I dtb -O dts /tmp/apkx/boot/dtbs/qcom/sm6375-motorola-rhodep.dtb 2>/dev/null | grep 0xa1
+strings /tmp/apkx/boot/dtbs/qcom/sm6375-motorola-rhodep.dtb | grep -i gsi-loader
+```
+
+**4. Assemble the boot.img** (flat `Image` + appended DTB + the pmOS initramfs).
+The initramfs is external material — it is not in the repo; it lives at
+`_common/boot-artifacts/v47_ramdisk` with its cmdline in
+`v47_cmdline.txt` (the `pmos_root_uuid` in it must match the target's Kali root):
+```sh
+python3 scripts/mkbootv2b.py \
+  /tmp/apkx/boot/vmlinuz \
+  /tmp/apkx/boot/dtbs/qcom/sm6375-motorola-rhodep.dtb \
+  _common/boot-artifacts/v47_ramdisk \
+  "$(cat _common/boot-artifacts/v47_cmdline.txt)" \
+  out/kali-boot-rhodep-clean.img
+# (or: scripts/make-boot-from-apk.sh <old-boot.img> out/kali-boot.img, which
+#  reuses the initramfs+cmdline from an existing Android v2 boot image)
+```
+Verify the result: `ANDROID!` magic, header v2, `kernel_size == vmlinuz + dtb`,
+and the appended DTB magic `d00dfeed` at the end of the Image region.
+
+**5. Install the MATCHING modules on the rootfs — this is the step that avoids
+the Docker breakage.** Extract `/lib/modules/<KVER>` from the *same apk*, back up
+the old tree, and swap it in. Four modules on this port are out-of-tree or
+patched builds that the apk does **not** carry and that must be preserved:
+`rtw_8821au.ko` (dual-band Wi-Fi DKMS), `s3fwrn5.ko` + `s3fwrn5_i2c.ko` (NFC) and
+`cw2217_battery.ko` (patched gauge). They are kept immutable by
+`rhodep-protect-files`, so release them, save them, and put them back on top:
+```sh
+KVER=7.2.0-rc5
+cd /lib/modules
+sudo cp -a "$KVER" "$KVER.bak-preclean"                 # rollback point
+# save the port's own modules (release immutability first)
+for ko in updates/dkms/rtw_8821au.ko \
+          kernel/drivers/nfc/s3fwrn5/s3fwrn5.ko \
+          kernel/drivers/nfc/s3fwrn5/s3fwrn5_i2c.ko \
+          kernel/drivers/power/supply/cw2217_battery.ko; do
+    sudo chattr -i "$KVER/$ko" 2>/dev/null || true
+    sudo install -D "$KVER/$ko" "/tmp/port-mods/$ko"
+done
+sudo rm -rf "$KVER" && sudo tar xzf /path/to/modules-from-apk.tgz -C /lib/modules
+sudo cp -a /tmp/port-mods/. "$KVER/"                    # restore the 4 port modules
+sudo depmod -a "$KVER"
+sudo rhodep-protect-files enforce                       # re-arm immutability
+```
+Confirm before flashing that no stale `.ko` remains for anything now built in
+(this is the actual Docker trigger):
+```sh
+for m in nf_conntrack nf_nat nf_defrag_ipv4 xt_nat iptable_nat; do
+    find /lib/modules/$KVER -name "$m.ko" | grep . && echo "STALE $m" || echo "ok $m"
+done
+```
+
+**6. Flash the boot image.** Slot on this device is `_a`:
+```sh
+fastboot flash boot_a out/kali-boot-rhodep-clean.img
+fastboot reboot
+```
+If it does not come up, the old boot slot and `/lib/modules/$KVER.bak-preclean`
+are the two things to roll back.
+
+Everything under `packages/` and `userspace/` is **rootfs**, not boot image —
+none of it is in this `.img`. To get the userspace side onto a device see
+"Building the Kali rootfs (debos)" and the per-component `install.sh` scripts.
+
 ## The 96 applied patches (`kernel/patches/`, applied in this order)
 
 The order below is the aport's `source=` order, which is what `patch` sees; it
@@ -1025,6 +1172,11 @@ module with the exact installed vermagic. See `packages/rhodep-rtl8188eus-fix`
 via rtw88) for the full USB Wi-Fi monitor+injection workflows.
 
 ## Updating the kernel: what you have to redo
+
+> For the exact, verified sequence to cut and install a fresh image without the
+> module mismatch below, see
+> [Build & install a clean kernel image, end to end](#build--install-a-clean-kernel-image-end-to-end).
+> This section is the reference for *why* each step matters.
 
 This is a hand-maintained mainline port, so a new kernel is not a drop-in — it
 is a deliberate re-do of everything that lives **outside** the kernel tree.

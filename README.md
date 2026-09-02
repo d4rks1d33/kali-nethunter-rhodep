@@ -106,6 +106,7 @@ list; everything here is a from-scratch community port.
   - [Building the kernel (pmbootstrap)](#building-the-kernel-pmbootstrap)
   - [Turning the kernel apk into a Debian `linux-image` .deb](#turning-the-kernel-apk-into-a-debian-linux-image-deb)
   - [Kernel headers (for DKMS / external Wi-Fi drivers)](#kernel-headers-for-dkms--external-wi-fi-drivers)
+  - [Building out-of-tree drivers (hardware not supported by mainline yet)](#building-out-of-tree-drivers-hardware-not-supported-by-mainline-yet)
   - [Updating the kernel: what you have to redo](#updating-the-kernel-what-you-have-to-redo)
 - [Building the Kali rootfs (debos)](#building-the-kali-rootfs-debos)
 - [Installing on the device](#installing-on-the-device)
@@ -129,6 +130,8 @@ Component docs (each directory has its own README with the detail):
 `packages/rhodep-gpu-opencl/` (rusticl/OpenCL) ·
 [`userspace/keyboard/README.md`](userspace/keyboard/README.md) (on-screen
 keyboard + the KWin X11/Java patch) ·
+[`userspace/wifi-drivers/README.md`](userspace/wifi-drivers/README.md) (external
+USB Wi-Fi drivers, monitor+inject) ·
 [`userspace/apt/apply-holds.sh`](userspace/apt/apply-holds.sh) (apt holds +
 file protection) ·
 [`userspace/modem/README.md`](userspace/modem/README.md) ·
@@ -661,6 +664,11 @@ userspace/
                       Electron Wayland flags, and the KWin patch + build-kwin.sh
                       that lets the keyboard be raised over XWayland/Java windows
                       (Burp) which cannot speak text-input (see its README)
+  wifi-drivers/       installs the external USB Wi-Fi drivers (rtw88 for the
+                      Archer T2U Nano, rtl8188eus for the TL-WN722N) that give
+                      monitor mode + injection on wlan1. DKMS, so it builds on
+                      the device's first boot against the running kernel
+                      (install.sh + firstboot service; see its README)
 extra-tools/          not needed to boot or to make a call: tools that make the
                       device pleasant to work *on* (see extra-tools/README.md)
   terminal-keyboard/  Esc, Tab, Ctrl, Alt and the arrows added to Plasma's
@@ -1170,6 +1178,117 @@ and sets up `/lib/modules/<KVER>/build`. Validated by building an out-of-tree
 module with the exact installed vermagic. See `packages/rhodep-rtl8188eus-fix`
 (single-band RTL8188EUS) and `packages/rhodep-rtl8821au` (dual-band RTL8811AU
 via rtw88) for the full USB Wi-Fi monitor+injection workflows.
+
+## Building out-of-tree drivers (hardware not supported by mainline yet)
+
+This port runs the **latest mainline** kernel (7.2-rc5), on **aarch64**. Both
+facts break a lot of third-party drivers that were written against older,
+x86-centric kernels — and they break in ways that look like different problems
+but are the same three root causes. The two TP-Link Wi-Fi drivers were both
+brought up this way; this is the general recipe.
+
+The install is automated: **`userspace/wifi-drivers/install.sh`** stages the two
+driver packages and builds them on the device (see that directory's README for
+why it defers to first boot). What follows is how to bring up *a new* driver, or
+debug one that will not build.
+
+**Step 0 — the module must match the running kernel, exactly.** A `.ko` built
+against the wrong tree loads with `Exec format error` or a version-magic
+complaint. DKMS keys everything off `uname -r`, so the golden rule is that the
+kernel you build against is the kernel that is running:
+
+```sh
+uname -r                                  # e.g. 7.2.0-rc5 -- this is $KVER
+ls -l /lib/modules/$(uname -r)/build      # MUST exist and point at real headers
+```
+
+If `/lib/modules/$(uname -r)/build` is missing, nothing out-of-tree can build.
+On this port the pmbootstrap apk ships no headers; install the matching
+`linux-headers-<KVER>.deb` (previous section) first. Everything below assumes it
+is present.
+
+**Step 1 — get the source and point DKMS/`make` at the running kernel.** Most
+driver READMEs tell you `make` and nothing else, which silently builds against
+whatever `/lib/modules/$(uname -r)/build` is — right when it exists, wrong or
+failing when it does not. Be explicit:
+
+```sh
+# plain out-of-tree module:
+make -C /lib/modules/$(uname -r)/build M=$PWD modules
+# or, if the driver's Makefile expects KVER/KERNELRELEASE:
+make KVER=$(uname -r) KERNELRELEASE=$(uname -r) \
+     KDIR=/lib/modules/$(uname -r)/build
+# DKMS (preferred -- rebuilds automatically on a kernel change):
+dkms build   -m <name> -v <ver> -k $(uname -r) --force
+dkms install -m <name> -v <ver> -k $(uname -r) --force
+depmod -a $(uname -r)
+```
+
+Cross-compiling on an x86 host instead? Then `ARCH` and `CROSS_COMPILE` have to
+be set or you build an x86 module that will not load on the phone:
+
+```sh
+make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+     -C /path/to/aarch64/headers M=$PWD modules
+```
+
+Building **on the device** (native aarch64) sidesteps all of that and is what
+the first-boot service does.
+
+**Step 2 — expect three classes of breakage on a recent mainline, and fix them
+mechanically.** These are exactly the ones both Realtek drivers hit; a new
+driver will hit some subset:
+
+1. **Removed kernel APIs.** Symbols the driver calls no longer exist. Real
+   examples from these drivers: `from_timer()` / `del_timer_sync()` (gone,
+   replaced by `timer_delete_sync()` and the new timer API), and AppleTalk/AARP
+   structs (`struct elapaarp`, `struct ddpehdr`, `AARP_PA_ALEN`) used by an
+   optional NAT-bridge helper that was deleted from the tree. Fix: update to the
+   new API, or `#if LINUX_VERSION_CODE` around it, or — if it is an optional
+   feature like the NAT bridge — turn it off in the driver's Makefile
+   (`CONFIG_BR_EXT = n`). Symptom: `implicit declaration of function` or
+   `unknown type name` at compile.
+
+2. **Changed function signatures / struct layouts.** A callback the driver
+   implements gained or lost a parameter, so its prototype no longer matches the
+   kernel's. Real example: `cfg80211_ops.remain_on_channel` gained a trailing
+   `const u8 *rx_addr`. Fix: add the parameter to the driver's implementation.
+   Symptom: `initialization of '...' from incompatible pointer type`, often only
+   a warning that becomes an error under the driver's own `-Werror`.
+
+3. **Toolchain / fortify strictness.** New GCC (15 here) turns things older
+   kernels tolerated into hard errors. Real example: `strncpy()` is no longer
+   implicitly declared and fortify rejects the implicit builtin. Fix: use the
+   always-declared equivalent (`strscpy()`, same `(dst, src, size)` shape).
+   Symptom: `implicit declaration of 'strncpy'`, or `__write_overflow` /
+   `__builtin_*` fortify errors.
+
+The port keeps each fix as a small idempotent patch script rather than a forked
+tree, so it can be re-applied to a newer upstream drop:
+`packages/rhodep-rtl8188eus-fix/apply-rtl8188eus-fix.sh` does all three of the
+above for the RTL8188EUS driver, and is a good template.
+
+**Step 3 — is a new driver even needed?** Two checks before writing or patching
+anything, both of which saved work here:
+
+- **Does mainline already bind it?** `lsusb` for the VID:PID, then grep the
+  kernel tree's `USB_DEVICE` tables. The RTL8811AU (`2357:011e`) turned out to be
+  served by the in-tree **`rtw88`** driver (`rtw_8821au`), which *compiles clean
+  on 7.2 with no patches at all* — far better than forcing the deprecated
+  out-of-tree aircrack-ng driver, which declares `BUILD_EXCLUSIVE_KERNEL_MAX`
+  and does not build. The generic `rtl8xxxu` also exists but did not bind this
+  chip on this kernel; "in-tree" is not the same as "works for your PID".
+- **Is upstream ahead of the driver's README?** A driver that says "max kernel
+  6.15" may have a newer branch, or its function may have moved into mainline
+  entirely. Check before patching dead API by hand.
+
+**Step 4 — protect the built module, and remember it freezes the build.** The
+port makes out-of-tree `.ko` files immutable via `rhodep-protect-files` so a
+stray `rm`/`apt` cannot delete a driver that has no package to reinstall it. The
+cost is that **DKMS cannot overwrite an immutable `.ko` on a kernel change**, so
+a new kernel is a deliberate re-do: `rhodep-protect-files release <ko>`, rebuild
+with DKMS, re-run the installer to re-register. This is the same "reapply every
+out-of-tree piece" story as the rest of the port — see "Updating the kernel".
 
 ## Updating the kernel: what you have to redo
 

@@ -154,6 +154,14 @@ sudo cp -r userspace/login   /tmp/rootfs/srv/login
 sudo chroot /tmp/rootfs sh /srv/login/install.sh kali
 sudo cp -r userspace/power   /tmp/rootfs/srv/power
 sudo chroot /tmp/rootfs sh /srv/power/install.sh
+# external USB Wi-Fi drivers: stage the driver packages the orchestrator needs,
+# then run it. In the chroot it only stages sources + arms a first-boot service
+# (DKMS must build against the booted kernel, not the build host's).
+sudo mkdir -p /tmp/rootfs/srv/packages
+sudo cp -r packages/rhodep-rtl8188eus-fix packages/rhodep-rtl8821au \
+           /tmp/rootfs/srv/packages/
+sudo cp -r userspace/wifi-drivers /tmp/rootfs/srv/wifi-drivers
+sudo chroot /tmp/rootfs sh /srv/wifi-drivers/install.sh
 ```
 
 - **Audio userspace** (`userspace/audio/install.sh`): UCM for speaker, earpiece,
@@ -235,6 +243,17 @@ sudo chroot /tmp/rootfs sh /srv/power/install.sh
   pulls in `gdm3` (several Kali metapackages do), because `phosh.service` and a
   display manager both claim the display at boot. See README "Login screen
   (GDM)".
+
+- **External USB Wi-Fi drivers** (`userspace/wifi-drivers/install.sh`): the
+  rtw88 (Archer T2U Nano) and rtl8188eus (TL-WN722N) drivers that give monitor
+  mode + injection on `wlan1`. Unlike the rest of Phase 6, this one **cannot be
+  fully baked in**: the drivers are DKMS modules and a `.ko` must match the
+  kernel that runs it, which is not the build host's kernel. In the chroot the
+  installer only stages the driver sources and arms
+  `rhodep-wifi-drivers-firstboot.service`, which compiles both against the
+  booted kernel on the device's first boot (it needs the network once, and the
+  matching `linux-headers-<KVER>` — stage that `.deb` alongside for an offline
+  build). See README "Building out-of-tree drivers" and the directory's README.
 
 - **Sensors** (`userspace/sensors/install.sh`): the SSC sensors -- accelerometer,
   gyroscope, magnetometer, proximity, ambient light, and therefore screen

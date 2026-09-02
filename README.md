@@ -775,34 +775,47 @@ and the appended DTB magic `d00dfeed` at the end of the Image region.
 
 **5. Install the MATCHING modules on the rootfs — this is the step that avoids
 the Docker breakage.** Extract `/lib/modules/<KVER>` from the *same apk*, back up
-the old tree, and swap it in. Four modules on this port are out-of-tree or
-patched builds that the apk does **not** carry and that must be preserved:
-`rtw_8821au.ko` (dual-band Wi-Fi DKMS), `s3fwrn5.ko` + `s3fwrn5_i2c.ko` (NFC) and
-`cw2217_battery.ko` (patched gauge). They are kept immutable by
-`rhodep-protect-files`, so release them, save them, and put them back on top:
+the old tree, and swap it in:
 ```sh
 KVER=7.2.0-rc5
 cd /lib/modules
 sudo cp -a "$KVER" "$KVER.bak-preclean"                 # rollback point
-# save the port's own modules (release immutability first)
-for ko in updates/dkms/rtw_8821au.ko \
-          kernel/drivers/nfc/s3fwrn5/s3fwrn5.ko \
-          kernel/drivers/nfc/s3fwrn5/s3fwrn5_i2c.ko \
-          kernel/drivers/power/supply/cw2217_battery.ko; do
-    sudo chattr -i "$KVER/$ko" 2>/dev/null || true
-    sudo install -D "$KVER/$ko" "/tmp/port-mods/$ko"
-done
+sudo chattr -R -i "$KVER" 2>/dev/null || true           # drop immutability first
 sudo rm -rf "$KVER" && sudo tar xzf /path/to/modules-from-apk.tgz -C /lib/modules
-sudo cp -a /tmp/port-mods/. "$KVER/"                    # restore the 4 port modules
 sudo depmod -a "$KVER"
-sudo rhodep-protect-files enforce                       # re-arm immutability
 ```
-Confirm before flashing that no stale `.ko` remains for anything now built in
-(this is the actual Docker trigger):
+
+**Then rebuild every DKMS module against the new tree — do NOT just copy the old
+`.ko` files across.** This is the trap: the apk tarball carries none of the DKMS
+modules, and they are *families*, not single files — `rtw88` alone installs ~19
+`.ko` (`rtw_core`, `rtw_usb`, `rtw_88xxa`, `rtw_8821a`, `rtw_8821au`, …). Copying
+only `rtw_8821au.ko` across leaves it unable to resolve `rtw_usb_probe` /
+`rtw8821a_hw_spec` and `wlan1` never appears (`Unknown symbol` in dmesg). The
+DKMS build outputs already exist under `/var/lib/dkms`, so re-*installing* is
+cheap — it just copies them into the new tree and re-runs depmod:
 ```sh
+# whatever `dkms status` lists as installed for this KVER:
+for m in rtw88/0.6 \
+         realtek-rtl8188eus/5.3.9~git20260622.cbeae98 \
+         lime-forensics/1.12.0 xtrx/0.0.1+git20190320.5ae3a3e; do
+    sudo dkms install "$m" -k "$KVER" --force
+done
+sudo depmod -a "$KVER"
+```
+`s3fwrn5.ko`, `s3fwrn5_i2c.ko` and the patched `cw2217_battery.ko` are the
+exception — they are single patched in-tree modules the apk does not carry, so
+those three *are* saved and restored by hand (release immutability, copy aside
+before the `rm`, copy back after), then `rhodep-protect-files enforce` re-arms
+the immutable bit on everything it protects.
+
+Confirm before flashing that (a) the external Wi-Fi driver loaded, and (b) no
+stale `.ko` remains for anything now built in (the actual Docker trigger):
+```sh
+sudo modprobe rtw_8821au && iw dev | grep -q wlan1 && echo "wlan1 ok"
 for m in nf_conntrack nf_nat nf_defrag_ipv4 xt_nat iptable_nat; do
     find /lib/modules/$KVER -name "$m.ko" | grep . && echo "STALE $m" || echo "ok $m"
 done
+dkms status | grep -i difference && echo "DKMS still out of sync" || echo "dkms ok"
 ```
 
 **6. Flash the boot image.** Slot on this device is `_a`:

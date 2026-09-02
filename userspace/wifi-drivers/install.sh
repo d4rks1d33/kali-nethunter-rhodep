@@ -102,6 +102,41 @@ arm_firstboot() {
 			/etc/systemd/system/multi-user.target.wants/rhodep-wifi-drivers-firstboot.service
 	fi
 	log "armed rhodep-wifi-drivers-firstboot.service"
+	protect_files
+}
+
+# None of the files this installer lays down belong to a .deb, so a hold means
+# nothing to them -- the port protects that class with rhodep-protect-files:
+# immutable + content snapshot + auto-restore by rhodep-holds-enforce. Protect
+# the builder and the staged sources (the things that must survive a stray rm or
+# apt run), plus the unit FILE. The built .ko itself is protected by the driver
+# packages' own install.sh (rtl8821au registers its .ko; rtl8188eus holds its
+# DKMS package). Fails open if protect-files is absent (e.g. run before
+# userspace/apt/apply-holds.sh, which installs it).
+#
+# Deliberately NOT register-units'd: this service is meant to self-disable once
+# the drivers are built (build-on-device.sh disables it and stamps success), so
+# re-enabling it via the enforcer would defeat that. The unit file being
+# immutable is enough -- it stays present so a manual re-enable after a kernel
+# change is possible.
+protect_files() {
+	P=/usr/local/sbin/rhodep-protect-files
+	[ -x "$P" ] || { log "rhodep-protect-files not present yet; run apply-holds.sh, then re-run to protect"; return 0; }
+	# release first so a re-run can overwrite, then re-register.
+	"$P" release /usr/local/sbin/rhodep-wifi-drivers-build \
+		/etc/systemd/system/rhodep-wifi-drivers-firstboot.service 2>/dev/null || true
+	"$P" register wifi-drivers 0755 \
+		/usr/local/sbin/rhodep-wifi-drivers-build 2>/dev/null || true
+	"$P" register wifi-drivers-conf 0644 \
+		/etc/systemd/system/rhodep-wifi-drivers-firstboot.service 2>/dev/null || true
+	# the staged driver sources: snapshot so a stray rm cannot leave the
+	# firstboot build with nothing to build.
+	for f in "$STAGE/rhodep-rtl8821au/install.sh" \
+	         "$STAGE/rhodep-rtl8821au/99-rhodep-rtw88-led-off.rules" \
+	         "$STAGE/rhodep-rtl8188eus-fix/apply-rtl8188eus-fix.sh"; do
+		[ -f "$f" ] && "$P" register wifi-drivers-src 0644 "$f" 2>/dev/null || true
+	done
+	log "protected: builder + unit file + staged sources (rhodep-protect-files)"
 }
 
 # --------------------------------------------------------------- stage sources

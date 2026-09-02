@@ -62,6 +62,33 @@ port, so host mode needs VBUS boost from the charger). It enumerates as `wlan1`;
 `wlan0` is never touched. Monitor mode: `rhodep-pwn-monstart` (port way) or
 `airmon-ng start wlan1`.
 
+## Held / protected
+
+Nothing here is a distributable `.deb`, so `apt-mark hold` does not apply to the
+files this orchestrator lays down. They are protected the way the rest of the
+port protects package-less files -- `rhodep-protect-files` (immutable + content
+snapshot + auto-restore by `rhodep-holds-enforce`):
+
+- `/usr/local/sbin/rhodep-wifi-drivers-build` (component `wifi-drivers`)
+- `/etc/systemd/system/rhodep-wifi-drivers-firstboot.service` (`wifi-drivers-conf`)
+- the staged driver sources under `/usr/local/share/rhodep/wifi-drivers/`
+  (`wifi-drivers-src`), so a stray `rm` cannot leave the first-boot build with
+  nothing to build
+
+The firstboot unit is deliberately **not** `register-units`'d: it is meant to
+self-disable once the drivers are built, so re-enabling it would defeat that.
+The immutable file is enough.
+
+What the apt-hold layer covers, and is already in `userspace/apt/apt-holds.txt`
+so a clean build applies it: `linux-headers-7.2.0-rc5`, `linux-image-7.2.0-rc5`
+and `realtek-rtl8188eus-dkms`. The rtw88 `.ko` and the 8188eus `.ko` are
+protected by the driver packages' own `install.sh` (see `packages/rhodep-rtl8821au`).
+
+Protection needs `rhodep-protect-files`, which `userspace/apt/apply-holds.sh`
+installs. If you run this installer **before** apply-holds.sh, it prints a note
+and skips protection; re-run it afterwards (or run apply-holds.sh last, as the
+build order does) to protect the files.
+
 ## After a kernel change
 
 A new kernel means new modules. `rhodep-wifi-drivers-build` keys its stamp to

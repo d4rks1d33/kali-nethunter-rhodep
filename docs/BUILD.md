@@ -156,7 +156,10 @@ sudo cp -r userspace/power   /tmp/rootfs/srv/power
 sudo chroot /tmp/rootfs sh /srv/power/install.sh
 # external USB Wi-Fi drivers: stage the driver packages the orchestrator needs,
 # then run it. In the chroot it only stages sources + arms a first-boot service
-# (DKMS must build against the booted kernel, not the build host's).
+# (DKMS must build against the booted kernel, not the build host's). Runs after
+# apply-holds.sh so rhodep-protect-files exists and it can make its files
+# immutable; the linux-headers/linux-image/rtl8188eus holds are already in
+# apt-holds.txt and were applied above.
 sudo mkdir -p /tmp/rootfs/srv/packages
 sudo cp -r packages/rhodep-rtl8188eus-fix packages/rhodep-rtl8821au \
            /tmp/rootfs/srv/packages/

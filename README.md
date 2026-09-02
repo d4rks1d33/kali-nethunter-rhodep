@@ -2757,7 +2757,7 @@ already done.
    carried here because on rhodep it can only register an inert PWM chip.
    Patch 0092 stays as the plain `gpio-leds` node, which at least claims the pin.
 
-10. **NFC — reads cards; card emulation in progress via the secure element.**
+10. **NFC — reads cards; card emulation blocked at the RF listen front-end.**
     Reading works (patches 0101-0105, `userspace/nfc/rhodep-nfc read`). Card
     emulation went down two paths. Host emulation (the chip emulates the tag)
     is a dead end: patches 0110-0111 build the complete standard-NCI NFC-A listen

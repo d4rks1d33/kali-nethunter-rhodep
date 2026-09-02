@@ -148,14 +148,40 @@ class Bluetooth(NHModule):
         install_row.add_suffix(install_btn)
         bs.add(install_row)
 
-        self._row(bs,
-                  "Record microphone",
-                  "python BlueSpy.py -a $MAC -o out.wav; runs 10 s",
-                  "cd " + str(BLUESPY_DIR) + " && sudo python3 "
-                  "BlueSpy.py -a $MAC -o /tmp/bluespy-$$.wav && "
-                  "cp /tmp/bluespy-$$.wav " +
-                  "~/loot/bluetooth/bluespy-$(date +%s).wav",
-                  root=True)
+        # Where to drop recordings. Default matches the operator's
+        # Records folder; editable at runtime for one-off targets.
+        self.record_dir = Adw.EntryRow(
+            title="Recordings folder")
+        self.record_dir.set_text("/home/kali/Records")
+        bs.add(self.record_dir)
+
+        # BlueSpy has no built-in duration flag; ``parecord`` under
+        # the hood runs until SIGTERM. We wrap the call in ``timeout
+        # <N>`` so the operator can pick how long the recording
+        # should last. 0 = manual (Stop button).
+        self.record_duration = Adw.SpinRow.new_with_range(
+            0, 3600, 5)
+        self.record_duration.set_title(
+            "Duration (s) -- 0 = manual Stop")
+        self.record_duration.set_value(30)
+        bs.add(self.record_duration)
+
+        rec_row = Adw.ActionRow(
+            title="Record microphone",
+            subtitle="python BlueSpy.py -a $MAC -f <dir>/"
+                     "bluespy-<ts>.wav")
+        rec_btn = Gtk.Button(label="Record",
+                             valign=Gtk.Align.CENTER)
+        rec_btn.add_css_class("suggested-action")
+        rec_btn.connect("clicked",
+                         lambda _b: self._bluespy_record())
+        rec_row.add_suffix(rec_btn)
+        stop_btn = Gtk.Button(label="Stop",
+                              valign=Gtk.Align.CENTER)
+        stop_btn.connect("clicked",
+                          lambda _b: self._bluespy_stop())
+        rec_row.add_suffix(stop_btn)
+        bs.add(rec_row)
 
         self.play_file = Adw.EntryRow(
             title="Audio file to play (WAV/MP3)")
@@ -271,6 +297,69 @@ class Bluetooth(NHModule):
             self.runner.run(["sh", "-c", script], root=root)
         else:
             self.runner.run(["sh", "-c", script], root=root)
+
+    # ---------------------------------------------------- BlueSpy
+    def _bluespy_record(self) -> None:
+        """Run BlueSpy.py against the current MAC. We wrap the call
+        in ``timeout <N>`` so the operator's chosen duration ends
+        the recording cleanly; duration 0 falls through to a plain
+        run that the Stop button terminates. The output filename is
+        stamped so the operator can trigger multiple recordings in
+        the same session without clobbering the previous file."""
+        mac = self.mac.get_text().strip()
+        if not mac:
+            toast(self.app_window, "Set a target MAC first")
+            return
+        if not (BLUESPY_DIR / "BlueSpy.py").exists():
+            toast(self.app_window,
+                  "Install BlueSpy first")
+            return
+
+        rec_dir = (self.record_dir.get_text().strip()
+                    or "/home/kali/Records")
+        duration = int(self.record_duration.get_value())
+        stamp = __import__("time").strftime("%Y%m%d-%H%M%S")
+        safe_mac = mac.replace(":", "")
+        outfile = "%s/bluespy-%s-%s.wav" % (
+            rec_dir, safe_mac, stamp)
+
+        # Build the command. BlueSpy.py wants the output on ``-f``,
+        # not ``-o`` (that was a bug in the earlier version of this
+        # module). ``timeout`` from coreutils is the cheap way to
+        # bound the run without a shell trap.
+        core = ("python3 BlueSpy.py -a %s -f %s"
+                % (mac, outfile))
+        if duration > 0:
+            core = "timeout --signal=INT %d %s" % (duration, core)
+
+        script = (
+            "mkdir -p %s && "
+            "chown kali:kali %s 2>/dev/null || true; "
+            "cd %s && %s"
+        ) % (rec_dir, rec_dir, BLUESPY_DIR, core)
+
+        self.runner.output.append(
+            "# recording %s → %s (%s)\n"
+            % (mac, outfile,
+                ("%ds" % duration) if duration else "manual"))
+        # ToolRunner owns the subprocess and its Stop button is at
+        # the bottom of the module -- the local Stop button also
+        # calls into it.
+        self.runner.run(["sh", "-c", script], root=True)
+        # Register the loot row up front so the file shows up in
+        # Loot even if the process is killed early.
+        get_loot_store().record(
+            module="bluetooth", type="bluespy_wav",
+            target=mac, path=outfile,
+            notes="BlueSpy recording (%s)"
+                   % (("%ds" % duration) if duration
+                      else "manual stop"))
+
+    def _bluespy_stop(self) -> None:
+        # ToolRunner has its own Stop button too, but wire our local
+        # one to the same underlying subprocess so the operator can
+        # stop from where they started.
+        self.runner.stop()
 
     def _install_bluespy(self, row: Adw.ActionRow) -> None:
         script = (

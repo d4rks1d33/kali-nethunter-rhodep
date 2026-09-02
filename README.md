@@ -1187,6 +1187,15 @@ x86-centric kernels — and they break in ways that look like different problems
 but are the same three root causes. The two TP-Link Wi-Fi drivers were both
 brought up this way; this is the general recipe.
 
+**First, separate the two kinds of failure, because only one of them is real
+work.** "Finding the kernel" — pointing `make`/DKMS at the right headers — is
+solved once and for all on this port (the `build` symlink + native `ARCH`, see
+Step 1) and is *not* something you fix per driver. What is left after that is
+never a Makefile problem: it is the driver's **C source being incompatible with
+a newer kernel or compiler** (Step 2). No amount of `-C`/`ARCH`/env tweaking
+touches that half; it is irreducibly per-driver, which is why the port keeps a
+small patch script per driver rather than a global fix.
+
 The install is automated: **`userspace/wifi-drivers/install.sh`** stages the two
 driver packages and builds them on the device (see that directory's README for
 why it defers to first boot). What follows is how to bring up *a new* driver, or
@@ -1207,33 +1216,56 @@ On this port the pmbootstrap apk ships no headers; install the matching
 `linux-headers-<KVER>.deb` (previous section) first. Everything below assumes it
 is present.
 
-**Step 1 — get the source and point DKMS/`make` at the running kernel.** Most
-driver READMEs tell you `make` and nothing else, which silently builds against
-whatever `/lib/modules/$(uname -r)/build` is — right when it exists, wrong or
-failing when it does not. Be explicit:
+**Step 1 — building on the device just works; you do not normally pass `-C` or
+`ARCH` by hand.** This is worth stating plainly because it is easy to
+cargo-cult. Two facts make a bare `make` (or DKMS) find the right kernel on this
+port with no arguments:
+
+- A canonical out-of-tree Makefile already defaults `KDIR ?=
+  /lib/modules/$(shell uname -r)/build` and its default target is
+  `$(MAKE) -C $(KDIR) M=$$PWD` (see `Documentation/kbuild/modules.rst`). The
+  headers `.deb` **creates that `build` symlink (and `source`) in its postinst,
+  unconditionally** (`scripts/build-kernel-headers.sh`), so the default resolves.
+- On native aarch64 the kernel Makefile sets `ARCH` from the host
+  (`uname -m` → `arm64` via `SUBARCH`), so `ARCH`/`CROSS_COMPILE` are **not
+  needed**. They are only for cross-compiling from x86.
+
+So the normal path is simply:
 
 ```sh
-# plain out-of-tree module:
-make -C /lib/modules/$(uname -r)/build M=$PWD modules
-# or, if the driver's Makefile expects KVER/KERNELRELEASE:
-make KVER=$(uname -r) KERNELRELEASE=$(uname -r) \
-     KDIR=/lib/modules/$(uname -r)/build
 # DKMS (preferred -- rebuilds automatically on a kernel change):
 dkms build   -m <name> -v <ver> -k $(uname -r) --force
 dkms install -m <name> -v <ver> -k $(uname -r) --force
 depmod -a $(uname -r)
+# or, for a plain module with a canonical Makefile, just:
+make            # inside the driver dir; equals `make -C .../build M=$PWD`
 ```
 
-Cross-compiling on an x86 host instead? Then `ARCH` and `CROSS_COMPILE` have to
-be set or you build an x86 module that will not load on the phone:
+DKMS never needs `-C`/`KDIR`/`ARCH` from you: it derives the kernel dir from
+`/lib/modules/<KVER>/build` for the `-k` you give it, and inherits native
+`ARCH`. Both TP-Link drivers here go entirely through DKMS.
+
+**When you *do* need the explicit forms** — two cases, and only two:
 
 ```sh
+# 1. The build symlink is missing/broken (a linux-image reinstall can clobber
+#    /lib/modules/<KVER> and drop it). Repair it, or point make at the tree:
+ln -sf /usr/src/linux-headers-$(uname -r) /lib/modules/$(uname -r)/build
+make -C /lib/modules/$(uname -r)/build M=$PWD modules
+#    (rhodep-wifi-drivers-build repairs this symlink automatically.)
+
+# 2. Cross-compiling from an x86 host -- then ARCH/CROSS_COMPILE are required
+#    or you build an x86 module that will not load on the phone:
 make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
      -C /path/to/aarch64/headers M=$PWD modules
+
+# 3. A non-canonical driver Makefile that expects KDIR/KVER on the command line
+#    rather than defaulting them (rare, but some vendor trees do this):
+make KDIR=/lib/modules/$(uname -r)/build KVER=$(uname -r)
 ```
 
-Building **on the device** (native aarch64) sidesteps all of that and is what
-the first-boot service does.
+Building **on the device** (native aarch64) is what the first-boot service does,
+and it is why none of this needs `ARCH` in practice.
 
 **Step 2 — expect three classes of breakage on a recent mainline, and fix them
 mechanically.** These are exactly the ones both Realtek drivers hit; a new

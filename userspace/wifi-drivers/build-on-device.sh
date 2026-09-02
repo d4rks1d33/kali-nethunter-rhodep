@@ -27,6 +27,18 @@ if [ -f "$STAMP" ]; then
 	exit 0
 fi
 
+# The build symlink is what makes DKMS / a bare `make` find the kernel. If the
+# headers tree is on disk but the symlink is missing (e.g. a linux-image
+# reinstall clobbered /lib/modules/$KVER and dropped it), repair it before
+# giving up -- this is the one "can't find the kernel" failure that is not a
+# per-driver source issue, and it is fixable here.
+if [ ! -e "/lib/modules/$KVER/build" ] && [ -d "/usr/src/linux-headers-$KVER" ]; then
+	log "headers present but build symlink missing -- repairing it"
+	mkdir -p "/lib/modules/$KVER"
+	ln -sf "/usr/src/linux-headers-$KVER" "/lib/modules/$KVER/build"
+	ln -sf "/usr/src/linux-headers-$KVER" "/lib/modules/$KVER/source"
+fi
+
 # Headers must be present. If they are not, do not mark done -- leave the
 # service enabled so it retries once they are installed.
 if [ ! -e "/lib/modules/$KVER/build" ]; then

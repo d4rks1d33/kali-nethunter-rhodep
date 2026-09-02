@@ -96,10 +96,14 @@ cat > /tmp/khdr/DEBIAN/postinst <<EOF
 set -e
 KVER=$KVER
 SRC=/usr/src/linux-headers-\$KVER
-if [ -d /lib/modules/\$KVER ]; then
-    ln -sf "\$SRC" /lib/modules/\$KVER/build
-    ln -sf "\$SRC" /lib/modules/\$KVER/source
-fi
+# Create /lib/modules/<KVER>/build (and source) unconditionally. This is what
+# makes a bare \`make\` and DKMS find the kernel without anyone passing -C/KDIR:
+# a canonical out-of-tree Makefile defaults KDIR to /lib/modules/\$(uname -r)/build.
+# mkdir -p so the symlink exists even if the headers land before the modules
+# tree; a later linux-image install adds real files alongside it.
+mkdir -p /lib/modules/\$KVER
+ln -sf "\$SRC" /lib/modules/\$KVER/build
+ln -sf "\$SRC" /lib/modules/\$KVER/source
 # touch generated files so kbuild does not try to rebuild scripts on-device
 if [ -d "\$SRC" ]; then
     find "\$SRC/include/config" "\$SRC/include/generated" -type f -exec touch {} + 2>/dev/null || true

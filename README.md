@@ -2774,16 +2774,18 @@ already done.
     the NFC-A technology + MIFARE protocol to it, drops the host LA_\* config so
     the eSE owns the card identity, and suppresses the parasitic NFC-DEP peer
     (LF_PROTOCOL_TYPE=0, LF_T3T_FLAGS=0). The controller accepts every command
-    with `status 0x0` — **but the card still does not answer a reader.** Tested
-    against the official SUBE app: no read, and the host sees no
-    `RF_NFCEE_ACTION_NTF` and no activation at all, so the NFC-A listen front-end
-    is not engaging and the field never reaches the eSE. Same wall as host
-    emulation. The leading missing piece is the ETSI HCI network init for the eSE
-    (CORE_CONN_CREATE + session + admin whitelist, à la `st-nci/se.c`), which
-    s3fwrn5 lacks; failing that, a Samsung RF profile the plain NCI path cannot
-    reproduce. NFC-F (FeliCa) listen works. See [`docs/nfc.md`](docs/nfc.md) for
-    the full trace, the NFCEE decode, and the open question. The history below is
-    how the reader was brought up.
+    with `status 0x0` — **but the card still does not answer a reader**, tested
+    with both the official SUBE app and a Flipper Zero (both see nothing, and the
+    host sees no `RF_NFCEE_ACTION_NTF` and no activation). An ETSI HCI network
+    bring-up for the eSE was tried and does not apply: the eSE advertises the
+    MIFARE protocol, not the HCI Access interface, so `CORE_CONN_CREATE` is
+    rejected, and MIFARE emulation does not use the HCI/APDU path anyway (it was
+    reverted). The remaining wall is the NFC-A listen front-end not engaging at
+    RF — the same ceiling as host emulation, most likely a Samsung vendor RF
+    profile the plain NCI path cannot reproduce. NFC-F (FeliCa) listen works. See
+    [`docs/nfc.md`](docs/nfc.md) for the full trace, the NFCEE decode, and what
+    would be needed to break the wall. The history below is how the reader was
+    brought up.
 
     Samsung S3FWRN5 at 0x27, with ven=tlmm48, firm=tlmm8, irq=tlmm9 and
     clk_req=tlmm7.

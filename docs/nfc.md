@@ -588,13 +588,34 @@ even though it accepts the whole SET_CONFIG / MODE_SET / routing / RF_DISCOVER
 sequence with status 0x0. Nothing is emitted on NFC-A, so no reader can see it
 and the field never reaches the eSE.
 
-The decisive next diagnostic is to get the eSE's **HCI network up** (port the
-st-nci session/whitelist init to s3fwrn5, using the Samsung host/gate ids, not
-ST's) and re-test; if `RF_NFCEE_ACTION_NTF` then appears on a tap, the field is
-reaching the eSE and the rest is the applet. If it still does not, the block is
-the firmware RF profile, i.e. the same ceiling as host emulation.
+**The HCI network bring-up was tried, and it does not apply.** The idea was that
+the field only reaches the eSE once its ETSI HCI host is admitted to the network
+(what `st-nci/se.c` does: `CORE_CONN_CREATE` to the eSE with the HCI_ACCESS
+interface, `nci_hci_dev_session_init`, admin-gate whitelist). Implemented and
+tested: the `CORE_CONN_CREATE` is **rejected with status 0x1**. The reason is
+decisive -- the eSE NFCEE advertises the **MIFARE protocol (0x80)** in its
+NFCEE_DISCOVER_NTF, **not the HCI Access interface (0x01)**, and neither NFCEE
+advertises HCI Access at all. So there is no HCI network to bring up, and
+`CONN_CREATE(HCI_ACCESS)` can only be rejected. Just as important: **MIFARE card
+emulation does not use the HCI/APDU path** -- that path (APDU reader gate) is for
+ISO-DEP APDU exchange with an applet, and MIFARE Classic is neither ISO-DEP nor
+APDU-based. The HCI init was a wrong turn; it has been reverted from patch 0113,
+which keeps only the routing (MODE_SET + technology/protocol route to the eSE +
+the LF neutralisation).
 
-The larger, upstreamable version of all this is real secure-element support in
-the s3fwrn5 driver (`discover_se`/`enable_se`/`se_io`, a port of
-`drivers/nfc/st-nci/se.c`; most of the machinery already exists generically in
-`net/nfc/nci/`), which would also do the HCI init above.
+So the routing is architecturally correct for MIFARE-via-eSE, the controller
+accepts all of it (status 0x0), and yet the NFC-A listen front-end never engages
+at RF -- with a Flipper Zero too, not just the SUBE app. That is the same wall as
+host emulation, and the most likely explanation is a **vendor RF profile the
+plain NCI path does not reproduce**: on Android the field only comes up in listen
+because the vendor HAL loads an RF-register configuration for it that mainline's
+s3fwrn5 does not. Confirming or breaking that would mean disassembling the HAL's
+RF-register update path for a listen-specific profile, or capturing the exact NCI
++ proprietary-command stream Android emits when the SUBE card is read, and
+replaying it. Short of that, NFC-A listen / card emulation on this controller is
+not reachable from Linux, by either the host or the eSE route.
+
+The larger, upstreamable version of the eSE work is real secure-element support
+in the s3fwrn5 driver (`discover_se`/`enable_se`/`se_io`), but note that for this
+part it would be for **ISO-DEP HCE** (APDU applets), not the MIFARE transit card,
+which needs the RF-listen front-end to engage first.

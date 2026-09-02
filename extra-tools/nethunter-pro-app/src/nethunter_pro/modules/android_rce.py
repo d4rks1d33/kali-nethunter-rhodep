@@ -44,7 +44,7 @@ from gi.repository import Adw, GLib, Gtk
 from ..executor import Process, Result, run_async
 from ..loot_store import get_loot_store, loot_path
 from ..module import NHModule, register
-from ..widgets import OutputView, toast
+from ..widgets import OutputView, services_banner, toast
 
 # avahi-browse service types for ADB over Wi-Fi.
 _SERVICE_SHELL = "_adb-tls-connect._tcp"
@@ -81,6 +81,12 @@ class AndroidRCE(NHModule):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         for m in ("top", "bottom", "start", "end"):
             getattr(box, "set_margin_" + m)(12)
+
+        # Services banner up top: this module wants avahi-daemon
+        # for the mDNS discovery back-end. The nmap fallback is
+        # still there if the operator prefers not to run avahi.
+        box.append(services_banner(
+            self.app_window, ["avahi-daemon"]))
 
         # ---- discovery ------------------------------------
         disc = Adw.PreferencesGroup(
@@ -283,21 +289,16 @@ class AndroidRCE(NHModule):
         self._render()
         self.output.append("# scanning for ADB-over-Wi-Fi\n")
 
-        # Preflight: is avahi-daemon alive? If avahi-browse isn't
-        # even installed, jump straight to nmap.
+        # Preflight: check whether avahi-daemon is running. The
+        # operator is expected to start it from Kali Services (the
+        # banner at the top of this module deep-links there); we do
+        # not start it here on their behalf. Fall through to the
+        # nmap back-end if avahi-browse is missing OR the daemon
+        # is not running.
         script = (
-            "if command -v avahi-browse >/dev/null 2>&1; then "
-            "  if ! pgrep -x avahi-daemon >/dev/null; then "
-            "    systemctl start avahi-daemon 2>/dev/null || "
-            "      avahi-daemon --no-drop-root --daemonize "
-            "        2>/dev/null || true; "
-            "    sleep 1; "
-            "  fi; "
-            "  if pgrep -x avahi-daemon >/dev/null; then "
-            "    echo AVAHI; "
-            "  else "
-            "    echo NMAP; "
-            "  fi; "
+            "if command -v avahi-browse >/dev/null 2>&1 && "
+            "   pgrep -x avahi-daemon >/dev/null; then "
+            "  echo AVAHI; "
             "else "
             "  echo NMAP; "
             "fi"
@@ -312,10 +313,8 @@ class AndroidRCE(NHModule):
             else:
                 self._scan_nmap()
 
-        # Starting avahi-daemon needs root; the probe itself is fine
-        # non-root but the systemctl start needs it.
         run_async(["sh", "-c", script], on_probe,
-                  root=True, timeout=10)
+                  root=False, timeout=5)
         self.scan_btn.set_sensitive(False)
         self.stop_btn.set_sensitive(True)
 

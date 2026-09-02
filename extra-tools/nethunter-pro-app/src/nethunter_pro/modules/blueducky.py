@@ -29,6 +29,10 @@ class BlueDucky(NHModule):
         for m in ("top", "bottom", "start", "end"):
             getattr(box, f"set_margin_{m}")(12)
 
+        # Services banner (managed centrally in Kali Services)
+        box.append(services_banner(
+            self.app_window, ["bluetooth"]))
+
         target = Adw.PreferencesGroup(
             title="Target",
             description="Set a MAC for a direct attack, or auto-target to pick "

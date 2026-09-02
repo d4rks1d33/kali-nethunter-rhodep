@@ -46,7 +46,7 @@ from gi.repository import Adw, GLib, Gtk
 
 from ..executor import Process, Result, run_async, which
 from ..module import NHModule, register
-from ..widgets import OutputView, toast
+from ..widgets import OutputView, services_banner, toast
 
 # Guesses at the wireless-facing interface. NetworkManager gives the exact
 # one but we also probe for common names in case NM is not managing wlan.
@@ -185,17 +185,14 @@ IFACE=%s
 SUBNET=%s
 OUI=%s
 
-# Avahi-daemon may not be running on this port (it is preset-disabled on
+# Avahi-daemon may not be running (it is preset-disabled on
 # postmarketOS/Kali). Without it, avahi-resolve-address returns whatever
-# nsswitch / DNS PTR yields, which is usually nothing on a home LAN. Start
-# the daemon here so mDNS discovery can actually happen -- systemctl start
-# is fast (< 500ms) and idempotent. `avahi-browse -atrp` primes the cache
-# with everything currently on the wire so per-IP resolves have data to
-# work with. Both are best-effort; the scan still runs if avahi is
-# missing.
-if command -v systemctl >/dev/null 2>&1; then
-  systemctl start avahi-daemon 2>/dev/null || true
-fi
+# nsswitch / DNS PTR yields, which is usually nothing on a home LAN. The
+# operator is expected to start it from the Kali Services module (a
+# banner at the top of Network Discovery deep-links there); we do not
+# start it here so the app has a single point where systemd services
+# are turned on / off. `avahi-browse -atrp` still primes the cache with
+# whatever it can see if the daemon is running.
 # Ask the gateway's DNS (which is usually dnsmasq on the router) for reverse
 # PTRs of every LAN IP. On any home router running dnsmasq -- basically all
 # consumer boxes -- the DHCP daemon auto-registers `hostname->ip` in its own
@@ -418,6 +415,12 @@ class NetDiscovery(NHModule):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         for m in ("top", "bottom", "start", "end"):
             getattr(box, "set_margin_" + m)(12)
+
+        # Services banner: mDNS discovery needs avahi-daemon;
+        # NetworkManager is optional but improves the LAN summary.
+        box.append(services_banner(
+            self.app_window,
+            ["avahi-daemon", "NetworkManager"]))
 
         # ---- band capabilities ------------------------------------
         # Sanity-check for the operator: what bands can the current

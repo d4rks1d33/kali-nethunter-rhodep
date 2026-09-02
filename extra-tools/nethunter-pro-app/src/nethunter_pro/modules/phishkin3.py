@@ -20,7 +20,7 @@ from gi.repository import Adw, GLib, Gtk
 
 from ..executor import Result, run_async, which
 from ..module import NHModule, register
-from ..widgets import ToolRunner, toast
+from ..widgets import ToolRunner, services_banner, toast
 
 PHISHLETS_DIR = "/usr/share/evilginx2/phishlets"
 LAUNCHER = "/usr/libexec/nethunter-pro-phishkin3-launch"
@@ -106,6 +106,10 @@ class Phishkin3(NHModule):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         for m in ("top", "bottom", "start", "end"):
             getattr(box, "set_margin_" + m)(12)
+
+        # Services banner (managed centrally in Kali Services)
+        box.append(services_banner(
+            self.app_window, ['NetworkManager']))
 
         g = Adw.PreferencesGroup(
             title="Attack",

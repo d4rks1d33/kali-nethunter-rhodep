@@ -56,7 +56,7 @@ from gi.repository import Adw, GLib, Gtk
 
 from ..executor import which
 from ..module import NHModule, register
-from ..widgets import OutputView, toast
+from ..widgets import OutputView, services_banner, toast
 
 CRED_DIR = Path.home() / ".config" / "nethunter-pro" / "tv-remotes"
 
@@ -1850,6 +1850,10 @@ class TVRemote(NHModule):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         for m in ("top", "bottom", "start", "end"):
             getattr(box, "set_margin_" + m)(12)
+
+        # Services banner (managed centrally in Kali Services)
+        box.append(services_banner(
+            self.app_window, ['avahi-daemon']))
 
         # ---- discovery -------------------------------------------
         disc_group = Adw.PreferencesGroup(

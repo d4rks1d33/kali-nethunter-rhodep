@@ -182,3 +182,67 @@ class ToolRunner(Gtk.Box):
         if self._proc and self._proc.running:
             self.output.append("[stopping…]\n")
             self._proc.stop()
+
+
+def services_banner(app_window, units: list[str],
+                    subtitle_extra: str = "") -> Adw.PreferencesGroup:
+    """Return a small preferences group meant to sit at the top of a
+    module. Lists the systemd services the module needs and shows a
+    per-service live status pill plus a "Open Kali Services" button
+    that deep-links to the central service manager.
+
+    Every ``systemctl start`` action lives in the Kali Services
+    module -- individual modules never touch systemd directly. This
+    banner is how a module tells the operator "hey, I need these
+    services running; here's where to flip them on".
+
+    ``units`` is the list of systemd unit names (e.g.
+    ``['bluetooth', 'avahi-daemon']``); ``subtitle_extra`` is an
+    optional string appended to the group description if the module
+    wants to add context (e.g. "MUST be off, not on").
+    """
+    group = Adw.PreferencesGroup(
+        title="Required services",
+        description=("Managed centrally in Kali Services -- this "
+                     "module does not start them for you. " +
+                     subtitle_extra).strip())
+
+    # Live status: fire ``systemctl is-active <unit>`` for each and
+    # tag the row.
+    rows: dict[str, Adw.ActionRow] = {}
+    for unit in units:
+        row = Adw.ActionRow(title=unit,
+                            subtitle="checking…")
+        rows[unit] = row
+        group.add(row)
+
+        def make_cb(u: str):
+            def done(r: Result) -> None:
+                out = (r.stdout or "").strip()
+                if out == "active":
+                    rows[u].set_subtitle("● active")
+                elif out == "failed":
+                    rows[u].set_subtitle("✗ failed")
+                elif out == "inactive":
+                    rows[u].set_subtitle("○ inactive")
+                else:
+                    rows[u].set_subtitle("? " + (out or "unknown"))
+            return done
+        run_async(["systemctl", "is-active", unit],
+                  make_cb(unit), timeout=5)
+
+    # One button at the group level to hop to Kali Services.
+    open_row = Adw.ActionRow(
+        title="Manage services",
+        subtitle="Opens the Kali Services screen")
+    open_btn = Gtk.Button(label="Open",
+                          valign=Gtk.Align.CENTER)
+    open_btn.add_css_class("suggested-action")
+    open_btn.connect(
+        "clicked",
+        lambda _b: app_window.activate_module(
+            "kali_services", ",".join(units)))
+    open_row.add_suffix(open_btn)
+    group.add(open_row)
+
+    return group

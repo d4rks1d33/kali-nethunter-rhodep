@@ -47,7 +47,7 @@ from gi.repository import Adw, GLib, Gtk
 
 from ..executor import Process, Result, run_async, which
 from ..module import NHModule, register
-from ..widgets import OutputView, toast
+from ..widgets import OutputView, services_banner, toast
 
 # Default external adapter and the monitor-mode alias airmon-ng creates.
 # The user can override the physical interface if they have a different
@@ -169,6 +169,13 @@ class Deauth(NHModule):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         for m in ("top", "bottom", "start", "end"):
             getattr(box, "set_margin_" + m)(12)
+
+        # avahi-daemon improves the hostname resolve for target
+        # clients; NetworkManager needs to stay up on the phone's
+        # own Wi-Fi so we can restore the external adapter cleanly.
+        box.append(services_banner(
+            self.app_window,
+            ["avahi-daemon", "NetworkManager"]))
 
         # ---- monitor mode setup -----------------------------------
         mon_group = Adw.PreferencesGroup(
@@ -709,10 +716,10 @@ class Deauth(NHModule):
         MAP=/tmp/nhp-deauth-macs.$$
         : > "$MAP"
 
-        # (a) mDNS -- catches things that broadcast Bonjour records
-        if command -v systemctl >/dev/null 2>&1; then
-          systemctl start avahi-daemon 2>/dev/null || true
-        fi
+        # (a) mDNS -- catches things that broadcast Bonjour records.
+        # Requires avahi-daemon to be running; the operator turns it
+        # on from Kali Services (see the banner at the top of this
+        # module). Silently skipped otherwise.
         AVAHI=/tmp/nhp-deauth-avahi.$$
         : > "$AVAHI"
         if command -v avahi-browse >/dev/null 2>&1; then

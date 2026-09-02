@@ -36,7 +36,7 @@ from ..vendor.blespam.engine import (
     MODE_SEQUENTIAL,
     TX_POWER_BYTES,
 )
-from ..widgets import OutputView, toast
+from ..widgets import OutputView, services_banner, toast
 
 RUNNER = "/usr/libexec/nethunter-pro-blespam"
 RECOVER = "/usr/libexec/nethunter-pro-blespam-recover"
@@ -127,6 +127,11 @@ class Blespam(NHModule):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         for m in ("top", "bottom", "start", "end"):
             getattr(box, "set_margin_" + m)(12)
+
+        # Services banner (managed centrally in Kali Services)
+        box.append(services_banner(
+            self.app_window, ['bluetooth'],
+            subtitle_extra='This module needs bluetooth.service OFF -- it uses a user-channel HCI socket. Flip the switch to inactive in Kali Services before starting.'))
 
         # ---- radio + engine options ------------------------------
         opts = Adw.PreferencesGroup(

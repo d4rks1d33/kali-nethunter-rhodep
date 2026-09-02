@@ -25,6 +25,10 @@ class NetControl(NHModule):
         for m in ("top", "bottom", "start", "end"):
             getattr(box, f"set_margin_{m}")(12)
 
+        # Services banner (managed centrally in Kali Services)
+        box.append(services_banner(
+            self.app_window, ["NetworkManager"]))
+
         otg = Adw.PreferencesGroup(
             title="USB-C role",
             description="Single port: charge or host, not both.",

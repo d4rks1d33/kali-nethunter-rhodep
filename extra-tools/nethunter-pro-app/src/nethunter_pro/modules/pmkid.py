@@ -42,7 +42,7 @@ from gi.repository import Adw, GLib, Gtk
 from ..executor import Process, Result, run_async
 from ..loot_store import LOOT_ROOT, get_loot_store, loot_path
 from ..module import NHModule, register
-from ..widgets import OutputView, toast
+from ..widgets import OutputView, services_banner, toast
 
 DEFAULT_IFACE = "wlan1"
 MON_SUFFIX = "mon"
@@ -89,6 +89,10 @@ class Pmkid(NHModule):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         for m in ("top", "bottom", "start", "end"):
             getattr(box, "set_margin_" + m)(12)
+
+        # Services banner (managed centrally in Kali Services)
+        box.append(services_banner(
+            self.app_window, ['NetworkManager', 'gpsd']))
 
         # ---- monitor mode
         mon_group = Adw.PreferencesGroup(

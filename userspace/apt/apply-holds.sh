@@ -41,6 +41,12 @@
 #                   only one here with a terminal layout; losing it on a phone
 #                   means losing text input entirely
 #   plasma-keyboard kept installed purely as the fallback to switch back to
+#   neard           the NCI daemon the NFC reader drives the S3NRN4V through;
+#                   not installed by default and the whole userspace/nfc path
+#                   depends on it. See nice-to-have 10 and userspace/nfc.
+#   wlr-randr       the Wayland output tool the NFC bring-up leaned on; held
+#                   alongside neard so the NFC work does not regress on an
+#                   upgrade. Both are behavioural holds, not deletion.
 #
 # The modem, wifi, kernel and firmware holds predate audio and are kept.
 #

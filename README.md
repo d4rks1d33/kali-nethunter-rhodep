@@ -101,7 +101,11 @@ list; everything here is a from-scratch community port.
 - **Display** (Novatek NT37701 AMOLED 1080x2400, DSI + DSC command mode)
 - **Internal WiFi + Bluetooth** (WCN3990)
 - **Modem / ADSP / CDSP** remoteprocs
-- **GPU** Adreno 619 (accelerated), touchscreen (Goodix GT9916S), buttons
+- **GPU** Adreno 619 (accelerated): OpenGL through freedreno (KWin composites
+  on it), **Vulkan through Turnip** (`mesa-vulkan-drivers`, exposed as "Turnip
+  Adreno (TM) 619" to `vulkaninfo`; enabled by `packages/rhodep-gpu-vulkan`),
+  and OpenCL through rusticl (see `packages/rhodep-gpu-opencl`). Touchscreen
+  (Goodix GT9916S), buttons
 - **Battery** (CellWise CW2217 gauge) + **charging** (SGM41542) with full thermal
   protection (kernel hot-side + userspace cold-side JEITA)
 - **USB host / OTG** with VBUS from the SGM41542 charger → **external USB WiFi
@@ -561,6 +565,9 @@ packages/
                            network churn (airmon-ng check kill) + airmon-safe
   rhodep-gpu-opencl/       .deb source: enable rusticl so OpenCL (hashcat) sees
                            the Adreno 619 as FD619 (RUSTICL_ENABLE=freedreno)
+  rhodep-gpu-vulkan/       .deb source: point the Vulkan loader at Mesa's Turnip
+                           (freedreno) ICD so vulkaninfo/vkcube and zink see the
+                           Adreno 619, and pin mesa-vulkan-drivers
   firmware-motorola-rhodep/ .deb template (blobs NOT included, see its README)
 userspace/
   debug-tools/             the display and modem diagnostic tools, plus
@@ -585,7 +592,7 @@ userspace/
                       WirePlumber rules, the boot route unit, the udev rule that
                       keeps the codec awake for jack detection, and the jack
                       watcher that switches output (install.sh)
-  apt/                the 51 apt holds this port depends on, the hook that
+  apt/                the 55 apt holds this port depends on, the hook that
                       refuses to purge them, and the enforcer that puts a hold
                       back if anything removes it (apply-holds.sh)
   login/              GDM login screen instead of the phosh.service autologin (install.sh)
@@ -596,12 +603,17 @@ userspace/
                       including anything started from a terminal. Also the
                       NetworkManager drop-in that asks the radio to stay
                       wake-capable rather than dropping the link (install.sh)
-  sensors/            the SSC sensors: Qualcomm's FastRPC userspace built
+   sensors/            the SSC sensors: Qualcomm's FastRPC userspace built
                       against the mainline driver, the registry copied out of
                       the stock vendor/persist partitions, and the udev bits
                       iio-sensor-proxy needs. Accelerometer, gyroscope,
                       magnetometer, proximity and light (build-fastrpc.sh,
                       install.sh)
+  keyboard/           the on-screen keyboard in apps that never ask for it:
+                      rhodep-keyboard (forceActivate over DBus), the VS Code /
+                      Electron Wayland flags, and the KWin patch + build-kwin.sh
+                      that lets the keyboard be raised over XWayland/Java windows
+                      (Burp) which cannot speak text-input (see its README)
 extra-tools/          not needed to boot or to make a call: tools that make the
                       device pleasant to work *on* (see extra-tools/README.md)
   terminal-keyboard/  Esc, Tab, Ctrl, Alt and the arrows added to Plasma's
@@ -1684,10 +1696,11 @@ The canonical list lives in `userspace/apt/apt-holds.txt`, is copied to
 | Kali menu launchers | `kali-menu` |
 | Sensors | `iio-sensor-proxy`, `libssc2`, `libqrtr-glib0` |
 | GPU compute | `mesa-opencl-icd` |
+| GPU Vulkan | `mesa-vulkan-drivers` |
 
 </details>
 
-Six of those groups are newer than the rest and are the ones a reader is most
+Seven of those groups are newer than the rest and are the ones a reader is most
 likely to think are stray:
 
 - **`bluez`** owns `btmgmt`, which `rhodep-bt-address` uses to inspect the
@@ -1753,6 +1766,17 @@ likely to think are stray:
   belongs to no package on this image, so it is registered with
   `rhodep-protect-files` as the `gpu-opencl` component. Losing it is silent:
   `clinfo` simply reports zero platforms.
+- **`mesa-vulkan-drivers`** is Turnip, the open Vulkan driver for the Adreno
+  619, which `vulkaninfo` reports as "Turnip Adreno (TM) 619". It is held for
+  the same reasons as the OpenCL runtime, by `rhodep-gpu-vulkan`'s postinst:
+  Turnip on the A619 is young, this is the validated version, and the package
+  is auto-installed, so once the hold goes the next `apt autoremove` takes the
+  Vulkan driver with it and `vulkaninfo` reports zero devices. The loader
+  discovers ICDs on its own, so unlike OpenCL the driver is not strictly off
+  without a switch; the port still pins the freedreno ICD by name
+  (`/etc/profile.d/rhodep-turnip.sh`, the `gpu-vulkan` protected component) so a
+  stray software rasteriser pulled in as a dependency cannot be picked ahead of
+  the real GPU and quietly drop everything to llvmpipe.
 
 `gstreamer1.0-pipewire` is worth calling out because its absence fails in a
 confusing way: the microphone is fine at every level this port controls, ALSA
@@ -2557,29 +2581,32 @@ already done.
      every X11 app without needing its cooperation -- and was rejected on how it
      feels rather than whether it functions.
 
-   **Measure this first, because it decides which patch to write.** Does
-   `plasma-keyboard` deliver keys as keycodes through
+   **The patch is written, for the keycode path.**
+   `userspace/keyboard/kwin-patches/0001-inputmethod-forced-activation-for-xwayland.patch`
+   (build with `userspace/keyboard/build-kwin.sh`). The research into KWin's
+   `InputMethod` (`src/inputmethod.cpp`, Plasma/6.2) found that `forceActivate()`
+   already bypasses the text-input gate once, but nothing makes it stick: three
+   separate paths tear a forced keyboard back down -- `refreshActive()`
+   re-imposing the gate on the next text-input signal, `shouldShowOnActive()`
+   only showing the panel for touch/tablet input, and `setTrackedWindow()`
+   clearing the show flag on every focus change. The patch adds one member,
+   `m_forcedActive`, set by `forceActivate()` and cleared when the user dismisses
+   the keyboard, that makes all three respect a user-forced keyboard. It is four
+   short edits and touches nothing on the ordinary Wayland text-input path.
+
+   **Measure this before trusting it, because it decides whether the patch can
+   work at all.** Does `plasma-keyboard` deliver keys as keycodes through
    `zwp_virtual_keyboard_v1`, or as committed strings through the text-input
-   protocol? Run it under `WAYLAND_DEBUG=1` and watch which interface it binds
-   and which requests carry the keystrokes. The answer splits the work in two:
+   protocol? Run it under `WAYLAND_DEBUG=1` and watch which interface carries the
+   keystrokes. **If it sends keycodes**, this patch is the whole fix: keycodes go
+   to the seat's keyboard focus -- whatever window is focused, XWayland included
+   -- so once the keyboard is allowed to show, the keys already have somewhere to
+   land. **If it commits strings**, there is nothing for an X11 window to receive
+   and this patch is not enough: KWin would have to synthesise key events from
+   the committed text for surfaces with no text-input, the same job XTEST does
+   for onboard, done inside the compositor. That larger patch is not written.
 
-   **If it sends keycodes**, the patch is small. Keycodes go to the seat's
-   keyboard focus, which is whatever window is focused -- XWayland included --
-   so the keys already have somewhere to land and the only thing missing is
-   permission to show the keyboard. In `src/inputmethod.cpp`, activation is
-   gated on there being a text-input-enabled surface; `forceActivate()` needs to
-   be allowed to proceed without one, and the input method's lifetime needs to
-   stop being tied to a text-input client that will never exist. Roughly: an
-   "activated by the user rather than by an application" state that show/hide
-   respects and that focus changes do not immediately clear.
-
-   **If it commits strings**, there is nothing for an X11 window to receive and
-   the patch is bigger: KWin would have to synthesise key events from the
-   committed text for surfaces with no text-input, which is the same job
-   XTEST does for onboard, done inside the compositor.
-
-   Either way it is a KWin patch and a KWin rebuild rather than a setting, and
-   worth checking against upstream first -- an on-screen keyboard that cannot
+   Worth checking against upstream first -- an on-screen keyboard that cannot
    type into X11 applications is not a rhodep problem, and someone may already
    be arguing about it.
 

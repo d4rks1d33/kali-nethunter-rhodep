@@ -109,3 +109,49 @@ XWayland surfaces. That is a C++ patch and a KWin rebuild, not configuration.
 
 Note for anyone testing this over ssh: do not name a shell variable `path`.
 zsh ties it to `PATH` and the rest of the script loses every command it needs.
+
+## The KWin patch (written)
+
+`kwin-patches/0001-inputmethod-forced-activation-for-xwayland.patch` takes the
+first of those two routes -- letting `forceActivate` raise the keyboard over any
+surface and *keep* it there. Build and deploy it with `build-kwin.sh`
+(`--install` to overwrite the packaged KWin; it holds and protects the result so
+an upgrade cannot silently revert it).
+
+**What the patch does.** `forceActivate()` already bypasses the text-input gate
+once, but nothing makes it stick: the research into KWin's `InputMethod`
+(`src/inputmethod.cpp`, Plasma/6.2) showed three separate things tear a forced
+keyboard back down within a moment of it appearing:
+
+  * `refreshActive()` re-imposes the text-input requirement and calls
+    `setActive(false)` on the next text-input enabled-changed signal;
+  * `shouldShowOnActive()` only shows the panel when the last input was touch or
+    tablet, so a mouse/keyboard-driven XWayland window never gets it;
+  * `setTrackedWindow()` clears `m_shouldShowPanel` on every focus change.
+
+The patch adds one bit of state, `m_forcedActive`, set by `forceActivate()` and
+cleared when the user dismisses the keyboard (`hide()`). While it is set,
+`refreshActive()` forces the keyboard active, `shouldShowOnActive()` returns
+true (the same escape hatch `KWIN_IM_SHOW_ALWAYS` gives), and a focus change
+keeps the panel up and re-shows it. It is deliberately small -- one member, four
+short edits -- and touches nothing on the ordinary text-input path, so Wayland
+apps behave exactly as before.
+
+**Measure this before trusting it -- it decides whether the patch can work at
+all.** The patch only helps if `plasma-keyboard` sends **keycodes** (through
+`zwp_virtual_keyboard_v1`): keycodes go to the seat's keyboard focus, which is
+the focused window, XWayland included, so once the keyboard is allowed to show,
+the keys already have somewhere to land. If instead it **commits strings**
+through the text-input protocol, there is nothing for an X11 window to receive
+and a bigger patch is needed (KWin synthesising key events from the committed
+text, the job XTEST does for onboard, done inside the compositor). Tell the two
+apart on the device:
+
+	WAYLAND_DEBUG=1 plasma-keyboard 2>&1 | grep -Ei 'virtual_keyboard|text_input'
+
+`build-kwin.sh` repeats this warning at the top; do not flash the rebuild and
+expect Burp to type until the keycode path is confirmed.
+
+**Once installed**, with the X11/Java app focused: `rhodep-keyboard on`. The
+keyboard should appear and stay up across clicks into other fields, and `off`
+(or its own dismiss button) should take it down and clear the forced state.

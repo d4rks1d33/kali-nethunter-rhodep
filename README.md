@@ -3708,27 +3708,29 @@ already done.
     what the vendor asks for, not proof of what the pin carries -- and that needs
     opening the phone.
 
-19. **Run x86 binaries under QEMU (`binfmt_misc`), for tools with no arm64 build.**
-    Everything userspace is already in place -- `qemu-user`, `qemu-user-binfmt`,
-    `binfmt-support`, `/usr/bin/qemu-x86_64` -- but transparent x86 execution does
-    not work, for two stacked reasons:
+19. **Run x86 binaries under QEMU (`binfmt_misc`) — done, kernel side.** The
+    kernel now carries `CONFIG_BINFMT_MISC=y` (built in, not a module, so there is
+    no `.ko` to keep in sync with the boot image), verified in the built apk's
+    `modules.builtin`. This is the mechanism the kernel needs to hand an x86 ELF to
+    QEMU automatically; without it the `qemu-user` / `binfmt-support` packages are
+    inert.
 
-    1. `/proc/sys/fs/binfmt_misc/` is not mounted (this one is just a mount:
-       `mount -t binfmt_misc none /proc/sys/fs/binfmt_misc`, or the
-       `systemd-binfmt.service` / `proc-sys-fs-binfmt_misc.mount` units).
-    2. The kernel is built with **`CONFIG_BINFMT_MISC=n`**
-       (`kernel/config/config-motorola-rhodep.aarch64:1011`,
-       `# CONFIG_BINFMT_MISC is not set`). Without it there is no mechanism for the
-       kernel to invoke QEMU automatically when it sees an x86 ELF, so the
-       installed qemu-user packages are inert.
+    Two things were stacked here, and only the kernel half was the hard one:
 
-    The fix is a kernel-config change: set `CONFIG_BINFMT_MISC=y` (or `=m`), then
-    rebuild and flash a matching boot image (see "Updating the kernel" -- the
-    module set and the boot image must come from the same apk). After that,
-    mounting `binfmt_misc` and registering the QEMU handlers (binfmt-support does
-    this) makes x86/x86_64 binaries run transparently, which also lets Docker pull
-    and run non-arm64 images. Costs nothing at runtime when unused; it is left off
-    only because nothing here needed it yet.
+    1. **The kernel config** — `CONFIG_BINFMT_MISC=y`, now set
+       (`kernel/config/config-motorola-rhodep.aarch64`). Needs the matching boot
+       image + modules from the same apk (see "Build & install a clean kernel
+       image"); the `out/kali-boot-rhodep-clean-*.img` carries it.
+    2. **The userspace mount + handlers**, which come up on their own on a normal
+       boot: `systemd-binfmt.service` mounts `/proc/sys/fs/binfmt_misc` and
+       `binfmt-support` registers the QEMU handlers. Everything userspace is
+       already installed — `qemu-user`, `qemu-user-binfmt`, `binfmt-support`,
+       `/usr/bin/qemu-x86_64`. If a handler is not registered, `sudo systemctl
+       restart systemd-binfmt` re-reads them.
+
+    After a boot on the new image, x86/x86_64 binaries run transparently, which
+    also lets Docker pull and run non-arm64 images. Costs nothing at runtime when
+    unused.
 
 # License
 Kernel patches: GPL-2.0. Packaging/glue: MIT. Vendor firmware blobs: proprietary,

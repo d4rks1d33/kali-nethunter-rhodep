@@ -30,10 +30,15 @@ So the build is **deferred to the device**:
   `rhodep-wifi-drivers-firstboot.service`.
 - On the **device's first boot**, that service runs
   `rhodep-wifi-drivers-build`, which compiles both drivers against the booted
-  kernel, writes a per-kernel stamp (`/var/lib/rhodep/wifi-drivers.<KVER>.done`)
-  and disables itself. It needs the network once, to `apt-get` the DKMS package
-  and build deps; if the network or the kernel headers are not there yet it
-  exits cleanly and retries on the next boot.
+  kernel and writes a stamp keyed to a **fingerprint of that kernel build**
+  (`uname -r` + a hash of `uname -v`), not just the version. It stays enabled and
+  is a cheap no-op on ordinary boots, but rebuilds automatically after any kernel
+  change -- **including a rebuild of the same version** (same `uname -r`, new
+  build), which a version-only stamp would wrongly skip. It also re-verifies that
+  `rtw_8821au` actually loads, so a stamp left by a broken module set is not
+  trusted. It needs the network once, to `apt-get` the DKMS package and build
+  deps; if the network or the kernel headers are not there yet it exits cleanly
+  and retries on the next boot.
 - On a **live system**, `install.sh` builds immediately.
 
 ## Prerequisite: kernel headers
@@ -75,9 +80,10 @@ snapshot + auto-restore by `rhodep-holds-enforce`):
   (`wifi-drivers-src`), so a stray `rm` cannot leave the first-boot build with
   nothing to build
 
-The firstboot unit is deliberately **not** `register-units`'d: it is meant to
-self-disable once the drivers are built, so re-enabling it would defeat that.
-The immutable file is enough.
+The firstboot unit is deliberately **not** `register-units`'d, but for a
+different reason than before: the builder no longer self-disables (it stays
+enabled to catch a future kernel rebuild), so there is nothing for the enforcer
+to fight. The immutable file is enough.
 
 What the apt-hold layer covers, and is already in `userspace/apt/apt-holds.txt`
 so a clean build applies it: `linux-headers-7.2.0-rc5`, `linux-image-7.2.0-rc5`
@@ -89,13 +95,22 @@ installs. If you run this installer **before** apply-holds.sh, it prints a note
 and skips protection; re-run it afterwards (or run apply-holds.sh last, as the
 build order does) to protect the files.
 
-## After a kernel change
+## After a kernel change (including a same-version rebuild)
 
-A new kernel means new modules. `rhodep-wifi-drivers-build` keys its stamp to
-`uname -r`, so booting a new kernel makes the first-boot service build again on
-its own -- provided the matching `linux-headers-<KVER>` are installed. The
-built `.ko` files are made immutable by `rhodep-protect-files` (the driver
-packages do this), which is deliberate friction: DKMS cannot overwrite an
-immutable `.ko`, so on a kernel change you first
-`rhodep-protect-files release <ko>`. See "Updating the kernel" in the top-level
-README -- you are reapplying every out-of-tree piece anyway.
+A new kernel means new modules. Because the stamp is keyed to the kernel-build
+fingerprint (`uname -r` + `uname -v`), the enabled service rebuilds the drivers
+on the next boot after **any** kernel change -- a version bump *or* a rebuild of
+the same version -- provided the matching `linux-headers-<KVER>` are installed.
+
+Two frictions to know about:
+
+- The built `.ko` files are made immutable by `rhodep-protect-files` (the driver
+  packages do this), and DKMS cannot overwrite an immutable `.ko`. The builder
+  releases them before `dkms install`; if you rebuild by hand, first
+  `rhodep-protect-files release <ko>`.
+- **Do not just copy `/lib/modules` across when you flash a same-version
+  rebuild.** rtw88 is a *family* (~19 `.ko`); copying only `rtw_8821au.ko` leaves
+  it unable to resolve its symbols (`Unknown symbol rtw_usb_probe`) and `wlan1`
+  never appears. Let the firstboot service rebuild it, or run `dkms install
+  rtw88/0.6 -k $(uname -r) --force` yourself. See "Build & install a clean kernel
+  image" step 5 in the top-level README.

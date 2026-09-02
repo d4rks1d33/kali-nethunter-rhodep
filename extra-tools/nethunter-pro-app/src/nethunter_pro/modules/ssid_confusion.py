@@ -68,7 +68,7 @@ auth_algs=1
 @register
 class SSIDConfusion(NHModule):
     title = "SSID Confusion"
-    icon = "dialog-warning-symbolic"
+    icon = "network-wireless-no-route-symbolic"
     description = ("CVE-2023-52424: client thinks it is on SSID-A "
                    "when it is really on our rogue SSID-B.")
     required_tools = ["hostapd"]

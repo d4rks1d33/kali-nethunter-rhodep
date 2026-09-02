@@ -101,7 +101,7 @@ def wigle_search_ssid(ssid: str, api_pair: str,
 @register
 class ProbeHarvester(NHModule):
     title = "Probe harvester"
-    icon = "network-cellular-signal-good-symbolic"
+    icon = "network-wireless-acquiring-symbolic"
     description = ("Passive capture of Wi-Fi probe requests; aggregate "
                    "the PNL of every client heard, classify OS from IE "
                    "fingerprints.")

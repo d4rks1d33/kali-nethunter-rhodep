@@ -100,7 +100,7 @@ list; everything here is a from-scratch community port.
 - [Repository layout](#repository-layout)
 - [The kernel (shared with the pmOS port)](#the-kernel-shared-with-the-pmos-port)
   - [Build & install a clean kernel image, end to end](#build--install-a-clean-kernel-image-end-to-end)
-  - [The 96 applied patches](#the-96-applied-patches-kernelpatches-applied-in-this-order)
+  - [The 97 applied patches](#the-97-applied-patches-kernelpatches-applied-in-this-order)
   - [Audio](#audio)
   - [Kernel config notes (CRITICAL)](#kernel-config-notes-critical)
   - [Building the kernel (pmbootstrap)](#building-the-kernel-pmbootstrap)
@@ -669,6 +669,12 @@ userspace/
                       monitor mode + injection on wlan1. DKMS, so it builds on
                       the device's first boot against the running kernel
                       (install.sh + firstboot service; see its README)
+  fluidity/           userspace UI-smoothness tuning: KWin drops Blur +
+                      Background Contrast and halves animation duration, installs
+                      power-profiles-daemon (Plasma's power slider), and a sysctl
+                      drop-in (swappiness=120, page-cluster=0) so the phone leans
+                      on zram instead of killing foreground apps (install.sh).
+                      The big.LITTLE scheduler fix is kernel-side, patch 0114
 extra-tools/          not needed to boot or to make a call: tools that make the
                       device pleasant to work *on* (see extra-tools/README.md)
   terminal-keyboard/  Esc, Tab, Ctrl, Alt and the arrows added to Plasma's
@@ -830,7 +836,7 @@ Everything under `packages/` and `userspace/` is **rootfs**, not boot image —
 none of it is in this `.img`. To get the userspace side onto a device see
 "Building the Kali rootfs (debos)" and the per-component `install.sh` scripts.
 
-## The 96 applied patches (`kernel/patches/`, applied in this order)
+## The 97 applied patches (`kernel/patches/`, applied in this order)
 
 The order below is the aport's `source=` order, which is what `patch` sees; it
 is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
@@ -979,6 +985,11 @@ is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
                                          NFCEE_MODE_SET-enable it and route the
                                          MIFARE listen to it so the provisioned
                                          card answers a reader
+0114 sm6375-cpu-topology-and-capacity    real big.LITTLE: split the cpu-map into
+                                         A55 (cpu0-5) + A78 (cpu6-7) clusters and
+                                         give each core a capacity-dmips-mhz, so
+                                         the scheduler/EAS steers UI threads onto
+                                         the big cores instead of a flat 8-way SMP
 ```
 
 0062 and 0063 are kept but neither changes the glitched lines they were written

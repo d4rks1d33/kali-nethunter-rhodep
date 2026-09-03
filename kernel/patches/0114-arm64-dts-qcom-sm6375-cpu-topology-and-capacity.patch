@@ -1,0 +1,115 @@
+From: rhodep port
+Subject: [PATCH] arm64: dts: qcom: sm6375: real big.LITTLE topology + CPU capacities
+
+SM6375 is 2x Cortex-A78 (cpu6-7, up to 2208 MHz) + 6x Cortex-A55 (cpu0-5, up to
+1804.8 MHz), but mainline's sm6375.dtsi describes all eight cores in a single
+cpu-map cluster0 and gives none of them a capacity-dmips-mhz. The scheduler
+therefore sees a flat, symmetric 8-way SMP machine: it cannot tell the two fast
+cores from the six slow ones, so a latency-sensitive UI thread (the compositor,
+the render thread) can be placed on a 1.8 GHz A55 while the A78s sit idle, and
+CONFIG_ENERGY_MODEL / EAS stays inert because EAS only engages on an
+asymmetric-capacity topology.
+
+Two changes fix that, both pure device tree:
+
+  - capacity-dmips-mhz on every CPU: 403 for the A55 little cores, 1024 for the
+    A78 big cores. These are the standard ARM per-MHz DMIPS ratings; the kernel
+    multiplies each by the core's max OPP and normalises, so the A78s come out at
+    1024 and the A55s well below, which is what makes them "big" and "little" to
+    the scheduler.
+  - split the cpu-map into cluster0 (the six A55) and cluster1 (the two A78), so
+    the topology matches the hardware.
+
+With both, asymmetric-capacity scheduling and EAS activate and the scheduler
+steers interactive threads onto the A78 cores. This is the largest non-GPU
+fluidity win on the device (the GPU is already at its 840 MHz fuse ceiling).
+
+Values cross-checked against mainline dts that already carry capacities
+(talos.dtsi A55=1024/A76=1740 style; sm8150 uses 488/1024) and the ARM DMIPS/MHz
+figures for A55 vs A78.
+---
+diff --git a/arch/arm64/boot/dts/qcom/sm6375.dtsi b/arch/arm64/boot/dts/qcom/sm6375.dtsi
+index ec7e87b..9cd56dd 100644
+--- a/arch/arm64/boot/dts/qcom/sm6375.dtsi
++++ b/arch/arm64/boot/dts/qcom/sm6375.dtsi
+@@ -48,6 +48,7 @@
+ 			next-level-cache = <&l2_0>;
+ 			qcom,freq-domain = <&cpufreq_hw 0>;
+ 			operating-points-v2 = <&cpu0_opp_table>;
++			capacity-dmips-mhz = <403>;
+ 			interconnects = <&cpucp_l3 MASTER_EPSS_L3_APPS &cpucp_l3 SLAVE_EPSS_L3_SHARED>;
+ 			power-domains = <&cpu_pd0>;
+ 			power-domain-names = "psci";
+@@ -74,6 +75,7 @@
+ 			next-level-cache = <&l2_100>;
+ 			qcom,freq-domain = <&cpufreq_hw 0>;
+ 			operating-points-v2 = <&cpu0_opp_table>;
++			capacity-dmips-mhz = <403>;
+ 			interconnects = <&cpucp_l3 MASTER_EPSS_L3_APPS &cpucp_l3 SLAVE_EPSS_L3_SHARED>;
+ 			power-domains = <&cpu_pd1>;
+ 			power-domain-names = "psci";
+@@ -95,6 +97,7 @@
+ 			next-level-cache = <&l2_200>;
+ 			qcom,freq-domain = <&cpufreq_hw 0>;
+ 			operating-points-v2 = <&cpu0_opp_table>;
++			capacity-dmips-mhz = <403>;
+ 			interconnects = <&cpucp_l3 MASTER_EPSS_L3_APPS &cpucp_l3 SLAVE_EPSS_L3_SHARED>;
+ 			power-domains = <&cpu_pd2>;
+ 			power-domain-names = "psci";
+@@ -116,6 +119,7 @@
+ 			next-level-cache = <&l2_300>;
+ 			qcom,freq-domain = <&cpufreq_hw 0>;
+ 			operating-points-v2 = <&cpu0_opp_table>;
++			capacity-dmips-mhz = <403>;
+ 			interconnects = <&cpucp_l3 MASTER_EPSS_L3_APPS &cpucp_l3 SLAVE_EPSS_L3_SHARED>;
+ 			power-domains = <&cpu_pd3>;
+ 			power-domain-names = "psci";
+@@ -137,6 +141,7 @@
+ 			next-level-cache = <&l2_400>;
+ 			qcom,freq-domain = <&cpufreq_hw 0>;
+ 			operating-points-v2 = <&cpu0_opp_table>;
++			capacity-dmips-mhz = <403>;
+ 			interconnects = <&cpucp_l3 MASTER_EPSS_L3_APPS &cpucp_l3 SLAVE_EPSS_L3_SHARED>;
+ 			power-domains = <&cpu_pd4>;
+ 			power-domain-names = "psci";
+@@ -158,6 +163,7 @@
+ 			next-level-cache = <&l2_500>;
+ 			qcom,freq-domain = <&cpufreq_hw 0>;
+ 			operating-points-v2 = <&cpu0_opp_table>;
++			capacity-dmips-mhz = <403>;
+ 			interconnects = <&cpucp_l3 MASTER_EPSS_L3_APPS &cpucp_l3 SLAVE_EPSS_L3_SHARED>;
+ 			power-domains = <&cpu_pd5>;
+ 			power-domain-names = "psci";
+@@ -179,6 +185,7 @@
+ 			next-level-cache = <&l2_600>;
+ 			qcom,freq-domain = <&cpufreq_hw 1>;
+ 			operating-points-v2 = <&cpu6_opp_table>;
++			capacity-dmips-mhz = <1024>;
+ 			interconnects = <&cpucp_l3 MASTER_EPSS_L3_APPS &cpucp_l3 SLAVE_EPSS_L3_SHARED>;
+ 			power-domains = <&cpu_pd6>;
+ 			power-domain-names = "psci";
+@@ -200,6 +207,7 @@
+ 			next-level-cache = <&l2_700>;
+ 			qcom,freq-domain = <&cpufreq_hw 1>;
+ 			operating-points-v2 = <&cpu6_opp_table>;
++			capacity-dmips-mhz = <1024>;
+ 			interconnects = <&cpucp_l3 MASTER_EPSS_L3_APPS &cpucp_l3 SLAVE_EPSS_L3_SHARED>;
+ 			power-domains = <&cpu_pd7>;
+ 			power-domain-names = "psci";
+@@ -237,12 +245,14 @@
+ 				core5 {
+ 					cpu = <&cpu5>;
+ 				};
++			};
+ 
+-				core6 {
++			cluster1 {
++				core0 {
+ 					cpu = <&cpu6>;
+ 				};
+ 
+-				core7 {
++				core1 {
+ 					cpu = <&cpu7>;
+ 				};
+ 			};

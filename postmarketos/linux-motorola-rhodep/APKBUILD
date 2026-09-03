@@ -125,6 +125,7 @@ source="
 	0111-nfc-nci-set-a-fixed-nfcid1-for-listen.patch
 	0112-nfc-s3fwrn5-enumerate-nfcees.patch
 	0113-nfc-route-mifare-listen-to-ese.patch
+	0114-arm64-dts-qcom-sm6375-cpu-topology-and-capacity.patch
 "
 options="!check !strip !tracedeps pmb:cross-native"
 _carch="arm64"
@@ -177,7 +178,7 @@ package() {
 }
 sha512sums="
 f88a468a9b68ac28de925b092b4ce6fc0be558928f8a0e7474a90426e05793007e441740d494a4d504efe4ed216aec9627ee3a4982ab0da89d8a3a15448b227f  linux-motorola-rhodep-7.2_rc5.tar.gz
-04e31c5b5dddd807140f15ec7a0dfe890349efe896577113edc62b2ec9b405f4e9a62fce813da11de7055a884a9286a9f217ffdedda0670aa37165388469aa81  config-motorola-rhodep.aarch64
+e8dae857218cd016f05690c0e8deac4a7645e1a0e942baf46817e10cec329c8602b10dd3a9920151cdad009ee4fe7e06af1c5c27530c0e8858337fb4ccfe528e  config-motorola-rhodep.aarch64
 50d91ef0efbd9c6279244d3041d43f76a9fa663bbe37c320fc0377d561c84ade61e8385eeb68a1805b26ba9c2cb5903c5c288e8df00599342d377ce27524b3d0  0001-arm64-dts-qcom-add-Motorola-Moto-G82-5G.patch
 476ade0233afb67abe1bcbc95829d732354ffbaa21fe43317d0a8bcc281fae0515a767a71764398dce11cd938d29ca0bd41ab13499468c86fc360ed141dd99ca  0002-drm-msm-dsi-fix-pclk-for-dsc-without-widebus.patch
 88c109343e5068fe81554c5b8fdac93a5848d8cd784b4d7cfafc35c8db1310a0091b5d10170fff0291e3e988b75ceb5892f6e35ea8fd09c44f09f720b87e7cc2  0003-drm-panel-add-novatek-nt37701.patch
@@ -274,4 +275,5 @@ a002cb6caefa3cca3e9b8d9ef8755424217aef04535fad8f4f631af63a8e8ba20a755cd900e36726
 2d4cf3a1e2af5a0b201491ac5e081168fb2a1f52f349650c9f7fac05ec8659bbf3d6e4dec893b64dc20f3a51705e4815cc0add0554bedeb1438bdd04bc12f202  0111-nfc-nci-set-a-fixed-nfcid1-for-listen.patch
 d571d62389110b447e76ed90b50def3e5136b783a7544ca314988e3507afa8dba083710a29821df21b3d72edb973158380cd9ad1267c369bfabd2c2554887e55  0112-nfc-s3fwrn5-enumerate-nfcees.patch
 d0dc2ed3ae3f338da2dabf231af98700fe7c56a4fcbc85af5fbc893a60407559375200d131819becaff3e5e2d4a399a52af9cc9fb280a42b10d905a8aa733036  0113-nfc-route-mifare-listen-to-ese.patch
+715b60de87dddd497d1d88c0d69d31fd2b3e471fd63e7250cb487bc01a0470d5742ca42fc2054fd272ab3b6770e8c61207575736047aced561ae78c23a603a3e  0114-arm64-dts-qcom-sm6375-cpu-topology-and-capacity.patch
 "

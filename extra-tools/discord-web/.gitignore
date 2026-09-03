@@ -1,0 +1,14 @@
+# NEVER commit the user's Discord session / profile data. The app stores it in
+# ~/.local/share/discord-web/ on the device at runtime; if anyone runs the app
+# from a checkout, keep these out of git.
+*Cache*/
+Cookies
+Cookies-journal
+Local Storage/
+Session Storage/
+IndexedDB/
+QtWebEngine/
+.local/
+profile/
+__pycache__/
+*.pyc

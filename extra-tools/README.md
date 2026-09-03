@@ -26,6 +26,10 @@ paid API key.
 	                      touch UI instead of a terminal
 	cleanup/              weekly disk-space cleanup (caches, journal, coredumps)
 	                      and a permanent cap on the systemd journal
+	discord-web/          Discord's web client as a native fullscreen QtWebEngine
+	                      (Chromium) app — the official x86_64 client will not run
+	                      under box64, so this runs discord.com/app on hardware GL,
+	                      phone layout, session kept on-device (never in the repo)
 
 Each directory has its own README with the reasoning, the protocol traces, and
 the things that turned out to be impossible. Those are worth reading before
@@ -42,6 +46,7 @@ Each has an `install.sh` that is idempotent and safe to re-run:
 	cd pwnagotchi         && sudo ./install.sh   # needs /opt/pwnagotchi cloned
 	cd nethunter-pro-app  && sudo ./install.sh   # installs the app + dbus helper
 	cd cleanup            && sudo ./install.sh   # weekly timer + journal cap
+	cd discord-web        && sudo ./install.sh   # then open 'Discord' from the drawer
 
 `terminal-keyboard` and `terminal-clipboard` belong together — the keyboard sends
 the bytes, the shell turns them into clipboard operations — so install both or
@@ -811,3 +816,22 @@ A journald drop-in sets `SystemMaxUse=100M` so the journal cannot grow back
 between runs; the weekly `rhodep-cleanup.timer` reclaims the rest, catching up on
 the next boot if the phone was off (`Persistent=true`). Run it by hand with
 `sudo rhodep-cleanup`, or `--dry-run` to see what it would free.
+
+**`discord-web/`** — Discord's **web** client (`discord.com/app`) as a native
+fullscreen **QtWebEngine** app. The official Discord ships x86_64 only; running
+it under box64 was tried hard and does not work here (box64 0.4.3 can't bring up
+Discord's current Chromium multiprocess startup — the main process spins without
+forking a renderer, so no window ever appears). QtWebEngine **is** Chromium, so
+the web client behaves like Chrome: login, DMs, servers, text all work
+(WebKitGTK is Safari-family and Discord degrades on it, so QtWebEngine, not
+WebKitGTK). The wrapper runs it on **hardware GL via freedreno** (`--use-gl=egl`)
+— the first attempt used SwiftShader software GL, which pegged the CPU and made
+the UI lag; hardware GL dropped the load from ~15 to ~1.6. An Android UA plus
+`--force-device-scale-factor` (tune `DISCORD_SCALE`) give Discord's phone layout
+(single panel, list → channel → back) at native resolution rather than a Qt zoom
+that blew everything up, `QT_IM_MODULE=none` stops a text field auto-popping the
+keyboard, and it opens maximised (not fullscreen) so the mobile nav bar stays.
+The session (cookies/localStorage) is kept per-user in
+`~/.local/share/discord-web/` and is **never** in the repo — the directory ships
+only code. Log in with email/password on first run (Discord hides the QR panel
+on a narrow screen).

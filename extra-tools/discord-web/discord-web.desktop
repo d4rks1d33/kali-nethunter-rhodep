@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Discord
+GenericName=Chat
+Comment=Discord web client (native, fullscreen, mobile layout)
+Exec=/usr/local/bin/discord-web
+Icon=discord
+Type=Application
+Categories=Network;InstantMessaging;
+StartupWMClass=discord-web.py
+Terminal=false
+Keywords=discord;chat;

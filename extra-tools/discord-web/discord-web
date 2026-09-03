@@ -1,0 +1,14 @@
+#!/bin/sh
+# discord-web: native Discord web client (QtWebEngine/Chromium, arm64).
+#
+# Hardware GL via freedreno (--use-gl=egl): the Adreno 619 renders and
+# composites, instead of SwiftShader software rasterization which pegged the CPU
+# and made the UI lag. --force-device-scale-factor gives Discord a phone-sized
+# CSS width (mobile single-panel navigation, list -> tap channel -> chat -> back)
+# while rendering at native resolution. Tune with DISCORD_SCALE.
+SCALE="${DISCORD_SCALE:-2.5}"
+export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}"
+export QT_IM_MODULE=none          # no auto on-screen keyboard; raise it yourself
+export VK_DRIVER_FILES="${VK_DRIVER_FILES:-/usr/share/vulkan/icd.d/freedreno_icd.json}"
+export QTWEBENGINE_CHROMIUM_FLAGS="--use-gl=egl --ignore-gpu-blocklist --enable-gpu-rasterization --enable-zero-copy --force-device-scale-factor=$SCALE"
+exec python3 /usr/local/share/rhodep/discord-web/discord-web.py "$@"

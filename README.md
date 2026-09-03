@@ -488,8 +488,11 @@ The README there covers, one section per directory:
   loot suite driven from a touch UI instead of a terminal
 - `modem-at/` — AT console for the modem over glink, working when
   ModemManager is down and independent of the DIAG fuses
-- `cleanup/` — weekly disk-space cleanup and a permanent cap on the
-  systemd journal
+ - `cleanup/` — weekly disk-space cleanup and a permanent cap on the
+   systemd journal
+ - `discord-web/` — Discord's web client as a native fullscreen QtWebEngine
+   (Chromium) app, on hardware GL, phone layout (the official x86_64 Discord
+   will not run under box64; this runs discord.com/app instead)
 
 ## Known limitations
 - **Glitched lines while the brightness moves**: a band of corrupted lines
@@ -703,6 +706,9 @@ extra-tools/          not needed to boot or to make a call: tools that make the
                       nmap, HID, VNC and more (install.sh + dbus helper)
   cleanup/            weekly disk-space cleanup (caches, journal, coredumps)
                       + a permanent journal cap; weekly systemd timer (install.sh)
+  discord-web/        Discord's web client (discord.com/app) as a native
+                      fullscreen QtWebEngine/Chromium app on hardware GL, phone
+                      layout; session kept on-device, never in the repo (install.sh)
 scripts/
   mkbootv2b.py             build an Android boot.img v2 (flat Image + appended DTB)
   make-boot-from-apk.sh    build a boot.img reusing an initramfs from a base image

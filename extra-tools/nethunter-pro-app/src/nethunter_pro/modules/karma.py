@@ -110,7 +110,7 @@ channel={channel}
 country_code={country}
 auth_algs=1
 {security_lines}
-mana_wifi=1
+enable_mana=1
 {mana_lines}
 """
 
@@ -454,6 +454,7 @@ class Karma(NHModule):
             cfg = self._beacon_only_config(
                 iface, allow_ssids or [base_ssid],
                 channel, hw_mode, country)
+            cfg = cfg.replace("mana_wifi=0\n", "enable_mana=0\n")
         else:
             cfg = _HOSTAPD_MANA_TMPL.format(
                 iface=iface, ssid=base_ssid,
@@ -807,7 +808,7 @@ class Karma(NHModule):
             "channel={channel}\n"
             "country_code={country}\n"
             "auth_algs=1\n"
-            "mana_wifi=0\n"          # no probe responses
+            "enable_mana=0\n"          # no probe responses
             "beacon_int=100\n"
             "ssid={primary}\n"
         ).format(iface=iface, hw_mode=hw_mode, channel=channel,

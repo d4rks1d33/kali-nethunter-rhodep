@@ -16,7 +16,7 @@ phone.
 
 Two capture profiles are exposed:
 
-* Passive -- ``--disable_deauthentication --disable_association``.
+* Passive -- ``--associationmax=0 --disable_disassociation`` (hcxdumptool v7+).
   hcxdumptool only listens; PMKIDs that come out of unrelated
   associations by other stations are still recorded. Useful when
   active probing is out of scope (physical recon, stealth).
@@ -311,18 +311,17 @@ class Pmkid(NHModule):
             "hcxdumptool",
             "-i", self._monitor_iface,
             "-w", self._pcap_path,
-            "--enable_status=1",  # print live status lines
+            "--rds=1",   # real-time display (v7+ replaces --enable_status)
         ]
 
-        # Passive mode: disable everything active. The manpage covers
-        # both flag spellings; hcxdumptool >=6.3 uses the "disable_"
-        # form.
+        # Passive mode: hcxdumptool v7 uses --associationmax=0 to skip
+        # active associations and --disable_disassociation to suppress
+        # disassoc frames. Older v6 used --disable_deauthentication /
+        # --disable_association; v7 does not recognise those anymore.
         if self.profile.get_selected() == 1:
             argv += [
-                "--disable_deauthentication",
-                "--disable_association",
-                # Some builds also expose --disable_client_attacks
-                # which is a superset. Include both defensively.
+                "--associationmax=0",
+                "--disable_disassociation",
             ]
 
         # Band restriction. hcxdumptool sets channels with -c; we

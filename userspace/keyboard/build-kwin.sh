@@ -87,33 +87,47 @@ cmake -B build -G Ninja \
 	-DCMAKE_INSTALL_PREFIX=/usr \
 	-DBUILD_TESTING=OFF
 
-echo "building (this is the long part)..."
-cmake --build build
+# The patch only touches src/inputmethod.cpp, which lives in libkwin.so -- so
+# build JUST that library, not all ~2002 objects (KCMs, effects, wallpapers we
+# did not change). On the device with -j2 this is the difference between ~30 min
+# and many hours. `-j2` keeps the RAM in check (a full -j8 OOM-kills the Plasma
+# session mid-build); raise it with JOBS= if you have headroom.
+JOBS="${JOBS:-2}"
+echo "building libkwin.so (this is the long part; -j$JOBS)..."
+ninja -C build -j"$JOBS" bin/libkwin.so.6
 
 if [ "$INSTALL" -eq 1 ]; then
-	echo "installing over the packaged KWin..."
-	sudo cmake --install build
+	# Find the built lib and the system lib it replaces (match the exact soname
+	# so a version bump does not need this script edited).
+	BUILT=$(find build/bin -name 'libkwin.so.*.*' -type f | head -1)
+	SYS=$(find /usr/lib -name "$(basename "$BUILT")" 2>/dev/null | head -1)
+	[ -n "$BUILT" ] && [ -n "$SYS" ] || { echo "could not locate built/system libkwin" >&2; exit 1; }
+	echo "built:  $BUILT ($(stat -c%s "$BUILT") bytes, with debug info)"
+	echo "system: $SYS"
 
-	# The packaged files are about to be overwritten by any KWin upgrade, which
-	# would silently drop the patch. Hold the packages and register the two
-	# rebuilt libraries with the port's protection, the same way the other
-	# out-of-tree builds on this port are kept.
-	sudo apt-mark hold kwin-common kwin-wayland kwin-wayland-backend-drm \
-		2>/dev/null || true
+	# Strip the debug info first -- the RelWithDebInfo lib is ~300 MB, the
+	# stripped one matches the packaged ~10 MB. Dynamic symbols (forceActivate)
+	# survive a --strip-unneeded.
+	strip --strip-unneeded -o /tmp/libkwin.stripped "$BUILT"
 
 	PROTECT=/usr/local/sbin/rhodep-protect-files
-	if [ -x "$PROTECT" ]; then
-		# libkwin carries the InputMethod code; register whatever the install
-		# actually placed rather than guessing the soname.
-		for so in $(find /usr/lib -name 'libkwin*.so*' 2>/dev/null); do
-			sudo "$PROTECT" register kwin-keyboard 0644 "$so" 2>/dev/null || true
-		done
-	fi
+	# release immutability if a previous run protected it, back up the original
+	# once, then install over it.
+	[ -x "$PROTECT" ] && sudo "$PROTECT" release "$SYS" 2>/dev/null || true
+	[ -e "$SYS.orig-backup" ] || sudo cp -a "$SYS" "$SYS.orig-backup"
+	sudo install -m 0644 -o root -g root /tmp/libkwin.stripped "$SYS"
+	rm -f /tmp/libkwin.stripped
+
+	# Hold the KWin packages so an upgrade cannot replace the patched lib, and
+	# protect the lib itself (immutable + snapshot + auto-restore).
+	sudo apt-mark hold kwin-common kwin-wayland libkwin6 kwin-data 2>/dev/null || true
+	[ -x "$PROTECT" ] && sudo "$PROTECT" register kwin-keyboard 0644 "$SYS" 2>/dev/null || true
 
 	echo ""
-	echo "Installed. Log out and back in (or reboot) to pick up the new KWin."
-	echo "Then, with Burp focused, run:  rhodep-keyboard on"
+	echo "Installed (backup at $SYS.orig-backup). Reboot to load the new KWin."
+	echo "Then, with an X11/Java app (Burp) focused on a text field:  rhodep-keyboard on"
+	echo "To revert: sudo $PROTECT release $SYS; sudo cp -a $SYS.orig-backup $SYS; reboot"
 else
 	echo ""
-	echo "Built into $WORK/kwin-src/build. Re-run with --install to deploy."
+	echo "Built $WORK/kwin-src/build/bin/libkwin.so.6. Re-run with --install to deploy."
 fi

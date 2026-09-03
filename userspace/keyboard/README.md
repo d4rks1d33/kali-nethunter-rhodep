@@ -155,3 +155,20 @@ expect Burp to type until the keycode path is confirmed.
 **Once installed**, with the X11/Java app focused: `rhodep-keyboard on`. The
 keyboard should appear and stay up across clicks into other fields, and `off`
 (or its own dismiss button) should take it down and clear the forced state.
+
+## Status: built and deployed on the device
+
+The patched `libkwin.so.6.7.2` has been compiled (just the `libkwin.so` target,
+`-j2`, stripped to ~10 MB), installed over the packaged one (backup at
+`libkwin.so.6.7.2.orig-backup`), and KWin was confirmed to load it after a
+reboot (`forceActivate()` present in the running lib, DBus responding, Plasma
+session healthy). The KWin packages are held and the lib is protected with
+`rhodep-protect-files`.
+
+What still needs a person in front of the screen: the actual "does Burp type"
+test. `forceActivate` over an empty desktop shows nothing (there is no focused
+text surface to activate — expected); the real check is with an X11/Java app
+focused on a text field, then `rhodep-keyboard on`. If keys land in the app, the
+patch works end to end. If the keyboard shows but keys do not reach the app,
+that would mean plasma-keyboard is on the commit-string path rather than
+keycodes (see the measure-first step above) and a larger patch is needed.

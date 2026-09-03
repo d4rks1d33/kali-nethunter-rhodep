@@ -86,7 +86,30 @@ class MainWindow(Adw.ApplicationWindow):
         self.split.set_content(self.content_page)
 
         for module in self.modules:
-            self.stack.add_named(module.get_content(), module.title)
+            # Build each page defensively: a bug in one module's build()
+            # must not abort the loop and leave the stack with only the
+            # pages added before it -- that made every unbuilt module fall
+            # back to the first page (Kali Services) at click time.
+            try:
+                content = module.get_content()
+            except Exception:
+                import traceback
+                traceback.print_exc()
+                content = self._broken_page(module, traceback.format_exc())
+            self.stack.add_named(content, module.title)
+
+    def _broken_page(self, module: NHModule, detail: str) -> Gtk.Widget:
+        """Placeholder shown when a module's build() raised, so the screen
+        reports the failure instead of silently showing another module."""
+        page = Adw.StatusPage(
+            icon_name="dialog-error-symbolic",
+            title="This module failed to load",
+            description=(
+                f"{module.title} could not be built. This is a bug in the "
+                "module, not a missing tool.\n\n" + detail
+            ),
+        )
+        return page
 
     def _on_row_activated(self, _listbox, row) -> None:
         self._select(row._module)

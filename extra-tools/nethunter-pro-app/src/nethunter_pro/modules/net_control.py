@@ -11,7 +11,7 @@ from gi.repository import Adw, Gtk
 
 from ..executor import Result, run_async, which
 from ..module import NHModule, register
-from ..widgets import OutputView, toast
+from ..widgets import OutputView, services_banner, toast
 
 
 @register

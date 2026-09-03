@@ -11,7 +11,7 @@ from gi.repository import Adw, Gtk
 
 from ..executor import Result, run_async
 from ..module import NHModule, register
-from ..widgets import ToolRunner
+from ..widgets import ToolRunner, services_banner
 
 BLUEDUCKY_DIR = "/opt/BlueDucky"
 BLUEDUCKY = f"python3 {BLUEDUCKY_DIR}/BlueDucky.py"

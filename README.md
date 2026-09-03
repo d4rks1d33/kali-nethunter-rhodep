@@ -220,7 +220,7 @@ file protection) ·
 | **NFC** | Samsung `sec-nfc` on i2c7. No mainline driver. |
 | **GPS** | **A satellite fix watchdog-resets the SoC in under a second**, reproducibly, with `ipa.ko` not loaded. It was never an indoors problem. Narrowed since: the trigger is the GNSS *measurement engine* coming up, so `standalone` mode kills the phone while **`cellid` positioning works** — a live session, fifty indications, position reports and NMEA, no reset (`scripts/rhodep-gnss-test.py 60 min opmode=cellid`). The same reproducer is now the fastest way to work on the LTE reset. [`GNSS-SM6375.md`](docs/interconnect-sm6375-wip/GNSS-SM6375.md) |
 | **Camera** | **Does not capture** — no photos, no video, no viewfinder. Only groundwork is done: the FAN53870 camera PMIC driver is written and running (all 7 LDOs registered, voltages verified against the chip's registers), and the rest is feasible because the ISP pipeline (`csid530` + `tfe530` + `tpg101`) is the *same silicon* mainline already drives on qcm2290, the 52 `gcc_camss_*` clocks are in mainline, and the 50 MP main sensor (Samsung S5KJN1) has a mainline driver. Still needed before any image: a `camss` entry for SM6375, the CSIPHY/CSID/TFE nodes and the sensor node. [`CAMERA-SENSORS-FEASIBILITY.md`](docs/CAMERA-SENSORS-FEASIBILITY.md) |
-| **Monitor mode on the internal WiFi** | Infeasible: the WCN3990 firmware reports `raw 0`. Use the external adapter, which does work. |
+| **Monitor mode on the internal WiFi — passive RX** | **Partially works** — monitor vdev starts, firmware enters promiscuous mode (`entered promiscuous mode` in dmesg), 802.11 frames captured with radiotap headers. Limitation: mon0 shares phy0 with wlan0, so it is locked to wlan0's current channel; changing channel fails with `-EBUSY` while wlan0 is associated. Injection (`raw 0`) remains impossible. See nice-to-have item 13 for the next step (promisc WMI pdev param, or scan-only use: disconnect wlan0 first). |
 
 ## Bugs
 
@@ -554,8 +554,13 @@ The README there covers, one section per directory:
   voice audio goes modem ↔ ADSP ↔ codec and mainline has no q6voice (MVM/CVS/
   CVP) at all, so it is a driver that has to be written, not a bug to fix.
   Scoped in HANDOFF-SESSION4.md session 14.
-- **Internal WiFi monitor/injection**: impossible in mainline — the WCN3990
-  firmware reports `raw 0` (no raw mode). Use an external USB adapter instead.
+- **Internal WiFi monitor (passive RX)**: partially works — `iw dev wlan0
+  interface add mon0 type monitor && ip link set mon0 up` creates a working
+  monitor vdev; the firmware enters promiscuous mode and delivers 802.11 frames
+  with radiotap headers. Constraint: mon0 shares phy0 with wlan0 and is locked
+  to wlan0's channel (`-EBUSY` on channel change while wlan0 is associated).
+  **Injection is still impossible** (`raw 0`). For multi-channel capture or
+  injection use the external USB adapter.
 - **Audio**: speaker, earpiece, headphones and the microphone all work. One
   rough edge is left: changing output **while a stream is already playing**
   works towards the headphones but leaves the speaker silent until that stream
@@ -3413,51 +3418,74 @@ already done.
     It is the least tractable item in this file. It is also the one that would
     change daily use the most, which is why it is here.
 
-13. **Monitor mode on the internal WiFi, as a research project.** The table at
-    the top of this file calls this infeasible, and for anything short of a
-    project it is -- but "infeasible" is not the same as "impossible", and the
-    distinction is worth writing down properly.
+13. **Monitor mode on the internal WiFi — passive RX works, channel-locked.**
+    **Investigated and partially resolved this session.** Prior state said
+    "infeasible: firmware reports `raw 0`, creates interface but captures
+    nothing". That was wrong. The `raw 0` bit only gates TX injection, not
+    passive RX. The analysis and on-device test settled the question.
 
-    It is **not** a gap in mainline that a patch could close. The capability
-    comes from the firmware, and ath10k only reads it:
+    **What works today (no patch needed):**
 
-	if (!test_bit(ATH10K_FW_FEATURE_RAW_MODE_SUPPORT, fw_file->fw_features)) {
-		ath10k_err(ar, "rawmode = 1 requires support from firmware");
-		return -EINVAL;
-	}
+	sudo iw dev wlan0 interface add mon0 type monitor
+	sudo ip link set mon0 up
+	sudo tcpdump -i mon0 --immediate-mode -e
 
-    The `raw 0` in dmesg is literally that bit being printed. WCN3990's firmware
-    says no, so `ath10k_core frame_mode=1 cryptmode=1` does not force anything:
-    it fails the probe and leaves you with no wlan0. A monitor interface can
-    still be *created*, because cfg80211 allows it, and it captures nothing.
+    dmesg confirms: `ath10k_snoc c800000.wifi mon0: entered promiscuous mode`.
+    Frames arrive with radiotap headers (`link-type IEEE802_11_RADIO`).
+    This is genuine 802.11 frame delivery from the firmware, not a stub.
 
-    Two routes, and only one of them is real:
+    **Why it only sees the current channel:** mon0 shares phy0 with wlan0.
+    mac80211 binds both to the same chanctx, and `iw dev mon0 set channel`
+    fails with `-EBUSY` while wlan0 is associated. The firmware's RX filter
+    is correctly set to promiscuous (dmesg confirms it), but the PHY is only
+    listening on one channel at a time. For single-channel capture on wlan0's
+    current channel, it works. For multi-channel: disconnect wlan0 first.
 
-    - **New firmware is not a route.** The WCN3990's firmware is signed, runs on
-      a core with no public toolchain or documentation, and is loaded through the
-      WLAN protection domain inside the modem (`wlanmdsp.mbn`). Secure boot
-      rejects anything unsigned. This is not "hard", it is closed.
+    **Why the previous test saw "captures nothing":** the test used
+    `ath10k_core frame_mode=1 cryptmode=1` -- those params fail the probe
+    entirely (`cryptmode > 0 requires raw mode support from firmware`, -EINVAL,
+    leaves you without wlan0). The monitor vdev path is completely separate
+    from that and requires no module params at all.
 
-    - **Porting the monitor path from `qcacld-3.0`** is the one that could work.
-      That is Qualcomm's own driver, it is published source, and it does monitor
-      and spectral scan on this exact chip -- which is why LineageOS has both.
-      It does not go through mac80211 at all: it sets up a monitor vdev over WMI
-      and takes frames off a path ath10k does not implement.
+    **What the source analysis found** (ath10k mainline 7.2-rc5):
+    - `ATH10K_FW_FEATURE_RAW_MODE_SUPPORT` only gates TX encapsulation mode
+      and SW-crypto consistency checks. It is never checked in the monitor
+      vdev creation path (`ath10k_add_interface`, `mac.c:5646-5647`) or in
+      the RX delivery path.
+    - `WMI_VDEV_TYPE_MONITOR=4` is created unconditionally for
+      `NL80211_IFTYPE_MONITOR`. No firmware service bit required.
+    - WCN3990 uses `ATH10K_DEV_TYPE_LL` (not HL/SDIO), so the LL RX path
+      is taken -- which does not drop frames from unknown peers (unlike the
+      HL path which would make monitor useless).
+    - The `WANT_MONITOR_VIF` flag is set unconditionally in mac80211 for
+      ath10k, so `drv_add_interface` is always called (no shadow-vdev
+      substitution here).
 
-    So the question worth researching is narrow and answerable: **does the
-    firmware expose monitor through WMI independently of the RAW_MODE feature
-    bit?** ath10k already knows about `WMI_VDEV_TYPE_MONITOR`. If qcacld gets
-    frames by asking the firmware for a monitor vdev and a different rx decap
-    mode, rather than by the raw-mode path ath10k gates on, then the missing
-    piece is a WMI sequence rather than a firmware capability -- and that is
-    something that could be prototyped against the existing ath10k_snoc.
+    **What still does not work:**
+    - **Injection**: still impossible. The `raw 0` bit blocks
+      `ATH10K_HW_TXRX_RAW` TX mode. The firmware does not advertise this
+      capability and the firmware is signed/closed -- not changeable.
+    - **Channel hopping**: while wlan0 is associated, the phy is locked.
+      Workaround: disconnect wlan0 (`nmcli dev disconnect wlan0`) then set
+      channel on mon0 freely. wlan0 reconnects when mon0 is deleted.
 
-    If it turns out the firmware really does gate it on the same bit, the answer
-    is no and this can be closed for good.
+    **Remaining open question (small, worth a 10-line patch):**
+    The `set_promisc_mode_cmdid` WMI pdev param is mapped to
+    `WMI_PDEV_PARAM_UNSUPPORTED` in the TLV table (`wmi-tlv.c:4412`).
+    mainline never sends it. qcacld-3.0 does send it explicitly before
+    starting the monitor vdev. If frames from other BSSes (not just from
+    your associated AP) are being silently dropped by the firmware's RX
+    filter despite the promiscuous-mode dmesg line, this is why -- and the
+    fix is identifying the correct `WMI_TLV_PDEV_PARAM_*` enum value and
+    adding one `ath10k_wmi_pdev_set_param` call in `ath10k_monitor_vdev_start`.
+    This has not been tested yet (currently: all capture done on wlan0's own
+    channel, frames received -- cross-BSS capture not yet verified).
 
-    None of this is needed for day-to-day use: the external TP-Link does monitor
-    and injection today, and `pwnagotchi` is pinned to `wlan1` for that reason.
-    This is worth doing to know the answer, not to get the feature.
+    The external TP-Link (wlan1/RTL8188EUS) still handles injection and
+    multi-channel scanning. This finding does not change day-to-day usage,
+    but it means single-channel passive capture of the phone's own traffic
+    and same-channel neighbors is available on the internal WiFi with zero
+    kernel changes.
 
 14. **The LPASS clock warning on every resume.** Each time the phone comes back
     from suspend, twice per resume:

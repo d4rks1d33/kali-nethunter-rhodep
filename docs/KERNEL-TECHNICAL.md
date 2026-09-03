@@ -405,21 +405,47 @@ Detalle completo, evidencia y herramientas: `docs/watchdog-ipa-lte-wip/HANDOFF.m
 > `/etc/modprobe.d/README-rhodep-ipa-hold-is-OFF`.
 
 
-### 7.7 Monitor mode WiFi — INVIABLE en mainline (cerrado)
-Probado a fondo esta sesión. Conclusión definitiva, NO es cosa de kernel:
-- `iw list` SÍ muestra monitor y se puede crear `mon0` (cfg80211 lo permite).
-- Pero **captura = 0 paquetes** siempre (con wlan0 up o down, canal fijo o no).
-- **Inyección = imposible**: el firmware WCN3990 reporta `raw 0` (dmesg
-  `ath10k_snoc ... raw 0 hwcrypto 1`). Raw mode es requisito para aircrack-ng.
-  Intentar `ath10k_core frame_mode=1 cryptmode=1` hace FALLAR el probe:
-  "cryptmode > 0 requires raw mode support from firmware" → fw features -22 →
-  te deja sin wlan0. NO usar esos params.
-- Por qué en LineageOS anda: usa el driver propietario `qcacld-3.0` de
-  Qualcomm, que implementa monitor/spectral fuera de la ruta ath10k mainline.
-  No hay equivalente en mainline y ningún CONFIG lo habilita.
-Veredicto: descartado salvo que aparezca un firmware ath10k con raw mode para
-WCN3990 (no conocido). La creación de la interfaz monitor funciona pero es
-inútil (no captura ni inyecta).
+### 7.7 Monitor mode WiFi — RX PASIVO FUNCIONA, inyección no (actualizado)
+
+**El análisis anterior estaba equivocado**: decía "captura 0 paquetes", pero
+el test anterior usaba `frame_mode=1 cryptmode=1` (que mata el probe). El path
+del monitor vdev es completamente independiente y no necesita esos params.
+
+**Lo que funciona hoy, sin parche:**
+```
+sudo iw dev wlan0 interface add mon0 type monitor
+sudo ip link set mon0 up
+sudo tcpdump -i mon0 --immediate-mode -e
+```
+dmesg confirma: `ath10k_snoc c800000.wifi mon0: entered promiscuous mode`.
+Frames con radiotap headers llegan. Verificado en el dispositivo real.
+
+**Análisis de fuente (ath10k mainline 7.2-rc5):**
+- `ATH10K_FW_FEATURE_RAW_MODE_SUPPORT` (`raw 0`) solo gatea TX (encapsulación
+  raw, SW-crypto). NUNCA se verifica en el path de creación del monitor vdev
+  (`ath10k_add_interface`, `mac.c:5646-5647`) ni en el RX.
+- `WMI_VDEV_TYPE_MONITOR=4` se crea incondicionalmente para
+  `NL80211_IFTYPE_MONITOR`. No se requiere ningún bit de servicio WMI.
+- WCN3990 usa `ATH10K_DEV_TYPE_LL` (no HL), así que el path LL de RX no
+  descarta frames de peers desconocidos (el HL sí lo haría, haciendo inútil
+  el monitor).
+
+**Limitación real:** mon0 comparte phy0 con wlan0. Canal fijo al de wlan0
+mientras esté asociada (`-EBUSY` al intentar cambiar). Para captura en otro
+canal: `nmcli dev disconnect wlan0` primero.
+
+**Inyección:** sigue siendo imposible. `raw 0` bloquea `ATH10K_HW_TXRX_RAW`.
+El firmware es signed/closed, no hay ruta a habilitarlo.
+
+**Próximo paso (opcional, ~10 líneas de parche):** `set_promisc_mode_cmdid`
+está mapeado a `WMI_PDEV_PARAM_UNSUPPORTED` en mainline (`wmi-tlv.c:4412`).
+qcacld-3.0 lo envía explícitamente. Si el filtro RX del firmware no abre
+para frames de otras BSSes (solo ve la propia), el fix es identificar el
+enum `WMI_TLV_PDEV_PARAM_*` correcto y agregar un `ath10k_wmi_pdev_set_param`
+en `ath10k_monitor_vdev_start`. Pendiente de verificar con captura cross-BSS.
+
+**NO usar `ath10k_core frame_mode=1 cryptmode=1`** — sigue siendo cierto que
+eso mata el probe con -EINVAL y te deja sin wlan0.
 
 ### 7.8 Cámara
 CAMSS + drivers de sensores. Prácticamente inviable en ports mainline

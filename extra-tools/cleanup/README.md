@@ -22,12 +22,13 @@ Only things that regenerate on their own, so deleting them costs nothing:
   runs on its own before the next install. On the reference device this alone was
   **232 MB**.
 - **user caches** — GPU shader caches, thumbnails, browser caches, box64's
-  dynarec cache, and npm's `_cacache`, under every home directory. All rebuilt on
-  demand. Also the caches other toolchains scatter around: **pip**
-  (`~/.cache/pip`, `~/.pip/cache`), **yarn/pnpm**, **cargo** registry cache and
-  **Go** build cache. One thing is **kept**: `~/.cache/opencode` (the model
-  catalog `models.json`) — deleting it breaks `claude-free` until opencode is run
-  again, so it is on a small keep-list (`CACHE_KEEP` in the script).
+  dynarec cache, under every home directory. All rebuilt on demand. Also the
+  caches the toolchains scatter around: **node/npm** (`~/.npm/_cacache`,
+  `~/.cache/node`, `node-gyp`, `electron`), **pip** (`~/.cache/pip`,
+  `~/.pip/cache`), **yarn/pnpm**, **cargo** registry cache and **Go** build
+  cache. One thing is **kept**: `~/.cache/opencode` (the model catalog
+  `models.json`) — deleting it breaks `claude-free` until opencode is run again,
+  so it is on a small keep-list (`CACHE_KEEP` in the script).
 - **DKMS build intermediates** (`/var/lib/dkms/*/*/build`) — the installed `.ko`
   under `/lib/modules` stays; only the per-module scratch dirs go, recreated on
   the next `dkms build`.

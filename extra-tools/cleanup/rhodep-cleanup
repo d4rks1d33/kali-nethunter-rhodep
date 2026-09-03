@@ -89,7 +89,13 @@ for home in /root /home/*; do
 			fi
 		done
 	fi
+	# node/npm: the package cache (~/.npm/_cacache), plus node-gyp / corepack /
+	# electron caches that npm and friends drop under ~/.cache/node and
+	# ~/.cache/electron. All re-downloaded on the next install/build.
 	[ -d "$home/.npm/_cacache" ] && rm_glob "$home/.npm/_cacache"
+	[ -d "$home/.cache/node" ] && rm_glob "$home/.cache/node"
+	[ -d "$home/.cache/node-gyp" ] && rm_glob "$home/.cache/node-gyp"
+	[ -d "$home/.cache/electron" ] && rm_glob "$home/.cache/electron"
 	[ -d "$home/.thumbnails" ] && rm_glob "$home/.thumbnails"
 	# pip's download/wheel cache. Usually under ~/.cache/pip (already cleared
 	# above), but pip honours XDG and older versions used ~/.pip -- cover both.

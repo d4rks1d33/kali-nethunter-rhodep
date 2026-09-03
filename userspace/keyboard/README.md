@@ -156,19 +156,42 @@ expect Burp to type until the keycode path is confirmed.
 keyboard should appear and stay up across clicks into other fields, and `off`
 (or its own dismiss button) should take it down and clear the forced state.
 
-## Status: built and deployed on the device
+## Status: it works, but it is too blunt to keep — reverted on the device
 
-The patched `libkwin.so.6.7.2` has been compiled (just the `libkwin.so` target,
-`-j2`, stripped to ~10 MB), installed over the packaged one (backup at
-`libkwin.so.6.7.2.orig-backup`), and KWin was confirmed to load it after a
-reboot (`forceActivate()` present in the running lib, DBus responding, Plasma
-session healthy). The KWin packages are held and the lib is protected with
-`rhodep-protect-files`.
+The patch was compiled (just the `libkwin.so` target, `-j2`, stripped to ~10 MB),
+installed over the packaged lib, and KWin loaded it after a reboot. It was then
+tested on the screen with real apps, and the result is worth recording precisely:
 
-What still needs a person in front of the screen: the actual "does Burp type"
-test. `forceActivate` over an empty desktop shows nothing (there is no focused
-text surface to activate — expected); the real check is with an X11/Java app
-focused on a text field, then `rhodep-keyboard on`. If keys land in the app, the
-patch works end to end. If the keyboard shows but keys do not reach the app,
-that would mean plasma-keyboard is on the commit-string path rather than
-keycodes (see the measure-first step above) and a larger patch is needed.
+**What it proved — the good part.** The keyboard *does* come up over XWayland /
+Java windows and **the keystrokes reach the app**. That settles the open
+question from the top of this file: on KWin 6.7, `commitString()` already
+synthesises key events into the seat keyboard for surfaces with no text-input,
+so once the panel is allowed to show, keys land in Burp and friends. The
+"commit-string dead end" the older notes feared does not apply on 6.7. No larger
+patch is needed for delivery.
+
+**Why it was reverted — the bad part.** `m_forcedActive` is too sticky. Once
+`forceActivate` sets it, the keyboard:
+
+- comes up over **any** window you open, whether or not it has a text field
+  (because `setTrackedWindow` re-shows it on every focus change while the flag is
+  set);
+- does **not** respond to tapping a text field the normal way (the forced state
+  shadows the ordinary text-input path);
+- does not reappear after being minimised;
+- clears only via an explicit `hide()`, not by focus or by tapping away.
+
+In practice that is more annoying than the problem it solved. The plain
+button-navigation bar already shows a working keyboard toggle (the KWin-provided
+one that appears in the on-screen buttons row, not in gesture-nav mode), which is
+the better answer for day-to-day use, so the patch was rolled back:
+`libkwin.so.6.7.2` restored from `.orig-backup`, the KWin holds released, the
+`kwin-keyboard` protect-files component removed, rebooted onto the stock lib.
+
+**If someone wants to finish it properly**, the delivery half is done and the fix
+is to make the forced state *narrow* instead of sticky: clear `m_forcedActive`
+on the next focus change (or after the first commit), and gate `setTrackedWindow`
+so it only re-shows when the newly focused surface is the one the user forced —
+not every window. That turns "force it on and it never lets go" into "raise it
+once for this window", which is what was actually wanted. The patch, the build
+recipe and this analysis are kept for that; nothing is installed on the device.

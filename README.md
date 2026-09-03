@@ -2897,34 +2897,32 @@ already done.
      every X11 app without needing its cooperation -- and was rejected on how it
      feels rather than whether it functions.
 
-   **The patch is written, for the keycode path.**
+   **The patch was written, built, tested on the device, and rolled back --
+   because it works but is too blunt.**
    `userspace/keyboard/kwin-patches/0001-inputmethod-forced-activation-for-xwayland.patch`
-   (build with `userspace/keyboard/build-kwin.sh`). The research into KWin's
-   `InputMethod` (`src/inputmethod.cpp`, Plasma/6.2) found that `forceActivate()`
-   already bypasses the text-input gate once, but nothing makes it stick: three
-   separate paths tear a forced keyboard back down -- `refreshActive()`
-   re-imposing the gate on the next text-input signal, `shouldShowOnActive()`
-   only showing the panel for touch/tablet input, and `setTrackedWindow()`
-   clearing the show flag on every focus change. The patch adds one member,
-   `m_forcedActive`, set by `forceActivate()` and cleared when the user dismisses
-   the keyboard, that makes all three respect a user-forced keyboard. It is four
-   short edits and touches nothing on the ordinary Wayland text-input path.
+   (build with `userspace/keyboard/build-kwin.sh`) adds an `m_forcedActive`
+   member so `forceActivate()` sticks over an XWayland/Java window. It was
+   compiled (just `libkwin.so`, `-j2`, stripped), installed and run on the phone.
 
-   **Measure this before trusting it, because it decides whether the patch can
-   work at all.** Does `plasma-keyboard` deliver keys as keycodes through
-   `zwp_virtual_keyboard_v1`, or as committed strings through the text-input
-   protocol? Run it under `WAYLAND_DEBUG=1` and watch which interface carries the
-   keystrokes. **If it sends keycodes**, this patch is the whole fix: keycodes go
-   to the seat's keyboard focus -- whatever window is focused, XWayland included
-   -- so once the keyboard is allowed to show, the keys already have somewhere to
-   land. **If it commits strings**, there is nothing for an X11 window to receive
-   and this patch is not enough: KWin would have to synthesise key events from
-   the committed text for surfaces with no text-input, the same job XTEST does
-   for onboard, done inside the compositor. That larger patch is not written.
+   **What it settled:** the keyboard *does* come up over Burp and **the keys
+   reach the app**. So the old worry -- "if plasma-keyboard commits strings there
+   is nothing for X11 to receive" -- does **not** apply on KWin 6.7:
+   `commitString()` already synthesises key events into the seat keyboard for
+   surfaces with no text-input. Delivery is a solved problem; no XTEST-in-the-
+   compositor patch is needed.
 
-   Worth checking against upstream first -- an on-screen keyboard that cannot
-   type into X11 applications is not a rhodep problem, and someone may already
-   be arguing about it.
+   **Why it is not shipped:** `m_forcedActive` is too sticky. Once on, the
+   keyboard pops up over *every* window (text field or not), stops responding to
+   tapping a field the normal way, does not return after minimising, and only
+   clears on an explicit hide. In daily use that is worse than the gap it closed
+   -- and the button-navigation bar already offers a working keyboard toggle. So
+   it was reverted on the device (stock `libkwin` restored, holds released).
+
+   **To finish it properly:** the delivery half is done; make the forced state
+   *narrow* instead of sticky -- clear `m_forcedActive` on the next focus change
+   (or after the first commit) and only re-show for the surface the user forced,
+   not every window. That is "raise it once for this window" rather than "force
+   it on and never let go". Full analysis in `userspace/keyboard/README.md`.
 
 8. **Automatically keep the phone awake for anything you start, not a fixed
    list.** Today `rhodep-keep-awake` holds the phone up for two things: work

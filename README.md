@@ -145,6 +145,16 @@ file protection) ·
   plasma-mobile` and picked from the GDM session menu; see "Extra sessions"
   below, and `extra-tools/terminal-keyboard/` for the on-screen keyboard work
   that makes its terminal usable.
+- **Smooth UI**, tuned end to end. The GPU is at its silicon ceiling already
+  (Adreno 619, 840 MHz fuse limit, 120 Hz panel default, ~117 fps / 0 janks
+  measured), so the wins are elsewhere: kernel patch 0114 gives the scheduler a
+  real big.LITTLE topology (2x A78 + 6x A55 with capacities), so interactive
+  threads run on the fast cores and EAS engages instead of a flat 8-way SMP —
+  verified on device (`cpu_capacity` 329 vs 1024, Energy Model registered).
+  `userspace/fluidity/` turns off the two heaviest KWin effects (Blur,
+  Background Contrast), halves animation duration, enables power-profiles-daemon,
+  and leans on zram (zstd, `swappiness=120`) so memory pressure no longer kills
+  foreground apps.
 - **Suspend and resume**, including waking with the screen intact. This needed
   kernel patch 0059 and a systemd sleep hook; before them the phone came back
   from a long screen-off with a permanently black display. See "Suspend" below.

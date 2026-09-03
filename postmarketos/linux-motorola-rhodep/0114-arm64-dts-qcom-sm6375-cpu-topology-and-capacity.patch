@@ -27,6 +27,21 @@ fluidity win on the device (the GPU is already at its 840 MHz fuse ceiling).
 Values cross-checked against mainline dts that already carry capacities
 (talos.dtsi A55=1024/A76=1740 style; sm8150 uses 488/1024) and the ARM DMIPS/MHz
 figures for A55 vs A78.
+
+Measured on the device after flashing (kali-boot-rhodep-clean-20260903.img):
+
+	/sys/.../cpu0/cpu_capacity   329     (A55)
+	/sys/.../cpu6/cpu_capacity   1024    (A78)
+	cpu0 topology/cluster_id     0
+	cpu6 topology/cluster_id     1
+	/sys/kernel/debug/energy_model/   present  -> EAS engaged
+
+So the scheduler now sees the asymmetry (329 vs 1024) and an Energy Model is
+registered, which is the definitive sign EAS is active rather than inert. Note
+the A55 lands at 329 not 403: the kernel scales capacity-dmips-mhz by each
+cluster's max OPP and normalises the biggest to 1024, so 403*1804.8MHz vs
+1024*2208MHz gives ~329 for the little cores -- exactly the intended big/little
+split.
 ---
 diff --git a/arch/arm64/boot/dts/qcom/sm6375.dtsi b/arch/arm64/boot/dts/qcom/sm6375.dtsi
 index ec7e87b..9cd56dd 100644

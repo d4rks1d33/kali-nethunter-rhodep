@@ -53,6 +53,18 @@ else
 	apt-get autoclean >/dev/null 2>&1 || true
 fi
 
+# 2b. apt package lists (/var/lib/apt/lists) -- the downloaded Packages/Release
+#     indexes, easily 200 MB+ on a rolling distro with several repos. Fully
+#     regenerable with `apt update`, which apt runs on its own before the next
+#     install anyway. Keep the partial/ dir so apt does not complain.
+if [ "$DRY" -eq 1 ]; then
+	say "apt lists: $(size /var/lib/apt/lists)"
+else
+	find /var/lib/apt/lists -mindepth 1 -maxdepth 1 ! -name partial \
+		-exec rm -rf {} + 2>/dev/null || true
+	mkdir -p /var/lib/apt/lists/partial 2>/dev/null || true
+fi
+
 # 3. user caches: GPU shader caches, thumbnails, browser caches. All rebuilt on
 #    demand. Home directories are discovered so a renamed/extra user is covered.
 #
@@ -79,7 +91,39 @@ for home in /root /home/*; do
 	fi
 	[ -d "$home/.npm/_cacache" ] && rm_glob "$home/.npm/_cacache"
 	[ -d "$home/.thumbnails" ] && rm_glob "$home/.thumbnails"
+	# pip's download/wheel cache. Usually under ~/.cache/pip (already cleared
+	# above), but pip honours XDG and older versions used ~/.pip -- cover both.
+	[ -d "$home/.cache/pip" ] && rm_glob "$home/.cache/pip"
+	[ -d "$home/.pip/cache" ] && rm_glob "$home/.pip/cache"
+	# node package managers other than npm.
+	[ -d "$home/.cache/yarn" ] && rm_glob "$home/.cache/yarn"
+	[ -d "$home/.local/share/pnpm/store" ] && rm_glob "$home/.local/share/pnpm/store"
+	# Rust/Go build caches (regenerated on the next build).
+	[ -d "$home/.cargo/registry/cache" ] && rm_glob "$home/.cargo/registry/cache"
+	[ -d "$home/.cache/go-build" ] && rm_glob "$home/.cache/go-build"
 done
+
+# 3b. DKMS build intermediates. The installed .ko under /lib/modules stays; only
+#     the per-module build/ scratch dirs go. They are recreated on the next
+#     `dkms build`. (The port's Wi-Fi/etc. drivers live here.)
+if [ -d /var/lib/dkms ]; then
+	if [ "$DRY" -eq 1 ]; then
+		say "dkms build dirs: $(du -shc /var/lib/dkms/*/*/build 2>/dev/null | tail -1 | cut -f1)"
+	else
+		find /var/lib/dkms -mindepth 3 -maxdepth 3 -type d -name build \
+			-exec rm -rf {} + 2>/dev/null || true
+	fi
+fi
+
+# 3c. Docker: dangling build cache, stopped containers and unused images. Only
+#     runs if docker is installed and its daemon is up; `prune` never removes a
+#     running container or an image in use, so it is safe. Skipped in dry-run.
+if [ "$DRY" -eq 0 ] && command -v docker >/dev/null 2>&1 \
+   && docker info >/dev/null 2>&1; then
+	docker system prune -f >/dev/null 2>&1 || true
+elif [ "$DRY" -eq 1 ] && command -v docker >/dev/null 2>&1; then
+	say "docker reclaimable: $(docker system df 2>/dev/null | awk '/Build Cache|Images|Containers/{print $0}' | tr '\n' ' ' || echo '?')"
+fi
 
 # 4. coredumps: crash dumps, never needed for running the phone.
 rm_glob /var/lib/systemd/coredump

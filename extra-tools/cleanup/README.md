@@ -14,13 +14,26 @@ Only things that regenerate on their own, so deleting them costs nothing:
 
 - **systemd journal** — vacuumed to 50M (and capped at 100M permanently, see
   below). It re-fills as the system logs.
-- **apt archives + stale lists** (`apt-get clean`, `autoclean`) — re-fetched on
-  the next install.
-- **user caches** — GPU shader caches, thumbnails, browser caches and npm's
-  `_cacache`, under every home directory. All rebuilt on demand. One thing is
-  **kept**: `~/.cache/opencode` (the model catalog `models.json`). Deleting it
-  breaks `claude-free` until opencode is run again ("no model catalog … run
-  opencode once"), so it is on a small keep-list (`CACHE_KEEP` in the script).
+- **apt archives** (`apt-get clean`, `autoclean`) — re-fetched on the next
+  install.
+- **apt package lists** (`/var/lib/apt/lists`) — the downloaded Packages/Release
+  indexes, easily 200 MB+ on a rolling distro with several repos. Cleared
+  wholesale (keeping only `partial/`); `apt update` regenerates them, which apt
+  runs on its own before the next install. On the reference device this alone was
+  **232 MB**.
+- **user caches** — GPU shader caches, thumbnails, browser caches, box64's
+  dynarec cache, and npm's `_cacache`, under every home directory. All rebuilt on
+  demand. Also the caches other toolchains scatter around: **pip**
+  (`~/.cache/pip`, `~/.pip/cache`), **yarn/pnpm**, **cargo** registry cache and
+  **Go** build cache. One thing is **kept**: `~/.cache/opencode` (the model
+  catalog `models.json`) — deleting it breaks `claude-free` until opencode is run
+  again, so it is on a small keep-list (`CACHE_KEEP` in the script).
+- **DKMS build intermediates** (`/var/lib/dkms/*/*/build`) — the installed `.ko`
+  under `/lib/modules` stays; only the per-module scratch dirs go, recreated on
+  the next `dkms build`.
+- **Docker** — `docker system prune -f` (dangling build cache, stopped
+  containers, unused images), only if docker is installed and its daemon is up.
+  `prune` never removes a running container or an in-use image, so it is safe.
 - **coredumps** (`/var/lib/systemd/coredump`) — crash dumps, never needed to run
   the phone.
 - **fwupd metadata cache** — re-downloaded when fwupd next refreshes.

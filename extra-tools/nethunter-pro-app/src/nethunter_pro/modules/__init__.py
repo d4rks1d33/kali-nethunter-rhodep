@@ -59,6 +59,7 @@ from . import driftnet         # noqa: F401
 # Payloads / exploitation
 from . import payloads         # noqa: F401
 from . import set_tool         # noqa: F401
+from . import mail_spoof       # noqa: F401
 # USB / radio attacks
 from . import duckhunter       # noqa: F401
 from . import hid              # noqa: F401

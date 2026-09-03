@@ -3743,6 +3743,44 @@ already done.
     also lets Docker pull and run non-arm64 images. Costs nothing at runtime when
     unused.
 
+20. **Hardware-accelerated VMs with KVM — infeasible on this SoC, and the reason
+    is firmware, not the kernel.** This was investigated and buried with evidence
+    so nobody spends a session on it. The kernel is already KVM-capable:
+    `CONFIG_KVM=y` and every dependency it `select`s are set
+    (`kernel/config/config-motorola-rhodep.aarch64`, and on arm64 KVM is
+    built-in only, never a module). Nothing config-side is missing.
+
+    **What blocks it is the boot exception level.** On arm64, KVM needs the
+    kernel to be entered at **EL2** (hypervisor). This device's own dmesg says it
+    is entered at **EL1**:
+
+    	CPU: All CPU(s) started at EL1
+    	kvm [1]: HYP mode not available
+
+    (captured in `docs/interconnect-sm6375-wip/evidence-session8/` and
+    `docs/watchdog-ipa-lte-wip/evidence/`). A kernel **cannot raise its own
+    exception level** — only whatever ran before it (Qualcomm's XBL/ABL) can
+    place it at EL2, and on this SoC it does not, because **Qualcomm's own
+    hypervisor already occupies EL2** (the `hypervisor@80000000` 6 MB `no-map`
+    reserved region, XPU-protected, is its fingerprint). So EL2 is both not
+    handed to Linux *and* already taken. `/dev/kvm` never appears.
+
+    There is no kernel/config/pmbootstrap fix: it would need a custom firmware
+    boot flow that both hands Linux off at EL2 and removes Qualcomm's EL2
+    hypervisor, which is not available for SM6375. **Check on any device with:**
+
+    	dmesg | grep -iE 'started at EL|HYP mode|kvm \['
+    	ls -l /dev/kvm          # absent here
+
+    If a future firmware ever did boot Linux at EL2, the *userspace* side is
+    small and would follow the `rhodep-gpu-vulkan` shape: a `rhodep-kvm` .deb
+    depending on `qemu-system-arm` (+ `qemu-utils`), a
+    `KERNEL=="kvm", GROUP="kvm", MODE="0660"` udev rule, and adding the operator
+    to the `kvm` group. Note KVM would only accelerate **aarch64** guests; x86
+    system VMs stay TCG emulation, and that x86 path is already covered by the
+    binfmt/qemu-user work in item 19 (the two are complementary, not the same
+    thing).
+
 # License
 Kernel patches: GPL-2.0. Packaging/glue: MIT. Vendor firmware blobs: proprietary,
 not included (extract from your own device). See `LICENSE`.

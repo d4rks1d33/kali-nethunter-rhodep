@@ -11,9 +11,10 @@
 packages/firmware-motorola-rhodep/lib/firmware/**
 !packages/firmware-motorola-rhodep/lib/firmware/.gitkeep
 
-# Local firmware backups kept on disk but NOT pushed (blobs, not redistributable).
-# Track the folder structure, notes, and small text/RE helpers; ignore the big
-# non-redistributable binaries (firmware .mbn, built .ko, raw source copies).
+# Local backups kept on disk but NOT pushed. Track the folder structure, notes,
+# and small text/RE helpers; ignore blobs and any snapshots of source that is
+# already versioned elsewhere in the repo (avoid duplicating files that already
+# live under kernel/, userspace/, extra-tools/, etc.).
 backups/**/*.mbn
 backups/**/*.mbn.*
 backups/**/*.bin
@@ -22,6 +23,15 @@ backups/**/*.ko.*
 backups/**/*.c.wip
 backups/**/*.img
 backups/**/*.elf
+# repo snapshots inside backups/*/repo/ are duplicates of tracked source
+backups/**/repo/**
+# systemd/config snapshots that shadow tracked files
+backups/**/*.service
+backups/**/*.toml
+backups/**/*.toml.*
+# device tarballs (uname, config, /etc snapshots)
+backups/**/*.tar.gz
+backups/**/*.tar.xz
 
 # debos build output
 debos/rootfs*.tar.xz

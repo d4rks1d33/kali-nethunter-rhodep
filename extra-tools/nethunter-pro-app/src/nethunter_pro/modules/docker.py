@@ -336,20 +336,26 @@ class Docker(NHModule):
         if not image:
             toast(self.app_window, "Enter an image name first")
             return
-        self.runner.output.append("Pulling %s …\n" % image)
-        # Pull with the runner so progress streams, then inspect and run.
-        # Chain it as one shell command through the root helper: pull, then read
-        # the exposed ports out of the image and run detached publishing them.
-        safe = shlex_quote(image)
         # Extra flags for images that require capabilities or volumes.
         extra = ""
         for prefix, flags in IMAGE_EXTRA_FLAGS.items():
             if image.startswith(prefix):
                 extra = flags
                 break
+        safe = shlex_quote(image)
+        # Pull only if the image is not already present locally.  Local-only
+        # images (e.g. nessus-local built on-device) are not on Docker Hub and
+        # would fail with "pull access denied" if we always pull.
+        self.runner.output.append("Starting %s …\n" % image)
         script = (
             "set -e\n"
-            "docker pull %s\n"
+            # Skip pull when the image already exists locally.
+            "if docker image inspect %s >/dev/null 2>&1; then\n"
+            "  echo 'Image already local, skipping pull.'\n"
+            "else\n"
+            "  echo 'Pulling %s …'\n"
+            "  docker pull %s\n"
+            "fi\n"
             # Exposed ports come from the image's own config, not a README.
             "ports=$(docker image inspect --format "
             "'{{range $p,$_ := .Config.ExposedPorts}}{{$p}} {{end}}' %s)\n"
@@ -361,7 +367,7 @@ class Docker(NHModule):
             "echo\n"
             "echo \"started $name ($cid)\"\n"
             "echo \"ports:$ports\"\n"
-        ) % (safe, safe, safe, extra, safe)
+        ) % (safe, image, safe, safe, safe, extra, safe)
         self.runner.run(["sh", "-c", script], root=True)
         # After a moment, look at what came up and offer a URL if it is web.
         GLib.timeout_add_seconds(4, self._after_run, image)

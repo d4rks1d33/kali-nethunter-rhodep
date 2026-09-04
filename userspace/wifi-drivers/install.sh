@@ -99,6 +99,8 @@ arm_firstboot() {
 	# interactive injection lab (offchannel mgmt-tx test with external witness)
 	install -D -m 0755 "$here/rhodep-inject-lab" \
 		/usr/local/sbin/rhodep-inject-lab
+	install -D -m 0755 "$here/nl80211-mgmt-tx.py" \
+		/usr/local/sbin/nl80211-mgmt-tx.py
 	if [ -d /run/systemd/system ]; then
 		systemctl daemon-reload
 		systemctl enable rhodep-wifi-drivers-firstboot.service >/dev/null 2>&1 || true

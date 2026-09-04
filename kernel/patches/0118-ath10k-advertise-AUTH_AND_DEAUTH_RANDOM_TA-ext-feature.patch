@@ -1,0 +1,56 @@
+From: rhodep port
+Subject: [PATCH] ath10k: advertise AUTH_AND_DEAUTH_RANDOM_TA — enables real deauth injection from the internal WCN3990 radio
+
+Without this, cfg80211 forces the transmitter address (addr2/SA) of any
+management frame sent through NL80211_CMD_FRAME to equal the vif's own MAC
+(net/wireless/mlme.c cfg80211_allowed_address). That is fine for probes
+and for auth frames "as ourselves", but it makes a *useful* deauth
+impossible from the internal radio: a deauth whose SA is our own address
+(not the AP's) is a class-3-frame-from-nonauthenticated-STA and every
+sane client ignores it — verified on-air.
+
+The full picture we established for this port (see README item 13):
+
+  - The WCN3990 firmware DOES transmit management frames sent via the STA
+    vdev's offchannel/ROC path (NL80211_CMD_FRAME + IEEE80211_TX_CTL_TX_
+    OFFCHAN, ath10k_offchan_tx_work / HTT offchan_tx.freq). This works on
+    any channel while wlan0 stays associated. mgmt-tx completions come
+    back status=0 (transmitted) and an external witness (TP-Link in
+    monitor) hears the frames over the air.
+  - The firmware honours an *arbitrary* addr2 on that path — it does NOT
+    overwrite it with the vdev MAC. Verified with a witness capture that
+    shows our deauths going out on ch11 with SA = the AP's BSSID at
+    -23 dBm, and the target client on that AP being deauthenticated.
+  - The one remaining gate was cfg80211 rejecting the frame before it
+    ever reached ath10k, because the driver had not advertised
+    NL80211_EXT_FEATURE_AUTH_AND_DEAUTH_RANDOM_TA. This patch flips that
+    flag on. mac80211's own random-TA restrictions (mgmt only, auth/
+    deauth subtypes only, offchannel path only) still apply — this just
+    stops cfg80211 from rejecting a spoofed SA before the firmware gets
+    to decide.
+
+Signed-off-by: rhodep port <rhodep@postmarketos>
+---
+ drivers/net/wireless/ath/ath10k/mac.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/drivers/net/wireless/ath/ath10k/mac.c b/drivers/net/wireless/ath/ath10k/mac.c
+--- a/drivers/net/wireless/ath/ath10k/mac.c
++++ b/drivers/net/wireless/ath/ath10k/mac.c
+@@ -10297,6 +10297,16 @@
+ 			      NL80211_EXT_FEATURE_SET_SCAN_DWELL);
+ 	wiphy_ext_feature_set(ar->hw->wiphy, NL80211_EXT_FEATURE_AQL);
+ 
++	/* rhodep: let cfg80211 accept a spoofed transmitter address (TA/addr2) on
++	 * auth/deauth frames sent via mgmt-tx. Needed to test whether the WCN3990
++	 * firmware honours an arbitrary addr2 on the offchannel STA-vdev TX path
++	 * (a deauth "from the AP" needs addr2 = the AP's BSSID). Whether the fw
++	 * actually keeps our addr2 or overwrites it with the vdev MAC is the thing
++	 * this lets us measure over the air.
++	 */
++	wiphy_ext_feature_set(ar->hw->wiphy,
++			      NL80211_EXT_FEATURE_AUTH_AND_DEAUTH_RANDOM_TA);
++
+ 	if (ar->hw_params.mcast_frame_registration)
+ 		wiphy_ext_feature_set(ar->hw->wiphy,
+ 				      NL80211_EXT_FEATURE_MULTICAST_REGISTRATIONS);

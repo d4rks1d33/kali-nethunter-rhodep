@@ -220,7 +220,7 @@ file protection) ·
 | **NFC** | Samsung `sec-nfc` on i2c7. No mainline driver. |
 | **GPS** | **A satellite fix watchdog-resets the SoC in under a second**, reproducibly, with `ipa.ko` not loaded. It was never an indoors problem. Narrowed since: the trigger is the GNSS *measurement engine* coming up, so `standalone` mode kills the phone while **`cellid` positioning works** — a live session, fifty indications, position reports and NMEA, no reset (`scripts/rhodep-gnss-test.py 60 min opmode=cellid`). The same reproducer is now the fastest way to work on the LTE reset. [`GNSS-SM6375.md`](docs/interconnect-sm6375-wip/GNSS-SM6375.md) |
 | **Camera** | **Does not capture** — no photos, no video, no viewfinder. Only groundwork is done: the FAN53870 camera PMIC driver is written and running (all 7 LDOs registered, voltages verified against the chip's registers), and the rest is feasible because the ISP pipeline (`csid530` + `tfe530` + `tpg101`) is the *same silicon* mainline already drives on qcm2290, the 52 `gcc_camss_*` clocks are in mainline, and the 50 MP main sensor (Samsung S5KJN1) has a mainline driver. Still needed before any image: a `camss` entry for SM6375, the CSIPHY/CSID/TFE nodes and the sensor node. [`CAMERA-SENSORS-FEASIBILITY.md`](docs/CAMERA-SENSORS-FEASIBILITY.md) |
-| **Monitor mode on the internal WiFi** | **Management-frame capture works; injection does NOT.** `mon0` alongside the STA captures beacons/probe/auth/assoc/deauth from overheard networks (8–14 distinct BSSIDs per 20 s run) while `wlan0` stays associated (patch 0117: firmware forwards mgmt via `WMI_MGMT_RX_EVENTID`, ath10k used to drop them with `RX_FLAG_SKIP_MONITOR`). **Injection/TX from the internal radio does not radiate** — proven with an external witness: HTT raw TX crashes the firmware, WMI mgmt-tx completes `status=1` (0/1638 on air), and even an AP vdev beacons `ret=0` but emits nothing OTA. It's a firmware behaviour (STA TX works, AP/monitor TX doesn't). Use the external TP-Link for injection. The WLAN firmware IS patchable (secure boot not enforced) — RE of `wlanmdsp.mbn` is the path forward. Dedicated-channel capture: `rhodep-wlan-monitor inject-setup <chan>`/`restore`. See item 13. |
+| **Monitor mode + injection on the internal WiFi** | **Management-frame capture AND injection (incl. effective deauth) both work.** Capture: `mon0` alongside the STA sees beacons/probe/auth/assoc/deauth from overheard networks (8–14 distinct BSSIDs per 20 s run) while `wlan0` stays associated (patch 0117). Injection: `NL80211_CMD_FRAME` through the STA vdev's offchannel/ROC path transmits on any channel without dropping WiFi (`nl80211-mgmt-tx.py` helper). Patch 0118 advertises `AUTH_AND_DEAUTH_RANDOM_TA` so deauth/auth frames can spoof the AP's BSSID as the transmitter — verified on-air with an external TP-Link witness (130 deauths at -23 dBm with SA = the AP's MAC) and by a real client actually disconnecting. Monitor-vdev raw TX still crashes the firmware and AP-vdev beacons don't radiate — those remain firmware-side limits documented in item 13. Tool: `sudo rhodep-inject-lab`. |
 
 ## Bugs
 
@@ -3418,7 +3418,25 @@ already done.
     It is the least tractable item in this file. It is also the one that would
     change daily use the most, which is why it is here.
 
-13. **Monitor mode on the internal WiFi — management-frame CAPTURE works; injection/TX does NOT radiate (firmware limit, but the firmware is patchable). Full write-up.**
+13. **Monitor mode + injection on the internal WiFi — capture works (patch 0117); injection also works, including effective deauth (patches 0118 + `rhodep-inject-lab`). Full write-up.**
+
+    **Final result (fourth session):** effective deauth from the internal radio,
+    over the air, no external adapter, no firmware RE, no dropping WiFi. A
+    single-line driver patch (0118: advertise
+    `NL80211_EXT_FEATURE_AUTH_AND_DEAUTH_RANDOM_TA`) plus a tiny generic-netlink
+    helper (`nl80211-mgmt-tx.py`, since `iw` 6.17 has no `mgmt-tx` subcommand)
+    was the whole trick. The transmit path is mac80211's offchannel/ROC via
+    `NL80211_CMD_FRAME`, which ath10k already services on the STA vdev — the
+    firmware honours an arbitrary `addr2` (transmitter) on that path and puts
+    the frame on the requested channel. **Verified two ways:** an external
+    TP-Link (RTL8811AU) in monitor on ch11 captured 130 of our deauths at
+    -23 dBm with `SA = 8a:c2:27:a1:19:cc` (the AP's BSSID we spoofed), and a
+    real client on that AP actually disconnected. wlan0 remained associated to
+    the 5 GHz AP the whole time. Two other paths stay firmware-limited on this
+    port and are documented in the write-up below: monitor-vdev raw TX crashes
+    the firmware, and AP-vdev beacons don't radiate over the air — neither
+    matters for the deauth/inject use case now that the STA-offchannel path
+    works. Tool: `sudo rhodep-inject-lab` (menu + `probe|deauth|raw|witness`).
 
     Three-plus sessions. The internal WiFi now does real passive capture of
     802.11 **management** frames from the networks it overhears — beacons, probe

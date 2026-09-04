@@ -1,0 +1,8 @@
+29:/* rhodep: WCN3990 (WLAN.HL.3.3.2) does not open a firmware RX filter for
+49:unsigned int ath10k_mon_mgmt = 1;
+50:module_param_named(mon_mgmt, ath10k_mon_mgmt, uint, 0644);
+2517:	/* rhodep diag: confirm the firmware actually completed a mgmt TX (status
+2520:	if (ath10k_mon_mgmt)
+2521:		ath10k_info(ar, "rhodep mgmt-tx-compl desc_id=%u status=%u\n",
+2655:	/* rhodep: on WCN3990 the HTT ring never duplicates mgmt frames, so when a
+2659:	if (ath10k_mon_mgmt &&

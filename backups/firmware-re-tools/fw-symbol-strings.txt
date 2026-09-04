@@ -1,0 +1,2694 @@
+	wal_sw_dtim_wmac_sm.c
+%s can't find vdev
+(Car_wal_tx_hcm.c
+0_wlan_scan_mgr_wal_pdev_evt_handler
+5wal_rtt_psoc_init
+7tcmd_wal_rx_buff_refill_req
+<_wmi_beacon_tx_offload_hdlr
+CTS2S_TX_COMPLETE
+Dwlan_traffic_mon_wal_soc_pdev_evt_handler
+GM_wlan_beacon_dtimsync_cb
+Gear_wal_rx_mu.c
+H_wmi_peer_sta_ps_statechange_event
+Hdata_rx_peer.c
+LMChannelListProcessing.c:ERROR: LMTLV2ChannelListHandler: total lm_itemNum %d exceeds input range
+LMChannelListProcessing.c:ERROR: convert_rate_bit_index_to_lmRateIdx: index %d exceeds input range (0-99)
+LMChannelListProcessing.c:LM:: convert_rate_bit_index_to_lmRateIdx
+LMChannelListProcessing.c:LMTLV2ChannelListHandler: currentItemNum %d
+LMChannelListProcessing.c:LMTLV2ChannelListHandler: lm_flag %d lm_itemNum %d
+LMChannelListProcessing.c:LMTLV2ChannelListHandler: lm_itemNum %d grouplIdx %d
+LMChannelListProcessing.c:convert_rate_bit_index_to_lmRateIdx: Error: invalid rateIdx %d
+LMGoProcessing.c:ERROR: get_tcmd_wlan_mode_from_lm_chan_list_params: currentChannelIdx %d --> Invalid lm_cbState %d set for RateBW_11AC_VHT40 case
+LMGoProcessing.c:ERROR: get_tcmd_wlan_mode_from_lm_chan_list_params: currentChannelIdx %d --> Invalid lm_cbState %d set for RateBW_11N_HT40 case
+LMGoProcessing.c:ERROR: get_tcmd_wlan_mode_from_lm_chan_list_params: currentChannelIdx %d --> Invalid lm_ratebw %d and lm_cbState %d
+LMGoProcessing.c:LMTLV2GOHandler: INIT TIMER for LM RX
+LMGoProcessing.c:LMTLV2GOHandler: INIT TIMER for LM TX
+LMGoProcessing.c:LMTLV2GOHandler: lm_cmdId %d timeOn %d timeOff %d g_listmode %d status %d
+LMGoProcessing.c:LMTLV2GOHandler: lm_cmdId %d, timeOn %d, timeOff %d
+LMGoProcessing.c:LMTLV2GOHandler: send2HostLMGoListRsp status LMGO_FAILURE for lm_cmdId %d lm_go_complete_timeout_on %d lm_go_complete_timeout_off %d
+LMGoProcessing.c:LMTLV2GOHandler: status = LMGO_OK... start the timer with 0 timeout
+LMGoProcessing.c:get_tcmd_wlan_mode_from_lm_chan_list_params: currentChannelIdx %d lm_ratebw %d and lm_cbState %d wlanMode %d
+LMGoProcessing.c:lm_rx_complete_handler: LMRxIsOn = 0... restart timer with timeout %d
+LMGoProcessing.c:lm_rx_complete_handler: LMRxIsOn = 1... restart timer with timeout %d (LM_RX_REPORTING_TIME)
+LMGoProcessing.c:lm_rx_complete_handler: currentChannelIdx %d g_lmChannelList.lm_itemNum %d total_channel_list_num %d grouplIdx %d MAX_LM_CHANNELLIST_INDEX %d
+LMGoProcessing.c:lm_rx_complete_handler: else condition
+LMGoProcessing.c:lm_tx_complete_handler start... LMTxIsOn %d
+LMGoProcessing.c:lm_tx_complete_handler: LMTxIsOn = 0... restart the timer with timeout %d (on duration)
+LMGoProcessing.c:lm_tx_complete_handler: TCMD_CONT_TX_OFF
+LMGoProcessing.c:lm_tx_complete_handler: Unknown rateIdx %d for pktType %d, numPackets = %d
+LMGoProcessing.c:lm_tx_complete_handler: Unknown rateIdx %d pktType %d, numPackets = %d
+LMGoProcessing.c:lm_tx_complete_handler: currentChannelIdx %d g_lmChannelList.lm_itemNum %d total_channel_list_num %d grouplIdx %d MAX_LM_CHANNELLIST_INDEX %d
+LMGoProcessing.c:lm_tx_complete_handler: else condition
+LMGoProcessing.c:lm_tx_complete_handler: freq %d CM %d pktType %d wlanMode %d dataRate %d
+LMGoProcessing.c:lm_tx_complete_handler: numPackets %d wlanMode %d dataRate %d
+LMGoProcessing.c:lm_tx_complete_handler: restart the timer with timeout %d (off duration)
+LMQueryProcessing.c:LMTLV2QueryHandler: lm_cmdId %d (0: TX, 1:HWCAL, 2: RX, 3: RXSTATUS)
+LMRxInitProcessing.c:LMTLV2RxInitHandler: rxMode %d
+LMTxInitProcessing.c:LMTLV2TxInitHandler
+LMTxInitProcessing.c:lmSetupTxParms: BSSID     %02X:%02X:%02X:%02X:%02X:%02X
+LMTxInitProcessing.c:lmSetupTxParms: numPkts %d tpcm %d flags 0x%x agg %d bw %d broadcast %d
+LMTxInitProcessing.c:lmSetupTxParms: phyId %d dutyCycle %d txMode %d antenna %d enANI %d
+LMTxInitProcessing.c:lmSetupTxParms: rxStation %02X:%02X:%02X:%02X:%02X:%02X
+LMTxInitProcessing.c:lmSetupTxParms: scramblerOff %d aifsn %d pktsz %d txPattern %d SGI %d
+LMTxInitProcessing.c:lmSetupTxParms: txStation %02X:%02X:%02X:%02X:%02X:%02X
+MGMT_RX
+MGMT_TX
+NAN20_NDP - Invalid vdev
+NAN20_NDP - Responder : PEER : OPEN, SERVICE_LAYER : SECURE
+NAN20_NDP - Responder : PEER : SECURE, SERVICE_LAYER : OPEN
+NAN_20_TransmitDWNanaMgmtFrame
+NAN_20_TxNmfCompletionHandler
+NAN_CreateNanVdev
+NAN_MATCH_EXPIRED peer_mac_addr=%02x:%02x:%02x:%02x:%02x:%02x 
+NAN_NEW_MATCH_EVENT peer_mac_addr=%02x:%02x:%02x:%02x:%02x:%02x 
+NDP_CONFIRM peer_ndi_mac_addr=%02x:%02x:%02x:%02x:%02x:%02x ndp_id=%d, status:%s reason:%s 
+NDP_INDICATION peer_mac_addr=%02x:%02x ndp_id=%d role: %s 
+NDP_INITIATE peer_mac_addr=%02x:%02x ndp_id=%d status=%d 
+NDP_PEER_COMMITTED_SCHEDULE ndp_id=%d, mhz=%d slot_bitmap: 
+NDP_RESPONDER peer_mac_addr=%02x:%02x ndp_id=%d status=%d 
+PEER_DATA_END
+RATE_VdevInit
+RATE_Vdev_Coex_Limit_MCS_Rates
+RATE_peer_ctxt_free
+RATE_vdev_ctxt_free
+RECVD_PEER_CREATE_INFO
+RECVD_PEER_DELETE_INFO
+TX_BCN_COMPLETION
+VDEV_PAUSED
+WAIT_FOR_PEER_CREATION
+WAIT_FOR_PEER_DELETION
+WAL_DBGID_TX_ARP Allocated new TID for tid_num:%d %x
+WAL_PM_ARB_REQ_ID_HW_DTIM_CLIENT
+WAL_PM_ARB_REQ_ID_PARTIAL_AWAKE_CLIENT
+WAL_PM_ARB_REQ_ID_SW_DTIM_CLIENT
+WAL_PM_ARB_REQ_ID_WAL_CLIENT
+WAL_PM_ARB_REQ_ID_WLAN_PM_ARB
+WAL_PM_ARB_REQ_ID_WOW_CLIENT
+WAL_PM_MAC_STATE_ACTIVE
+WAL_PM_MAC_STATE_HW_DTIM
+WAL_PM_MAC_STATE_HW_DTIM_AWAKE
+WAL_PM_MAC_STATE_IMPS
+WAL_PM_MAC_STATE_PARTIAL_AWAKE
+WAL_PM_MAC_STATE_SW_DTIM
+War_wal_rtt.c
+[SM:StrPrnt] %s: %s < %s, vdevid=%u, extra=%#x, extra2=%#x, extra3=%#x
+[SM:StrPrnt] %s: %s => %s, vdevid=%u, extra=%#x, extra2=%#x, extra3=%#x
+[SM:StrPrnt] %s: %u < %u, vdevid=%u, extra=%#x, extra2=%#x, extra3=%#x
+[SM:StrPrnt] %s: %u => %u, vdevid=%u, extra=%#x, extra2=%#x, extra3=%#x
+[SM:StrPrnt] %s: unhandled event %s in state %s, vdevid=%u, extra=%#x, extra2=%#x, extra3=%#x
+[SM:StrPrnt] %s: unhandled event %u in state %u, vdevid=%u, extra=%#x, extra2=%#x, extra3=%#x
+[SM:StrPrnt] %s: unknown type(%d), vdevid=%u
+[SM:StrPrnt] %s: unknown warning(%d), vdevid=%u
+_RATE_GetPeerPhy
+_ar_wal_tx_pause_add_req_to_pending_queue
+_ar_wal_tx_pause_check_pending_pdev_cmd_completions
+_ar_wal_tx_pause_check_pending_peer_cmd_completions
+_ar_wal_tx_pause_check_pending_vdev_cmd_completions
+_ar_wal_tx_pause_get_response_msg_size
+_ar_wal_tx_pause_no_resp_req_handler
+_ar_wal_tx_pause_peer_req_handler
+_ar_wal_tx_pause_prepare_response
+_ar_wal_tx_pause_prepare_response_buf
+_ar_wal_tx_pause_print_complete_log
+_keymgmt_add_peer_entry
+_proct_keepalive_tx_completion
+_tcmd_peer_delete_conf_msg_hdlr
+_tx_q_txop_abort_peer_conn_pause_cb
+_wal_avg_bmiss_get_bcn_stats
+_wal_avg_bmiss_int_handler
+_wal_avg_bmiss_set_bcn_stats
+_wal_bcast_mcast_data_rc_param_setup
+_wal_disa_peer_config
+_wal_disa_prepare_80211_frame
+_wal_egap_disable_event
+_wal_egap_enable_event
+_wal_egap_is_event_enabled
+_wal_non_data_rc_param_setup
+_wal_ps_ap_detect_out_of_sync_sta
+_wal_ps_ap_peer_create_instance
+_wal_ps_buf_peer_send_uapsd_delivery_frames
+_wal_spm_init
+_wal_spm_steady_state_notify
+_wal_spm_transient_state_req
+_wal_tbtt_thres_int_handler
+_wal_test_rc_params_setup
+_wlan_beacon_tbttoffset_update_handler
+_wlan_beacon_tx_offload_beacon_done
+_wlan_beacon_tx_offload_form_beacon
+_wlan_beacon_tx_offload_get_DTIMCnt
+_wlan_beacon_tx_offload_handle_beacon
+_wlan_beacon_tx_offload_update_DTIMCnt
+_wlan_beacon_update_aggr_cw
+_wlan_btm_ofld_vdev_init
+_wlan_mgmt_local_send_by_pmac
+_wlan_mgmt_rx_complete_from_host
+_wlan_mgmt_rx_frame_handler
+_wlan_mgmt_tx_send
+_wlan_pmf_offload_vdev_init
+_wlan_quiet_ie_ap_vdev_init
+_wlan_quiet_ie_sta_vdev_init
+_wlan_quite_ie_vdev_ap_evt_handler
+_wlan_roam_per_vdev_evt_handler
+_wlan_roam_per_wal_pdev_evt_handler
+_wlan_send_mgmt_to_host
+_wlan_vdev_parsed_beacon_ie
+_wlan_vdev_roam_get_param
+_wlan_vdev_set_restore_mac_addr
+_wlan_vdev_state_change_msg_hdlr
+_wlan_vdev_state_change_rt_hdlr_for_data_offload
+_wmi_peer_sta_kickout_event
+_wmi_send_mgmt_rx_event
+_wmi_vdev_simple_event
+_wow_is_vdev_evt_enabled
+_wow_vdev_init
+ar_tx_q_enque.c:ARP enque - peer: 0x%x - event_bitmap:%x
+ar_wal_ast.c
+ar_wal_ast.c:ar_wal_ast_free_index defer_ast_entry_deletion %d         sw_peer 0x%x ast_trace_type %d
+ar_wal_ast_alloc
+ar_wal_ast_free_index
+ar_wal_ast_free_peer_wds_entries
+ar_wal_ast_free_wds_entry
+ar_wal_ast_get_by_index
+ar_wal_ast_get_mac_addr
+ar_wal_ast_get_sw_peer_key
+ar_wal_ast_invalidate_entry
+ar_wal_ast_search_index
+ar_wal_ast_search_sw_peer_key
+ar_wal_ast_wds_aging_fn
+ar_wal_connection_pause.c
+ar_wal_connection_pause.c:%x %x %x
+ar_wal_get_max_ast_index
+ar_wal_get_peer
+ar_wal_get_peer_ucast
+ar_wal_local_frames_wifi_ip02.c
+ar_wal_local_frames_wifi_ip02.c:%x %x %x
+ar_wal_local_frames_wifi_ip02.c:LOCAL_FRAME_COMP: type=0x%x thread=%d/%d status=%d sta_mon_mode=%d sw_status->tsRssi=%d
+ar_wal_local_frames_wifi_ip02.c:Local data send: use default tid requested TID:%d
+ar_wal_local_frames_wifi_ip02.c:WAL_DBGID_TX_MGMT_WMI_FROM_HOST_COMP vdev_id=%d mac_id=%d desc_id=0x%x tx_status=0x%x tid=0x%x sta_mon_mode=0x%x sw_status->tsRssi=%d
+ar_wal_local_frames_wifi_ip02.c:local_frame_handle_completion: pdev(%d): ASSERT due to consecutive beacon tx filtered error(%d) with lring hang bit
+ar_wal_local_frames_wifi_ip02.c:local_frame_handle_completion: pdev(%d): beacon tx filtered error(%d) with lring hang bit, hw_idx/fw_idx=%u/%u
+ar_wal_local_frames_wifi_ip02.c:local_frame_handle_completion: pdev(%d): hw_idx/fw_idx/fetch_idx=%u/%u/%u, dev reset
+ar_wal_peer.c
+ar_wal_peer.c:%x %x %x
+ar_wal_peer.c:ARP TX presend ev fail PENDING peer:0x%x - event_bitmap:%x
+ar_wal_peer.c:ARP TX presend ev fail bitmap mismatch peer:0x%x - event_bitmap:0x%x - vdev->peer_event_bitmap:0x%x
+ar_wal_peer.c:ARP TX presend ev fail pcb_data not found peer:0x%x - event_bitmap:%x
+ar_wal_peer.c:ARP TX presend ev fail peer delete in progress peer:0x%x
+ar_wal_peer.c:A_TIMER_CURRENT_TIME_IN_TICKS time_stamp_32_61 = 0x%x time_stamp_0_31 = 0x%x 
+ar_wal_peer.c:Index= %d,  time_stamp_32_61 = 0x%x, time_stamp_0_31= 0x%x, flags = 0x%x, FC=0x%x 
+ar_wal_peer.c:PTK rekey: block all TIDS before PN reset delete_in_progress:%d pn_update_block_req:%d 
+ar_wal_peer.c:RX PN 127_96: %02x%02x%02x%02x
+ar_wal_peer.c:RX PN 31_0: %02x%02x%02x%02x
+ar_wal_peer.c:RX PN 63_32: %02x%02x%02x%02x
+ar_wal_peer.c:RX PN 95_64: %02x%02x%02x%02x
+ar_wal_peer.c:key=%d
+ar_wal_peer.c:wal_peer_clear_key peer:%x
+ar_wal_peer.c:wal_peer_ptk_rekey_conn_block_cb: created=0x%x, blocked=0x%x
+ar_wal_peer.c:wal_peer_ptk_rekey_conn_block_cb: peer=0x%x,del=%d,block=%d
+ar_wal_peer.c:wal_peer_ptk_rekey_flush_cb: peer 0x%x deletion in prog
+ar_wal_peer.c:wal_peer_ptk_rekey_flush_cb: unblock peer 0x%x bitmap = 0x%x
+ar_wal_peer_alloc_tid
+ar_wal_peer_deliver_event
+ar_wal_peer_deliver_tid_list_msg_to_tac
+ar_wal_peer_free_ast_entry
+ar_wal_peer_free_tid_by_bitmap
+ar_wal_peer_mcast.c
+ar_wal_peer_set_addr
+ar_wal_peer_set_data_notif_tid_flags
+ar_wal_peer_set_hw_filter
+ar_wal_peer_set_keyid_hw_filter
+ar_wal_peer_tid_flush_by_bitmap_comp_cb
+ar_wal_peer_tid_flush_comp_cb
+ar_wal_phy_dev.c
+ar_wal_phy_dev.c:%x %x %x
+ar_wal_phy_dev_deliver_event
+ar_wal_rtt.c:Current chain mask: Tx: 0x%x Rx: 0x%x dyn_bw: %d rx_preamble: %d
+ar_wal_rtt_read_channel_dump
+ar_wal_rtt_recv_sta_get_rssi
+ar_wal_rtt_recv_sta_get_rxbw
+ar_wal_rtt_rx_ppdu_end_prev_toda_callout
+ar_wal_rtt_send_sta_get_rssi
+ar_wal_rtt_send_sta_get_txbw
+ar_wal_rx.c
+ar_wal_rx.c:%x %x %x
+ar_wal_rx.c:BE_PROC: remore ring refilled with %d
+ar_wal_rx.c:Filtered out NDPA(0)/BRPOLL(1) - %d, A1 - %x:%x:%x A2 - %x:%x:%x;%x
+ar_wal_rx.c:MAC tracing stopped in rx_resume
+ar_wal_rx.c:MAC tracing stopped in rx_suspend
+ar_wal_rx.c:remote ring refill aborted due to RX suspend with %d free slots
+ar_wal_rx_offload.c
+ar_wal_rx_offload.c:rx_offload_fwd_check : is_amsdu_corrupted %d  mcast_bcast_frm %d  is_four_address_frame %d
+ar_wal_soc_dev.c
+ar_wal_soc_dev.c:%x %x %x
+ar_wal_sw_peer_key_alloc
+ar_wal_tx_dbg.c:Unsupported argument for WDI RX stats
+ar_wal_tx_dbg.c:Unsupported argument for WDI TX stats
+ar_wal_tx_dbg.c:Unsupported argument for WDI stats
+ar_wal_tx_dbg.c:data_stall debug support is not allowed as the vdev_type is not                STA pdev_id:%d vdev_id:%d vdev:0x%x pdev:0x%x
+ar_wal_tx_dbg.c:wal_tx_dbg_enable_delay_sched-FAILED : provide correct arguments (%d)
+ar_wal_tx_dbg.c:wal_tx_unit_test-args=%d,%d
+ar_wal_tx_dbg.c:wal_tx_unit_test-args=%d,%d,%d
+ar_wal_tx_de.c
+ar_wal_tx_de.c:%x %x %x
+ar_wal_tx_de.c:DE_CLASSIFY_STATUS_LOOKUP: Failed as NO_DEST_INSPECT and no valid peer entry
+ar_wal_tx_de.c:DE_CLASSIFY_STATUS_LOOKUP: Failed as Offload mect entry add failure:0x%X
+ar_wal_tx_de.c:DE_CLASSIFY_STATUS_LOOKUP: Failed as data is not allowed:0x%X
+ar_wal_tx_de.c:DE_CLASSIFY_STATUS_LOOKUP: Failed as tid allocation failed:0x%X
+ar_wal_tx_de.c:DE_CLASSIFY_STATUS_LOOKUP: Failed typeorlength:0x%x peer_flags:0x%x delete_in_progress:0x%x
+ar_wal_tx_de.c:DE_STATUS_LOOKUP: Failed No valid peer entry
+ar_wal_tx_de.c:DE_STATUS_LOOKUP: Failed as OFFLOAD MECT entry add fail:0x%X
+ar_wal_tx_de.c:DE_STATUS_LOOKUP: Failed as TDLS pauses all other traffic:0x%X
+ar_wal_tx_de.c:DE_STATUS_LOOKUP: Failed as TID alloc status failed:0x%X
+ar_wal_tx_de.c:DE_STATUS_LOOKUP: Failed as either no valid peer or data is not allowed:0x%X
+ar_wal_tx_de.c:DE_STATUS_LOOKUP: Failed as either peer delete in progress or no valid peer:0x%X
+ar_wal_tx_de.c:DE_STATUS_LOOKUP: Failed as missing ALLOW_DATA:0x%X
+ar_wal_tx_de.c:HOST- T/H S: %d D: %d SN: %d (0x%x) m_id 0x%x
+ar_wal_tx_de.c:IPA -T/H S: %d D: %d SN: %lu (0x%x) m_id 0x%x
+ar_wal_tx_de.c:WAL_DBGID_TX_EAPOL_PKT dropped due to frame calssification reason. type_or_length:0x%x key:0x%x
+ar_wal_tx_de.c:WAL_DBGID_TX_EAPOL_PKT type_or_length:0x%x key:0x%x
+ar_wal_tx_de.c:de_inspection_status for ARP frame:%d - peer->event_bitmap:0x%X
+ar_wal_tx_de_input
+ar_wal_tx_flow_ctrl.c
+ar_wal_tx_flush.c
+ar_wal_tx_flush.c:%x %x %x
+ar_wal_tx_flush.c:_ar_wal_tx_send_flush_tid(%d): flush-count tried:%d local:%d, host:%d in-swq:%d, pn_mark:%d total:%d
+ar_wal_tx_flush_complete_msg_send
+ar_wal_tx_flush_completion
+ar_wal_tx_halphy_send.c
+ar_wal_tx_halphy_send.c: mem_dpd_post_processing_signal_complete  time %d
+ar_wal_tx_halphy_send.c:Schedule Mem DPD timestamp %d, thread %d
+ar_wal_tx_halphy_send.c:wal_mem_dpd_rt_exchange, received MEM_DPD processing is done 
+ar_wal_tx_halphy_send.c:wal_mem_dpd_thread_hdlr data_value %d, thread_id %d
+ar_wal_tx_q_enque
+ar_wal_tx_q_enque_discard
+ar_wal_tx_q_update_data_queue_mpdu_len
+ar_wal_tx_query_ext_desc_rate_info
+ar_wal_tx_sched_dispatch_conn_immed
+ar_wal_tx_send.c
+ar_wal_tx_send.c: TXPCU WDOG errors hit 50 percent of data stall wdog threshold phy_err_status:%d rateCode:%x fes_sched_try:%d ppdu_mprot_type:%d
+ar_wal_tx_send.c:%x %x %x
+ar_wal_tx_send.c:PDEV_TX_TIMEOUT (pdev=%d,txq=%d): rf_reset: %d mac_reset: %d reset start
+ar_wal_tx_send.c:SM_recorder_config:
+ar_wal_tx_send.c:SM_recorder_dump:
+ar_wal_tx_send.c:Stopping HW arbiter as consecutive PHY under run is not seen
+ar_wal_tx_send.c:TXOP ABORT-pdev=%d,vdev=%d,peer=0x%x,tid=0x%x (flags=0x%x),consecutive failure=%d,misc=0x%x 
+ar_wal_tx_send.c:adj_burst_txop (pdev_id=%d):burst=%d,reg=0x%x is_5G:%d
+ar_wal_tx_send.c:contruct_ppdu_info(TID=%d,0x%x): UNMARKED PN @head,no PN credits-%d/%d/%d/%d
+ar_wal_tx_send.c:head 0x%x tail 0x%x num entry 0x%x n_used 0x%x
+ar_wal_tx_send.c:hwsch_wdog:axi_wr_response_error
+ar_wal_tx_send.c:hwsim-retry: lifetime expired end time 0x%x  0x%x  start time 0x%x  0x%x
+ar_wal_tx_send.c:hwsim-retry: max retries reached sw_status->fes_sched_try %d
+ar_wal_tx_send.c:hwsim-retry: ptid->remaining_mgmt_hw_retries %d first attempt ts 0x%x  0x%x sw_retry %d
+ar_wal_tx_send.c:hwsim-retry: remaining mgmt hw retry :%d tried %d sw_retry %d
+ar_wal_tx_send.c:hwsim-retry:tid=%d,festry:%d,sched_status:%x,flushst:%x tsStatus:%x war_for_first_tx:%d is_consective_coex_flush:%d
+ar_wal_tx_send.c:nonagg-retry: Frame filtered due to WIFI_QCU_FILTERED 
+ar_wal_tx_send.c:post_ppdu:t%d f%d ext%d
+ar_wal_tx_send.c:tsFlags:0x%x - tsFlags_ext1:0x%x - phy_err_status:0x%x - consecutive_phy_txbf_urun_err:0x%x
+ar_wal_tx_send.c:tx_send_coex_timeout_handler:Scheduler resume
+ar_wal_tx_send_flush_tid
+ar_wal_tx_send_selfgen.c
+ar_wal_tx_seq.c
+ar_wal_tx_seq.c:enable assist on pdev=%d,curr1@=0x%x,curr0@=0x%x,(assist_disable1@=0x%x/0x%x, assist_disable0@=0x%x/0x%x),#active=%d, ts=%x
+ar_wal_tx_seq.c:evaluate_xmit_policy:term_assist_seq (pdev=%d,txqid=%d): seq_term1@=0x%x,seq_term0@=0x%x,ts=%x
+ar_wal_tx_seq.c:seq_post_next_sched_cmd:disable assist and resume scheduler ts %x seq_ctrl_head %x
+ar_wal_tx_seq.c:seq_trig_dsr_done:disable assist and resume scheduler ts %x
+ar_wal_tx_seq.c:seq_trig_dsr_done:suspend the Tx scheduler till %d due to coex flush
+ar_wal_tx_seq.c:term_assist:(pdev=%d,txqid=%d): assist_disable1@=0x%x,assist_disable0@=0x%x,curr1@=0x%x,curr0@=0x%x,ts=%x
+ar_wal_tx_seq.c:term_assist:disable assist on pdev=%d,@ts1=0x%x,@ts0=0x%x,prev1@=0x%x, prev0@=0x%x, (txqid=%d) ts=%x
+ar_wal_tx_seq.c:tx_send_seq_start_sub_sequence: non_agg_th %d sw_retry_failure %d rate_ctrl_tries %d update reamining tries %d 
+ar_wal_tx_seq.c:tx_send_seq_start_sub_sequence: vdev_id %u, peer 0x%x, tid %u, sw_retry_failure(%u) is over retry_thres(%u)
+ar_wal_txbf.c
+ar_wal_txbf_cv_expiry_timeout_handler
+ar_wal_txbf_get_peer_cv_desc_by_addr
+ar_wal_txbf_get_peer_cv_desc_by_flags
+ar_wal_txbf_ppdu_completion_hdlr
+ar_wal_txbf_query_cv
+ar_wal_txbf_sub_seq_completion_hdlr
+ar_wal_update_data_events
+ar_wal_vdev.c
+ar_wal_vdev.c:%x %x %x
+ar_wal_vdev_deliver_event
+ar_wal_vdev_flush_tids
+ar_wal_vdev_hw.c
+ar_wal_vdev_hw.c:%x %x %x
+ar_wal_vdev_to_pdev_attach
+ar_wal_vdev_to_pdev_detach
+bar_wal_tx_dm.c
+beacon_filter.c:%x %x %x
+beacon_tx_offload_alloc_bcn_buf
+beacon_tx_offload_alloc_prob_resp_buf
+beacon_tx_offload_ctxt_init
+blockack.c:ADDBA Req dropped WEP:%d MFP_SUPPORT:%d
+blockack.c:wal_ba_event_peer_rx: amsdusupported=%d, buffersize=%d
+blockack.c:wal_ba_rx_sm: their_buf_size:%d, our_buf_size:%d
+blockack.c:wal_ba_send_addba_rsp: amsdusupported=%d, buffersize=%d
+cal_sm_comb_device.c:CC:: RX IQ Coeff. Dumping Coeff of All 16 gain indexes.Each gain index has Taps - 7
+cal_sm_comb_device.c:CC::: phyRfMode = %x, cannot do cal and disable
+cal_sm_comb_device.c:CC::: phyRfMode = %x, in DPD split cal, cannot do RxIQ cal therefore disable correction
+cal_sm_dpd_device.c:Cals attempted chain 0 %d 
+cal_sm_dpd_device.c:Cals attempted chain 1 %d 
+cal_sm_dpd_device.c:max attempts %d 
+cal_sm_mem_dpd_device.c: Memoryless DPD Cal is enabled ::: bg_thread_active %d
+cal_sm_mem_dpd_device.c:1. calValid %d , %d
+cal_sm_mem_dpd_device.c:1. finalCase %d bg_thread_active %d, dpd enable %d
+cal_sm_mem_dpd_device.c:1. finalCase %d globalCallingContext %d forceUseMaster %d
+cal_sm_mem_dpd_device.c:Cals attempted(mem_dpd) chain 0 %d 
+cal_sm_mem_dpd_device.c:Cals attempted(mem_dpd) chain 1 %d 
+cal_sm_mem_dpd_device.c:Incorrect memDPD configuration: mem DPD not supported
+cal_sm_mem_dpd_device.c:Mem DPD Cal::: bg_thread_active %d finalCase_memless %d
+cal_sm_mem_dpd_device.c:Mem DPD Cal::: phyRfMode = %x, cannot do cal and disable
+cal_sm_mem_dpd_device.c:Memory DPD:::pHdl=%x, phyRfMode=%d, phyID=%d, txCM=%d, rxCM=%d 
+cal_sm_mem_dpd_device.c:max attempts %d 
+cal_sm_mem_dpd_device.c:memory dpd xPA %d Channel %d
+cal_sm_rxdco_device.c: RxDCO Data Frm CaldB of Chain:%d, %d, %d, %d, %d
+cal_sm_rxdco_device.c: RxDCO Data Frm HWREG of Chain:%d, %d, %d, %d, %d
+cal_sm_rxdco_device.c: RxDCO Restored Data of Chain:%d, %d, %d, %d, %d
+cal_sm_rxdco_device.c:Force RXDCO ReCal from unit test command
+cal_sm_rxdco_device.c:RXDCO 0_1::: rxdco_cal_mode(0: Normal, 1: DTIM, 2, Comb, 7: DPD) B:%d	 finalCase=:%d, globalCallingContext=%d iSrxdcoDpdCalConducted %d mem dpd thread %d
+cal_sm_rxdco_device.c:RXDCOSM::: EXIT globalCallingContext %d 
+cal_sm_rxdco_device.c:RXDCOSM:::RXDCO_CAL for DPD SPLIT CAL DONE. Recovery complete. iSrxdcoDpdCalConducted %d 
+cal_sm_rxdco_device.c:RXDCOSM:::RXDCO_CAL_MODE_LPBK_DPD finalcase: %d
+cal_sm_rxdco_device.c:RXDCOSM:::RXDCO_CAL_MODE_LPBK_DPD finalcase: %d finalCaseMemDpd %d
+cal_sm_rxdco_device.c:RestoreErr chain = %d
+cal_sm_rxdco_device.c:RxDco BTC_CALLBACK_FALSE in %d
+cal_sm_rxdco_device.c:RxDco BTC_CALLBACK_NULL in %d
+cal_utility_adc_device.c:ADC CAL BTC_CALLBACK_FALSE
+cal_utility_adc_device.c:ADC CAL BTC_CALLBACK_NULL
+cal_utility_adc_device.c:ADC:: run_adc_cal: ONLY NAPALI 
+cal_utility_adc_device.c:ADC::: REG14 value: 0x%x, adc_select:%d
+cal_utility_adc_device.c:ADC::: done = 0x%3x, error = 0x%3x
+cal_utility_adc_device.c:ADC::: write_optmized_adc_settings: hwVersion 0x%x adc_select %d
+cal_utility_adc_device.c:ADC:::run_adc_cal NO ADC to be done only ADC setting has to be written to PHY = %d , hwCalMask %x, adcIdxMask %x
+cal_utility_adc_device.c:readback_adc_calval: adc_select %d, rdbk %d
+cal_utility_comb_device.c:--->  AP off, DP off
+cal_utility_comb_device.c:--->  AP off, DP on
+cal_utility_comb_device.c:--->  AP on, DP off
+cal_utility_comb_device.c:--->  AP on, DP on
+cal_utility_comb_device.c:---> ---> meas_params[I * Q]=	0x%4x;	meas_params_exp[I * Q]=	0x%4x;
+cal_utility_comb_device.c:---> ---> meas_params[I2+Q2]=	0x%4x;	meas_params_exp[I2+Q2]=	0x%4x;
+cal_utility_comb_device.c:---> ---> meas_params[I2-Q2]=	0x%4x;	meas_params_exp[I2-Q2]=	0x%4x;
+cal_utility_comb_device.c:CC::: CL location: %d
+cal_utility_comb_device.c:CC::: PhyId = %d, Chain = %d, loc = %d
+cal_utility_comb_device.c:CC::: Reg_Tx_Lo (Ana): Data: %x
+cal_utility_comb_device.c:CC::: Reg_Tx_Lo (Dig): Data: %x
+cal_utility_comb_device.c:CC::: RxCorr Cal data in registers set to %d
+cal_utility_comb_device.c:CC::: Started Combined Cal (%d)
+cal_utility_comb_device.c:CC::: TxCorr Cal data in registers set to %d
+cal_utility_comb_device.c:CC::: TxLO Cal data in registers set to %d for mode %d (0=Dig, 1=Ana)
+cal_utility_comb_device.c:CC::: Using Correction value: %d
+cal_utility_comb_device.c:CH%d: Disabling RX IQ correction due to data differences between tx gain indexes
+cal_utility_comb_device.c:CH%d: Disabling TX IQ correction due to data differences between tx gain indexes
+cal_utility_comb_device.c:COMB CAL BTC_CALLBACK_FALSE
+cal_utility_comb_device.c:COMB CAL BTC_CALLBACK_NULL
+cal_utility_comb_device.c:COMB CAL BTC_CALLBACK_TRUE
+cal_utility_comb_device.c:Disabling LO and IQ correction due to BTC CALLBACLK not  being registered 
+cal_utility_comb_device.c:GAIN_IDX=%d:
+cal_utility_comb_device.c:HW measurement failing: gain_idx %d error_code %d
+cal_utility_comb_device.c:PhyId = %d, Chain = %d, LB = %d
+cal_utility_comb_device.c:RXFE_REG_MAP_BB_TXIQCAL_RXBB_GAIN_TBL:  idx = 24, gain_word = 0x%8x
+cal_utility_comb_device.c:Tone idx = %d
+cal_utility_comb_device.c:cmd_pwr_idx=%d
+cal_utility_comb_device.c:g_chain_idx=%d, tone_idx=%2d, iq_iter_loop=%2d, gain_idx=%2d, ref_cl_corr[0]=%5d, ref_cl_corr[1]=%5d
+cal_utility_comb_device.c:g_chain_idx=%d, tx_gain_idx=%d, rx_gain_idx=%d, rf_ch=%d, tx_en=%d, rx_en=%d, tx_dcoc_range_i=%d, tx_dcoc_range_q=%d, tx_dcoc_res_i=%d
+cal_utility_comb_device.c:g_chain_idx=%d, tx_gain_idx=%d, rx_gain_idx=%d, rf_ch=%d, xlna=%d, lna=%d, gm=%d, tia_bq=%d, pga=%d
+cal_utility_comb_device.c:g_chain_idx=%d, tx_gain_idx=%d, rx_gain_idx=%d, rf_ch=%d, xpa_bias=%d, ipa_gain=%d, upc_gain=%d, tx_bbf_gain=%d, rfa_dac_gain=%d
+cal_utility_comb_device.c:g_tabIdx_Chn=%d, g_chain_idx=%d, g_tone_idx=%d, g_iq_iter=%d, dac_gain=%d, tx_gain_idx=%d, rx_gain_idx=%d, meas_params_per_gain[%d]=%d
+cal_utility_comb_device.c:g_tabIdx_Chn=%d, g_chain_idx=%d, g_tone_idx=%d, g_iq_iter=%d, gain_idx=%d, mag_tx=%10.4f, phs_tx=%10.4f, mag_rx=%10.4f, phs_rx=%10.4f
+cal_utility_comb_device.c:idx = %d, gain_2 = 0x%4x, gain_1 = 0x%4x, map_2=%d, map_1=%d, mem_ptr=%d
+cal_utility_comb_device.c:mb_gain_tbl_size greater than 63, illegal memory access for array rxiq_mapping of size 64
+cal_utility_comb_device.c:rxiq: idx = %d, 	mag = %d	 phs = %d
+cal_utility_comb_device.c:tone_idx=%d, iq_iter_loop=%d, g_gain_idx=%d, cl_dac_tx_val=%d, tx_tone_gain=%d, dc_pilot_backoff=%d
+cal_utility_comb_device.c:tx_dcoc_res_q=%d
+cal_utility_comb_device.c:txiq: idx = %d, 	mag = %d	 phs = %d
+cal_utility_comb_device.c:txlo:idx = %d, 	cl_I = %d	 cl_Q = %d
+cal_utility_comb_device.c:updated rx gain table: 0x%8x
+cal_utility_dac_device.c:DAC:::DAC Do cal entry
+cal_utility_rfdet_device.c:PDET BTC_CALLBACK_FALSE 
+cal_utility_rfdet_device.c:PDET BTC_CALLBACK_NULL 
+cal_utility_rxdco_device.c:
+cal_utility_rxdco_device.c:RXDCO: BB_dcoc_range out of max range. need debug!	 ch_indx %d gain idx %d BB_dcoc_range0I = %d BB_dcoc_range0Q = %d
+cal_utility_rxdco_device.c:RXDCO: Binary search failed @chidx = %d, gain idx = %d!
+cal_utility_rxdco_device.c:RXDCO: CAL Failure!!!!!!!! Write default value to 256.
+cal_utility_rxdco_device.c:RXDCO: RF_dcoc_range out of max range. need debug!	 chidx = %d, gain idx= %d RF_dcoc_range0I %d RF_dcoc_range0Q %d
+cal_utility_rxdco_device.c:RXDCO: RX_DCOC_LUT_OUT_EN: %d
+cal_utility_rxdco_device.c:RXDCO: Rxdco detected it was running in noisy env!
+cal_utility_rxdco_device.c:RXDCO: Write default value to 256.
+cal_utility_rxdco_device.c:RXDCO: pIn->RF_first=%d, Binary search failed due to ODAC out of range!chidx = %d, gain idx = %d,pHwResults->bI=%d, pHwResults->bQ=%d!
+cal_utility_rxdco_device.c:RXDCO: pIn->RF_first=%d, chidx = %d, gain idx = %d,pHwResults->bI=%d, pHwResults->bQ=%d with the previous good gain result!
+cal_utility_rxdco_device.c:RXDCO: rxdco_cal_regs_restore done
+cal_utility_rxdco_device.c:aborting RXDCO cal due to running in noisy env!
+cal_utility_rxdco_device.c:run_rxdco_cal:setup no-of cal_gains num_gain:%d, lpbk_mode:%d, bandcode:%d, dtim:%d
+cal_utility_rxiq_dpd_cal.c:
+cal_utility_rxiq_dpd_cal.c:DPD RXIQ: Band = %d, IPA_PRESENT = %d
+cal_utility_rxiq_dpd_cal.c:DPD RxIQ: PhyId = %d, Chain = %d, LB = %d
+cal_utility_rxiq_dpd_cal.c:Loopback path RxIQ correction enabled: %d
+cal_utility_rxiq_dpd_cal.c:Normal path RxIQ correction enabled: %d
+cal_utility_rxiq_dpd_cal.c:Normal path TxIQ correction enabled: %d
+cal_utility_rxiq_dpd_cal.c:Normal path TxLO correction enabled: %d
+cal_utility_rxiq_dpd_cal.c:chain %d freqIdx %d rxiq lb corr: gainidx = %d, data=0x%x
+cal_utility_rxiq_dpd_cal.c:chain %d rxiq lb corr: gainidx = %d, data=0x%x
+cal_utility_rxiq_dpd_cal.c:dpd rxiq: idx = %d, mag = %d, phs = %d
+cal_utility_rxiq_dpd_cal.c:dpdRxiq_rdbk_txgain_index: isRunCalTx = 0x%x
+cal_utility_rxiq_dpd_cal.c:iter = %d
+cal_utility_rxiq_dpd_cal.c:temp=%d and tempIdx=%d
+ccpm_resource.c:ccpm_cm_evt_cb recived event: 0x%x
+cmdEvtProcEngine.c:Err cmdProc(cmd %d)
+cmdEvtProcEngine.c:Err parser(cmd %d)
+cmdEvtProcEngine.c:evtCmdHandler: cmd %d
+cmdProcessTlv2.c:FTM Tx ChainMask %d overwrite to 0x2 due to BT2ed Harmonic!
+cmdProcessTlv2.c:GetDpdLoopbackInfoHandler phyId %d chainMask 0x%x
+cmdProcessTlv2.c:GetDpdLoopbackInfoHandler sending response phyId %d chainIdx 0x%x
+cmdProcessTlv2.c:InvalidateCalDataOTP Input: phy Id %d  section Id %d
+cmdProcessTlv2.c:InvalidateCalDataOTP Output : status %d
+cmdProcessTlv2.c:NEWXTALCALPROCHandler end status = %d
+cmdProcessTlv2.c:NEWXTALCALPROCHandler get the trim range min = %d, max = %d
+cmdProcessTlv2.c:NEWXTALCALPROCHandler readback fail status = 0x%x
+cmdProcessTlv2.c:NEWXTALCALPROCHandler readback is not same with the setting value read back trim = 0x%x
+cmdProcessTlv2.c:NEWXTALCALPROCHandler start phyid = %d, TrimValue = %d, ctrlFlag = %x
+cmdProcessTlv2.c:NEWXTALCALPROCHandler store best cal value = %d
+cmdProcessTlv2.c:OTP Write Incomplete, status %x
+cmdProcessTlv2.c:RF card WCN3910/WCN3930 is trying to access 11 AC mode %d
+cmdProcessTlv2.c:Received offset %x OTP Section Unavailable , status %x
+cmdProcessTlv2.c:Received offset %x OTP Section Unavailable, status %x
+cmdProcessTlv2.c:Retry %d: Write to OTP offset %d numbytes %d
+cmdProcessTlv2.c:Same RF Mode -> do nothing
+cmdProcessTlv2.c:TpcGenTool: Power value %d
+cmdProcessTlv2.c:TpcGenTool: Received parameters chainNum: %d chainMask: %d rate: %d ctl: %d sarIndex: %d ctlrd : %x
+cmdProcessTlv2.c:TpcGenTool: Received parameters chanFreq : %ld nss : %d phyMode : %d beamforming %d
+cmdProcessTlv2.c:TpcGenTool: sar verion %d sar flags %d
+cmdProcessTlv2.c:Write to OTP offset %d numbytes %d
+cmdProcessTlv2.c:backtobacktxHandler: phyId %d, txMode %d
+cmdProcessTlv2.c:modifyBDFOTPFlagsHandler: modifyBdfOtpFlags 0x%x
+cmdProcessTlv2.c:modifyBDFOTPFlagsHandler: pCmdStream is NULL
+cmdProcessTlv2.c:rxHandler: phyId %d, rxMode %d, wlanMode %d freq %d CM %d
+cmdProcessTlv2.c:rxStatusHandler: phyId %d stopRx %d freq %d wifiStandard %d
+cmdProcessTlv2.c:setPhyRfModeHandler: mode = %d
+cmdProcessTlv2.c:txHandler: phyId %d, txMode %d, numPkts %d
+cmnos_thread.c:assert:r0=0x%x, r1=0x%x
+comDev_bdf.c:GetNFMaxCCAPwr freqIdx %x freqIdx2 %d
+comDev_bdf.c:GetNFMaxCCAPwr maxCCApwr[0] %x  maxCCApwr %x
+comDev_bdf.c:GetSAR1TableValues 2G SARFlags %d regDmn %d chainMask %d chanBin %d freq %d
+comDev_bdf.c:GetSAR1TableValues 5G SARFlags %d regDmn %d chainMask %d chanBin %d freq %d
+comDev_bdf.c:SetPerChainSARLimit failed,  phyId %d in power down, will be applied on wake
+comDev_bdf.c:cckBlockerCfgEnable 0x%x, numBcnWait 0x%x, numSequence 0x%x, totalObsTime 0x%x
+comDev_bdf.c:chainNum: %d txrxIdx: %d
+comDev_bdf.c:change maxRegAllowedPower to %d for force transmit power
+comDev_bdf.c:halphy_bdf_device_GetRTTRxChain1Delta Rxchain1delta=%d 
+comDev_bdf.c:halphy_bdf_device_GetRTTRxOthersDelta dyn_bw=%d is not valid
+comDev_bdf.c:halphy_bdf_device_GetRTTTxChain1Delta Txchain1delta=%d 
+comDev_bdf.c:halphy_bdf_device_GetRTTTxOthersDelta dyn_bw=%d is not valid
+comDev_bdf.c:hw_bdf_info: bdf_version %x ref_design_id %x customer_id %x project_id %x board_data_rev %x 
+comDev_bdf.c:regFlag = %d
+comDev_bdf.c:txChainMask%x rxChainMask%d
+copy_engine.c:CE halt pipe:%d
+copy_engine.c:CE halt pipe:%d -> pipe not initialized
+copy_engine.c:CE pipe:%d halt failed
+copy_engine.c:CE=0x%x : srri != src_wr_idx
+copy_engine.c:CE=0x%x : sw_index != drri
+copy_engine.c:CE=0x%x : sw_index != srri
+copy_engine.c:CE=0x%x : target_is set
+copy_engine.c:CSS not up, exiting. Val0: 0x%x Val1: 0x%x
+copy_engine.c:host is using the CE 0x%x, host_ie=0x%x, host_status=0x%x, CE_state->attr_flags=0x%x
+copy_engine.c:reg=0x%x  CE_WRAPPER_HOST_INTERRUPT_SUMMARY abort
+copy_engine.c:reg=0x%x  MAC_TRC_REG_IDLE_SIGNAL abort
+data_rx.c:DATA_TXRX_DBGID_DROP_UNENC vdev_id = %d SN=%08x att=%08x peer_flags:0x%x bypass_en_check:%d
+data_rx.c:data_rx: OOW: release wal rx list
+data_rx_cmn.c:%x %x %x
+data_rx_pdev_event_peer_create
+data_rx_pdev_event_peer_delete
+data_rx_peer_alloc
+data_rx_peer_event_addba_delba
+data_rx_peer_event_sec_ind
+data_rx_peer_flush
+data_rx_peer_record_pktlog
+data_rx_pn.c:DATA_TXRX_DBGID_REPLAY_CHECK_WAR KeyId=0x%x oldPN=0x%llx newPN=0x%llx
+dispatch_wlan_peer_cmds
+dispatch_wlan_vdev_cmds
+ftm_wal_reattach
+gtx_tpcCal.c:ERR: MEAS PWR %d IS LESS THAN 0 FOR IDX %d : available_gainIdxs-1
+gtx_tpcCal.c:ERR: MEAS PWR %d IS LESS THAN 0 FOR IDX %d : continue
+halphy_ani.c:ANI: Ani restart due to morethan 500ms sleep time 
+halphy_ani.c:Error: ANI State is not filled. Returning Zero
+halphy_ani.c:Error: pHandle received as NULL. Returning zero
+halphy_bdf.c:####Get Rate TPC pwr = %d, rateindex = %d
+halphy_bdf.c:FATAL ERROR. 5GHz channel( freq = %d) is attempted in WCN3910 chip. Only 2GHz allowed.
+halphy_bdf.c:GetTpcMaxTxPwr: phyId %d txCM %d rcFlags 0x%x tpc_max_tx_power %d
+halphy_bdf.c:Invalid SAR Index set  Index: %d 
+halphy_bdf.c:Invalid SAR Index set  Index: %d SARFlags: %d
+halphy_bdf.c:Invalid SAR Version set : %d 
+halphy_bdf.c:SetPerChainSARLimit failed,  phyId 
+halphy_bdf.c:TPC_DEBUG: GetTpcMaxTxPwr: %d %d %d %d max %d
+halphy_bdf.c:TpcGenTool: rate-index %d 
+halphy_bdf.c:halphy_bdf_GetRateTPC self gen pkt_type %d
+halphy_bdf.c:halphy_bdf_GetSelfGenOffset is2GHz %d rtIdx %d TPC_OFFSET %d
+halphy_bdf.c:halphy_bdf_ModifyBdfOtpFlags: WriteOnePointCalToOTPFlags 0x%x
+halphy_bdf_tpc.c:GlutUpdate phyId %d chain %d: got clpcError %d from bdf
+halphy_bdf_tpc.c:halphy_tpc_device_GetClpcMode clpcmode=%d
+halphy_bdf_tpc.c:sAddr %x, ch %d, pwr %d, dGain %d, gIdx %x, paCfg %d, minDG %d maxDG %d clpcErr %d
+halphy_cal.c:Remap table 1 to table 0: (%d)
+halphy_cal_sm.c: CALDB Size %d
+halphy_cal_sm.c:CC::: cal type idx=%d, ptrStandalone=%x, pIn=%x, pOut=%x 
+halphy_cal_sm.c:CC::: genCalTable calType=%d hwCalMask 0x%x
+halphy_cal_sm.c:CC::: generateCalSmTable=0x%x, callingContext=%d, curCalTypeIdx=%d
+halphy_cal_sm.c:ColdBootCalProfile: chanIdx(%d) > RFSUB_MAX(%d) or calType(%d) > MAX_CAL_TYPE(%d) ... exiting
+halphy_cal_sm.c:ColdBootPlatformTransientStateReq: Dummy place holder for calType %d, no need for transient state req
+halphy_cal_sm.c:cal_SM_Main: 0x%x, (pHandle=0x%x, smInput=0x%x, pCalSmTable=0x%x)
+halphy_cal_sm_gen_tables.c:CC::: combCalIQ calType=%d, callingContext=%d, phymode = 0x%08x, bandwidth=%d
+halphy_caldb.c: chain %d MemDPDValidateCurChSwForFCS %d channel %d
+halphy_caldb.c:CALDB:::  DPD_MASTER:validBitMaskMem[bw:%d][rfChain:%d]=%x 
+halphy_caldb.c:CB2HOST:: CalDBToHost structure pointer is not initialized.Null Pointer error 
+halphy_caldb.c:CB2HOST:: Set CalDone status for Cal Type: %d
+halphy_caldb.c:CB2HOST:: txChainMask: %d, rxChainMask: %d rfsub: %d band: %d bandw: %d
+halphy_caldb.c:CB:  sizeof(t_caldb_file)=%d, sizeof(t_caldb_RxDcoNormal) =%d, sizeofmemless=%d, sizeofmemory=%d 
+halphy_caldb.c:CB: DPD cal: freq1=%d, freq2=%d, band code=%d, calValid=%d, caltime=%d
+halphy_caldb.c:CB: DPD+Combined cal: freq1=%d, calValid %d
+halphy_caldb.c:CB: DPD+Combined cal: freq1=%d, freq2=%d, band code=%d, caltime=%d, calValid=%d bg_thread_active=%d
+halphy_caldb.c:CC::: rxiqStart: %x, txiqStart: %x, txloStart: %x
+halphy_caldb.c:CalDBToHost bufSize:%d MaxSize:%d *bufptr:%u
+halphy_caldb.c:CalDBToHost structure pointer is not initialized.Null Pointer error 
+halphy_caldb.c:DPD is disabled for channel %d  band = %d
+halphy_caldb.c:ERROR: Out of band frequency, %d MHz at %d bandwidth, rfsub %d 
+halphy_caldb.c:ERROR: nominalGroupIdx, %d isDFS %d 
+halphy_caldb.c:ERROR: searchGroup  %d CALDBFREQ range %x  hwcalmask %x index_low %d index_high %d waroption %d 
+halphy_caldb.c:Get Cal Status info from the CALDB at cold boot time
+halphy_caldb.c:Mem DPD is disabled for channel %d  band = %d
+halphy_caldb.c:Size of CaldB to host structure: %d  %d
+halphy_caldb.c:mem DPD Early Exit
+halphy_caldb.c:mem DPD attempts exhausted
+halphy_core_paprd.c: %d %d Training quality is %d
+halphy_core_paprd.c: %d %d Training quality is %d , warm %d
+halphy_core_paprd.c: Post Processing Complete : mem DPD runtime = %d
+halphy_core_paprd.c: Schedule a thread %d 
+halphy_core_paprd.c: complete :Store (%d %d) dpdStart 0x%8x dpdCtrlStart 0x%8x
+halphy_core_paprd.c: mem dpd table address (cal context) 0x%8x
+halphy_core_paprd.c:%d	%d
+halphy_core_paprd.c:(%d %d) NMSE failed %d
+halphy_core_paprd.c:(1)paprdType %d Untrained tables: chain %d, training_done 0x%8x
+halphy_core_paprd.c:(2)paprdType %d Untrained tables: chain %d, training_done_table 0x%8x
+halphy_core_paprd.c:(2)paprdType %d Untrained tables: chain %d, training_done_table 0x%8x alltablesDone %d
+halphy_core_paprd.c:-Q5-PAPRD-:		X	Y	theta ______________________________________________X
+halphy_core_paprd.c:-Q5-PAPRD-[%u]:%u	%u	%d	  
+halphy_core_paprd.c:AdaptiveDacGain Reaches RetryMaxLimitation: %d!!
+halphy_core_paprd.c:MEM DPD : Processing TrainingData, thread (%d)
+halphy_core_paprd.c:PA_in[%2d] = 0x%lx 
+halphy_core_paprd.c:Start writing AMIQ curves data to file
+halphy_core_paprd.c:compression_from_base_to_max_bin_db: %d
+halphy_core_paprd.c:halphyDpdGetLoopBackInfo wrong chain or table index passed in: txChain %d tableIndex %d
+halphy_core_paprd.c:halphyDpdMarkLoopBackFailure txChain %d tableIndex %d
+halphy_core_paprd.c:halphyDpdMarkLoopBackFailure wrong chain index passed in: txChain %d tableIndex %d
+halphy_core_paprd.c:halphyDpdUpdateLoopBackInfo wrong chain index passed in: txChain %d tableIndex %d
+halphy_core_paprd.c:mDpdTrainingDacGainLimit: %d
+halphy_core_paprd.c:max_idx = %d (before adding bin#1) 
+halphy_core_paprd.c:new_dac_gain: %d , curr_training_dac_gain: %d new_dac_gain_linear: %d
+halphy_core_paprd.c:new_max_bin: %d max_bin: %d
+halphy_core_paprd.c:re_cal_with_higher_dac_gain
+halphy_core_paprd.c:re_cal_with_lower_dac_gain
+halphy_core_paprd.c:re_cal_with_lower_dac_gain: %d re_cal_with_higher_dac_gain: %d
+halphy_core_paprd.c:y_est[0] = %d, y_est[max_index] = %d
+halphy_mc_paprd.c: (chan %d ,cm %d halphyMemDPDValidateCalDB , result [%d %d], cal_attempts[%d %d]
+halphy_mc_paprd.c: **** MEM_DPD THREAD (SCHEDULING START) : %d %d
+halphy_mc_paprd.c: CALIBRATION COMPLETE  chain 0, result 1
+halphy_mc_paprd.c: CALIBRATION COMPLETE  chain 1, result 1
+halphy_mc_paprd.c: halphyPaprdValidateMemCalibration , result %d %d
+halphy_mc_paprd.c: halphyPaprdValidateMemCalibration calattempts %d %d, validBits %d %d
+halphy_mc_paprd.c:(%d %d) memdpdCal Context 0x%8x
+halphy_mc_paprd.c:**** MEM_DPD THREAD (RETURNS) : UPDATING POST PROCESSING DATA : CALDB  %d %d
+halphy_mc_paprd.c:2. finalCase %d globalCallingContext %d, paprdType %d
+halphy_mc_paprd.c:Adaptive Dac Gain Failed, dac retry count %d
+halphy_mc_paprd.c:Cant initiate Memory DPD cal BACKGROUND THREAD ACTIVE, curr chan freq %d
+halphy_mc_paprd.c:DPD BTC_CALLBACK_FALSE
+halphy_mc_paprd.c:DPD BTC_CALLBACK_NULL
+halphy_mc_paprd.c:DPD CAL Complete (exhaused all attempts) , channel %d
+halphy_mc_paprd.c:Error : %d %d DPD Cal hits a critical error(retries exceeded) and abort chan %d state %d
+halphy_mc_paprd.c:Mem DPD Cal STOP info to platform_transient_state_req failed, time = %u us
+halphy_mc_paprd.c:Mem DPD Cal STOP info to platform_transient_state_req success, time = %u us
+halphy_mc_paprd.c:Mem DPD Cal approval by platform_transient_state_req, proceed for cal
+halphy_mc_paprd.c:Mem DPD Cal denial by by platform_transient_state_req, defer the cal
+halphy_mc_paprd.c:PAPRD_CAL_SM_TEARDOWN_TRAINING (THREAD ACTIVE) %d
+halphy_mc_paprd.c:SQ/NMSE Failed, retry %d
+halphy_mc_paprd.c:halphyPaprdConfig: smState %d, channel %d, enable %d
+halphy_mc_paprd.c:paprdType %d halphy_PaprdUpdateCalDataBase chain 0 %d chain1 %d
+halphy_mem_paprd.c:DCEst done with dco = %d/%d 
+halphy_mem_paprd.c:NMSE_acc is %d 
+halphy_mem_paprd.c:RXIQ done and status_ goes to WAIT_FOR_SETTLE
+halphy_mem_paprd.c:SELF_EQL_TRAINING done and status_ goes to LB_IMPAIR_EST
+halphy_mem_paprd.c:SQTiming done with offset = %d and SQAvg=%d/%d/%d
+halphy_mem_paprd.c:bandCode %d enable_self_eql 0x%x postDpdScaling 0x%x  rxIQMask 0x%x, hanaKernelMask 0x%x mem_tap_spacing 0x%x
+halphy_mem_paprd.c:coef_max_val = %d  
+halphy_mem_paprd.c:enable self eql training and status_ starts with MEMLESS_EST_FOR_SELF_EQL
+halphy_mem_paprd.c:eql_nshift = %d
+halphy_mem_paprd.c:memCoef B0 = %x
+halphy_mem_paprd.c:memless_est_on_tx done and status_ goes to SELF_EQL_TRAINING
+halphy_mem_paprd.c:nmsex10 is %d 
+halphy_mem_paprd.c:nshift = %d
+halphy_mem_paprd.c:nshift = %d 
+halphy_mem_paprd.c:rxiq done! sample_cnt = %d 
+halphy_mem_paprd.c:rxiq with taps = %d
+halphy_mem_paprd.c:rxiq_coef.conj_x0  = %d/%d 
+halphy_mem_paprd.c:rxiq_coef.conj_x0_3rd= %d/%d 
+halphy_mem_paprd.c:rxiq_coef.conj_x1_minus_conj_xm1= %d/%d 
+halphy_mem_paprd.c:rxiq_coef.x0 = %d/%d 
+halphy_mem_paprd.c:rxiq_coef.x0_x0= %d/%d 
+halphy_mem_paprd.c:rxiq_mask = %d/%d/%d/%d/%d 
+halphy_mem_paprd.c:status_ goes to MEM_COEFF_TRAINING, dpdmemtrain_[thread_id].sample_cnt = %d 
+halphy_mem_paprd.c:status_ goes to NMSE calc, dpdmemtrain_[thread_id].sample_cnt = %d 
+halphy_mem_paprd.c:status_ goes to RXIQ_TRAINING, dpdmemtrain_[thread_id].sample_cnt = %d 
+halphy_mem_paprd.c:status_ goes to SELF_EQL_TRAINING 
+halphy_mem_paprd.c:tx_acc is %d 
+halphy_reset.c:%s, chan = %d ORIGINAL_PHY_MODE_DETECT %d 
+halphy_reset.c:Attempted remap to FCS table 0, table is use now is %d
+halphy_reset.c:ERROR: phyId is grater than 1, phyId = 0x%x
+halphy_reset.c:Remap home channel 1 to home channel 0: %d
+halphy_reset.c:halphyRetentionWlanASctl txChainMask 0x%x enable %d 
+halphy_reset.c:halphySetTxChannelPowerLimit phyId %d limit %d maxTxPower %d curChan->mhz %d, band center freq %d, pResetStruct->homeChan %d
+halphy_reset.c:halphy_2G_dtim_override: No gain tables update in DTIM for 5G channels
+halphy_rtt.c:RTTDelayDebug: 0x%08x: 0x%08x
+halphy_rtt.c:SoC 0x%08x: PHY BASE: 0x%08x
+htt_tgt_rx_event_peer_id_add
+htt_tgt_rx_event_peer_id_del
+htt_tgt_tx.c:htt_tgt_tx_offload_deliver start
+htt_tgt_tx_clear_tx_compl_debug_info
+htt_tgt_tx_compl_ind
+htt_tgt_tx_set_tx_compl_debug_info
+iniAg_device.c:RF_LOAD_TXFE_UMC_OVERRIDE chain %d freqIdx %d fcsTable %d
+iniAg_device.c:data_unit returning NULL pointer
+iniAg_device.c:device index %d for Chip family 0x%x ID 0x%x
+k_wal_mwscoex_process_wwan_state
+legHostIF.c:ERROR: processRxDataStats: rxStat is NULL
+legHostIF.c:rxDataStatsReport: totalPackets %d goodPackets %d crcPackets %d rateBit %d rssi %d
+monitor_htt_tgt_rx_ll
+mywpa_ft.c:hmac_sha384_vector error num_elem %d
+offload_mgr.c:%x %x %x
+offload_mgr.c:OFLD data parse rx_mode : %d, L2_valid : %x, offset + 11c_snap_hdr_t exceeds frame length 
+offload_mgr.c:OFLD data parse rx_mode : %d, L2_valid : %x, offset + ether_header exceeds frame length 
+offload_mgr.c:OFLD status hdlr invalid eth type,l2 present:%x
+p2p_go_ps_beacon_timer
+p2p_parse.c:p2p_is_valid_noa_desc: Ignore invalid NOA descriptor, duration=%d,interval=%d start_time=0x%x type_count=%d
+p2p_schedules.c:P2P_FIND_NEXT_EVENT_REQ_INVALID  0x%x 0x%x
+p2p_vdev_evt_handler
+platform_bdf_and_cal.c:XO cal data received, value = 0x%x
+platform_bdf_and_cal.c:XO cal readback failed, status = 0x%x
+platform_bdf_and_cal.c:XO cal readback value = 0x%x
+platform_bdf_and_cal.c:get ctl bdf size = 0x%x
+platform_helium.c:Adrastea Clock is gone
+platform_helium.c:Debug GCC_WCSS_RESTART 0x%x, MPM_WCSSAON_CONFIG 0x%x
+platform_helium.c:ELECTRON_CLK_WCN 0x%x
+platform_helium.c:Failed to register platform_clk_check_prestm_handler
+platform_helium.c:Failed to register platform_prestm_crash_handler
+platform_helium.c:Failed to register wlan_pre_stm_crash_cb_handler
+platform_helium.c:PMIC_REG_READ: CLK_WLAN_CX 0x%x LDO_1P8_XO 0x%x LDO_1P8_IO 0x%x LDO_1P3_RFA 0x%x 
+platform_helium.c:PMIC_REG_READ: LDO_3P3_CHAIN0 0x%x LDO_3P3_CHAIN1 0x%x CLK_ADRASTEA 0x%x CLK_WCN 0x%x 
+platform_helium.c:PMM_SR_LSB %x PMM_SR_MSB %x WCSSAON_SR_LSB %x WCSSAON_SR_MSB %x
+platform_helium.c:POST SR WAKE PMM_SR_LSB 0x%x PMM_SR_MSB 0x%x 0x%x WCSSAON_SR_LSB 0x%x WCSSAON_SR_MSB 0x%x
+platform_helium.c:POST WAKEUP TRIGGER PMM_SR_LSB 0x%x PMM_SR_MSB 0x%x 0x%x WCSSAON_SR_LSB 0x%x WCSSAON_SR_MSB 0x%x
+platform_helium.c:Sent msg to RT to halt IPA CE
+platform_helium.c:WLAN_SW_CTRL_GPIO get config failure
+platform_helium.c:WLAN_SW_CTRL_GPIO read failure
+platform_helium.c:WLAN_SW_CTRL_GPIO status: %d
+platform_helium.c:ccpm_rfactrl_wsi_test RFACTRL ARB STATUS CH 0 0x%x
+platform_helium.c:ccpm_rfactrl_wsi_test RFACTRL BUS CONFIG CH 0 0x%x
+platform_helium.c:ccpm_rfactrl_wsi_test RFACTRL BUS ERR STATUS CH 0 0x%x
+platform_helium.c:ccpm_rfactrl_wsi_test RFACTRL BUS STATUS CH 0 0x%x
+platform_helium.c:main: PrngML_getdata failed
+platform_helium.c:plat_check_wsi2_cmd_interface returned read_val %x
+platform_helium.c:plat_hw_axi_bridge_reset: HWIO_GCC_WCSS_AXI_M_CBCR_IN 0x%x
+platform_helium.c:plat_hw_axi_bridge_reset: HWIO_GCC_WCSS_AXI_M_CBCR_IN 0x%x poll return %x
+platform_helium.c:plat_hw_axi_bridge_reset: WCSS_CLK_CTRL_REG_TOP_AXI_CBCR 0x%x
+platform_helium.c:plat_hw_axi_bridge_reset: WCSS_CLK_CTRL_REG_TOP_AXI_CBCR 0x%x poll return %x
+platform_helium.c:plat_hw_reset PMM_SR_LSB 0x%x
+platform_helium.c:plat_hw_reset_rfa_wl_reset failed to assert reset
+platform_helium.c:plat_hw_reset_rfa_wl_reset failed to send reset command
+platform_helium.c:plat_hw_reset_rfa_wl_reset sysctrl after asserting WL reset %x
+platform_helium.c:plat_hw_reset_rfa_wl_reset sysctrl after deasserting WL reset %x
+platform_helium.c:plat_hw_reset_rfa_wl_reset sysctrl before asserting WL reset %x
+platform_helium.c:plat_hw_wsi_cmd_error_recovery - WCSS_HM_A_PMM_WSI_CMD: PMM_WSI_SM: poll complete with poll_status : %d
+platform_helium.c:plat_hw_wsi_cmd_error_recovery - WCSS_HM_A_PMM_WSI_CMD: RF_CMD_IP: poll complete with poll_status : %d
+platform_helium.c:plat_hw_wsi_cmd_error_recovery - WCSS_HM_A_PMM_WSI_CMD: WSI2M_SYNCH_STATE: poll complete with poll_status : %d
+platform_helium.c:plat_rfactrl_wsi_test RFACTRL_APB_CBCR 0x%x
+platform_helium.c:plat_rfactrl_wsi_test RFACTRL_APB_CBCR_CLK 0x%x
+platform_helium.c:plat_rfactrl_wsi_test RFACTRL_CBCR 0x%x
+platform_helium.c:plat_rfactrl_wsi_test failed on RFACTRL_APB_CBCR_CLK
+platform_helium.c:plat_rfactrl_wsi_test failed on RFACTRL_CBCR_CLK
+platform_helium.c:plat_rfactrl_wsi_test rfactrl wsi sample read 0x%x
+platform_helium.c:plat_wsi_config: WLAN1_WSI_CLK_PAD_CTL read back: 0x%x
+platform_helium.c:plat_wsi_config: WLAN1_WSI_CLK_PAD_CTL: 0x%x
+platform_helium.c:platform_check_wlan_rails_status: g_plat_ctxt.plat_ccpm_handle is  NULL
+platform_helium.c:platform_clk_check_prestm_handler registered
+platform_helium.c:platform_ipa_ce_halt_msg_hdlr(): halt IPA rx CE8
+platform_helium.c:platform_prestm_crash_handler registered
+platform_helium.c:platform_trigger_cpu_fast_dcvs: client handle %d, retcode %d
+platform_helium.c:test_bus_val 0x%x test_bus_output 0x%x
+platform_helium.c:wlan_pre_stm_crash_cb_handler registered
+platform_helium_init.c:Invalid HW variant
+platform_helium_init.c:platform_transient_state_req : request transient_state:%u start:%u
+platform_helium_init.c:platform_transient_state_req : retry transient_state:%u start:%u retry:%d response:0x%x
+platform_helium_init.c:platform_transient_state_req : soc request transient_state:%u start:%u retry:%d response:0x%x priority: %d
+platform_helium_init.c:platform_transient_state_req :ERROR max retry reached, WLAN sending request with highest priority transient_state:%u start:%u retry:%d old response:0x%x priority: %d
+platform_helium_init.c:wlan_platform_crash_cb: WCSS_AXI_M_CBCR 0x%x WCSS_AHB_S0_CBCR 0x%x WCSS_ECAHB_CBCR 0x%x
+platform_helium_init.c:wlan_platform_crash_cb: WCSS_SHDREG_AHB_CBCR 0x%x WCSS_AT_CBCR 0x%x WCSS_APB_CBCR 0x%x
+platform_msa.c:HCRAM mem protect status = 0x%x 
+platform_msa.c:MSA region : vaddr = 0x%x 
+platform_msa.c:PRAM mem protect status = 0x%x 
+platform_rejuvenate.c:CSS is UP. GDSC is also powered UP.
+platform_rejuvenate.c:GDSC is powered down
+platform_rejuvenate.c:MXI halt 
+platform_wlan_md.c:PLATFORM_WLAN_MD_add_regions : No entry added as QDI handle not intialized.
+platform_wlan_md.c:platform_wlan_md_config : No open qdi handle for minidump
+platform_wlan_md.c:platform_wlan_md_init : Error opening QDI client handle.
+platform_wlan_md.c:platform_wlan_md_invoke_qdi : No free memory
+platform_wlan_md.c:platform_wlan_md_valid_entries reached its max limit, skip add region
+qca6180BrdData.c:tpcPowerOffset2G %d whichChain %d nc %d measPwr %d
+qca6180BrdData.c:tpcPowerOffset5G %d whichChain %d nc %d
+qca61x0_bdf.c:## For Hana+RD18(CHK3.2,WCN3998-1) BDF Params CommonBoardFlags: 0x%08x edpdEnable5G: 0x%x
+qca61x0_bdf.c:########## 3991 disable DBS in BDF BDF MASK AFTER %x
+qca61x0_bdf.c:########## BDF BDF MASK before %x
+qca61x0_bdf.c:BLACKBOLT CHIP: SDM636/SDA636/SDM660_Lite. Initializing chain mask to 0x1 and enabling NON DBS PHY 0 mode only
+qca61x0_bdf.c:COMANCHE WCN_3910 chip
+qca61x0_bdf.c:COMANCHE WCN_3930 chip
+qca61x0_bdf.c:COMANCHE WCN_3950 chip
+qca61x0_bdf.c:Get per chain priority SAR limit Chain: %d PhyMode : %d ORIGINAL_PHY_MODE_DETECT %d 
+qca61x0_bdf.c:HW_SUPPORT_1PHY_2x2:  Enabling NON DBS PHY 0 mode only
+qca61x0_bdf.c:PhyBase Register of phyid %d is NULL. shouldn't access register and hence returning
+qca61x0_bdf.c:SAR halphy_bdf_AddSARLimitTPC tpc = %d
+qca61x0_bdf.c:SAR halphy_bdf_AddSARLimitTPC tpc_sar_max = %d,  tpc_sar_min %d tpc = %d
+qca61x0_bdf.c:abnorm,  idx = 0x%x
+qca61x0_cal.c:CCK Blocker Disabled: WAR Enabled
+qca61x0_cal.c:CckBlockerWarEnable %d
+qca61x0_common_device.c:CSS Retention Check failed, cannot read address in the phy id : %d
+qca61x0_common_device.c:Force RxDCO ReCal flag set to : %d
+qca61x0_common_device.c:HALPHY_DEBUG_MM_HOST_CMD_DISABLE_CLPC 
+qca61x0_common_device.c:HALPHY_DEBUG_MM_HOST_CMD_ENABLE_PHYDBG_LOGS_COMBCAL
+qca61x0_common_device.c:HALPHY_DEBUG_MM_HOST_CMD_ENABLE_PHYDBG_LOGS_COMB_RXDCO
+qca61x0_common_device.c:HALPHY_DEBUG_MM_HOST_CMD_ENABLE_PHYDBG_LOGS_DPD
+qca61x0_common_device.c:HALPHY_DEBUG_MM_HOST_CMD_ENABLE_PHYDBG_LOGS_RXDCO
+qca61x0_common_device.c:HALPHY_DEBUG_MM_HOST_CMD_ENABLE_PHYDBG_LOGS_TPC
+qca61x0_common_device.c:Invalid # of args for CLPC Disable, expecting iwpriv <dev> setUnitTestCmd %d 2 %d disableflag
+qca61x0_common_device.c:Invalid # of args for Force RxDCO ReCal, expecting iwpriv <dev> setUnitTestCmd %d 2 %d debugflag
+qca61x0_common_device.c:Invalid # of args for reading RXDCO cal debug logs, expecting iwpriv <dev> setUnitTestCmd %d 2 %d debugflag
+qca61x0_common_device.c:Invalid # of args for reading TPC debug logs, expecting iwpriv <dev> setUnitTestCmd %d 2 %d debugflag
+qca61x0_common_device.c:Invalid # of args for reading combcal and rxdco cal debug logs, expecting iwpriv <dev> setUnitTestCmd %d 2 %d debugflag
+qca61x0_common_device.c:Invalid # of args for reading combcal debug logs, expecting iwpriv <dev> setUnitTestCmd %d 2 %d debugflag
+qca61x0_common_device.c:Invalid # of args for reading dpd debug logs, expecting iwpriv <dev> setUnitTestCmd %d 2 %d debugflag
+qca61x0_common_device.c:PHYDBG_LOGS_DPD:: dpd_dbg_log_flag 0x%x
+qca61x0_common_device.c:PHYDBG_LOGS_DPD:: phyId %d dpdDebugFlag: 0x%x paprdDebugMode %d
+qca61x0_common_device.c:Set PDADC_BIAS CH0: old pdadc_bias=%d, new value=%d
+qca61x0_common_device.c:Set PDADC_BIAS CH1: old pdadc_bias=%d, new value=%d
+qca61x0_common_device.c:clpc_disable_flag %d
+qca61x0_common_device.c:combcal_dbg_log_flag %d
+qca61x0_common_device.c:combcal_dbg_log_flag %d rxdco_dbg_log_flag %d
+qca61x0_common_device.c:phyId %d of Addr %d and PHY awake state %d
+qca61x0_common_device.c:phyId : %d -> Addr:Value, 0x%08X:0x%08X
+qca61x0_common_device.c:rxdco_dbg_log_flag %d
+qca61x0_common_device.c:tpc_dbg_log_flag %d
+qca61x0_debug_phy_reg_dump.c:PHYA:: PHY Core is in reset state. Accessing registers is NOT allowed
+qca61x0_debug_phy_reg_dump.c:REG DUMP: End of Selective BB(PHY/RFACTRL/MAC) REGs store to buffer: 0x%08x
+qca61x0_debug_phy_reg_dump.c:REG DUMP: Started Selective MAC_WCMN and MAC_RXPCU REGs store to buffer: 0x%08x
+qca61x0_debug_phy_reg_dump.c:REG DUMP: Started Selective PHY REGs store to buffer: 0x%08x
+qca61x0_debug_phy_reg_dump.c:REG DUMP: Started Selective PHYA REGs store to buffer: 0x%08x
+qca61x0_debug_phy_reg_dump.c:REG DUMP: Started Selective RFACTRL REGs store to buffer: 0x%08x
+qca61x0_debug_rfa_reg_dump.c:REG DUMP: End of Selective RFA REGs store to buffer: 0x%08x
+qca61x0_debug_rfa_reg_dump.c:REG DUMP: Started Selective RFA REGs store to buffer: 0x%08x
+qca61x0_init.c:SINGLE PHY CHIP
+qca61x0_init.c:STARLORD_3 CHIP: SDM660_Lite
+qca61x0_paprd.c:  (%d, %d)  n_shifter %d ssg_mem  %d ssg %d 
+qca61x0_paprd.c:  halphy_get_caldb_dpd_calValidBit %d, chain %d !!
+qca61x0_paprd.c:  memValid %d, chain %d tableIndex %d
+qca61x0_paprd.c:  memdpdReStoreControlData(%d, %d)  gain %d pa %d valid_bit %d !!
+qca61x0_paprd.c: %d %d memory less ctrl enabled gain %d, paprd type %d valid bit %d 
+qca61x0_paprd.c: %d %d memory less ctrl gain is enabled %d, paprd type %d valid_bit %d 
+qca61x0_paprd.c: B0_CTRL0 %x
+qca61x0_paprd.c: B0_CTRL1 %x
+qca61x0_paprd.c: B0_CTRL2 %x
+qca61x0_paprd.c: B0_CTRL3 %x
+qca61x0_paprd.c: B1_CTRL0 %x
+qca61x0_paprd.c: B1_CTRL1 %x
+qca61x0_paprd.c: B1_CTRL2 %x
+qca61x0_paprd.c: B1_CTRL3 %x
+qca61x0_paprd.c: CAL VALID BIT %d, chain %d
+qca61x0_paprd.c: DPD trainingDone=%d failed
+qca61x0_paprd.c: NMSE Check failed %d %d
+qca61x0_paprd.c: PAPRD_SQ_VAL : %d
+qca61x0_paprd.c: ReStore Coefficients (%d %d) dpdCoeffStart 0x%8x tmpDpdStart 0x%8x dbOffset 0x%8x
+qca61x0_paprd.c: Restore  chain %d  memlessDpdValid %d memValid %d
+qca61x0_paprd.c: Restore ( chain %d) memlessDpdValid %d memValid %d
+qca61x0_paprd.c: Restore (%d %d) dpdCoeffStart 0x%8x dpdStart 0x%8x dpdCtrlStart 0x%8x, dpdTrgStart 0x%8x
+qca61x0_paprd.c: Restore (%d %d) dpdCoeffStart 0x%8x tmpDpdStart 0x%8x offset 0x%8x dbOffset 0x%8x
+qca61x0_paprd.c: Restore Mem Paprd Tables %d , start %d end %d !!
+qca61x0_paprd.c: Restore Paprd Tables %d , start %d end %d !!
+qca61x0_paprd.c: Restore small signal gain MemLess  chain %d table %d 
+qca61x0_paprd.c: Store (%d %d) dpdStart 0x%8x dpdCtrlStart 0x%8x tableOffset 0x%8x
+qca61x0_paprd.c: gain idx %d forced_dac_gain %d pa_cfg %d
+qca61x0_paprd.c: memdpdStoreControlData (%d %d) sm_sig_gain_memless %d sm_sig_gain_mem %d n_shifter %d
+qca61x0_paprd.c: memdpdStoreControlData (%d %d) valid_bit %d
+qca61x0_paprd.c: nmsex10 %d 
+qca61x0_paprd.c:Adaptive Cal - Updated DAC Gain : %d
+qca61x0_paprd.c:CF_PAPRD_MEM_CAP_LOGMODE %x
+qca61x0_paprd.c:DC estimate I %d 
+qca61x0_paprd.c:DC estimate I %d , Q %d
+qca61x0_paprd.c:DC estimate Q %d 
+qca61x0_paprd.c:DDR_SIZE %x 
+qca61x0_paprd.c:DDR_SIZE 0x%x, trained %d samples, bDone = %d
+qca61x0_paprd.c:DPD LUT[%d] reg addr 0x%8x, val = 0x%8x 
+qca61x0_paprd.c:DPD LUT[%d] reg addr 0x%8x, val = 0x%8x caldb 0x%8x
+qca61x0_paprd.c:DPD training AGC2 pwr %d 
+qca61x0_paprd.c:DPD training AGC2 size %d 
+qca61x0_paprd.c:DPD training Done %d 
+qca61x0_paprd.c:DPD training active %d 
+qca61x0_paprd.c:DPD training corr err %d 
+qca61x0_paprd.c:DPD training incomplete %d 
+qca61x0_paprd.c:DPD training init_pwr_cfg_dpdtrain_latest_out %d 
+qca61x0_paprd.c:DPD training rx gain %d 
+qca61x0_paprd.c:DPD training tpc_dpdtrain_counter %d
+qca61x0_paprd.c:DPD training tpc_init_pwr_cfg_dpdtrain %d
+qca61x0_paprd.c:Disable HW search timing : forceSqEnable , hw_search_sq_timing %d sq_idx %d
+qca61x0_paprd.c:Error: %s Invalid legacy DPD table address
+qca61x0_paprd.c:Error:Not support eDPD on Slate!
+qca61x0_paprd.c:Finished populating DPD LUT into memory! 
+qca61x0_paprd.c:Invalid bandWidth %d
+qca61x0_paprd.c:MAC_TRC_REG_CCMN_CRCM_CLKGATE_DISABLE %08x
+qca61x0_paprd.c:MAC_TRC_REG_CCMN_CRCM_ROOT_CLKGATE_DISABLE %08x
+qca61x0_paprd.c:MAC_TRC_REG_CONTROL %08x
+qca61x0_paprd.c:MAC_TRC_REG_PHYDBG2AXI_0 %08x
+qca61x0_paprd.c:MAC_TRC_REG_PHYDBG2AXI_1 %08x
+qca61x0_paprd.c:MAC_TRC_REG_PHYDBG2AXI_2 %08x
+qca61x0_paprd.c:MAC_TRC_REG_PHYDBG2AXI_2=%x
+qca61x0_paprd.c:MAC_TRC_REG_PHYDBG2AXI_3 %08x
+qca61x0_paprd.c:MEM_VOLTERRA_CTRL PAPRD_MEM_B0 = 0x%x
+qca61x0_paprd.c:PAPRD_NSHIFT_MEM_0 = 0x%x
+qca61x0_paprd.c:PHYDBG BW20BW40MHz
+qca61x0_paprd.c:PHYDBG BW80MHz 
+qca61x0_paprd.c:PHYDBG_CAP_EN STOP
+qca61x0_paprd.c:RSFD_REG_MAP_BB_PHYDBG_CONTROL1 %08x
+qca61x0_paprd.c:RSFD_REG_MAP_BB_PHYDBG_CONTROL3 %08x
+qca61x0_paprd.c:RSFD_REG_MAP_BB_PHYDBG_CONTROL3 %08x 
+qca61x0_paprd.c:Restore caldb coeff [%d] Value 0x%8x  
+qca61x0_paprd.c:SQ Idx %d 
+qca61x0_paprd.c:STAT3:  %8x
+qca61x0_paprd.c:STAT4: tx_max %d 
+qca61x0_paprd.c:STAT4: tx_min %d 
+qca61x0_paprd.c:[DPD LUT] dpd_lut_validity_flag = 0x%x
+qca61x0_paprd.c:[DPD LUT] dpdlut_valid_gain_5_0 = 0x%x
+qca61x0_paprd.c:[DPD LUT] dpdlut_valid_gain_7_6 = 0x%x
+qca61x0_paprd.c:[DPD LUT] rfbmode =0x%x
+qca61x0_paprd.c:[DPD LUT] valid_PA_cfg = 0x%x
+qca61x0_paprd.c:[DPD LUT][%2d+%2d] = %08x 
+qca61x0_paprd.c:[DPD LUT][%2d+%2d] = %08x; org= %08x
+qca61x0_paprd.c:before input restart: ii=%d, sample_counter=%d
+qca61x0_paprd.c:caldb coeff [%d] Value 0x%8x  
+qca61x0_paprd.c:chain %d memory less pa tables restored for table %d
+qca61x0_paprd.c:channel %d agc2_pwr %d rx_gain %d SQ Idx %d agc_size %d
+qca61x0_paprd.c:cpu_addr 0x%x
+qca61x0_paprd.c:ddr_base 0x%x
+qca61x0_paprd.c:ddr_base_l 0x%x
+qca61x0_paprd.c:ddr_base_reg64 0x%x
+qca61x0_paprd.c:ddr_base_u 0x%x
+qca61x0_paprd.c:halphyPaprdAdcCaptInMemConfig: chainSel=%d, captureMode=%d, bConfig=%d
+qca61x0_paprd.c:ii = %x, mapping = %x, PAPRD_MEM_B0 = 0x%x
+qca61x0_paprd.c:input restart! 
+qca61x0_paprd.c:processDataMemDpd channel %d thread_id %d
+qca61x0_paprd.c:processDataMemDpd:iMemDpdOp=%d, startAddr 0x%x chainSel=%d, captureMode=%d
+qca61x0_paprd.c:test ddr_base_u 0x%x
+qca61x0_paprd.c:watchdog disabled    BB_WATCHDOG_CTRL_1 = 0x%08X
+qca61x0_paprd.c:watchdog enabled    BB_WATCHDOG_CTRL_1 = 0x%08X
+qca61x0_phy.c:SetDeltaSlope:: overflowCond 0x%x
+qca61x0_reset.c: halphy_reset_device_ConfigCoexAgcGainTables0x294060=%x , 0x294064=%x, 0x29406c=%x
+qca61x0_reset.c:ADC: halphy_reset_device_ClkGenSwReset CLK RESET NAPALI hwVersion 0x%x, phyId %d
+qca61x0_reset.c:BBWDogCtrlReadBack: phyId %d  BB_WATCHDOG_CTRL_1: 0x%08X  BB_WATCHDOG_CTRL_2: 0x%08X
+qca61x0_reset.c:BDF flag useCoexAgcTables set to :%d
+qca61x0_reset.c:Config BB WDog Reg Read back: BB_WATCHDOG_CTRL_1: 0x%08X  BB_WATCHDOG_CTRL_2: 0x%08X
+qca61x0_reset.c:Config BB WDog: Expected to read %d for wdog IRQ status, but read %d
+qca61x0_reset.c:Config BB WDog: phyId %d, Param %d, Value: 0x%X
+qca61x0_reset.c:Configuring :currentBTCoexInterferenceLevel %d,0x294060=%x , 0x294064=%x, 0x29406c=%x,enable=%x
+qca61x0_reset.c:Configuring :currentBTCoexInterferenceLevel %d,0x30013c=%x , 0x300144=%x, lnamode=%x,enable=%x
+qca61x0_reset.c:FATAL ERROR. Frequency is not supported
+qca61x0_reset.c:Load AGC COEX GAIN tables depends on current BTCOEX INTERFERENCE LEVEL: %d 
+qca61x0_reset.c:halphy_is_Pmm_Clk_Enabled
+qca61x0_rfactrl.c:RFACTRL:: CH%d RFAPB_TIMEOUT_COUNT 0x%x RESYNCH_REQ_COUNT 0x%x RF_BUS_MODE_TIMEOUT_COUNT 0x%x DROPPED_PHYCMDS_COUNT 0x%x
+qca61x0_rfactrl.c:RFACTRL:: CH%d RF_BUS_CONFIG 0x%08x ARB_STATUS 0x%x PERROR_COUNT 0x%x NAK_COUNT 0x%x BP_TIMEOUT_COUNT 0x%x
+qca61x0_rfactrl.c:RFACTRL:: CH%d RF_BUS_ERROR_STATUS 0x%08x BP_TIMEOUT_ERROR_COUNT %d NAK_ERROR_COUNT %d
+qca61x0_rfactrl.c:RFACTRL:: CH%d RF_BUS_STATUS 0x%08x PHY_HW_SM_STATUS 0x%08x PHY_HW_SM_MORE_STATUS 0x%08x RFAPB_STATUS 0x%08x
+qca61x0_rfactrl.c:RFACTRL:: WLAN_SW_CTRL_GPIO status during NAK/BP timeout: %d
+qca61x0_rfactrl.c:halphyRfaCtrlErrorHandler: Invalid chain %d
+qca61x0_rtt.c:halphy_rtt_device_ConfigStrongestRxChain: fix: %d chain_index: %d
+qca61x0_smrecorder.c:SM_Recorder: Last Entry Address: %d
+qca61x0_spectral.c:DeinitSpectralWatchdogConfig Reg Read back: BB_WATCHDOG_CTRL_1: 0x%08X  BB_WATCHDOG_CTRL_2: 0x%08X
+qca61x0_spectral.c:InitSpectralWatchdogConfig Reg Read back: BB_WATCHDOG_CTRL_1: 0x%08X  BB_WATCHDOG_CTRL_2: 0x%08X
+qca61x0_tpc.c:%d %d
+qca61x0_tpc.c:%x
+qca61x0_tpc.c:Error: halphy_tpc_device_ClearGLUT: Invalid addrIdx %d (addrIdxStartChain1 %d) for phy %d... return
+qca61x0_tpc.c:Error: halphy_tpc_device_ProgALUT: Invalid chain %d for phyId %d....exiting 
+qca61x0_tpc.c:Error: halphy_tpc_device_ProgGLUT: Invalid addrIdx %d (addrIdxStartChain1 %d) for phy %d... return
+qca61x0_tpc.c:Error: halphy_tpc_device_ProgPLUT: Invalid chain %d for phyId %d....exiting 
+qca61x0_tpc.c:Num of Chains: %d is not expected argument
+qca61x0_tpc.c:TPC_DBG:: ---- prints start ---- phyId: %d	 tx_chain_mask: %d	 phyRfMode: %d	 pkt_count = %d
+qca61x0_tpc.c:TPC_DBG:: SEL_ALT_TABLES = %d
+qca61x0_tpc.c:TPC_DBG:: TPC_1 = 0x%x	 USE_PER_PACKET_POWERTX_MAX = %d	 POWERTX_SUB_FOR_2CHAIN = %d
+qca61x0_tpc.c:TPC_DBG:: TPC_17 = 0x%08x	 CLPC_ERR_CMN_DUP_EN = %d	 CL_ERR_IS_COMMON = %d
+qca61x0_tpc.c:TPC_DBG:: TPC_2 = 0x%08x, FORCED_TARGET_POWER_SHARED = %d, USE_FORCED_TARGET_POWER = %d
+qca61x0_tpc.c:TPC_DBG:: TPC_20 = 0x%08x	 TPC_PWR_SHARED_CHAIN_MASK = %d	 TPC_IGNORE_BT_IN_TX = %d
+qca61x0_tpc.c:TPC_DBG:: TPC_INIT_PWR_CFG = 0x%08x	 TPC_INIT_PWR_CFG_BTCOEX_EN = %d	 TPC_INIT_PWR_CFG_BTCOEX = %d
+qca61x0_tpc.c:TPC_DBG:: TPC_STAT4 = 0x%08x	 TPC_FINAL_TARGET_POWER_SHARED = %d	 TPC_FINAL_TARGET_POWER_UNSHARED = %d
+qca61x0_tpc.c:TPC_DBG:: TPC_TWO_WAY_CONTROLS = 0x%08x
+qca61x0_tpc.c:TPC_DBG:: chain 0 TPC_FB_12: 0x%08x	 PDACC_AVG_OUT_0 %d	 LATEST_DC_VALUE_0 %d	 FULL_PKT_AVG_OUT_0 %d
+qca61x0_tpc.c:TPC_DBG:: chain 0 TPC_STAT_1: 0x%08x	 GAIN_MISS_LOW_0 %d	 GAIN_MISS_HIGH_0 %d	 GAIN_MISS_MID_0 %d
+qca61x0_tpc.c:TPC_DBG:: chain 0 TPC_STAT_3: 0x%08x	 LATEST_CLPC_ERR = %d	 MEAS_PWR_OUT = %d	 LATEST_DAC_GAIN = %d	 LATEST_GLUT_SET = %d
+qca61x0_tpc.c:TPC_DBG:: chain 0 TPC_STAT_5: 0x%08x	 LATEST_WSI_PWR = %d	 LATEST_WSI_PWR_VALID = %d	 LATEST_ACCUMULATED_CLPC_ERR = %d	 wsiPwrInvalidCnt0 = %d
+qca61x0_tpc.c:TPC_DBG:: chain 0: CMD_COUNT_TPCRB = %d
+qca61x0_tpc.c:TPC_DBG:: chain 0: CMD_COUNT_TPCSTOP = %d
+qca61x0_tpc.c:TPC_DBG:: chain 0: CMD_COUNT_TXGAIN = %d
+qca61x0_tpc.c:TPC_DBG:: chain 1 TPC_FB_12: 0x%08x	 PDACC_AVG_OUT_1 %d	 LATEST_DC_VALUE_1 %d	 FULL_PKT_AVG_OUT_1 %d
+qca61x0_tpc.c:TPC_DBG:: chain 1 TPC_STAT_1: 0x%08x	 GAIN_MISS_LOW_0 %d	 GAIN_MISS_HIGH_0 %d	 GAIN_MISS_MID_0 %d
+qca61x0_tpc.c:TPC_DBG:: chain 1 TPC_STAT_3: 0x%08x	 LATEST_CLPC_ERR = %d	 MEAS_PWR_OUT = %d	 LATEST_DAC_GAIN = %d	 LATEST_GLUT_SET = %d
+qca61x0_tpc.c:TPC_DBG:: chain 1 TPC_STAT_5: 0x%08x	 LATEST_WSI_PWR = %d	 LATEST_WSI_PWR_VALID = %d	 LATEST_ACCUMULATED_CLPC_ERR = %d	 wsiPwrInvalidCnt1 = %d
+qca61x0_tpc.c:TPC_DBG:: chain 1: CMD_COUNT_TPCRB = %d
+qca61x0_tpc.c:TPC_DBG:: chain 1: CMD_COUNT_TPCSTOP = %d
+qca61x0_tpc.c:TPC_DBG:: chain 1: CMD_COUNT_TXGAIN = %d
+qca61x0_tpc.c:TPC_DBG:: phyId %d, clpc_en %d, rtrn pktChMask %d, clpcStatus %d, chanChMask %d
+qca61x0_tpc.c:TPC_DBG:: pkt_count = %d, bmode %d, clpcmode = %d, halphyGtxIsEnable(bmode) = %d, (tpc < maxGtxPwr) = %d
+qca61x0_tpc.c:addrIdx %d reg32 0x%x
+qmi_mcs.c:QMI platform: MCS qmi_client_get_service_instance() returns error %d
+qmi_mcs.c:QMI platform: MCS qmi_client_init() returns error %d
+qmi_mcs.c:QMI platform: MCS qmi_client_notifier_init() returns error %d
+qmi_mcs.c:QMI platform: MCS qmi_client_register_error_cb() returns error %d
+qmi_platform.c:QMI Platform: Vbatt Req: %d
+qmi_wfc.c:QMI platform: WFC qmi_client_get_service_instance() returns error %d
+qmi_wfc.c:QMI platform: WFC qmi_client_init() returns error %d
+qmi_wfc.c:QMI platform: WFC qmi_client_notifier_init() returns error %d
+ratectrl.c:Prot failure:%d(%d,%d),rts_en(%d,%d)
+ratectrl.c:RATECTRL_DBGID_GTX_UPDATE: ENTRY: BW 0x%x / NSS 0x%x / RC 0x%x / TPC 0x%x / MAX_TPC 0x%x / NEW_PPER 0x%x / OLD_PPER 0x%x/ NEW_RPER 0x%x 
+ratectrl.c:RATECTRL_DBGID_GTX_UPDATE: GTX disable, MAX TX Power changed, last_tpc=0x%x halphy_tpc=0x%x
+ratectrl.c:RTS BL SM change RTS_11AC_AND_LEG_ALLOWED -> RTS_DISALLOWED
+ratectrl.c:RTS BL SM change RTS_11AC_AND_LEG_ALLOWED -> RTS_LEG_ALLOWED
+ratectrl.c:RTS BL SM change RTS_LEG_ALLOWED -> RTS_11AC_AND_LEG_ALLOWED
+ratectrl.c:RTS BL SM change RTS_LEG_ALLOWED -> RTS_DISALLOWED
+ratectrl.c:TPC DOWN EVAL / last_tpc %d tpc_step %d,                                                        curr_min_tpc %d gtxTPCMin %d temp %d packets %d
+ratectrl.c:TxRetrySchedule: DYN BW : idx %d rts %d cts %d rc_sched.rts_rix %x
+ratectrl.c:_rcUpdate_HT:rts_en(%d,%d)
+ratectrl.c:last_tpc %x curr_ratePer = %d, Reference is GTX = %d
+ratectrl.c:xretry:rix %d(%d,%d,%d) max %d PER(%d,%d) ER %d
+ratectrl_if.c:
+ratectrl_if.c:DEINIT_RATE_NODE: mhz=%d
+ratectrl_if.c:Enabling coex restriction (pdev - 0x%x) enable %d min_rate:%d on wlan_peer:0x%x rc_mode:%d rateMax:%d bestRate:%d
+ratectrl_if.c:INIT_RATE_NODE: No memory!
+ratectrl_if.c:INIT_RATE_NODE: mhz=%d rc_node=0x%x
+ratectrl_if.c:RATE_NodeUpdate(2): peer bss_non_data_rc:0x%x 
+ratectrl_if.c:RC_NODE_SWAP Ignore mhz=%d
+ratectrl_if.c:RC_NODE_SWAP: mhz=%d rc_idx=[%d - %d]
+ratectrl_if.c:VDEV ID:%d PDEV ID:%d GTX STATUS:%d 
+ratectrl_if.c:_RATE_GTX_dbg: INAVLID CMD: %d
+ratectrl_if.c:_RATE_GTX_dbg: VDEV ID:%d wal_vdev is NULL
+ratectrl_if.c:_RATE_GTX_dbg: [0]:%d [1]:%d [2]:%d [3]:%d 
+ratectrl_if.c:gtxBWMask:0x%x 
+ratectrl_if.c:gtxPERMargin:%d 
+ratectrl_if.c:gtxPERThreshold:%d 
+ratectrl_if.c:gtxTPCMin:%d 
+ratectrl_if.c:gtxTPCstep:%d 
+ratectrl_if.c:userGtxMask:0x%x 
+rc_get_peer_valid_rc_mask
+resmgr.c:RESMGR_OCS_INVALID_LATENCY Different MAC: chan0 = 0x%x chan1 = 0x%x
+resmgr.c:RESMGR_OCS_INVALID_QUOTA Different MAC: chan0 = 0x%x chan1 = 0x%x
+resmgr_chainmask_mgr.c:%x %x %x
+resmgr_chainmask_mgr.c:RESMGR_CHMMGR_WAL_OPS: HW mode mismatch between DBS_req_hw_mode and soc_hw_mode
+resmgr_chmmgr_notify_vdev_up
+resmgr_concurrency_mgr_is_low_freq_vdev_chreq_apply
+resmgr_ocs.c:%x %x %x
+resmgr_vcm.c:%x %x %x
+rxGainCal.c:Disabling 5G RSSI cal for COMANCHE RFA_WCN3910
+rx_ring_amsdu_discard
+rx_ring_msdu_discard
+slate_rfa_config.c:TEMPSEN::: read Total time (us)  :%d
+slate_rfa_config.c:slate_rfa_config_device_GetXOSettleTime OUT OF BOUND XO SETTLE time returned by HW. limiting it to 100 TICKS
+slate_rfa_config.c:slate_rfa_config_device_WLReset  %x
+slate_rfa_config.c:slate_rfa_config_device_WLReset %x
+slate_rfa_config.c:slate_rfa_config_device_WLReset writing %x
+slate_rfa_tpc.c: ##### ko = %d
+slate_rfa_tpc.c: @@@@ No Ko @@@
+slate_rfa_tpc.c:=== slate_rfa_tpc_device_EnableHwPdetCal failed
+slate_rfa_tpc.c:SLATE_WL_TPC_PDADC_DATA, RO_D_PDADC_DATA = %x
+slate_rfa_tpc.c:SLATE_WL_TPC_TPC_BE_CAL_RESULT_0, RO_BE_DCOC_DAC1_HI_CAL = %x
+slate_rfa_tpc.c:SLATE_WL_TPC_TPC_BE_CAL_RESULT_0, RO_BE_DCOC_DAC1_LO_CAL = %x
+slate_rfa_tpc.c:SLATE_WL_TPC_TPC_BE_CAL_RESULT_0, RO_BE_DCOC_DAC2_HI_CAL = %x
+slate_rfa_tpc.c:SLATE_WL_TPC_TPC_BE_CAL_RESULT_0, RO_BE_DCOC_DAC2_LO_CAL = %x
+slate_rfa_tpc.c:SLATE_WL_TPC_TPC_BE_CAL_RESULT_0, TPC_CAL_VALID_HI = %x
+slate_rfa_tpc.c:SLATE_WL_TPC_TPC_BE_CAL_RESULT_0, TPC_CAL_VALID_LO_CH0 = %x
+slate_rfa_tpc.c:Setting CLPC_START_OFDM = %x, pdadc_clk = %d
+slate_rfa_tpc.c:WL_TPC_TPC_FB_1, PDACC_MODE = %x, adcCompRef %d
+slate_rfa_tpc.c:calData[0] %x, calData[1] %x dac1Val %x dac2Val %x
+slate_rfa_tpc.c:clpcmode = %d, freq = %d, txchainmask = %02x, flags = %02x
+sm.c:%x %x %x
+suppl_auth.c:SAE_SPMK: SPMKID is found index=%d
+suppl_auth.c:WPA3_SPMK: Clear SPMK
+suppl_auth.c:_suppl_pmk_cache_add fail peer_addr=0x%08x%x
+suppl_thread.c:%x %x %x
+tcmd.c: B2B Tx: burst_index = %d, table_length = %d
+tcmd.c: B2B Tx: calling tcmd_wal_tx_detach
+tcmd.c: chainMask %d
+tcmd.c:ERROR: tcmd_cont_rx_begin: setup chan failed
+tcmd.c:ERROR: tcmd_cont_rx_cmd: unsupported act %d
+tcmd.c:ERROR: tcmd_cont_tx_cmd: UNSUPPORTED mode %d
+tcmd.c:ERROR: tcmd_cont_tx_cmd: setup chan failed
+tcmd.c:ERROR: tcmd_get_channel: Invalid frequency %d
+tcmd.c:ERROR: tcmd_get_channel: wlanMode %d unknown
+tcmd.c:ERROR: tcmd_rx_irq: spurious rx irq
+tcmd.c:ERROR: tcmd_setup_channel_real: wlanMode unknown %d
+tcmd.c:No TX after calibration!
+tcmd.c:RX_SETMAC: addr   %02X:%02X:%02X:%02X:%02X:%02X
+tcmd.c:RX_SETMAC: bssid  %02X:%02X:%02X:%02X:%02X:%02X
+tcmd.c:STOPPING DATA TX tcmd_cont_data_tx_stop: changing frequency to 2G
+tcmd.c:STOPPING DATA TX tcmd_cont_data_tx_stop:(phyId %d, boardOpFlags = %d, tcmd_default_freq = %d)
+tcmd.c:Stop Rx
+tcmd.c:StopTxDMA failed, reset
+tcmd.c:TCMD : Asserting as rf_mode >= WAL_RF_MODE_MAX
+tcmd.c:Tx args:: bssid  %02X:%02X:%02X:%02X:%02X:%02X
+tcmd.c:Tx args:: chainMask 0x%x, disableContinuousTx %d, numPkts %d, stopTxAfterDoneNumPkts %d, broadcast %d
+tcmd.c:Tx args:: dataRate %d, txPwr %d, antenna %d, pktSz %d, txPattern %d, PatternLength %d
+tcmd.c:Tx args:: dstmac %02X:%02X:%02X:%02X:%02X:%02X
+tcmd.c:Tx args:: numAggregates %d, miscFlags 0x%x phyId %d
+tcmd.c:Tx args:: pPatternData[0] %d, aifswait %d, retries %d, txType %d, shortGuard %d
+tcmd.c:Tx args:: srcmac %02X:%02X:%02X:%02X:%02X:%02X
+tcmd.c:check_band_chainmask phyId %d invalid chain 0x%x used, validChainmask 0x%x
+tcmd.c:cont rx report: totalPkt %d  okPkt %d  crcErrPkt %d  phyErrPkt %d  secErrPkt %d  rssiInDBm %d  rssiInDBmAvg %d
+tcmd.c:pending frames %d
+tcmd.c:tcmd whal reset done, duration = %d us
+tcmd.c:tcmd whal reset start
+tcmd.c:tcmd_BackToBack_tx_complete_timer_handler BURST INDEX %d Timeout %d, start next burst *********
+tcmd.c:tcmd_BackToBack_tx_complete_timer_handler start, burst index = %d
+tcmd.c:tcmd_BackToBack_tx_complete_timer_handler: phyId %d restarting tcmd_BackToBack_tx_complete_timer for next burst, cycle time = %d
+tcmd.c:tcmd_BackToBack_tx_complete_timer_start: phyId %d starting tcmd_BackToBack_tx_complete_timer, numPackets %d
+tcmd.c:tcmd_config: mode unknown %d
+tcmd.c:tcmd_cont_data_tx_is_stopped stop_tx:%d numpkts_in_queue:%d phyId:%d
+tcmd.c:tcmd_cont_rx_begin: bandwidth %d ack %d rxChainMask %d freq2 %d synth %d
+tcmd.c:tcmd_cont_rx_begin: phyId %d act %d freq %d antenna %d wlanMode %d
+tcmd.c:tcmd_cont_rx_cmd: RX is still ON... Stop RX, restart Rx timer and return
+tcmd.c:tcmd_cont_rx_cmd: miscFlags 0x%x act %d (0: PROMIS, 1:FILTER, 2: REPORT, 3: SETMAC, 4: SET_ANT_SWITCH_TABLE)
+tcmd.c:tcmd_cont_rx_cmd: stopped Tx and restarted Rx timer and return
+tcmd.c:tcmd_cont_tx_cmd: TCMD_CONT_TX_OFF
+tcmd.c:tcmd_cont_tx_cmd: contTx_off GO
+tcmd.c:tcmd_cont_tx_cmd: contx is null... exiting
+tcmd.c:tcmd_cont_tx_cmd: peer delete in progress. Stop Tx and return
+tcmd.c:tcmd_cont_tx_cmd: tcmd_state[phyId].tcmdRxGo = %d... Stop Rx and return
+tcmd.c:tcmd_get_channel: wlanMode %d --> chan params: phy_mode %d flags 0x%x mhz %d freq1 %d freq2 %d
+tcmd.c:tcmd_rx_complete_handler: rate_index %d > TCMD_MAX_RATES... return
+tcmd.c:tcmd_rx_start_timer_handler peer delete in progress phyId %d
+tcmd.c:tcmd_setup_channel: freq %d wlanMode %d bw %d freq2 %d synth %d txCM %d rxCM %d
+tcmd.c:tcmd_tx_complete_handler tcmd_tx_irq: spurious tx irq
+tcmd.c:tcmd_tx_complete_handler: cont Tx case: phyId %d, total pkts after tx stop acknowledged = %d
+tcmd.c:tcmd_tx_complete_handler: fixed pkt case: phyId %d, total pkts after tx stop acknowledged = %d
+tcmd.c:tcmd_tx_complete_handler: phyId = %d, total_pkts = %d, tcmdTxStat[phyId].totalPkt = %d
+tcmd.c:tcmd_tx_complete_timer_handler phyId %d numTxPkt is 0 exiting without restarting timer
+tcmd.c:tcmd_tx_start_timer_handler peer delete in progress phyId %d
+tcmd.c:tcmd_tx_stop_in_progress stop_tx:%d phyId;%d
+tcmd.c:tcmd_tx_stop_request phyId:%d
+tcmd.c:tcmd_whalReset failed
+tcmd.c:utfTxStartInternal: phyId %d, g_tcmd_flag_queue_more_pkts = %d, num_aggr = %d, num_desc = %d
+tcmd.c:utfTxStartInternal: rc_flags 0x%x
+tcmd_thread.c:_tcmd_peer_delete_conf_msg_hdlr pdevId %d peer 0x%x
+tcmd_tx.c:BSS Peer alloc failed with WAL_STATUS = %d, ctxt 0x%x
+tcmd_tx.c:Peer alloc failed with WAL_STATUS = %d
+tcmd_tx.c:tcmd_tx_mark_peer_delete_completed: Invalid peer 0x%x
+tcmd_tx.c:tcmd_wal_peer_free pdevId %d  peer 0x%x
+tcmd_tx.c:tcmd_wal_tx_detach: pdevId %d bss_peer 0x%x peer 0x%x g_release_peer %d g_release_bss_peer %d
+tcmd_wal_free_pkt_buf
+tcmd_wal_rx_add_buf_to_free_list
+tcmd_wal_rx_remote_ring_setup
+tcmd_wal_rx_setup
+tcmd_wal_setup_frameq_pkts
+tcmd_wal_tx_comp_indicate
+tcmd_wal_tx_setup
+tpcCal.c: tpcPwr measured PWR %d whichChain %d 0 %d 1 %d 2 %d
+tpcCal.c:Cal fail due to Fewer_Glut_Entries, returning with error
+tpcCal.c:Got fewer than MIN_CAL_GAINS_REQUIRED_4_GLUT:%d maxNumGainIdxToUse:%d Band:%d chan:%d
+tpcCal.c:Moving up m:%d numGlutEntries:%d k:%d (numGlutEntries - (k)):%d
+tpcCal.c:Sending to host freq2G %d, freq5G %d, chain %d, dacGain %d
+tpcCal.c:dacGain %d gainIdx %d
+tpcCal.c:m:%d numGlutEntries:%d k:%d (numGlutEntries - (k)):%d
+tpcCal.c:numValidMeas is 0. it is abnormal
+tpcCal.c:startHi=%d 
+tpcCal.c:tpcCfg[TPC_2G].gainIdx[1][%d]):%d
+tpcCal.c:tpcCfg[TPC_2G].tgtPwrEst[1][%d]):%d
+tpcCal.c:tpcCfg[TPC_5G].gainIdx[1][%d]):%d
+tpcCal.c:tpcCfg[TPC_5G].tgtPwrEst[1][%d]):%d
+tpcCal.c:v3Begin: Band:%d chan:%d startPwrIdxGrp:%d  endPwrIdxGrp:%d numGlutEntries:%d
+tpcOnepointCal.c: tpcPwr measured PWR %d whichChain %d 0 %d 1 %d 2 %d
+twt_protocol.c:twt_power_2_mantissa wrong parameters 
+tx_cong_ctrl_discard_desc
+tx_dm_assign_hcm_vdev_id
+tx_flush_enque_msg_in_peer
+tx_flush_enque_msg_in_vdev
+tx_sched_wifi_ip02.c:%x %x %x
+tx_sched_wifi_ip02.c:tx_sched_enable_delay_sched: delay_sched=%d, tid_delay=%d
+tx_send_alloc_wal_tx_desc
+tx_send_completion_dsr_hdlr
+tx_send_completion_isr_hdlr
+tx_send_compute_pn_credit
+tx_send_compute_ppdu_bmap
+tx_send_compute_ppdu_length
+tx_send_compute_ppdu_pn
+tx_send_compute_ppn_fpn_delta
+tx_send_compute_ppn_lpn_delta
+tx_send_deliver_comp_pending_descs
+tx_send_free_wal_tx_desc
+tx_send_handle_completion
+tx_send_install_txcomp_buf_req
+tx_send_install_txcomp_indicate
+tx_send_process_compl_status_hdlr
+tx_send_queue_comp_pending_descs
+tx_send_seq_get_peer_userid
+tx_send_update_pn_completion
+tx_send_update_win_completion
+virtual_channel.c:%x %x %x
+virtual_channel_arbiter.c:%x %x %x
+wal_allocate_tsf
+wal_ant_share.c:COEX_MWS_ANT_DIVERSITY: COEX_ANTENNA_SHARING_IND & wan_state=%d
+wal_ant_share.c:COEX_MWS_ANT_DIVERSITY: PA_Muting: 2G Ch1 Mute
+wal_ant_share.c:COEX_MWS_ANT_DIVERSITY: PA_Muting: 2G Ch1 UnMute
+wal_ant_share.c:COEX_MWS_ANT_DIVERSITY: PA_UNMUTE on PwrOnTimer because AntShState is SWITCH_ON_WLAN
+wal_ant_share.c:COEX_MWS_ANT_DIVERSITY: Received Ant Share GRANT with duration=%d. AntShState=0x%x, wan_state=%d
+wal_ant_share.c:COEX_MWS_ANT_DIVERSITY: Received Ant Share RELEASE. AntShState=0x%x, wan_state=%d
+wal_ant_share.c:COEX_MWS_ANT_DIVERSITY: [AS_RSSI_MON] BCON Comb(%d, %u),CH0(%d, %u),CH1(%d, %u), CurrTime:%u
+wal_ant_share.c:COEX_MWS_ANT_DIVERSITY: [AS_RSSI_MON] Bcon MinTimestamp=%u
+wal_ant_share.c:COEX_MWS_ANT_DIVERSITY: [AS_RSSI_MON] DATA Comb(%d, %u),CH0(%d, %u),CH1(%d, %u), CurrTime:%u
+wal_ant_share.c:COEX_MWS_ANT_DIVERSITY: [AS_RSSI_MON] Data MinTimestamp=%u
+wal_ant_share.c:COEX_MWS_ANT_DIVERSITY: [AS_RSSI_MON] IsRssiReliable=0 MinTimestamp=%u
+wal_ant_share.c:COEX_MWS_ANT_DIVERSITY: [AS_RSSI_MON] MRC: %u, IsRssiReliable: %d, Comb_RSSI: %d, Chain_Imbalance: %u, idx: %u, IsThresholdMet: %u, RssiThreshold: %d
+wal_ant_share.c:COEX_MWS_ANT_DIVERSITY: [AS_RSSI_MON] [Err]:Vdev Not Found
+wal_ant_share.c:COEX_MWS_ANT_DIVERSITY: [AS_RSSI_MON] [Set Forced RSSI Flag] CurrTime:%u, MinTimestamp=%u, Duration:%d
+wal_ant_share.c:COEX_MWS_ANT_DIVERSITY: [AS_RSSI_MON][War]: Chain imbalance is very high : %d
+wal_ant_share.c:COEX_MWS_ANT_DIVERSITY: [Qsock_Rcvd] Modem ACQ Msg:%u, Curr ACQ State:%u, Paused:%u, Hyst:%u
+wal_ant_share.c:COEX_MWS_ANT_DIVERSITY: [Qsock_Rcvd] Modem ACQ NONE :%d
+wal_ant_share.c:COEX_MWS_ANT_DIVERSITY: [Qsock_Rcvd] Unexpected Modem ACQ msg during Paused State
+wal_ant_share.c:COEX_MWS_ASM: [Warning]5G Ant sharing is not enabled: COEX_QSOCK_5GHZ_ANT_MDM_SYNC is not handled
+wal_ant_share_5g.c
+wal_ant_share_5g.c:COEX_MWS_ASM: Dummy Client Notification ANT_STATUS_UPDATE Mask = 0x%x, Duration = %d
+wal_ant_share_5g.c:COEX_MWS_ASM: Dummy Client Notification GRANT Duration = %d ms
+wal_ant_share_5g.c:COEX_MWS_ASM: Dummy Client Notification NACK Duration = %d ms
+wal_ant_share_5g.c:COEX_MWS_ASM: Dummy Client Notification RELEASE_IND
+wal_ant_share_5g.c:COEX_MWS_ASM: Invalid Client Notification Evt:%d
+wal_ant_share_5g.c:COEX_MWS_ASM: [ASM->ASM]:Virtual Sync Resp:Arb(%d),AntOwn(%d)
+wal_ant_share_5g.c:COEX_MWS_ASM: [ASM->Modem]:Cancel
+wal_ant_share_5g.c:COEX_MWS_ASM: [ASM->Modem]:Extend Duration(%d ms),Granted Duration(%d ms)
+wal_ant_share_5g.c:COEX_MWS_ASM: [ASM->Modem]:Rel[0x%x]
+wal_ant_share_5g.c:COEX_MWS_ASM: [ASM->Modem]:Req: Mask[0x%x], Type[%d], Reason[%d]
+wal_ant_share_5g.c:COEX_MWS_ASM: [ASM->Modem]:Sync Req, WLAN State: %d
+wal_ant_share_5g.c:COEX_MWS_ASM: [ASM->Modem]:Sync Resp, WLAN State: %d
+wal_ant_share_5g.c:COEX_MWS_ASM: [ASM->WLAN]: CB_Event:%d, Param1: %d, Param2: %d Client_id[%d] 
+wal_ant_share_5g.c:COEX_MWS_ASM: [ASM_CHMASK] Completed(TxChMask:0x%x, RxChMask:0x%x) 
+wal_ant_share_5g.c:COEX_MWS_ASM: [ASM_CHMASK] Req(TxChMask:0x%x, RxChMask:0x%x) 
+wal_ant_share_5g.c:COEX_MWS_ASM: [ASM_CHMASK]Target ChMask is same as Present ChMask (0x%x)
+wal_ant_share_5g.c:COEX_MWS_ASM: [ASM_CHMASK][Err] Unexpected ChMask Completed(TxChMask:0x%x, RxChMask:0x%x)
+wal_ant_share_5g.c:COEX_MWS_ASM: [ASM_STATE_UPDATE](0x%x,%d):CH_1[%d->%d], CH_BOTH[%d->%d]
+wal_ant_share_5g.c:COEX_MWS_ASM: [ASM_STATE_UPDATE]Resource Mask(0x3) is put On Hold
+wal_ant_share_5g.c:COEX_MWS_ASM: [Err]: Stuck in While loop
+wal_ant_share_5g.c:COEX_MWS_ASM: [Err]:Dummy Client Reg Fail: %d
+wal_ant_share_5g.c:COEX_MWS_ASM: [Err]:Dummy Client request Failed: %d
+wal_ant_share_5g.c:COEX_MWS_ASM: [Err]:Illegal Request state(%d): Client_id(%d)
+wal_ant_share_5g.c:COEX_MWS_ASM: [Err]:Illegal Request: ChainMask(%d) not valid
+wal_ant_share_5g.c:COEX_MWS_ASM: [Err]:Illegal Request: Client_id(%d) not registered
+wal_ant_share_5g.c:COEX_MWS_ASM: [Err]:Illegal WAN Grant: GrantMask[0x%x], ASM State[0x%x]
+wal_ant_share_5g.c:COEX_MWS_ASM: [Err]:Illegal WAN Nack: ASM State[0x%x]
+wal_ant_share_5g.c:COEX_MWS_ASM: [Err]ASM ChMask Client is not registered
+wal_ant_share_5g.c:COEX_MWS_ASM: [Err]ASM_STATE_UPDATE:Illegal resource mask(%d)
+wal_ant_share_5g.c:COEX_MWS_ASM: [Err]ASM_STATE_UPDATE:Illegal state(%d) of CH_1
+wal_ant_share_5g.c:COEX_MWS_ASM: [Err]Client_id[%d]: Cb is NULL
+wal_ant_share_5g.c:COEX_MWS_ASM: [Err]Illegal ASM_STATE_HOLD for Resource[0x%x]
+wal_ant_share_5g.c:COEX_MWS_ASM: [Err]Illegal Cancel for Granted Request, Release is expected instead of Cancel
+wal_ant_share_5g.c:COEX_MWS_ASM: [Err]Pending Msg Q Full
+wal_ant_share_5g.c:COEX_MWS_ASM: [Err]Wrong State:%d, CancelMask:0x%x
+wal_ant_share_5g.c:COEX_MWS_ASM: [Err]Wrong State:%d, GrantMask:0x%x
+wal_ant_share_5g.c:COEX_MWS_ASM: [Err]Wrong State:%d, RelChainmask:0x%x
+wal_ant_share_5g.c:COEX_MWS_ASM: [Err]Wrong State:%d, ReqMask:0x%x
+wal_ant_share_5g.c:COEX_MWS_ASM: [Err]Wrong State:%d, RequestChainMask:0x%x
+wal_ant_share_5g.c:COEX_MWS_ASM: [Err][ASM->Modem]:Sync Req W/o Resp from Modem
+wal_ant_share_5g.c:COEX_MWS_ASM: [Err][ASM_CHMASK] Requested chmask(0x%x) is different then Nofication chmask(0x%x)
+wal_ant_share_5g.c:COEX_MWS_ASM: [Err][Modem->ASM]Grant ChMask[0x%x] is Diff then Req ChMask[0x%x]
+wal_ant_share_5g.c:COEX_MWS_ASM: [Err][Modem->ASM]Grant Duration (%d ms) is too less for WLAN operation
+wal_ant_share_5g.c:COEX_MWS_ASM: [Err][WLAN->ASM]:Illegal Cancel: Client_id(%d) not registered
+wal_ant_share_5g.c:COEX_MWS_ASM: [Err][WLAN->ASM]:Illegal Register: Client_id(%d) already registered
+wal_ant_share_5g.c:COEX_MWS_ASM: [Err][WLAN->ASM]:Illegal Release: Client_id(%d) Rel_mask[0x%x] is Different thn Req_mask[0x%x]
+wal_ant_share_5g.c:COEX_MWS_ASM: [Err][WLAN->ASM]:Illegal Release: Client_id(%d) not registered
+wal_ant_share_5g.c:COEX_MWS_ASM: [Err][WLAN->ASM]:Illegal register notify: Client_id(%d) not registered
+wal_ant_share_5g.c:COEX_MWS_ASM: [Info] Client(%d) Granted (%d ms)
+wal_ant_share_5g.c:COEX_MWS_ASM: [Info] Keep Ant with Wlan as few requests are still open
+wal_ant_share_5g.c:COEX_MWS_ASM: [Info] Keep Ant[0x3] with Wlan as few request are still open
+wal_ant_share_5g.c:COEX_MWS_ASM: [Info] Rel Ant[0x2] to WAN
+wal_ant_share_5g.c:COEX_MWS_ASM: [Info] Release : ASM_STATE is ANT_OWN_NO_ARB
+wal_ant_share_5g.c:COEX_MWS_ASM: [Info] Send cancel msg to WAN
+wal_ant_share_5g.c:COEX_MWS_ASM: [Info] WLAN_CANCEL during: Chain mask update in process
+wal_ant_share_5g.c:COEX_MWS_ASM: [Info] WLAN_REQUEST during: Chain mask update in process
+wal_ant_share_5g.c:COEX_MWS_ASM: [Info]: Switch based 5G Antenna Sharing is Disable, plat_is_wtr_missing = %d 
+wal_ant_share_5g.c:COEX_MWS_ASM: [Info]: Switch based 5G Antenna Sharing is Enable, plat_is_wtr_missing = %d 
+wal_ant_share_5g.c:COEX_MWS_ASM: [Info]:ASM INIT Done
+wal_ant_share_5g.c:COEX_MWS_ASM: [Info]:Dummy Client Reg Success: Handle=%d
+wal_ant_share_5g.c:COEX_MWS_ASM: [Info]:Virtual Sync(ARB_NOT_REQUIRED,CH_NONE) from Acquisition Client
+wal_ant_share_5g.c:COEX_MWS_ASM: [Info]Canceling the Nacked Request
+wal_ant_share_5g.c:COEX_MWS_ASM: [Info]Canceling the Request, because No response from WAN
+wal_ant_share_5g.c:COEX_MWS_ASM: [Info]No Pending Msg
+wal_ant_share_5g.c:COEX_MWS_ASM: [Info]Pull Pending Msg (%d,%d): Count:%d
+wal_ant_share_5g.c:COEX_MWS_ASM: [Info]Push Pending Msg (%d,%d): Count:%d
+wal_ant_share_5g.c:COEX_MWS_ASM: [Info]Req is on Hold for Cliend_id(%d)
+wal_ant_share_5g.c:COEX_MWS_ASM: [Info][ASM_CHMASK]Pending Msg Count:%d
+wal_ant_share_5g.c:COEX_MWS_ASM: [Info][CH_1] Cancel msg not send to WAN as other client are waiting from Grant
+wal_ant_share_5g.c:COEX_MWS_ASM: [Info][CH_Both] Cancel msg not send to WAN as other client are waiting from Grant
+wal_ant_share_5g.c:COEX_MWS_ASM: [Modem->ASM]:Grant:Mask:0x%x, Duration:%d
+wal_ant_share_5g.c:COEX_MWS_ASM: [Modem->ASM]:Nack:Duration:%d
+wal_ant_share_5g.c:COEX_MWS_ASM: [Modem->ASM]:Sync Req:Arb(%d),AntOwn(%d)
+wal_ant_share_5g.c:COEX_MWS_ASM: [Modem->ASM]:Sync Resp:Arb(%d),AntOwn(%d)
+wal_ant_share_5g.c:COEX_MWS_ASM: [WLAN->ASM] Cli Request Return Val=%d
+wal_ant_share_5g.c:COEX_MWS_ASM: [WLAN->ASM]:Cancel: Client_id(%d), Cancel_mask[0x%x]
+wal_ant_share_5g.c:COEX_MWS_ASM: [WLAN->ASM]:Deregister: Client_id(%d)
+wal_ant_share_5g.c:COEX_MWS_ASM: [WLAN->ASM]:Get_Ant_State:(0x%x, %d): handle(%d)
+wal_ant_share_5g.c:COEX_MWS_ASM: [WLAN->ASM]:Register Client_id(%d)
+wal_ant_share_5g.c:COEX_MWS_ASM: [WLAN->ASM]:Register notification event: Client_id(%d) Event:0x%x, Ant_State[0x%x]
+wal_ant_share_5g.c:COEX_MWS_ASM: [WLAN->ASM]:Release: Client_id(%d), Rel_mask[0x%x]
+wal_ant_share_5g.c:COEX_MWS_ASM: [WLAN->ASM]:Request: Client_id(%d), ChMask[0x%x]
+wal_ant_share_5g.c:COEX_MWS_ASM: [Warning] Grant during: Chain mask update in process
+wal_ant_share_5g.c:COEX_MWS_ASM: [Warning] Nack during: Chain mask update in process
+wal_ant_share_5g.c:COEX_MWS_ASM: [Warning]5G Ant sharing is not enabled: Cancel msg not send
+wal_ant_share_5g.c:COEX_MWS_ASM: [Warning]5G Ant sharing is not enabled: Extend msg not send
+wal_ant_share_5g.c:COEX_MWS_ASM: [Warning]5G Ant sharing is not enabled: Release msg not send
+wal_ant_share_5g.c:COEX_MWS_ASM: [Warning]5G Ant sharing is not enabled: Request msg not send
+wal_ant_share_5g.c:COEX_MWS_ASM: [Warning]5G Ant sharing is not enabled: Sync resp msg not send
+wal_ant_share_5g.c:COEX_MWS_ASM: [Warning]:State Diff[CH_1=%d, CH_Both=%d]
+wal_ant_share_5g.c:COEX_MWS_ASM: [Warning]Back to Back Qsoc Req. Old Req Granted(%d), Nacked(%d)
+wal_ant_share_5g.c:COEX_MWS_ASM: [Warning]Cancel W/o Request
+wal_ant_share_5g.c:COEX_MWS_ASM: [Warning]Illegal Cancel when ASM_STATE is %d
+wal_ant_share_5g.c:COEX_MWS_ASM: [Warning]Illegal Release during Hold state
+wal_ant_share_5g.c:COEX_MWS_ASM: [Warning]Illegal Release during: Chain mask update in process
+wal_ant_share_5g.c:COEX_MWS_ASM: [Warning]Illegal Release when ASM_STATE is %d
+wal_ant_share_5g.c:COEX_MWS_ASM: [Warning]Rel W/o Grant
+wal_ant_share_5g.c:COEX_MWS_ASM: [Warning]Rel_mask[0x%x] is Diff thn Grant_Mask[0x%x]
+wal_ant_share_5g.c:COEX_MWS_ASM: [Warning][Modem->ASM]ASM State not Init.State(%d,%d)
+wal_ant_share_5g.c:COEX_MWS_ASM: [Warning][Modem->ASM]Back to Back Sync Msg
+wal_ant_share_5g.c:COEX_MWS_ASM: [Warning][Modem->ASM]Multiple Grant for One Req; Ignore this Grant
+wal_ant_share_5g.c:COEX_MWS_ASM: [Warning][Modem->ASM]Wan Grant received W/o Req, So sending Rel to Wan
+wal_ant_share_5g.c:COEX_MWS_ASM: [Warning][Modem->ASM]Wan Nack received W/o Req, So sending Rel to Wan
+wal_ant_share_5g.c:COEX_MWS_ASM: [Warning][WLAN->ASM]:Illegal deregister W/o register: Client_id(%d)
+wal_ant_share_5g.c:COEX_MWS_ASM: [Warning][WLAN->ASM]:Illegal deregister: Client_id(%d) :Request_state(%d)
+wal_ast_free_wds_addr
+wal_ast_index_delete
+wal_ast_update_wds_addr
+wal_avg_bmiss.c
+wal_avg_bmiss.c:whal_wmac_get_bcn_stats mac id %d bcn_cnt:%d, bmiss_cnt:%d, flag %d
+wal_avg_bmiss.c:whal_wmac_set_bcn_stats failed 0x%x
+wal_ba_conn_pause_cb
+wal_ba_event_peer_rx
+wal_ba_event_vdev_peer_add
+wal_ba_flush_cb
+wal_ba_flush_req
+wal_ba_rx_sm
+wal_ba_tx_sm
+wal_beacon.c
+wal_beacon_pdev_beacon_enque
+wal_beacon_vdev_get_rssi
+wal_beacon_vdev_send_beacon_by_ref
+wal_beacon_vdev_set_beacon_config
+wal_beacon_vdev_set_bmiss_threshold
+wal_beacon_vdev_set_brssi_config
+wal_bss_sanity_check
+wal_btcoex_process_bt_crash_info
+wal_cce.c
+wal_cce_alloc_vdev_rule_ctxt
+wal_cfcm.c:wal_cfcm_deliver_event : WAL_CFCM_QSOCK_MONITOR_WLAN_BW
+wal_cfcm.c:wal_cfcm_deliver_event Monitor : %d not supported.
+wal_cfcm.c:wal_cfcm_qsock_dereg De_registering since WLAN Down
+wal_cfcm.c:wal_cfcm_qsock_msg_ind : MONITOR(%d) CMD(%d) LEVEL(%d)
+wal_cfcm.c:wal_cfcm_qsock_msg_ind : no action required
+wal_cfcm.c:wal_cfcm_qsock_reg : mointor(%d)
+wal_chain_mgmt.c
+wal_channel_change
+wal_channel_change_hw.c
+wal_channel_change_hw.c:%x %x %x
+wal_channel_change_hw.c:CHANNEL_CHANGE_COMPLETE: mhz:%d mac_id:%d rx_clear_count:0x%x cycle_cnt:0x%xtx_frame_count:0x%x rx_frame_count:0x%x my_rx_frame_count:0x%x
+wal_coex_bt.c
+wal_coex_bt.c:WAL_COEX_GPM_RECV: BT Crash info: Crash timestamp:0x%x, PC address:0x%x, Reset reason: 0x%x
+wal_coex_bt.c:WAL_COEX_GPM_RECV: BT Hci info: HCI Tx timestamp:0x%x, HCI Rx timestamp:0x%x, HCI State:0x%x
+wal_coex_bt.c:WAL_COEX_GPM_RECV: BT Slc info: SLC wakeup timestamp:0x%x, SLC last sched timestamp:0x%x
+wal_coex_bt.c:WAL_COEX_GPM_RECV: BT Sleep info: Curremt CE timestamp:0x%x, Last sleep timestamp:0x%x
+wal_coex_ftm.c:WAL_COEX_FTM: wal_coex_ftm.c LINE=%d FTM_CAL_START
+wal_coex_ftm.c:WAL_COEX_FTM: wal_coex_ftm.c LINE=%d FTM_CAL_STOP
+wal_coex_ftm.c:WAL_COEX_FTM: wal_coex_ftm.c LINE=%d FTM_TX_RX_START, chan=%d
+wal_coex_ftm.c:WAL_COEX_FTM: wal_coex_ftm.c LINE=%d FTM_TX_RX_STOP chan=%d
+wal_coex_gnss.c:COEX_MWS_REMOTE_EVENT: Received GNSS coex msg
+wal_coex_init
+wal_coex_main.c
+wal_coex_main.c:COEX_MWS_PA_MUTE: Interference  %d 
+wal_coex_main.c:COEX_MWS_WBTMR_SYNC: T2NonWlan(%u) Now(%u) Now+NonWlanDuration(%u)  count(%u)
+wal_coex_main.c:COEX_MWS_WBTMR_SYNC: nowlan(%u) count(%u) mininterval(%u)
+wal_coex_main.c:COEX_SELF_GEN_MASK: Status(%d) Selfgen(%u) RFBand(%u) MaxChains(%u)
+wal_coex_main.c:COEX_SYSTEM_UPDATE: Three Antenna BTC: ConfigMode(%u) RunningMode(%u)
+wal_coex_main.c:COEX_SYS_MON_BT: [bt_on|pmh|non_link|acl_int|passive_bt|ba_active](0x%06x) num_prof(%u) ACL(%u) sniff(%u) A2DP(%u) HID(%u) HFP(%u) BA(%u) APTX LL(%u)
+wal_coex_main.c:COEX_SYS_MON_WLAN: rx_crit(%u) rx_state(0x%x) wlan0_state(0x%x) wlan1_state(0x%x) 2g_pdev_idle(%u) low_latency_en(%d)
+wal_coex_main.c:WAL_COEX_BT5G_HARMONIC:  cmd:%d cur_cmd=%d
+wal_coex_main.c:WAL_COEX_BT5G_HARMONIC: Cache cmd:%d
+wal_coex_main.c:WAL_COEX_BT5G_HARMONIC: Callback unregistered
+wal_coex_main.c:WAL_COEX_BT5G_HARMONIC: Complete [mac0] tx:0x%x rx:0x%x
+wal_coex_main.c:WAL_COEX_BT5G_HARMONIC: Execute cmd:%d mode=%d
+wal_coex_main.c:WAL_COEX_BT5G_HARMONIC: Feature is disabled bdf=%d host=%d 
+wal_coex_main.c:WAL_COEX_BT5G_HARMONIC: Requeue cmd:%d
+wal_coex_main.c:WAL_COEX_EXIT_PSP: Error(0x%x) TX_SEND_BURST enabled (0x%x)
+wal_coex_main.c:WAL_COEX_EXIT_PSP: Exit PSP is already in progress
+wal_coex_mws.c
+wal_coex_mws.c:COEX_MWS_ENCODE_SEND: [BLER_READ_REQ] Tech:0x%x, Carrier:0x%x
+wal_coex_mws.c:COEX_MWS_ENCODE_SEND: [BLER_START_IND] Tech:0x%x
+wal_coex_mws.c:COEX_MWS_ENCODE_SEND: [BLER_STOP_IND] Tech:0x%x
+wal_coex_mws.c:COEX_MWS_ERROR: [War] WCI2 init failed..
+wal_coex_mws.c:COEX_MWS_INIT: 2G Antenna Sharing Disabled
+wal_coex_mws.c:COEX_MWS_INIT: AntShare BDF Flags = 0x%x
+wal_coex_mws.c:COEX_MWS_INIT: COEX_LTEU_ANT_CONF = %d, Switch_Based_AS = %u, Splitter_Based_AS = %u
+wal_coex_mws.c:COEX_MWS_INIT: Extractor based 2G Antenna Sharing Enabled
+wal_coex_mws.c:COEX_MWS_INIT: Switch based 2G Antenna Sharing Enabled
+wal_coex_mws.c:COEX_MWS_OTHER: CA delay timer started, interval: %d
+wal_coex_mws.c:COEX_MWS_OTHER: Conflicts bitmap: 0x%x
+wal_coex_mws.c:COEX_MWS_OTHER: INI: gMwsCoexPccChAvdDelay 0x%x
+wal_coex_mws.c:COEX_MWS_OTHER: INI: gMwsCoexSccChAvdDelay 0x%x
+wal_coex_mws.c:COEX_MWS_OTHER: [Err] LTE is not conflicting, tech = 0x%x
+wal_coex_mws.c:COEX_MWS_OTHER: [SAP_CHAVD_DEBUG] CoexFreqAvoid reported
+wal_coex_mws.c:COEX_MWS_PA_MUTE: wal_mwscoex_tx_block_req_test : wlan_id=%d
+wal_coex_mws.c:COEX_MWS_PA_MUTE: wal_mwscoex_tx_unblock_req_test : wlan_id=%d
+wal_coex_mws.c:COEX_MWS_PWB: Enter PWB always on state SINR_same: %d, old_rssi: %d, new_rssi: %d
+wal_coex_mws.c:COEX_MWS_PWB: VDEV PAUSE/UN-PAUSE: wlan: %d, client: %d, grant_type: %d, is_allowed: %d vdevid: %d
+wal_coex_mws.c:COEX_MWS_REMOTE_EVENT: CFCM Indication received
+wal_coex_mws.c:COEX_MWS_REMOTE_EVENT: [SAR] got CFG %d %dms
+wal_coex_mws.c:COEX_MWS_SAR: Calc done. reason (0x%x) measurements((0x%x,0x%x)(0x%x,0x%x))
+wal_coex_mws.c:COEX_MWS_SAR: RT-SAR: applied limit reason (%d) MIMO limits? (%d)
+wal_coex_mws.c:COEX_MWS_SAR: RTSAR averages calc done ((0x%x,0x%x),(0x%x,0x%x))
+wal_coex_mws.c:COEX_MWS_SAR: SAR registering with Modem reason (%d)
+wal_coex_mws.c:COEX_MWS_SAR: SAR_GET : index=%d, err=0x%x
+wal_coex_mws.c:COEX_MWS_SAR: [Error] Calculation of averages failed
+wal_coex_mws.c:COEX_MWS_SAR: [Error] RTSAR Averages encountered error, not returning an average
+wal_coex_mws.c:COEX_MWS_TDM: Bypass_TDM:%u, IS_MWS_INACTIVE (%u,%u), CDRx:%u, VOLTE:%u
+wal_coex_mws.c:COEX_MWS_WLAN_EVENT:  band_mac_map : 0x%x
+wal_coex_nan.c:SUPPORT_COEX_NAN20: [bt_needs_nan_ulw|coex_requested_nan_ulw|nan_sent_out_ulw](0x%03x), [NumOfNAN|NDL_2G_Active|NDL_2G_Scheduled](0x%03x) 
+wal_coex_pa.c:COEX_MWS_PA_MUTE: De-Reg Pre STM Crash Handler : Fail
+wal_coex_pa.c:COEX_MWS_PA_MUTE: De-Reg Pre STM Crash Handler : Success
+wal_coex_pa.c:COEX_MWS_PA_MUTE: Reg Pre STM Crash Handler : Fail
+wal_coex_pa.c:COEX_MWS_PA_MUTE: Reg Pre STM Crash Handler : Success
+wal_coex_pa.c:COEX_MWS_PA_MUTE: [Err] Accessing MAC in power-down state. wlan=%d, req=%d, client=%d
+wal_coex_pa.c:COEX_MWS_PA_MUTE: [Err] PA_MUTE request with client other than PA_TEST! wlan=%d, req=%d, client=%d
+wal_coex_pa.c:COEX_MWS_PA_MUTE: [Warr]:Plat_DeInit in progress, So, can not send PA_MUTE msg to PA thread
+wal_coex_pa.c:COEX_MWS_PA_MUTE: wal_coex_pa_pre_stm_crash_handler: CXM_QDI_INTF_WLAN_CRASH_IND Sent
+wal_coex_policy.c:WAL_COEX_ALGO: algo(%u) prev_algo(%u) [ftm|sep_ant|lte|nan|a2dp|hid|aptx_ll|voice](0x%08x), [ba|ant|not_conn|mpta_hlpr|force_pol](0x%05x) passive_nonlink(%u)
+wal_coex_power.c
+wal_coex_power.c:COEX_CSS_PWR: CSS power change: css_id(%u) event_id(%u)
+wal_coex_power.c:COEX_MWS_TYPE2_TX: Tx_FiFo Depth: %d
+wal_coex_power_change_cb_async
+wal_coex_qsock.c:COEX_MWS_QSOCK: CXT_init : Mutex init
+wal_coex_qsock.c:COEX_MWS_QSOCK: Host unreachable, Retried %d times
+wal_coex_qsock.c:COEX_MWS_QSOCK: cxT_De-init
+wal_coex_qsock.c:COEX_MWS_QSOCK: cxT_De-init - 5GHZ_ANT_REL IS_5G_AS:%u
+wal_coex_qsock_recv
+wal_coex_qsock_recv.c
+wal_coex_qsock_recv.c:COEX_MWS_QSOCK: CXR_init : Mutex init
+wal_coex_qsock_recv.c:COEX_MWS_QSOCK: DAL Detach failed, result 0x%x 
+wal_coex_qsock_recv.c:COEX_MWS_QSOCK: DAL_DeviceAttach Err:0x%x: DALPLATFORMINFO_TYPE_UNKNOWN
+wal_coex_qsock_recv.c:COEX_MWS_QSOCK: Failed to OPEN QSOCK, is deinit in progress:%u
+wal_coex_qsock_recv.c:COEX_MWS_QSOCK: PlatformInfo (platform:%d,ver:%d,subtype:%d,fusion:%d,family:%d)
+wal_coex_qsock_recv.c:COEX_MWS_QSOCK: QSOCK is NOT supported
+wal_coex_qsock_recv.c:COEX_MWS_QSOCK: QSOCK is supported
+wal_coex_qsock_recv.c:COEX_MWS_QSOCK: Qsock Re open fail cnt:%u
+wal_coex_qsock_recv.c:COEX_MWS_QSOCK: Qsock is closed, Re opening cnt:%u
+wal_coex_qsock_recv.c:COEX_MWS_QSOCK: Qsock re-open fail; Can't send msg
+wal_coex_qsock_recv.c:COEX_MWS_QSOCK: Qsock re-open success; trying to re-send msg
+wal_coex_qsock_recv.c:COEX_MWS_QSOCK: cxr_de-init
+wal_coex_qsock_recv.c:COEX_MWS_QSOCK: qsock_close state:%d
+wal_coex_qsock_recv.c:COEX_MWS_QSOCK: qsock_open state:%d
+wal_coex_qsock_recv.c:COEX_MWS_QSOCK: qsock_recv_fail, so close the socket : curr_state:%d
+wal_coex_qsock_sanity_check
+wal_coex_sched.c:COEX_GET_T2BT: t2bt(%u) 
+wal_coex_sched.c:COEX_TRF_FREERUN_FTM: NextIntvl(%u) SchedIntvl(%u) BtIntervalCnt(%u) WlanIntervalCnt(%u)
+wal_coex_sched.c:WAL_COEX_SCHEDULER: restore aggr
+wal_coex_sched.c:WAL_COEX_SCHEDULER: set aggr 4
+wal_coex_utils.c:WAL_COEX_GET_INTERVAL: GET: OCS_Duration(%u) OCS_Interval(%u)
+wal_coex_utils.c:WAL_COEX_GPM_RECV: [0x%x] [0x%x] timer[%u]: [BT Delay Indication]  LinkId[0x%x] Delay[%u] Pclck[0x%x]
+wal_coex_utils.c:WAL_COEX_GPM_RECV: [0x%x] [0x%x] timer[%u]: [Status query] BT bmap(0x%x) WLAN bmap(0x%x) piconet(0x%x) seqno(0x%x)
+wal_coex_utils.c:WAL_COEX_SET_INTERVAL: SET: OCS_Duration(%u) OCS_Interval(%u)
+wal_coex_wghts.c:COEX_SET_COEX_WEIGHT: wght_grp(%u) reason(%u) wlan_idle(%u) [hid_con_tx_o|bcon_tx_o|bcon_rx_o](0x%03x) prio_wlan_fc(%u) flow_ctrl(0x%x) concur_tx(%u) BcnTxPrioEn(%u)
+wal_coex_wlan.c:BTCOEX_DBG_MCI_2: tx_frame_cnt_in_period=%d
+wal_coex_wlan.c:COEX_DHCP_TMR_EXPIRED: DHCP tmr expired: DHCP flag (%d), DHCP Detected (%d) vdev_id(%d)
+wal_coex_wlan.c:COEX_MWS_ANT_DIVERSITY: is_tx_bf_allowed_by_coex %d
+wal_coex_wlan.c:WAL_COEX_VDEV_STATE: Error(0x%x) id(%u) stimulus(%u) vdev_state(0x%x) strict_dur_scan(%u) num_peers(%u) pdev(%u) chan(%u) [op|subop](0x%02x)
+wal_cold_boot_cal.c
+wal_cold_boot_cal.c:5G is not supported, hence skipping 5G Cold Boot Calibrations
+wal_cold_boot_cal.c:CBC:: Total time taken for CBC = %u us
+wal_cold_boot_cal.c:CBC:: pdev %d phy_mode %d mhz %d freq1 %d freq2 %d
+wal_cold_boot_cal.c:CBC:: phy mode %d cal duration so far %u us
+wal_cold_boot_cal.c:Cold Boot Cal, 4 second timeout: actual time taken = %d, coexFlags = %d
+wal_cold_boot_cal.c:Cold Boot Cal, 8 second timeout: actual time taken = %d, coexFlags = %d
+wal_cold_boot_cal.c:cold boot cal start
+wal_cold_boot_cal_setup
+wal_collect_report_info
+wal_concurrency.c
+wal_concurrency_staid_alloc
+wal_concurrency_staid_free
+wal_concurrency_vdev_detach
+wal_connection_block_disable
+wal_connection_block_enable
+wal_connection_pause_attach_tid
+wal_connection_pause_disable
+wal_connection_pause_enable_base
+wal_connection_pause_ps_prereqs
+wal_connection_pause_send_frames
+wal_connection_pause_tidq_hwq_empty
+wal_css_acquire_lock
+wal_css_awake_timeout_handler
+wal_css_handle_sleep_failure
+wal_css_irq_event_handler
+wal_css_release_lock
+wal_css_sm.c
+wal_css_sm.c:CSS: CSS GPIO WLAN_SW_CTRL_GPIO status after css_wakeup: %d
+wal_css_sm.c:CSS: CSS_DOWN recipe_duration: %lu
+wal_css_sm.c:CSS: CSS_UP recipe_duration: %lu
+wal_css_sm_init
+wal_css_thread_event_handler
+wal_dev_attach
+wal_dev_fatal_int_handler
+wal_disa.c
+wal_disa.c:DISA HW configuration failed!!! Status=%d
+wal_disa.c:DISA PPDU setup failed!!! Status=%d
+wal_disa.c:DISA: Invalid pdev_id
+wal_disa.c:No MEMORY for DISA frame!!!
+wal_disa.c:_wal_disa_prepare_80211_frame: QoS frame with order bit set to 1
+wal_disa.c:crc32_calc: CRC=0x%08x
+wal_disa.c:disa_frag_desc allocation failed...!!!
+wal_disa.c:disa_frm_buf allocation failed...!!!
+wal_disa.c:disa_ppdu_desc allocation failed...!!!
+wal_disa.c:tx_send_disa_frame: Seq No = 0x%x
+wal_disa.c:tx_send_disa_frame: vdev_id=%d
+wal_disa.c:wal_sw_peer_key allocation SUCCESS
+wal_disa.c:wal_sw_peer_key allocation failed...!!!
+wal_egap_proxy.c
+wal_egap_proxy.c:_wal_egap_pdev_event_handler WAL_EGAP_REG_EV_RX_PHYERR not enabled 
+wal_egap_proxy.c:_wal_egap_pdev_event_handler wal_pdev is NULL  
+wal_egap_proxy.c:_wal_egap_pdev_event_handler wal_vdev is NULL 
+wal_egap_send_msg
+wal_egap_send_ps_msg
+wal_fips_read_data
+wal_fips_select_aes_engine
+wal_fips_start_test
+wal_fips_write_data
+wal_free_cv
+wal_free_tsf
+wal_get_cv
+wal_get_hal_regcapabilities
+wal_get_mac_core_config_param
+wal_get_voltage_corner_bitmap
+wal_hw_mode_to_whal_rf_mode
+wal_hw_tracing_arbiter
+wal_hw_tracing_arbiter_msg_hdlr
+wal_hw_tracing_arbiter_wrapper
+wal_hw_tracing_phy_trc_start
+wal_hw_tracing_phy_trc_stop
+wal_local_buffer_completion_msg_handler
+wal_local_buffer_send_with_rate_msg_handler
+wal_local_data_frame_send_with_rate
+wal_local_frame_mgmt_tx_completion
+wal_local_frame_send_with_rate
+wal_local_trace
+wal_mgmt_frame_send_with_rate
+wal_mu_get_sta_user_position
+wal_mu_set_sta_group
+wal_mwscoex_asm_chmask_completed
+wal_mwscoex_init
+wal_mwscoex_remote_event
+wal_mwscoex_remote_qsocket_event
+wal_mwscoex_rt_sar_apply_limit
+wal_mwscoex_sar2_limits_update
+wal_mwscoex_sar_limits_update
+wal_nan_mac.c
+wal_nan_mac_get_current_pdev
+wal_nan_mac_set_dwcm_backoff
+wal_pdev_add_random_mac_addr
+wal_pdev_apply_chainmasks_internal
+wal_pdev_apply_chmmgr_chainmasks
+wal_pdev_pause_disable
+wal_pdev_pause_enable
+wal_pdev_pause_notify_vdev_create
+wal_pdev_resume
+wal_pdev_set_channel_power_limit
+wal_pdev_suspend
+wal_peer_alloc
+wal_peer_delete_conf_msg_hdlr
+wal_peer_delete_msg_hdlr
+wal_peer_disassoc
+wal_peer_flush_tids
+wal_peer_free
+wal_peer_get_activity_timestamp
+wal_peer_get_activity_timestamp_of_ll_frames
+wal_peer_get_activity_timestamp_per_ac
+wal_peer_get_mac_addr
+wal_peer_get_mgmt_ctrl_activity_timestamp
+wal_peer_get_vdev
+wal_peer_invalidate_ast_entry
+wal_peer_mark_temp_peer_as_bss_peer
+wal_peer_mcast_group
+wal_peer_pause_reset
+wal_peer_ptk_rekey_conn_block_cb
+wal_peer_set_key
+wal_peer_set_param
+wal_peer_tid_list_op_msg_hdlr
+wal_phy_dev_hw.c
+wal_phy_dev_hw.c:Enabling Event tracing with default configurations
+wal_phy_dev_hw.c:Invalid config for tracing, ctxts NULL
+wal_phy_dev_hw.c:Is configuration default %d
+wal_phy_dev_hw.c:Mac tracing is enabled, Tracer_type %d
+wal_phy_dev_hw.c:PHY trace is already disabled
+wal_phy_dev_hw.c:PHY tracing is disabled
+wal_phy_dev_hw.c:Phy Tracing is in progress, MAC tracing can't be enabled, cache cfg
+wal_phy_dev_hw.c:Phy tracing event is enabled, stopping MAC tracing
+wal_phy_dev_hw.c:Phy tracing not enabled, RTT running:%d
+wal_phy_dev_hw.c:TXPCU WDOG error update hang recovery type to dev_reset
+wal_phy_dev_hw.c:WAL_PDEV_SUSPEND_REQ req = %d, reason = %d, is_pdev_pause = %d, force_sync = %d, resume_inline = %d
+wal_phy_dev_hw.c:releasing antenna at pdev suspend
+wal_phy_dev_hw.c:releasing antenna pdev allready suspended
+wal_phy_dev_hw.c:wal_hw_tracing_pdev_event_handler 0x%x wal_pdev->pdev_id 0x%x power_state0x%x 
+wal_phy_dev_reset_msg_hdlr
+wal_phy_dev_set_param
+wal_phy_dev_set_power_state
+wal_pm_arbiter.c
+wal_pm_arbiter.c:%x %x %x
+wal_pm_arbiter_create_ctxt
+wal_pm_arbiter_create_instance
+wal_pm_arbiter_debug_timeout
+wal_pm_arbiter_init_mac_ctxt
+wal_pm_arbiter_is_requester_sleep
+wal_pm_arbiter_request
+wal_pm_arbiter_resolve_mac_pm_state
+wal_pm_evaluate_dtim_type
+wal_pm_get_hw_dtim_my_beacon_cnt
+wal_pm_get_requester_from_id
+wal_pm_gpio_pwr_profile
+wal_pm_handle_swdtim_pending_op
+wal_pm_imps_timer_control
+wal_pm_lock_stats holding by WAL(MAC#0) func_requested :%s
+wal_pm_power_thread_msg_handler
+wal_pm_set_param
+wal_pm_sm_init
+wal_pm_sm_state_change_request_extn
+wal_pm_state_active_entry
+wal_pm_state_hw_dtim_entry
+wal_pm_state_hw_dtim_event
+wal_pm_state_imps_entry
+wal_pm_state_init_event
+wal_pm_wdog_intr_hdlr
+wal_pm_wmac_attach
+wal_pm_wmac_get_target_sw_wakeup_time
+wal_pm_wmac_mac_bottoms_up_interrupt
+wal_pm_wmac_reeval_timer_control
+wal_pm_wmac_request_exit_hw_dtim_awake
+wal_pm_wmac_set_target_sw_wakeup_time
+wal_pm_wmac_validate_imps_entry
+wal_pm_wmac_validate_sleep_entry
+wal_pop_cv
+wal_power_debug.c
+wal_power_debug.c:Invalid args: provide correct arguments,num_args should be 5 and pdev_id should be 0
+wal_power_debug.c:Invalid augument for MAC Tracer type -- %d
+wal_power_debug.c:Invalid pdev, pdev is NULL
+wal_power_debug.c:WAL_RA_DBG_CMDID_CONFIG Cmd %d Opcode %d Value %d
+wal_power_debug.c:mac_tracer->Tracer_type -- %d
+wal_power_debug.c:phy tracer request %d is for MAC ID should be zero
+wal_power_debug.c:phy tracer request %d is for MAC%d
+wal_power_debug.c:tracer FAILED : provide correct arguments
+wal_power_debug_cce_cmd
+wal_power_debug_cce_counter
+wal_power_debug_change_config
+wal_power_debug_conf_ebt_cnt_thres
+wal_power_debug_dtim_rf_chain_ctrl_cmd
+wal_power_debug_dtim_synth_cmd
+wal_power_debug_force_swdtim_cmd
+wal_power_debug_high_chain_imbalance_1ch_dtim_cmd
+wal_power_debug_hwdtim_cmd
+wal_power_debug_imps_cmd
+wal_power_debug_mac_fast_wake_cmd
+wal_power_debug_mac_sim_rogue_ap_cmd
+wal_power_debug_nap_rssi_cmd
+wal_power_debug_phy_tracer_cmd
+wal_power_debug_trigger_crash_cmd
+wal_powersave_ap.c
+wal_powersave_buf_peer_sm.c
+wal_powersave_sta.c
+wal_powersave_sta.c:wal_ps_sta_disable_cck_blocker: disable = %d
+wal_powersave_sta.c:wal_ps_sta_get_cck_blkr_param: cck_blocker_cfg_enable = %d num_bcn_wait = %d,  num_sequence = %d total_obs_time = %d
+wal_powersave_sta.c:wal_ps_sta_set_cck_blkr_war_enable_flag: enable = %d 
+wal_ps_sta_disable_cck_blocker
+wal_ps_sta_get_next_tbtt
+wal_ps_sta_send_sta_twt_early_term_msg
+wal_push_cv
+wal_rc.c
+wal_rc.c:Invalid RC Entry:nss=%x and pdev_max_nss=%x
+wal_rc.c:RC_QUERY:%d %d %d 0x%x
+wal_rc.c:RC_SECONDARY : HT/VHT case ter_rc %x num_rates %d peer_rc_sched 20Mhz rix %d 40Mhz rix %d 80Mhz rix %d 160Mhz rix %d
+wal_rc.c:RC_SECONDARY : RA 20Mhz rate is OFDM Rix %d, secondary Rix will be %d
+wal_rc.c:RC_SECONDARY : tid_num %d, sw_retry %d t_retry_en %d tid_flags 0x%x 20Mhz rix %d
+wal_rc.c:RC_SECONDARY : tid_num %d, sw_retry_failure %d, secondary_rix %d RC 0x%x
+wal_rc.c:RC_SECONDARY:rc 0x%x(%d %d %d 0x%x 0x%x) mcs(%d %d)
+wal_rc.c:SEC_RC : RA 20Mhz rate is CCK Rix %d, secondary Rix will be %d
+wal_rc.c:SEC_RC : SRF_n %d RA 20Mhz rate is CCK Rix %d, min_legacy_rix %d secondary Rix will be %d
+wal_rc.c:SEC_RC : dbgRixSelected %x dbgRixSelected1 = %x rix %x
+wal_rc.c:WHAL_RC_FLAG_TXBF enabled for that BW
+wal_rc.c:final wlan_rc_pdev_enable_disable_cck_allowed:pdev_id:%d rc_cck_rate_allowed = 0x%x rc_legacy_mask = 0x%x final_rc_legacy_mask 0x%x 0x%x 
+wal_rc.c:wlan_rc_pdev_enable_disable_cck_allowed: pdev_id=%d rc_cck_rate_allowed = 0x%x rc_legacy_mask = 0x%x
+wal_rc_enable_dyn_bw
+wal_rc_generate_dd_ctrl
+wal_rc_get_num_spatial_stream_supported_by_bandwidth
+wal_rc_get_pdev_tx_chainmask_4_rc
+wal_rc_init_vdev_rc_params
+wal_rc_limit_vdev_aggr_dur
+wal_rc_pdev_enable_disable_cck_allowed
+wal_rc_peer_get_non_data_rc
+wal_rc_peer_set_non_data_rc
+wal_rc_peer_setup_rate_sched
+wal_rc_query_rate_info
+wal_rc_query_secondary_rate_info
+wal_rc_query_seq_bandwidth
+wal_rc_selfgen_rate_query
+wal_rc_set_rate_sched
+wal_rc_set_vdev_selfgen_ctrl_rc
+wal_reallocate_tsf
+wal_report_type2_collect_report_info
+wal_report_type2_per_peer_report_buff_init
+wal_rfactrl_err_hdlr
+wal_rmc.c
+wal_rmc_deliver_event
+wal_rtt.c
+wal_rtt_attach
+wal_rtt_get_rx_ind_msg_buf
+wal_rtt_init
+wal_rtt_mt_cb
+wal_rtt_pre_to_whal_rtt_pre
+wal_rtt_rx_get_available_hwtlv_buf_ptr
+wal_rtt_should_enable_ht_vht_ack
+wal_rtt_tx_ppdu_done
+wal_rtt_wmac_sleep_event_handler
+wal_rx_enable_lro
+wal_rx_get_ppdu_mu_rate
+wal_rx_handle_pcu_ovfl_err
+wal_rx_reset_mcast_filter_mac_addr_hash
+wal_rx_ring_buf_addr
+wal_rx_ring_proc_msg_handler
+wal_rx_ring_reque_buffers
+wal_rx_ring_reque_msg_hdlr
+wal_rx_ring_setup
+wal_rx_send_plog_rxbuff
+wal_rx_set_mcast_filter_mac_addr_hash
+wal_rx_setup_for_offload
+wal_rx_setup_monitor_mode
+wal_secondary_rate_dd_retry_start_attempt
+wal_set_allbcn_filter
+wal_set_bss_associd
+wal_set_pdev_param
+wal_set_probe_req_filter
+wal_set_probe_resp_filter
+wal_set_public_action_frame_filter
+wal_soc_attach
+wal_soc_dev_hw.c
+wal_soc_dev_hw.c:%x %x %x
+wal_soc_dev_hw.c:MacAndRfReset recipe aborted
+wal_soc_dev_hw.c:PDEV_RESET (pdev=%d)
+wal_soc_dev_hw.c:PDEV_RESET (pdev=%d): reset end-rx=%d,tx=%d
+wal_soc_dev_hw.c:mac_rf_reset: mode=%x,c0=%lx,c1=%lx,inprog=%d,dis=%d,en=%x
+wal_soc_dev_hw.c:pdev %d reset abort in_progress %x
+wal_soc_dev_hw.c:pdev state: %d
+wal_soc_dev_hw.c:pdev state: %d 
+wal_soc_fast_wake_request
+wal_soc_get_pdev_handle
+wal_soc_get_vdev_by_id
+wal_soc_init_rx_reoder_pool
+wal_soc_pkt_info_alloc_agg_buf
+wal_soc_pkt_info_flush_aggregate_per_node
+wal_soc_pkt_info_get_agg_node
+wal_soc_pkt_info_run_algo
+wal_soc_remove_vdev
+wal_soc_rf_reset
+wal_soc_rx_remote_ring_buffer_stats
+wal_soc_rx_reorder_stats
+wal_soc_store_vdev
+wal_soc_switch_mode
+wal_spectral_scan_configure
+wal_spectral_scan_enable
+wal_spm.c
+wal_spm.c:_wal_spm_steady_state_notify :DEBUG requested steady_state:%d old state:%d new applied agg state: %d mac id: %d mac state %d
+wal_spm.c:_wal_spm_transient_state_req :DEBUG scenario_e:%d priority:%d start:%d
+wal_spm.c:_wal_spm_update_latency op_mode%d
+wal_spm.c:wal_spm_cm_fc_handler : level: %d thread id: %d
+wal_spm.c:wal_spm_deliver_event : event received : 0x%x steady state: %d cmd: %d
+wal_spm.c:wal_spm_deliver_event :DEBUG applied_steady_state:%d agg state: %d state_info:%d
+wal_spm.c:wal_spm_vbatt_update : ccpm_request_wlan_pwr failed with error code: %d
+wal_spm_deliver_event
+wal_sr_wakeup_dsr
+wal_sr_wakeup_force_wake_handler
+wal_sr_wakeup_notify_register
+wal_sw_dtim.c:%x %x %x
+wal_sw_dtim_vdev_sm.c:%x %x %x
+wal_sw_dtim_wmac_sm.c:%x %x %x
+wal_sw_dtim_wmac_state_sleep_doze_entry
+wal_sw_dtim_wmac_validate_swdtim_entry
+wal_swba.c
+wal_swba_get_next_vdev_id
+wal_swba_get_vdevs_for_burst
+wal_swba_init
+wal_swba_intr_callback
+wal_swba_set_and_fire
+wal_tdls_psoc_init
+wal_tdls_vattach
+wal_tsf_sanity_check
+wal_tt.c:WAL_CURR_TEMP chain no = %d temp = %d degC
+wal_tx_common.c
+wal_tx_common.c: MAX AGG retries reached %d, tid_num:%d, non_agg_sw_retry_failure %d set BAR 
+wal_tx_common.c:%x %x %x
+wal_tx_common.c:WAL_DBGID_STA_KICKOUT: KICKOUT_REASON_NULL_PER_CHECK_FAILURE_TH null_per= %d% wake_per= %d% null_fail_count= 0x%x, null_pass_count= 0x%x cumulative_wake_time_ps_sta_ms= 0x%x , null_per_stats_start_time = 0x%x, curr_time= 0x%x 
+wal_tx_common.c:pdev=%d vdev=%d peer=0x%x consecutive_failure:%d cur_time:%x elapsed_ppdu_fail_time:%x
+wal_tx_common.c:pdev_vdev_id=0x%x, peer=0x%x,tid=0x%x (flags=0x%x), consecutive failure=%d, kickout thresh=%d rate_code=0x%x, tsRate flags=0x%x, ppdu_mprot_type:%d
+wal_tx_common.c:prev_flags:%x cur_flags:%x tid_retryfailure:%x vdevtype:%x
+wal_tx_common.c:tid sw_retry_failure=%d, non_agg_sw_retry_failure=%d
+wal_tx_common.c:tpc:%d rc_extended_flags=0x%x sch_cmd_result:0x%x flush_reason:0x%xfes_sched_try:0x%x fes_result:0x%x tsFlags:0x%x tsAttempts:%d 
+wal_tx_common.c:wal_peer_wow_null_per_stats_update: stats_start_time = 0x%x null_success = %d, null_fail = %d, cumulative_wake_time_ps_sta_ms = %d 
+wal_tx_de_cache_invalidation_check
+wal_tx_de_ctxt_attach
+wal_tx_de_ctxt_detach
+wal_tx_de_setup_dscp_mapping
+wal_tx_flow_ctrl_create_flow
+wal_tx_flow_ctrl_delete_flow
+wal_tx_flow_ctrl_get_flow_info
+wal_tx_flow_ctrl_install_pool_map_buf_req
+wal_tx_flow_ctrl_install_pool_map_ind
+wal_tx_flow_ctrl_install_pool_unmap_buf_req
+wal_tx_flow_ctrl_install_pool_unmap_ind
+wal_tx_flow_ctrl_send_flow_ctrl_msg
+wal_tx_flow_ctrl_start_flow
+wal_tx_flow_ctrl_stop_flow
+wal_tx_flush_complete_msg_hdlr
+wal_tx_flush_msg_hdlr
+wal_tx_flush_peer_free
+wal_tx_flush_peer_init
+wal_tx_flush_tid_free
+wal_tx_flush_tid_init
+wal_tx_flush_vdev_free
+wal_tx_flush_vdev_init
+wal_tx_pause_check_pending_pdev_cmd_completions
+wal_tx_pause_check_pending_vdev_cmd_completions
+wal_tx_pause_rsp_handler
+wal_tx_send_check_tx_ppdu_fail_threshold
+wal_tx_send_halphy_ppdu
+wal_tx_send_set_burst_mode
+wal_tx_send_update_wmm_params
+wal_txbf_update_txbfee_filter
+wal_txbfee_set_gid_userpos
+wal_vdev_add_packet_filter
+wal_vdev_beacon_handler
+wal_vdev_bmiss_int_handler1
+wal_vdev_bmiss_int_handler2
+wal_vdev_clear_all_packet_filter
+wal_vdev_clear_packet_filter
+wal_vdev_detach
+wal_vdev_enable_mcast_mac_addr_hash
+wal_vdev_flush_tids
+wal_vdev_get_tsf32
+wal_vdev_get_tsf64
+wal_vdev_hwbmiss_defer_timer
+wal_vdev_is_filter_installed
+wal_vdev_is_tid_paused
+wal_vdev_migrate
+wal_vdev_migrate_bring_up
+wal_vdev_migrate_tear_down
+wal_vdev_migrate_tids
+wal_vdev_migration_sync_msg_handler
+wal_vdev_packet_filter_handle_vdev_migration_event
+wal_vdev_packet_filter_install_vdev_migration_event_handler
+wal_vdev_pause_disable
+wal_vdev_pause_enable
+wal_vdev_pause_reset
+wal_vdev_peer_add_del_event_handler
+wal_vdev_peer_tx_fail_cnt_thres_exceeded_event_handler
+wal_vdev_pre_migrate
+wal_vdev_reallocate_notify
+wal_vdev_rebind
+wal_vdev_reconfig
+wal_vdev_restore_mac
+wal_vdev_rx_per_ac_stats
+wal_vdev_set_mac_addr
+wal_vdev_set_spoofed_mac_addr
+wal_vdev_setup_brssi_interrupts
+wal_vdev_stop
+wal_vdev_tx_per_ac_stats
+wal_vdev_update_snr
+wal_vdev_update_snr_per_chain
+wal_wdcvs.c:_wal_wdcvs_tdm_notification mac:%d: state %x
+wal_wmac_pm.c
+wal_wmac_pm.c:#### SM RECORDER DUMP Start PHY:%d ####### 
+wal_wmac_pm.c:TRC: 0x%08x LOW: 0x%08x HIGH: 0x%08x
+wal_wmm.c
+wal_wmm.c:WMMAC_USED_TIME_EXCEED: used=%d admitted=%d tx_sts=%d wmmac_q=%d
+wal_wmm_params_peer_handle_alloc
+wal_wmm_params_peer_handle_free
+wal_wmmac_process_tx_complete
+wal_wmmac_remap_txq
+wal_wmmac_update
+wal_wmmac_update_hdlr
+wal_wmmac_update_used_time
+wcn3950_rfa_config.c:TEMPSEN::: read Total time (us)  :%d
+wcn3950_rfa_efuse.c:Comanche RF card WCN3910
+wcn3950_rfa_efuse.c:Comanche RF card WCN3930
+wcn3950_rfa_efuse.c:Efuse Cache pointer not initialized
+wcn3950_rfa_efuse.c:Efuse Content Already Cached
+wcn3950_rfa_efuse.c:Error: buffer is out of bounds. offset = 0x%x, data = 0x%x
+wcn3950_rfa_efuse.c:OTP Byte-38 value: 0x%x, OTP Byte-10 value: 0x%x 
+wcn3950_rfa_efuse.c:Warning: Unknown RF Chip
+wcn3950_rfa_fem_ctrl.c:pabiasTrim offset overflow
+wcn3950_rfa_fem_ctrl.c:pabiasTrim0 %d pabiasTrimOffset_0 %d
+wcn3950_rfa_tpc.c:&&&&&&&&&&&&&&&&&&&&&&&& bias Ctrl before %x after %x &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+wcn3950_rfa_tpc.c:Setting CLPC_START_OFDM = %x
+wcn3950_rfa_tpc.c:WL_TPC_PDADC_DATA, PDADC_DATA = %x
+wcn3950_rfa_tpc.c:WL_TPC_TPC_BE_CAL_RESULT_0, DCOC_DAC1_HI_CAL_CH0 = %x
+wcn3950_rfa_tpc.c:WL_TPC_TPC_BE_CAL_RESULT_0, DCOC_DAC1_LO_CAL_CH0 = %x
+wcn3950_rfa_tpc.c:WL_TPC_TPC_BE_CAL_RESULT_0, TPC_CAL_VALID_HI_CH0 = %x
+wcn3950_rfa_tpc.c:WL_TPC_TPC_BE_CAL_RESULT_0, TPC_CAL_VALID_LO_CH0 = %x
+wcn3950_rfa_tpc.c:tiaLoGain = %d
+wcn39x0_rfa_btcoex.c:Changed WSI Clk Frequency to 30Mhz
+wcn39x0_rfa_config.c:RFA bkp reg read, ldo_ovr_ctrl_0_bkp: 0x%08x, ldo_config_2_bkp: 0x%08x, ldo_config_7_bkp: 0x%08x, clkgen_clk_en_bkp: 0x%08x
+wcn39x0_rfa_config.c:RFA bkp reg write, ldo_ovr_ctrl_0_bkp: 0x%08x, ldo_config_2_bkp: 0x%08x, ldo_config_7_bkp: 0x%08x, clkgen_clk_en_bkp: 0x%08x
+wcn39x0_rfa_config.c:TEMPSEN::: read Total time (us)  :%d
+wcn39x0_rfa_config.c:halphy_rfa_config_device_WLReset  %x
+wcn39x0_rfa_config.c:halphy_rfa_config_device_WLReset %x
+wcn39x0_rfa_config.c:halphy_rfa_config_device_WLReset writing %x
+wcn39x0_rfa_efuse.c: Write Cal Data To OTP FLAGS : %d
+wcn39x0_rfa_efuse.c: section ID %d offset 2G: %d 5G: %d
+wcn39x0_rfa_efuse.c:Efuse Cache Read Again efusereadnum: %d, wlan_mode: %d
+wcn39x0_rfa_efuse.c:Efuse Cache pointer not initialized
+wcn39x0_rfa_efuse.c:Efuse Content Already Cached
+wcn39x0_rfa_efuse.c:Error: buffer is out of bounds. offset = 0x%x, data = 0x%x
+wcn39x0_rfa_efuse.c:WCN39X0_CHIP_CHEROKEE_30_FCBGA found
+wcn39x0_rfa_efuse.c:WCN39X0_CHIP_CHEROKEE_30_WLP found
+wcn39x0_rfa_efuse.c:WCN39X0_CHIP_CHEROKEE_31_FCBGA found
+wcn39x0_rfa_efuse.c:WCN39X0_CHIP_CHEROKEE_31_WLP found
+wcn39x0_rfa_efuse.c:Warning: Unknown Apache RF Chip 0x%x
+wcn39x0_rfa_efuse.c:Warning: Unknown Cherokee RF Chip 0x%x
+wcn39x0_rfa_fem_ctrl.c:ANT_SW:: RTS_MODE = %d, CTS_MODE = %d, RTS_OUT = %d, CTS_OUT = %d 
+wcn39x0_rfa_fem_ctrl.c:ANT_SW:: RXD_MODE = %d, TXD_MODE = %d, RXD_OUT = %d, TXD_OUT = %d 
+wcn39x0_rfa_fem_ctrl.c:Overwrite xFem with BT XPA HGAIN %d, LGAIN %d
+wcn39x0_rfa_fem_ctrl.c:halphy_rfa_fem_ctrl_device_EnableWlanAS After setting AON_XFEM_GPO_CFG = 0x%08x 
+wcn39x0_rfa_fem_ctrl.c:halphy_rfa_fem_ctrl_device_EnableWlanAS After setting AON_XFEM_PIN_CFG0.XFEM_PIN_CFG_1 = 0x%08x 
+wcn39x0_rfa_fem_ctrl.c:halphy_rfa_fem_ctrl_device_EnableWlanAS After setting AON_XFEM_PIN_CFG1.XFEM_PIN_CFG_5 = 0x%08x 
+wcn39x0_rfa_fem_ctrl.c:halphy_rfa_fem_ctrl_device_EnableWlanAS Before setting AON_XFEM_GPO_CFG = 0x%08x 
+wcn39x0_rfa_fem_ctrl.c:halphy_rfa_fem_ctrl_device_EnableWlanAS Before setting AON_XFEM_PIN_CFG0.XFEM_PIN_CFG_1 = 0x%08x 
+wcn39x0_rfa_fem_ctrl.c:halphy_rfa_fem_ctrl_device_EnableWlanAS Before setting AON_XFEM_PIN_CFG1.XFEM_PIN_CFG_5 = 0x%08x 
+wcn39x0_rfa_tpc.c:&&&&&&&&&&&&&&&&&&&&&&&& bias Ctrl before %x after %x &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+wcn39x0_rfa_tpc.c:TPC_DBG:: TPC_INTERLEAVE = %d
+wcn39x0_rfa_tpc.c:TPC_DBG:: TPC_RESULT chain 0: PWR_CH0 = %d	 PWR_VALID_CH0 = %d
+wcn39x0_rfa_tpc.c:TPC_DBG:: TPC_RESULT chain 1: PWR_CH1 = %d	 PWR_VALID_CH1 = %d
+wcn39x0_rfa_tpc.c:TPC_DBG:: WL_TPC_TPC_CFG_2 = 0x%08x
+wcn39x0_rfa_tpc.c:TPC_DBG:: WL_TPC_TPC_CFG_3: 0x%08x	 TPC_MIN_POWER_DELTA_CH0_WITH_CH0BT = %d	 TPC_MIN_POWER_DELTA_CH0_WITH_CH2BT = %d	 TPC_MIN_POWER_DELTA_CH1 = %d
+wcn39x0_rfa_tpc.c:TPC_DBG:: WL_TPC_TPC_FB_12_STAT_B0: 0x%08x	 PDACC_AVG_OUT_0 0x%x  LATEST_DC_VALUE_0 0x%x  FULL_PKT_AVG_OUT_0 0x%x
+wcn39x0_rfa_tpc.c:TPC_DBG:: WSI0_PARITY_ERR_COUNT = %d	 WSI0_CMD_ABORTED_COUNT = %d
+wcn39x0_rfa_tpc.c:TPC_DBG:: WSI1_PARITY_ERR_COUNT = %d	 WSI1_CMD_ABORTED_COUNT = %d
+wcn39x0_rfa_tpc.c:TPC_DBG:: chain 0: WSI0_TPC_ATTEN %d	 WSI0_RFFE_CFG  %d	 WSI0_TX_BBF_GAIN_PGAI %d	 WSI0_TX_BBF_GAIN_PGAO %d	 WSI0_TX_UPC_CTRL %d	 WSI0_CLPC_PKT_TYPE %d
+wcn39x0_rfa_tpc.c:TPC_DBG:: chain 1: WSI1_TPC_ATTEN %d	 WSI1_RFFE_CFG  %d	 WSI1_TX_BBF_GAIN_PGAI %d	 WSI1_TX_BBF_GAIN_PGAO %d	 WSI1_TX_UPC_CTRL %d	 WSI1_CLPC_PKT_TYPE %d
+wcn39x0_rfa_tpc.c:tiaLoGain = %d
+wdi_ipa.c:buf_len:%d is greater than msg length:%d
+wdi_ipa_rx.c:********** WDI IPA RX STATS **********
+wdi_ipa_rx.c:<= 100ms : %d
+wdi_ipa_rx.c:<= 10ms : %d
+wdi_ipa_rx.c:<= 128 : %d
+wdi_ipa_rx.c:<= 16 : %d
+wdi_ipa_rx.c:<= 1ms : %d
+wdi_ipa_rx.c:<= 1s : %d
+wdi_ipa_rx.c:<= 256 : %d
+wdi_ipa_rx.c:<= 300ms : %d
+wdi_ipa_rx.c:<= 30ms : %d
+wdi_ipa_rx.c:<= 32 : %d
+wdi_ipa_rx.c:<= 3ms : %d
+wdi_ipa_rx.c:<= 3s : %d
+wdi_ipa_rx.c:<= 4 : %d
+wdi_ipa_rx.c:<= 500ms : %d
+wdi_ipa_rx.c:<= 50ms : %d
+wdi_ipa_rx.c:<= 5ms : %d
+wdi_ipa_rx.c:<= 5s : %d
+wdi_ipa_rx.c:<= 64 : %d
+wdi_ipa_rx.c:<= 8 : %d
+wdi_ipa_rx.c:== 1 : %d
+wdi_ipa_rx.c:> 256 : %d
+wdi_ipa_rx.c:> 5s : %d
+wdi_ipa_rx.c:Doorbell succ/fail/nowr : %d,%d,%d
+wdi_ipa_rx.c:Drop (on ring full) BIN (time-based)
+wdi_ipa_rx.c:Drop (on ring full) start timestamp : 0x%x
+wdi_ipa_rx.c:Drop MSDU statistics (ring full/MSDU limit/qheap full) : %d,%d,%d
+wdi_ipa_rx.c:Drop statistics (ring full/MSDU limit/qheap full) : %d,%d,%d
+wdi_ipa_rx.c:Indications triggered on timeout : %d
+wdi_ipa_rx.c:MSDUs forwarded : %d
+wdi_ipa_rx.c:Msg copy failures : %d,%d,%d
+wdi_ipa_rx.c:Msg copy successes : %d,%d,%d
+wdi_ipa_rx.c:RX indication BIN (elements-based)
+wdi_ipa_rx.c:RX indications realloc count : %d
+wdi_ipa_tx.c:********** WDI IPA TX STATS **********
+wdi_ipa_tx.c:<= 100ms : %d
+wdi_ipa_tx.c:<= 10ms : %d
+wdi_ipa_tx.c:<= 128 : %d
+wdi_ipa_tx.c:<= 16 : %d
+wdi_ipa_tx.c:<= 1ms : %d
+wdi_ipa_tx.c:<= 1s : %d
+wdi_ipa_tx.c:<= 256 : %d
+wdi_ipa_tx.c:<= 300ms : %d
+wdi_ipa_tx.c:<= 30ms : %d
+wdi_ipa_tx.c:<= 32 : %d
+wdi_ipa_tx.c:<= 3ms : %d
+wdi_ipa_tx.c:<= 3s : %d
+wdi_ipa_tx.c:<= 4 : %d
+wdi_ipa_tx.c:<= 500ms : %d
+wdi_ipa_tx.c:<= 50ms : %d
+wdi_ipa_tx.c:<= 5ms : %d
+wdi_ipa_tx.c:<= 5s : %d
+wdi_ipa_tx.c:<= 64 : %d
+wdi_ipa_tx.c:<= 8 : %d
+wdi_ipa_tx.c:== 1 : %d
+wdi_ipa_tx.c:> 256 : %d
+wdi_ipa_tx.c:> 5s : %d
+wdi_ipa_tx.c:Completion BIN (elements-based)
+wdi_ipa_tx.c:Completion BIN (time-based)
+wdi_ipa_tx.c:Doorbell succ/fail/nowr : %d,%d,%d
+wdi_ipa_tx.c:Indications triggered on timeout : %d
+wdi_ipa_tx.c:Last completion timestamp : 0x%x
+wdi_ipa_tx.c:MSDUs COMPLETED : %d
+wdi_ipa_tx.c:MSDUs ENQUEUED : %d
+wdi_ipa_tx.c:Msg copy failures : %d,%d,%d
+wdi_ipa_tx.c:Msg copy successes : %d,%d,%d
+wdi_ipa_tx_comp_ind
+wdi_ipa_tx_dma_comp_cb
+whalSetCoexWaitBeaconStatus
+whalSetStaBeaconTimers
+whal_beacon.c
+whal_coex.c:COEX_MODIFY_WSI_CLK: WSI clk set to 30Mhz
+whal_coex.c:COEX_MWS_PA_MUTE: Invalide wlan_id:%d
+whal_coex_cal.c:COEX_WLAN_CAL_RESULT: WlanCalState(0x%x)
+whal_coex_cal.c:COEX_WLAN_CAL_START: BtMciState(0x%x) HsReqired(%u) BtCalState(0x%x)
+whal_coex_gpm.c:ERROR_COEX_MCI_GPM: AnyMacPowerUp (%u) IsMCIBusPaused (%u), whal_mci_get_sleep_state(%u), SleepOverride(%u), IsMciHWBusy(%u) IsMciInitComplete(%u) MCIBasicSyncError(%u) whal_mci_get_wsi_state(%u)
+whal_coex_gpm.c:WHAL_MCI_GPM_SENT: GPM Sent [0x%x] -  CAL REQ
+whal_coex_gpm.c:WHAL_MCI_GPM_SENT: [0x%x] - CAL DONE
+whal_coex_gpm.c:WHAL_MCI_GPM_SENT: [0x%x] - CAL GRANT
+whal_coex_gpm.c:WHAL_MCI_GPM_SENT: [0x%x] [0x%x] - BT Update flags : Opcode(0x%x) BT Flags(0x%x)
+whal_coex_gpm.c:WHAL_MCI_GPM_SENT: [0x%x] [0x%x] - Disable BT GPM : State(0x%x)
+whal_coex_gpm.c:WHAL_MCI_GPM_SENT: [0x%x] [0x%x] - Query BT RXSS Minimum Threshold
+whal_coex_gpm.c:WHAL_MCI_GPM_SENT: [0x%x] [0x%x] - Sched info trigger : TriggerEnaNum(0x%x) TriggerType(0x%x) LowerBound(0x%x) UpperBound(0x%x)
+whal_coex_gpm.c:WHAL_MCI_GPM_SENT: [0x%x] [0x%x] - Send priority config : Op(0x%x) Priority(0x%x) IsRead(0x%x)
+whal_coex_gpm.c:WHAL_MCI_GPM_SENT: [0x%x] [0x%x] - Set BT RXSS Minimum Threshold : Threshold(0x%x)
+whal_coex_gpm.c:WHAL_MCI_GPM_SENT: [0x%x] [0x%x] - WLAN Version resp. : Major(0x%x) Minor(0x%x)
+whal_coex_gpm.c:WHAL_MCI_GPM_SENT: [0x%x] [0x%x] - WLAN set ACL Inactivity Report : InactivityThresh(0x%x) LinkID(0x%x)
+whal_coex_gpm.c:WHAL_MCI_GPM_SENT: [0x%x] [0x%x]- Status Query : WLAN QueryType(0x%x) Source 0x%x
+whal_coex_gpm.c:WHAL_MCI_GPM_SENT: [0x%x] [0x%x]- Version query
+whal_coex_gpm.c:WHAL_MCI_GPM_SENT: [0x%x] [0x%x]- WLAN Conn Status Report : chain0_5g(0x%x) chain0_2g(0x%x) chain1_5g(0x%x) chain1_2g(0x%x) operating_mode(0x%x)
+whal_coex_gpm.c:WHAL_MCI_GPM_SENT: [0x%x] [0x%x]- WLAN Unused channels : 0x%x 0x%x 0x%x 0x%x 0x%x
+whal_coex_mcim.c:COEX_MCI_ISR_IntRaw: COEX Fatal error: MCI_ISR_IntRaw
+whal_coex_recipes.c:BTCOEX_DBG_MCI_2: Trying to power up, WSI Sync in failure state 
+whal_coex_recipes.c:BTCOEX_DBG_MCI_2: _whal_mci_powerup Power up WLAN1, and band is %dG
+whal_coex_recipes.c:COEX_POWER_CHANGE: MCI_POWERUP_ERROR: Recovering by setting MCIE_ERROR_CLEAR
+whal_coex_recipes.c:COEX_POWER_CHANGE: MCI_POWERUP_ERROR: [Err]power-up failed
+whal_coex_recipes.c:COEX_POWER_CHANGE: [Err] PDG_ENABLE_COEX_TX failed, mac_power_mode: %d
+whal_coex_recipes.c:COEX_POWER_CHANGE: pwr down failure result = %d pmh_shutdown = %d pmh_powerdown %d
+whal_coex_smh.c:ERROR_COEX_MCI_GPM: Reg dumps for SMH-GAMX_AHB_ERR_ADDR = 0x%08x, BMH-TRC_CTRL.Testbus_select = 0x%08x,                                                             SMH-TRC_SELECT.Testbus_sel = 0x%08x
+whal_css_recipe.c:WCSS_CLK_CTRL_REG_WCSS_CSS_CFG_GDSCR GDSC_POWER_UP_COMPLETE %x
+whal_css_recipe.c:WHAL-CSS: __whal_css_power_off: wlan1_gdscr:0x%x
+whal_css_recipe.c:poll WCSS_CLK_CTRL_REG_WCSS_CSS_GDSCR GDSC_POWER_DOWN_COMPLETE FAILED
+whal_css_recipe.c:poll WCSS_CLK_CTRL_REG_WCSS_CSS_GDSCR PWR_ON failed
+whal_css_recipe.c:poll WCSS_CLK_CTRL_REG_WCSS_CSS_GDSCR PWR_ON success
+whal_debug.c:######MAC TRACE DUMP END######
+whal_debug.c:######MAC TRACE DUMP START######
+whal_debug.c:CRYPTO_TRACER_LOG: mac(%d), tbus_index(0x%x), dbg_select(0x%x), trace(0x%x,0x%x)
+whal_debug.c:MAC_TRC STATUS20: 0x%08x STATUS_3:0x%08x 
+whal_debug.c:MAC_TRC STATUS_0: 0x%08x STATUS_1:0x%08x 
+whal_debug.c:MXI halt-ack complete, poll_cnt 0x%x
+whal_debug.c:MXI halt-ack not complete, poll_cnt 0x%x
+whal_debug.c:PDG_TRACER_LOG: mac(%d), tbus_index(0x%x), dbg_select(0x%x), trace(0x%x,0x%x)
+whal_debug.c:RXDMA_TRACER_LOG: mac(%d), tbus_index(0x%x), dbg_select(0x%x), trace(0x%x)
+whal_debug.c:RXOLE_TRACER_LOG: mac(%d), tbus_index(0x%x), dbg_select(0x%x), trace(0x%x)
+whal_debug.c:RXPCU_TRACER_LOG: mac(%d), tbus_index(0x%x), dbg_select(0x%x), trace(0x%x)
+whal_debug.c:TRC: 0x%08x LOW: 0x%08x HIGH: 0x%08x MemoryLocation: 0x%08x 
+whal_debug.c:TXDMA_TRACER_LOG: mac(%d), tbus_index(0x%x), dbg_select(0x%x), trace(0x%x,0x%x)
+whal_debug.c:TXOLE_TRACER_LOG: mac(%d), tbus_index(0x%x), dbg_select(0x%x), trace(0x%x)
+whal_debug.c:TXPCU_TRACER_LOG: mac(%d), tbus_index(0x%x), dbg_select(0x%x), trace(0x%x,0x%x)
+whal_debug.c:WCMN_REG_TESTBUS_PMM: css_gdscr: 0x%x  dbg_gdscr: 0x%x  wlan_gdscr: 0x%x  pmm_sr_lsb: 0x%x  pmm_pmu_cx_csr: 0x%x  wlan_status: 0x%x
+whal_debug.c:WCMN_REG_TESTBUS_PMM: debug_trace(0x%x,0x%x)
+whal_hwsch.c:MACID=%d-r0=%x,r1=%x hwsch_check_hang(reason=%d): WHAL_HWSCH_STUCK_IN WAIT_STATE ring=%d
+whal_hwsch.c:MACID=%d-r0=%x,r1=%x hwsch_check_hang(reason=%d): ring=%d no stuck
+whal_hwsch.c:MACID=%d-r0=%x,r1=%x hwsch_check_hang(reason=%d): ring_index=%d dbg_sel=0x%x,upper=0x%x, lower=0x%x
+whal_hwsch.c:MACID=%d-r0=%x,r1=%x hwsch_recover_hang(WHAL_HWSCH_HANG_ON_TXPCU_WAIT): ring=%d
+whal_hwsch.c:MACID=%d-r0=%x,r1=%x hwsch_recover_hang: hang_reason= %d ring=%d
+whal_mac_rri.c:whal_mac_rri_table_update_write_only_config called
+whal_mci.c:COEX_POWER_CHANGE: MCI_POWERUP_STATUS: resutl =  %d PMH_DEBUG_STATES = %d
+whal_mws_clk.c:COEX_MWS_CLK: [Warr]:whal_mws_clk_latch called when CSS is Down
+whal_mws_debug.c:COEX_MWS_PA_MUTE: [Info]:whal_mws_reg_dump called when CSS is Down
+whal_mws_debug.c:COEX_MWS_TYPE2_TX: **** LCMH:TYPE_0_TRANSMIT_MESSAGE[0x%x]
+whal_mws_debug.c:COEX_MWS_TYPE2_TX: BMH.TBSel:0x%x --> 0x%x
+whal_mws_debug.c:COEX_MWS_TYPE2_TX: BMH.TRC_CTRL.TESTBUS_SELECT: %d [BMH]
+whal_mws_debug.c:COEX_MWS_TYPE2_TX: BMH.TRC_CTRL.TESTBUS_SELECT: %d [LCMH]
+whal_mws_debug.c:COEX_MWS_TYPE2_TX: BMH.TRC_CTRL.TESTBUS_SELECT: %d [LMH]
+whal_mws_debug.c:COEX_MWS_TYPE2_TX: BMH.TRC_CTRL.TESTBUS_SELECT: %d [MCI]
+whal_mws_debug.c:COEX_MWS_TYPE2_TX: BMH.TRC_CTRL.TESTBUS_SELECT: %d [PMH]
+whal_mws_debug.c:COEX_MWS_TYPE2_TX: LCMH.TBSel:0x%x --> 0x%x
+whal_mws_debug.c:COEX_MWS_TYPE2_TX: LMH.TBSel:0x%x --> 0x%x
+whal_mws_debug.c:COEX_MWS_TYPE2_TX: MCI.TBSel:0x%x --> 0x%x
+whal_mws_debug.c:COEX_MWS_TYPE2_TX: PMH.TBSel:0x%x --> 0x%x
+whal_mws_debug.c:COEX_MWS_TYPE2_TX: [%d] = 0x%x
+whal_mws_tx_grant.c:COEX_MWS_PA_MUTE: TxG: W(%u),EV1(0x%x),EV2(0x%x),OEV(0x%x)=0x%x, Read=0x%x
+whal_mws_tx_grant.c:COEX_MWS_PA_MUTE: [Err] : TestBus:MacDis(0x%x,0x%x),TestBus:0x%x,Type-0:0x%x 
+whal_mws_tx_grant.c:COEX_MWS_PA_MUTE: [Info]:MUTE both MACs : Event : PERMANENT_MUTE_ON_WLAN_CRASH
+whal_mws_tx_grant.c:COEX_MWS_PA_MUTE: [Info]:MUTE both MACs because WLAN state is CRASH
+whal_mws_tx_grant.c:COEX_MWS_PA_MUTE: [Info]:Tx_Grant_Config called when CSS is Down
+whal_mws_wci2_tdm.c:COEX_MWS_TYPE2_RX: [Warn] Buffer Underflow :Read after delay: init_depth:%d, Data:0x%x
+whal_mws_wci2_tdm.c:COEX_MWS_TYPE2_TX: [Err] TX_FIFO_FLUSH
+whal_mws_wci2_tdm.c:COEX_MWS_TYPE2_TX: [Err] TX_FIFO_OVERFLOW
+whal_mws_wci2_tdm.c:COEX_MWS_TYPE2_TX: [Err] Tx_FIFO is Growing : Depth = 0x%d
+whal_power_config_seq.c:mac0: dbg_reg1: 0x%x, dbg_reg2: 0x%x, pmm_sm:0x%x
+whal_power_config_seq.c:mac1: dbg_reg1: 0x%x, dbg_reg2: 0x%x, pmm_sm:0x%x
+whal_power_config_seq.c:stop wlan_ss failed due MAC not going idle
+whal_recv.c:Stop PCU receive %x %d
+whal_recv.c:rxole_check_hang (mac=%d) stuck at push_attention
+whal_reset.c:FATAL ERROR. Frequency is not supported
+whal_reset.c:MXI halt-ack complete, poll_cnt 0x%x
+whal_reset.c:MXI halt-ack not complete, poll_cnt 0x%x
+whal_reset.c:whal reset done
+whal_reset.c:whal reset start (reset_cause:0x%x)
+whal_reset.c:whalChannelSwitch: force_clpc_disable %d TPC_18 0x%x
+whal_reset.c:whalIsRxdmaHang: rxdma_sm_status 0x%x, rx_ole_sm_status 0x%x, tlv_ready 0x%x isr_s2 0x%x %d
+whal_reset.c:whalReset: force_clpc_disable %d TPC_18 0x%x
+whal_retention.c:Pulkit whal_retention_module_init - Comanche detected
+whal_rtt_ip02.c:frame_prepare() ht_vht_ack: %d, selfgen_chainmask: 0x%x, HW chain mask(tx: 0x%x rx: 0x%x)
+whal_rtt_ip02.c:sw selfgen_chainmask: 0x%x not same as hw conifgured value: 0x%x
+whal_rtt_ip02.c:whal_rtt_update_selfgen_chainmask() selfgen_chainmask: old: 0x%x new: 0x%x
+whal_tracer.c: whal_tracer_start_capture TRC_MAC_TRACER_ENABLED
+whal_tracer.c:whal_tracer_enable_event_capture %d
+whal_wmac_recipes.c:HW-DTIM restore phase next_tbtt 0x%x 0x%x tsf_offset 0x%x 0x%x global_count 0x%x 0x%x
+whal_wmac_recipes.c:HW-DTIM save phase next_tbtt 0x%x 0x%x tsf_offset 0x%x 0x%x global_count 0x%x 0x%x
+whal_wmac_recipes.c:In whal_wmac_rfa_rri_config - Config: %d  mac_info->dtim_type: %d mac_info->chn_mask: %x
+whal_wmac_recipes.c:MAC:%d H2S grant timeout in PMM_WLAN_STATE_WLAN_OFF
+whal_wmac_recipes.c:RRI Restore stuck, current_add:0x%x active:0x%x state:0x%x err_int_status:0x%x txpcu_buf_ctrl:0x%x
+whal_wmac_recipes.c:Sleep from partial awake aborted due to close to next TBTT
+whal_wmac_recipes.c:ebt_debug:0x%x fcs_fail_cnt:0x%x beacon_cnt:0x%0x
+whal_wmac_recipes.c:mac:%d RXPCU_AST_TIMEOUT:0x%x ASE_AST_BASE_ADDR_L32:0x%x ASE_AST_SIZE:0x%x
+whal_wmac_recipes.c:mac_idle:0x%x mcmn_isr_p:0x%x mcmn_isr_s4:0x%0x mcmn_isr_s16:0x%0x fcs_fail_cnt:0x%0x
+whal_wmac_recipes.c:rxsm_fsm:0x%x dpsm_fsm:0x%x tric_fsm:0x%0x phy_intf_tlv_cnt1:0x%0x beacon_cnt:0x%0x
+whal_xmit.c:#### Update the TPC for RTT self gen frames ####
+whal_xmit.c:PdgRateSeries: f_seq %d brst_en %d whitelist_rts %d (legacy: %d) no_mprot_ppdu %d, ppdu_rts_th %d rc_flags 0x%x bw_mask 0x%x
+whal_xmit.c:mac_id = %d MAC_MCMN_REG_TLV_READY = 0x%x
+wlan_11d_scan_offload.c:%x %x %x
+wlan_11d_scan_vdev_init
+wlan_11d_scan_vdev_start_handler
+wlan_alloc_new_peer
+wlan_ant_share_5g.c:%x %x %x
+wlan_arp_ns_offload.c:%x %x %x
+wlan_arp_ns_offload.c:ns_validate: OFLD NS error, option_hdr->TotalLength greater than option_length
+wlan_arp_ns_offload.c:ns_validate: buffer length-%d, should be greater than payload of the ip_header-%d
+wlan_beacon.c
+wlan_beacon.c:%x %x %x
+wlan_beacon_tx_done_to_host
+wlan_beacon_tx_offload.c
+wlan_beacon_tx_offload.c:%x %x %x
+wlan_beacon_tx_offload.c:BEACON TX ignored, vdev id:%x, mac_id:%x, bcn_tx_paused:%x, pdev_id:%x, on_chan = %x
+wlan_beacon_wal_tbttoffset_update_handler
+wlan_bpf_offload_vdev_init
+wlan_btm_offload.c:BTM: Add current AP to rejection list with timeout=%d DI_TO = %d BSS_Termination_TO = %d MBO_Reject_TO = %d
+wlan_btm_offload.c:BTM_OFLD Solictied BTM query curr_attempt_cnt is max
+wlan_btm_offload.c:BTM_REQUEST_INFO vdev_id = %d, opmode = %d, flags = 0x%x, curr_rssi = -%d dBm, num_cnd = %d, max_pref = %d, mode = 0x%x
+wlan_btm_offload.c:BTM_TRIGGER_PARTIAL_SCAN Mode=%d, num_bssid=%d, chan_idx=%d, roam_scan_type=%d preferred_list_invalid=%d
+wlan_buf_get_mgmt_buffer
+wlan_channel_prediction.c:%x %x %x
+wlan_coex_main.c:COEX_STATE_WLAN_VDEV_PAUSE: SOFTAP VDEV PAUSE
+wlan_coex_main.c:COEX_STATE_WLAN_VDEV_PAUSE: STA VDEV PAUSE
+wlan_coex_main.c:COEX_STATE_WLAN_VDEV_UNPAUSED: SOFTAP VDEV UN-PAUSE
+wlan_coex_main.c:COEX_STATE_WLAN_VDEV_UNPAUSED: STA VDEV UN-PAUSE
+wlan_coex_nan.c:WLAN_COEX_NAN_EVENT: NAN Event(%d) pNanchan(0x%x) pNanVdev(0x%x) eventHandled(%d) isBtOn(%d)
+wlan_coex_nan.c:WLAN_COEX_NAN_ULW: ERROR - NAN ULW Start/Stop (%d) couldn't find PDEV for vdev_id=%d !
+wlan_coex_nan.c:WLAN_COEX_NAN_ULW: NAN ULW Start/Stop (%d) Request sent to NAN Scheduler for vdev_id=%d
+wlan_coex_ps.c:COEX_PSP_MGR_RESULT: Stimulus (%u) State(0x%x), Avg(%u) EstimationOverun(%u) SpecCount(%u) MoreData(%u)
+wlan_dev.c:WMI_PDEV_SET_RAP_CONFIG_CMDID: num_of_rap=%d
+wlan_dev.c:WMI_PDEV_SET_RAP_CONFIG_CMDID: pdev_id=%d, type=%d, sta_ps_detection_enabled=%d
+wlan_dev.c:pdev_param: STATS_TX_XRETRY_EXT: pdev=%d arg=%d
+wlan_dev.c:wlan_cold_boot_cal_data_event() status=%d (0: success)
+wlan_dev.c:wlan_get_beacon_reception_stats_process: bcn_cnt %d 
+wlan_dev.c:wlan_get_beacon_reception_stats_process: vdev id %d 
+wlan_dev.c:wlan_oem_phy_reg_dump_cmd: Data is exceeding the maximum allowable limit
+wlan_dev.c:wlan_oem_phy_reg_dump_cmd: buff_size %d, event_size %d max: %d, no of bytes to be sent in the alloc event: %d
+wlan_dev.c:wlan_oem_phy_reg_dump_cmd: max event size exceeded %d, max_limit %d
+wlan_dev.c:wlan_oem_phy_reg_dump_cmd: memory allocation failed, %d
+wlan_dev.c:wlan_oem_phy_reg_dump_cmd: register data to dump, ptr%x, size%d
+wlan_egap.c:EGAP Chainmask update silent_num_chains = %d
+wlan_est_linkspeed_wal_pdev_evt_handler
+wlan_extscan_main.c:%x %x %x
+wlan_find_vdev_by_mac
+wlan_framegen.c:SAE_SPMK: MLME Set PMKID use_sae_spmk = %d
+wlan_framegen.c:SAE_SPMK: USE SAE SPMK
+wlan_frameparse.c:BTM_OFLD_PARSE_BTM_REQ_ERROR Ignore BSS Termination SubIE Id = %d length = %d
+wlan_frameparse.c:MLME_FRMPARSE_WARN_RSNXE ie->ie_len %d > (exp %d). ignore this IE
+wlan_frameparse.c:MLME_FRMPARSE_WARN_TIE ie->ie_len %d (exp %d) ignore this IE
+wlan_frameparse.c:NO TIE
+wlan_frameparse.c:SAE_SPMK: AP is supporting SPMK
+wlan_frameparse.c:wlan_frmparse_get_mgmt_payload frm_len=%d iv_len=%d ivmic_len=%d htctrl_len=%u mac_hdr_len=%d
+wlan_free_peer
+wlan_get_action_for_beacon
+wlan_gtk_offload.c:%x %x %x
+wlan_gtk_offload.c:WOW gtk_offload_dispatch_wmi_cmd: wrong kek_len = %d
+wlan_gtk_offload.c:gtk offload drop the frame.
+wlan_hwbmiss_offload.c:HWBMISS_SWITCH_2_SWBMISS: cons_bmiss_count = %d, bmiss_threshold = %d curr_listen_interval = %d , bmiss_since_last_hwbmiss_enable = %d BI = 0x%x
+wlan_hwbmiss_offload.c:HWBMISS_SWITCH_2_SWBMISS: vdev_id=%d, hwbmiss_bcnt=%u, curr_ts = 0x%x %x , last_hwbmiss_enable_ts = 0x%x %x 
+wlan_hwbmiss_vdev_deinit
+wlan_hwbmiss_vdev_init
+wlan_ipa_offload_get_vdev_id_ap
+wlan_key_mgmt.c
+wlan_lpi.c:_wlan_lpi_probe_rsp_beacon_handler_bitmap_rssi:rssi %d mac_addr: 0x%x, 0x%x
+wlan_lpi.c:_wlan_lpi_send_result : Sending Scan results to ADSP send_counter : %d data_len:%d len_of_chan_scaned: %d, total:%d thread_id:%d
+wlan_mcast_filter_offload.c:wlan_mcast_handler bpf_enable_status = %d
+wlan_mcast_filter_offload.c:wlan_mcast_handler pktflt_enabled:%d MC:%d UC:%d
+wlan_mcast_filter_offload.c:wlan_vdev_mcast_match: No Mcast filters
+wlan_mgmt_local_send_ethernetloopback
+wlan_mgmt_local_send_tid_peer_check
+wlan_mgmt_local_tx_wmi_txcomp_send_evt
+wlan_mgmt_local_txrx.c
+wlan_mgmt_local_txrx.c:%x %x %x
+wlan_mgmt_scan_evt_handler
+wlan_mgmt_tx_send_wmi_cmd_handler
+wlan_mgmt_tx_wmi_txcomp_ind
+wlan_mgmt_tx_wmi_txcomp_send_bundle_evt
+wlan_mgmt_txrx.c
+wlan_mgmt_txrx.c:%x %x %x
+wlan_mgmt_txrx.c:MGMT_TX_WMI_FROM_HOST_COMP desc_id=0x%x tx_status=0x%x ppdu_id:%d 
+wlan_mlme_deauth.c:LOCAL MGMT DEAUTH-DISASSOC tx compl. status 0x%x
+wlan_mlme_deauth.c:MLME_DEAUTH_DISASSOC_SEND ec = %d
+wlan_mlme_if.c:MLME_INIT_CFG cap=0x%x,11r=%d,cckm=%d adaptive_11r = %d, authmode = 0x%x
+wlan_mlme_if.c:MLME_SEND_DEAUTH ec = %d
+wlan_mlme_if.c:MLME_SET_STAT CONNECTED rsn_mcastmgmtcipherset=0x%x disable_mbo_oce=%d
+wlan_mlme_if.c:SAE_SPMK: Update NEW SPMK
+wlan_mlme_if.c:mlme_ft_add_ss moddtim_cnt=%d max_li_of_moddtim=%d dyndtim_cnt=%d
+wlan_mlme_retry.c:MLME_DEAUTH_DISASSOC_SEND_HNDL comp_status=0x%x, mlme_state=%d
+wlan_mlme_send_peer_unmap_resp_cmd
+wlan_mlme_supp.c:MLME_SUPPL_CONN_INVALID 0x%x
+wlan_mlme_supp.c:MLME_SUPPL_DISCONN_INVALID 0x%x
+wlan_mlme_supp.c:wlan_mlme_get_cipher_suite_type UC/MC=%d/%d user_ciph=0x%x
+wlan_mlme_thread.c:%x %x %x
+wlan_mlme_wmi.c:MLME_PDEV_SET_PARAM_CMD pdev_id=%d param_id=0x%x value=0x%x
+wlan_nan.c:NAN_vdev_evt_handler opmode = %d, type = %d
+wlan_nan20_fa.c:NAN20_FA ERR chan: %d bandwidth: %d
+wlan_nan20_fa.c:NAN20_FA: NDP channel can't be honored(%d, %d)
+wlan_nan20_fa.c:NAN20_FA: wlan_nan20_set_fa_session_active fa_id:%d mhz:%d avail_type:%d vdev_id:%d active:%d
+wlan_nan20_fa.c:NAN20_FA_RESOLVE Skipping saving potential entry with chan bitmap 0x%x as channel is forced
+wlan_nan20_fa.c:NAN20_FA_RESOLVE: Saving peer chan info channel:%d phy_mode:%d score:%d
+wlan_nan20_fa.c:NAN20_FA_RESOLVE: Skipping 5G entry as it is not supported
+wlan_nan20_fa.c:NAN20_FA_RESOLVE: Skipping potential entry as usage preference is zero
+wlan_nan20_fa.c:NAN20_FA_RESOLVE: chan_req_type:%d chan_mhz:%d ptemp_nan_peer_chan_band_info->ChanBitMap 0x%x
+wlan_nan20_fa.c:NAN20_FA_RESOLVE: error finding global operatig  class
+wlan_nan20_fa.c:NAN20_FA_RESOLVE:0x05 chan:%d bw %d: score:%d saved_score:%d saved_chanbitmap:0x%x saved_primchanbitmap:0x%x
+wlan_nan20_fa.c:NAN20_FA_RESOLVE:0x06 chan:%d bw:%d score:%d saved_score:%d saved_chanbitmap:0x%x saved_primchanbitmap:0x%x
+wlan_nan20_fa.c:NAN_20_Set_Potential_Slot_Changed
+wlan_nan20_fa.c:NAN_20_Update_FA_AttributeControl CommittedSlotChanged_dwcount: %d PotentialSlotChanged_dwcount: %d update_sdf: %d
+wlan_nan20_fa.c:ResolveFA: Error No FAs allocated!
+wlan_nan20_fa.c:nan20_cleanup_FA_before_save: No more slots ignore#1
+wlan_nan20_fa.c:nan20_cleanup_FA_before_save: No more slots ignore#3
+wlan_nan20_fa.c:nan20_cleanup_FA_before_save: Update slots failed
+wlan_nan20_fa.c:wlan_nan20_build_nan_availability_attr_nmf: skip for pnan_fa_session_for_peer:%u ouisubtype:%d 
+wlan_nan20_fa.c:wlan_nan20_cleanup_FA: chan %d score %d fa_mhz %d fa_score %d
+wlan_nan20_fa.c:wlan_nan20_fa_fill_max_bw_chan: FA Error no FA session
+wlan_nan20_fa.c:wlan_nan20_fill_chan_num_and_phymode: no ndp instance
+wlan_nan20_fa.c:wlan_nan20_fill_fa_nan_avail_attr: Filling Reserved entry_list from FA channel=%d phymode=%d operclass=%d chanbitmap=%d
+wlan_nan20_fa.c:wlan_nan20_fill_fa_nan_avail_attr:: total entry_list_cnt:%d 
+wlan_nan20_fa.c:wlan_nan20_overwrite_default_fa_with_committed_channel: tempchannel %d
+wlan_nan20_fa.c:wlan_nan20_overwrite_default_fa_with_committed_channel: tempchannel %d channel:%d
+wlan_nan20_fa.c:wlan_nan20_pick_best_peer_fa num_avail %d process_chan_band %d
+wlan_nan20_fa.c:wlan_nan20_pick_best_peer_fa status i=%d, j=%d, k=%d availtype=%d status = %d
+wlan_nan20_fa.c:wlan_nan20_pick_best_peer_fa: invalid operclass=%d
+wlan_nan20_fa.c:wlan_nan20_pick_best_peer_fa: local band_config:%d peer>supported_band:%d skipping 5G entry local or remote is not 5g
+wlan_nan20_fa.c:wlan_nan20_process_and_save_individual_fa_session ERR: Minimum Slots not met
+wlan_nan20_fa.c:wlan_nan20_process_band_entry: invalid(or unspported) band=%d
+wlan_nan20_fa.c:wlan_nan20_process_band_entry: local band_config:%d peer>supported_band:%d skipping 5G entry local or remote is not 5g
+wlan_nan20_fa.c:wlan_nan20_rtt_resolve_post_process No FA selected
+wlan_nan20_fa.c:wlan_nan20_rtt_resolve_post_process TMB[%d] 0x%x
+wlan_nan20_fa.c:wlan_nan20_save_fa_information: Saving FA information ost:%d freq:%d center_freq:%d OperClass:%dFaTimebitmap BD:%d Period:%d StartOffset:%d TMBLen:%d committed_slot_changed:%d
+wlan_nan20_fa.c:wlan_nan20_save_fa_reserved_slots:0x05 chanbitmap:0x%x primchanbitmap:0x%x
+wlan_nan20_fa_session.c:NAN_FASessionDeallocFa i=%d peer_mac=0x%x:0x%x num_sessions=%d fa_id=%d, fa_freq=%d
+wlan_nan20_fa_session.c:NAN_FASessionIsSchedUpdateNotifySent: All sched update notifications successfully sent before actual ULW
+wlan_nan20_fa_session.c:NAN_FASessionUpdateAllCommitedFaSession: idx: %d mask 0x%x chanfreq %d
+wlan_nan20_ndp.c:NAN20_NDP - wlan_nan20_ndp_get_num_active_ndps_on_peer %d
+wlan_nan20_ndp.c:NAN20_NDP ndp_disabled: data_end_ind ndp_id = %d is_active = %d reason = %d
+wlan_nan20_ndp.c:NAN20_NDP: ndp_instance is NULL
+wlan_nan20_ndp.c:NAN20_NDP: wlan_nan20_ndp_dispatch_peer_assoc Invalid fa_id or Invalid phy mode
+wlan_nan20_ndp.c:NAN20_NDP: wlan_nan20_ndp_dispatch_peer_assoc Invalid vdev or peer
+wlan_nan20_ndp.c:NAN20_NDP: wlan_nan20_ndp_dispatch_peer_assoc NULL instance or NULL fa session: %d 0x%x
+wlan_nan20_ndp.c:NAN20_NDP: wlan_nan20_ndp_dispatch_peer_assoc ndp_id : %d bss_chan : %d curr_active_rc : %d
+wlan_nan20_ndp.c:wlan_nan20_enable_disable_5g_dw: enable = %d num_active_sm = %d
+wlan_nan20_ndp.c:wlan_nan20_ndp_initiate_slot_expansion: Entered retry_failed_sched_reneg : %d
+wlan_nan20_ndp.c:wlan_nan20_ndp_restore_ratectrl_params NULL vdev or NULL peer
+wlan_nan20_ndp.c:wlan_nan20_ndp_restore_ratectrl_params p_ndp_instance NULL or not active
+wlan_nan20_ndp.c:wlan_nan20_ndp_sec_verify_mic NDP instance NULL
+wlan_nan20_ndp.c:wlan_nan_restore_ratectrl_params: fa_id %d add_offchan_entry %d init %d fa_freq %d last_active_rc %d
+wlan_nan20_ndp_dispatch_peer_assoc
+wlan_nan20_ndp_register_for_vdev_notif
+wlan_nan20_ranging.c:NAN20_RANGING -wlan_nan20_get_num_active_ranging_instance:%d
+wlan_nan20_ranging.c:NAN20_RANGING: RSUA_RESP Reschedule CurrSlotDw0:%d StartSlotDw0:%d num_slots:%d
+wlan_nan20_ranging.c:NAN20_RANGING: nan20_initiate_range_request Error req_id = %d
+wlan_nan20_slot_manager.c:NAN20SlotManager_GetSlotMask: mhz %d slotMask 0x%x
+wlan_nan20_slot_manager.c:NANSlotManager_IsRsvdSlotsPresent: chanMhz 0x%x present
+wlan_nan20_slot_manager.c:NANSlotManager_UpdateSlotResrvTable:add entry  idx %d valid %d req_id %d mhz 0x%x slotmask 0x%x
+wlan_nan20_slot_manager.c:NANSlotManager_UpdateSlotResrvTable:del entry idx %d valid %d req_id %d mhz 0x%x slotmask 0x%x
+wlan_nan20_sm.c:NAN20_SM : wlan_nan20_sm_recvd_data_end Clear NDP end while security enabled(%d) and sm active(%d) will drop here
+wlan_nan20_sm.c:NAN20_SM : wlan_nan20_sm_recvd_peer_create_event state=%d
+wlan_nan20_sm.c:NAN20_SM: send_sched_update_notif invalid state::or sm end is in progress
+wlan_nan20_sm.c:NAN20_SM: wlan_nan20_sm_recvd_ack oui_subtype: %d sent_flag:%d dialog_token:%d ndp_id=%d, peer_mac_addr = 0x%x 0x%x
+wlan_nan20_sm.c:NAN20_SM: wlan_nan20_sm_state_check invalid sm session
+wlan_nan20_sm.c:NAN20_SM: wlan_nan20_sm_state_send_sched_req_entry
+wlan_nan20_sm.c:nan20_sm_data_end_ack state=%d
+wlan_nan20_sm.c:wlan_nan20_sm_get_is_any_session_with_peer_ndi_peer_created %d
+wlan_nan20_ulw.c:determine_ulw_start_time: is_sync_dbs_scan=%d, duration=%d, is_ulw_needed=%d, scan_mask=%d
+wlan_nan20_ulw.c:wlan_nan20_local_ulw_mac_wake_timeout
+wlan_nan20_ulw.c:wlan_nan20_peer_ulw_update: Pause ULW as update received(sed_id:%d rcvd_seq_id:%d) count_down:%d
+wlan_nan20_ulw.c:wlan_nan20_peer_ulw_update: Stale entry found, not updating (sed_id:%d rcvd_seq_id:%d) count_down:%d
+wlan_nan20_ulw.c:wlan_nan20_peer_ulw_update: ULW is not updated from last time existing (sed_id:%d rcvd_seq_id:%d count:%d)
+wlan_nan20_ulw.c:wlan_nan20_peer_ulw_update: peer_idx:%d ulw_idx:%d free_peer_idx:%d free_ulw_idx:%d free_peer_no_active_idx %d free_ulw_count_zero_idx %d
+wlan_nan20_ulw.c:wlan_nan20_start_stop_periodic_ulw: Stop failed for sched_id:%d
+wlan_nan20_utils.c:NAN20_UTILS: NDP attr(%d)/element container(%d) not found for type:%d: Reject NDP
+wlan_nan20_utils.c:NAN20_UTILS: Peer and self are NDPE capable but not found NDPE attr for type:%d: Reject NDP
+wlan_nan20_utils.c:NAN_20_Get_Channel_Score: chan:%d flags:0x%x bw:%d score:%d
+wlan_nan_chan_sched.c:NANCHANSCHED_UpdateChannelSchedule: Setting link update to TRUE
+wlan_nan_chan_sched.c:NANCHANSCHED_UpdateChannelSchedule: match_chan_idx:%d free_chan_idx:%d fa_mask:0x%x schedule_updated:%d
+wlan_nan_chan_sched.c:NANCHANSCHED_UpdateResMgrLinkInfo: Link is created/updated for idx %d chan_type_mask %d home_chan %d slot_cnt %d max_home_chan %d nss=%d
+wlan_nan_chan_sched.c:NANCHANSCHED_UpdateResMgrLinkInfo: Link is deleted for idx %d channel %d
+wlan_nan_chan_sched.c:NANCHANSCHED_UpdateResMgrLinkInfo:Link params not changed so skip link update idx=%d chan=%d
+wlan_nan_cluster_sm.c:ClusterSM: Schedule timed event. time_ms=%d event=%d
+wlan_nan_cluster_sm.c:ClusterSM: Timer already set. Event: current=%d new=%d
+wlan_nan_cluster_sm.c:ClusterSM: state=%d attempting to post event=WLAN_NAN_CLUSTER_EVENT_NONE
+wlan_nan_cluster_sm.c:WLANNAN_ClusterSm_Merge: state is %d, ignoring request!
+wlan_nan_ctrl.c:NANCTRL_EnableReqHdlr : NAN vdev not created
+wlan_nan_ctrl.c:NANCTRL_NANDisable()cmd_requestor: %d
+wlan_nan_ctrl.c:NAN_TEST_MODE_CMD_TRANSPORT_IP_PARAM Err length %d
+wlan_nan_ctrl.c:NAN_TEST_MODE_CMD_TRANSPORT_IP_PARAM auto Responder R3 tlv list length %d
+wlan_nan_ctrl.c:Testmode NAN Availability Attribute(NA)(len:%d)
+wlan_nan_ctrl.c:Testmode NAN Availability invalid length %d
+wlan_nan_ctrl.c:Testmode NDP enable_ndp :%x
+wlan_nan_ctrl.c:Testmode disable_ipv6_link_local :%x
+wlan_nan_ctrl.c:Testmode disable_ndpe :%x
+wlan_nan_ctrl.c:Testmode ndp auto responder mode:%x
+wlan_nan_ctrl.c:Testmode ndp supported bands:Passed param%x Dev cap set tp %x
+wlan_nan_de_if.c:NAN_DE_IF: PMF is not enabled on the peer. Not queuing secure frame
+wlan_nan_mac.c:Forced#1: committed dw 2g %d -> %d
+wlan_nan_mac.c:NAN [==================================> DW_START (pri=%u)
+wlan_nan_mac.c:NANMAC_Set5gCommittedDW: Existing Config dw 5g %d  new %d
+wlan_nan_match.c:wlan_nan_match: NAN20_CACHE(no dealloc #2) Match not, de-allocating cache entry_found = %d
+wlan_nan_publish.c:SDEA Control Received in Publish Value security_required %d ranging_required %d range_report_required %d service_update %d
+wlan_nan_scan.c:CHANNEL_TYPE:%d channel_Freq %d host_support %d is_nan_disabled %d
+wlan_nan_scan.c:NAN20_StartScanPeriodicULW: Enabled(%d) ActiveScanInProgress(%d) ScanSchedIdx(%d) disable_scan_schedule_optimization(%d)
+wlan_nan_scan.c:NANScan_Event: is_dbs_scan_possible=%d, max_dwell_time_ms=%d, max_ulw_dur_us %d, isULWNeeded:%d
+wlan_nan_scan.c:NANScan_Event: scanid=%d, event=0x%x, rsn=0x%x, ch=%d nanScanType:%d numPendingScan:%d 2g_passive_burst:%d curr_time:0x%x
+wlan_nan_sched.c:NAN-RX_CALLBACK: type 0x%X  length %u  currTsf 0x%08x  rssi %u  freq %u  seq %u
+wlan_nan_sched.c:NAN-RX_SDFCALLBACK: type 0x%X  lenth %u  currTsf 0x%08x  rssi %u  freq %u  seq %u
+wlan_nan_sched.c:NANSCHED_Start 5G_DW ANT_SHARING chainmask=%d, duration=0x%x, ant_holding=%d
+wlan_nan_sched.c:NAN_DBGID_TSF_DUMP: curr_tsf_upper 0x%X, curr_tsf_lower 0x%X, nextDwTsf_upper 0x%X, nextDwTsf_lower 0x%X diff 0x%x, skip_dw 0x%x, late_in_dw = %d 
+wlan_obss_scan_offload.c:%x %x %x
+wlan_p2p_lo_vdev_generate_probe_rsp
+wlan_p2p_lo_vdev_init
+wlan_p2p_lo_vdev_start_handler
+wlan_peer.c
+wlan_peer.c:P2P: PEER_ASSOC: Update legacy RTS consecutive failure threshold = %d for OUI=86:c5:a6
+wlan_peer.c:wlan_peer_vdev_restart_done: update bss_non_data_rc, peer:0x%x, rc:0x%x
+wlan_peer.c:wlan_peer_vdev_restart_done: wal_vdev non_data_rc:0x%x bcast_data_rc:0x%x mcast_data_rc:0x%x selfgen_ndpa_rc:0x%x selfgen_ctrl_rc:0x%x beacon_rc:0x%x 
+wlan_peer.c:wlan_vdev_dispatch_peer_change_bw:prev_ni_flags=%x new_ni_flags=%x new_bw = %x ht_caps = %x vht_caps = %x
+wlan_peer_delete_conf_msg_hdlr
+wlan_peer_ptk_handler
+wlan_peer_send_peer_info_event
+wlan_peer_update_peer
+wlan_pm_arbiter.c:%x %x %x
+wlan_pmf_offload.c:11w PMF Invalid key idx 0xFF
+wlan_powersave.c:wlan_ps_add_rogue_ap_by_bssid: RAP: total rap=%d, rap bssid=0x%x 0x%x
+wlan_powersave.c:wlan_ps_check_if_rogue_ap_is_connected: RAP: is_rogeu_ap=%d, num_of_rap=%d
+wlan_powersave.c:wlan_ps_set_fake_rap_detection: RAP: fake_rap_detection=%d
+wlan_powersave.c:wlan_ps_set_force_rap_info_event: RAP: force_rap_info_event=%d
+wlan_powersave.c:wlan_ps_wmi_pdev_set_rap_config: RAP: is_enabled=%d, num_of_rap=%d
+wlan_powersave_sta.c:wlan_ps_sta_check_low_rssi_is_detected: rssi_avg=%0d, low_rssi_is_detected=%d
+wlan_pps_vdev_init
+wlan_ps_ap_peer_create_instance
+wlan_ps_sta_vdev_notif_handler
+wlan_qpower.c:wlan_qpower_check_if_rogue_ap_is_detected: vdev_id=%d flags=0x%x flags2=0x%x num_entries=%0d num_no_rx_with_tim=%0d
+wlan_roam.c:%x
+wlan_roam.c:%x %x %x %x %x %x %x %x
+wlan_roam.c:ROAM BUFFER END
+wlan_roam.c:ROAM BUFFER START:
+wlan_roam.c:ROAM_BTM_CALLBACK status=%d
+wlan_roam.c:ROAM_CHANMAP_UPDATE_FROM_BTM chan_num=%d
+wlan_roam.c:ROAM_CONFIG_AP_PROFILE rsn_authmode = 0x%x rsn_mipher = 0x%x rsn_ucipher = 0x%x
+wlan_roam.c:ROAM_CONFIG_AP_PROFILE ssid_len = %d rssi_margin = %d dBm rsn_authmode = 0x%x rsn_mipher = 0x%x rsn_ucipher = 0x%x rsn_grp_mgmt_cipher = 0x%x flags = 0x%x abs_threh = %d bg_rssi_margin = %d
+wlan_roam.c:ROAM_CONFIG_DATA_RSSI flags=0x%x thres=%d rx_inactivity_ms=%d
+wlan_roam.c:ROAM_CONFIG_RSSI_THRESH rssi_threshold1 = %d dBm rssi_threshold2 = %d dBm rssi_threshold2_2g = %d dBm rssi_threshold2_5g = %d dBm
+wlan_roam.c:ROAM_EVENT_TO_HOST reason=%d, notif=%d, ret=%d
+wlan_roam.c:ROAM_GET_TOP_CNDS: valid_cnt=%d
+wlan_roam.c:ROAM_INVOKE_BUFFER scan_type=%d num_buf=%d
+wlan_roam.c:ROAM_INVOKE_BUFFER_SEND pending_invoke_roam=%d
+wlan_roam.c:ROAM_INVOKE_BUFFER_SEND skip same bss
+wlan_roam.c:ROAM_INVOKE_PARAM_CHECK_ERR error_num=0x%x invoke_roam_scan_mode = %d ap_sel_mode = %d roam_delay = %d num_chan = %d num_bssid = %d num_buf = %d p_cmd->flags=0x%x
+wlan_roam.c:ROAM_INVOKE_SCAN_FAILED invoke_roam = %d
+wlan_roam.c:ROAM_INVOKE_START_SUCCESS roam_scan_type = %d num_buf = %d flags=0x%x report_failure|is_allow_home_bssid=0x%x
+wlan_roam.c:ROAM_INVOKE_STATE_CHECK_ERR error_num=0x%x roam_offload = %d in_use = %d scan_mode = %d roam_sm_state=%d
+wlan_roam.c:ROAM_PER_CLIENT REG_ERROR = %u 
+wlan_roam.c:ROAM_PER_CLIENT REQ_INFO vdev_id = %d, req_id = %d, rx_slots = %d, tx_slots = %d, rx_percentage = %d, tx_percentage = %d, total_req = %d
+wlan_roam.c:ROAM_PER_CLIENT UNREG_SUCCESS vdev_id = %d req_id = %d num_req = %d
+wlan_roam.c:ROAM_RSSI_REJECTED_AP_ALLOW_UPDATE new_list = %d, bssid %08x%04x exp_delay = %d msec, exp_rssi = -%ddBm
+wlan_roam.c:ROAM_SCAN_HIRSSI_THRESHOLD hirssi_scan_delta = %d hirssi_scan_max_count = %d hirssi_upper_bound = %d dBm hirssi_threshold = %d dBm ref_rssi = %d dBm
+wlan_roam.c:ROAM_SCAN_PARAMS idle_time:%d max_scan_time:%d probe_delay:%d scan_ctrl_flags:%d n_probes:%d scan_ctrl_flags_ext:0x%x
+wlan_roam.c:ROAM_TRY_BTM_QUERY not capable
+wlan_roam.c:ROAM_TRY_BTM_QUERY roam_scan_state(IDLE 0/ACTIVE_SCAN 1/ACTIVE_ROAM 2)=%d pending_scan_type=%d pending_trigger_reason=%d scan_type=%d trigger_reason=%d
+wlan_roam.c:ROAM_WMI_LOG_STAT BSS BSSID = %x %x %x %x %x %x
+wlan_roam.c:ROAM_WMI_LOG_STAT BSS roam result: ts = %d status = %d fail_reason = %d
+wlan_roam.c:ROAM_WMI_LOG_STAT BSS rssi= %d rssi_score = %d cu = %d cu_score = %d total_score = %d ETP = %d
+wlan_roam.c:ROAM_WMI_LOG_STAT BSS ts= %d channel = %d cnd_type = %d
+wlan_roam.c:ROAM_WMI_LOG_STAT BTM: mode = %d pref_cand_count = %d DI = %d VI = %d
+wlan_roam.c:ROAM_WMI_LOG_STAT CND BSSID = %x %x %x %x %x %x
+wlan_roam.c:ROAM_WMI_LOG_STAT CND rssi= %d rssi_score = %d cu = %d cu_score = %d total_score = %d ETP = %d
+wlan_roam.c:ROAM_WMI_LOG_STAT CND ts= %d channel = %d cnd_type = %d
+wlan_roam.c:ROAM_WMI_LOG_STAT CU: rssi = %d cu = %d
+wlan_roam.c:ROAM_WMI_LOG_STAT Connected AP details
+wlan_roam.c:ROAM_WMI_LOG_STAT DEAUTH: type = %d reason = %d
+wlan_roam.c:ROAM_WMI_LOG_STAT Event sent length =%d, ev_len =%d total=%d sent=%d current_start_idx=%d, pending_idx=%x start_idx=%d, num_roam_msg_info=%d
+wlan_roam.c:ROAM_WMI_LOG_STAT FRAME INFO TS = %d SC = %d type = %d sub_type = %d req_resp = %d, seq = %d
+wlan_roam.c:ROAM_WMI_LOG_STAT NR Channels
+wlan_roam.c:ROAM_WMI_LOG_STAT NR info Event sent length =%d, ev_len =%d
+wlan_roam.c:ROAM_WMI_LOG_STAT NR type = %d NRR TS = %d NRS TS = %d channel_count = %d
+wlan_roam.c:ROAM_WMI_LOG_STAT Not sending as host is in Sleep
+wlan_roam.c:ROAM_WMI_LOG_STAT Not sending event as event size[%d] exceeds max_buffer length[%d]
+wlan_roam.c:ROAM_WMI_LOG_STAT Not sending event vdev_roam=%x
+wlan_roam.c:ROAM_WMI_LOG_STAT ROAM_STATS_EVENT_BUFFER_ALLOCATION_FAILED
+wlan_roam.c:ROAM_WMI_LOG_STAT RSSI: roam_rssi_threshold = %d next_rssi_threshold = %d
+wlan_roam.c:ROAM_WMI_LOG_STAT freq = %d
+wlan_roam.c:ROAM_WMI_LOG_STAT idx=%d Trigger_ID = %d Trigger_sub_ID = %d client_id = %d ts = %ld host_ref_ts = %d
+wlan_roam.c:ROAM_WMI_LOG_STAT is_buffer_consumed=%d
+wlan_roam.c:ROAM_WMI_LOG_STAT roam APs count = %d
+wlan_roam.c:ROAM_WMI_LOG_STAT roam_scan_type = %d num_chan = %d
+wlan_roam.c:ROAM_WMI_LOG_STAT start_idx=%d count=%d
+wlan_roam.c:ROAM_WMI_LOG_STAT trigger_value = %d rssi = %d 
+wlan_roam.c:Roam Candidate Score Delta: reason = %d score_delta = %d map = %x
+wlan_roam.c:VDEV_ROAM_HDL_OWN_BEACON neighbor report not offloaded yet %d %d
+wlan_roam.c:VDEV_ROAM_MY_BEACON_BAD_IE id=%d,len=%d,status=0x%x
+wlan_roam.c:VDEV_ROAM_MY_BEACON_PARSED malformed id = %d len=%d remain_len=%d
+wlan_roam.c:roam_dump_buffer error length %d
+wlan_roam.c:roam_scan_period = %d roam_scan_age = %d roam_ctrl.running = %d inactivity_time_period = %d, roam_inactive_count = %d, roam_scan_period_after_inactivity = %d
+wlan_roam_bss_load.c:WLAN_ROAM_BSS_LOAD qbss_cu=%u bss_load_avg=%u self_load_avg=%u load_pcnt=%u timer_running=%x (0:None, 1:BSS_LOAD, 2:PERIODIC) current_rssi=%d (flow_started | scan_running << 8 | monitor_completed << 16) = %x
+wlan_roam_bss_load.c:wlan_oem_send_event_for_cu_data: memory allocation failed, %d
+wlan_roam_internal.c:ESTM SCORE = %d
+wlan_roam_internal.c:HANDOFF_NOT_INITIATED curr_idx:%d num_candidates:%d curr_bssid:%08x%04x
+wlan_roam_internal.c:ROAM_5G_SELF_RSSI_ADJUST rssi = %d dBm adjust_self = %d
+wlan_roam_internal.c:ROAM_BETTER_CANDIDATE_FOUND valid_cnd = %d is_beacon = %d candidate_rssi_last = -%d dBm curr_rssi_avg = -%d dBm rssi_margin = %d dBm bg_rssi_margin = %d
+wlan_roam_internal.c:ROAM_BG_RSSI data_rssi =  -%d dBm inactivity_ts = %d
+wlan_roam_internal.c:ROAM_CANDIDATE_RSSI_ADJUST rssi = %d dBm boost_threshold = %d dBm boost_factor = %d penalty_threshold = %d dBm penalty_factor = %d
+wlan_roam_internal.c:ROAM_CHANMAP_UPDATE_OWE chan_num=%d
+wlan_roam_internal.c:ROAM_CMP_CIPHER: auth_mode=%x, ucipher=%x, gcipher=%x, mgmtcipher=%x pmf=%x
+wlan_roam_internal.c:ROAM_DENSE_CLIENT_SCAN_START roamable_ap_cnt = %d requestor = %d is_ol_reg = %d
+wlan_roam_internal.c:ROAM_ELIGIBLE: BTM cand min score is passed, so ignore Score
+wlan_roam_internal.c:ROAM_ELIGIBLE: Ignore Score
+wlan_roam_internal.c:ROAM_ESP_SCORE_COMPENSATE_QBSS score = %d, esp_score  = %d, qbss_score  = %d
+wlan_roam_internal.c:ROAM_FAIL_REASON = %d
+wlan_roam_internal.c:ROAM_FINAL_BMISS_SCAN deauth=%d scan_policy=0x%x,skip_dfs=%d,active_dwell=%d birst_dur=%d
+wlan_roam_internal.c:ROAM_HO_SORT_CANDIDATE_CUR cur_index = %d position = %d perfer=%d cap=%d score=%d, etp=%d
+wlan_roam_internal.c:ROAM_LOW_RSSI_INTERRUPT data_rssi = -%d dBm inactivity_ts = %d
+wlan_roam_internal.c:ROAM_NOT_ELIGIBLE_AP ec=%d
+wlan_roam_internal.c:ROAM_OCE_WAN_SCORE is 0. dl_capacity = %d, ul_capacity = %d, window_size = %d
+wlan_roam_internal.c:ROAM_OCE_WAN_SCORE slot_index = %d, wan_percent = %d, score = %d, max_score = %d
+wlan_roam_internal.c:ROAM_OCE_WAN_SCORE status = 0x%x, dl_capacity = %d, ul_capacity = %d, window_size = %d
+wlan_roam_internal.c:ROAM_QBSS_ESP_SCORE pcnt = %d score = %d chan_cong_pcnt = %d, id = %d(0-default 1-QBSS, 2- ESP) action = %d
+wlan_roam_internal.c:ROAM_QBSS_INFO aac = %d, chan_util = %d, sta_cnt = %d, pcnt = %d temp_score  = %d
+wlan_roam_internal.c:ROAM_RSN rsn_mcastmgmtcipherset=0x%x profile->rsn_mcastmgmtcipherset=0x%x mfp_enable=%d self_mfp_cap=%d self_mfp_req=%d mfp_cab_ap=%d mfp_req_ap=%d mfp_match=%d
+wlan_roam_internal.c:ROAM_RSN_MISMATCH parse_status = %d rsn_ucipher = 0x%08x rsn_mipher = 0x%08x prof_authmode=0x%08x rsn_authmode = 0x%08x (16 bit cur/16 bit candidate) mfp_enable (bit2)/ap_cap(bit1)/ap_req(bit0) = 0x%01x  adaptive_11r=%d
+wlan_roam_internal.c:ROAM_RSSI_ACTIVE_ROAM  tmr_running = %d roam_scan_state(IDLE 0/ACTIVE_SCAN 1/ACTIVE_ROAM 2) = %d start_scan = 0x%x prev_state = 0x%x final_scan = %d initial_conn = %d rssi_hdlr_v2 = %d
+wlan_roam_internal.c:ROAM_RSSI_ACTIVE_SCAN  tmr_running = %d roam_scan_state(IDLE 0/ACTIVE_SCAN 1/ACTIVE_ROAM 2) = %d start_scan = 0x%x prev_state = 0x%x final_scan = %d 
+wlan_roam_internal.c:ROAM_RSSI_GOOD bcn_rssi_avg = %d dBm bcn_rssi_last = %d dBm roam_scan_mode(PERIODIC 1/RSSI_CHANGE 2/BOTH 3/HO 4) = 0x%x prev_state = 0x%x tmr_running(bit1)/final_scan(bit0) = 0x%02x
+wlan_roam_internal.c:ROAM_RSSI_ROAM_STATE roam_rssi_hdlr_v2 = %d tmr_running = %d roam_scan_state(IDLE 0/ACTIVE_SCAN 1/ACTIVE_ROAM 2) = %d start_scan = 0x%x prev_state = 0x%x final_scan = %d curr_low = %d dBm, curr_high = %d dBm
+wlan_roam_internal.c:ROAM_SCAN_HIRSSI_CHECK curr_high_rssi_thresh = %d dBm hirssi_threshold = %d dBm hirssiscan_upperbound = %d dBm curr_hiscan_count = %d, hirssiscan_maxcount = %d
+wlan_roam_internal.c:ROAM_SCAN_NO_AP
+wlan_roam_internal.c:ROAM_SCAN_PERIODIC_INACTIVE_TIMER stop curr_load_pcnt = %d
+wlan_roam_internal.c:ROAM_SCAN_PERIODIC_TIMER stop curr_load_pcnt = %d
+wlan_roam_internal.c:ROAM_SCAN_REJECTED diff %d (last %d cur %d) < %d trigger_bitmap = 0x%x
+wlan_roam_internal.c:ROAM_SCAN_REJECTED ho_disabled_scan %d
+wlan_roam_internal.c:ROAM_SCAN_REJECTED_CHECK scan_mode %d trigger_reason %d disabled_trigger_mask 0x%x scan_status %d
+wlan_roam_internal.c:ROAM_SCAN_TIMER_EXPIRE id = %d source = %d interval = %d(msec) roam_scan_state(IDLE 0/ACTIVE_ROAM 2) = %d curr_rssi = %d dBm full_roaming_scan = %d
+wlan_roam_internal.c:ROAM_SCAN_TIMER_EXPIRE id = %d source = %d interval = %d(msec) roam_scan_state(IDLE 0/ACTIVE_SCAN 1/ACTIVE_ROAM 2) = %d curr_low=%d dBm curr_high=%d dBm curr_rssi=-%d dBm
+wlan_roam_internal.c:ROAM_SCAN_TIMER_EXPIRE id = %d tx_stats=%d, rx_stats=%d inactive_duration_count=%d
+wlan_roam_internal.c:ROAM_SCAN_TIMER_START  id = %d (periodic 1/hirssi 2/first bmiss 3/rssi_config 4/per rest 5/final bmiss 6/bss load 7) interval = %d(msec)
+wlan_roam_internal.c:ROAM_SCAN_TIMER_STOP  id = %d (periodic 1/hirssi 2/first bmiss 3/rssi_config 4/per rest 5/final bmiss 6/bss load 7) interval = %d(msec)
+wlan_roam_internal.c:ROAM_SCORE_CU CU = %d CU FACTOR = %d CU WEIGHTAGE = %d CU SCORE = %d
+wlan_roam_internal.c:ROAM_SCORE_DELTA: score_delta_pcnt = %d new_current_score = %d cnd_min_roam_score = %d
+wlan_roam_internal.c:ROAM_SCORE_OCE_WAN DL = %d DL_MBPS = %d
+wlan_roam_internal.c:ROAM_SCORE_RSSI RSSI = %d RSSI FACTOR = %d RSSI WEIGHTAGE = %d RSSI SCORE = %d
+wlan_roam_internal.c:ROAM_SCORE_TOTAL SCORE = %d
+wlan_roam_internal.c:ROAM_SUPRESS_FINAL_SCAN roamable_ap_cnt=%d curr_low=%d dBm
+wlan_roam_internal.c:ROAM_UPDATED_THRESH hirssi_thresh = %d dBm, rssi_thresh1 = %d dBm, curr_rssi = %d dBm, low_rssi_thresh = %d dBm, high_rssi_thresh = %d dBm
+wlan_roam_internal.c:ROAM_WPA_MISMATCH parse_status = %d wpa_ucipher = 0x%08x wpa_mipher = 0x%08x prof_authmode=0x%08x wpa_authmode = 0x%08x (16 bit cur/16 bit candidate)
+wlan_roam_internal.c:valid_entries=%d
+wlan_roam_internal.c:wlan_roam_calculate_etp atf = %d, mpdu_p_ppdu = %d, max_amsdu_len = %d, ppdu_dur_us = %d, etp_mbps = %d
+wlan_roam_internal.c:wlan_roam_calculate_etp max_bits_per_sc_1000x = %d, log_2_snr_tone_1000x = %d, data_rate_kbps = %d
+wlan_roam_internal.c:wlan_roam_calculate_etp max_nss|is_vht|is_ht = 0x%01x, N_tone = %d, phy_hdr_dur_us = %d, chan_width = %d
+wlan_roam_internal.c:wlan_roam_calculate_etp min_mpdu_ss_us_100x = %d, max_amsdu_len = %d, ppdu_payload_dur_us = %d, mpdu_per_ampdu = %d, mpdu_per_ppdu = %d, ba_window_size = %d
+wlan_roam_internal.c:wlan_roam_full_scan_upon_roam_fail_fn id = %d interval = %d(msec) full_roaming_scan = %d trigger_reason = %d initial_conn=%d full_count=%d
+wlan_roam_internal.c:wlan_roam_send_rejection_list_update_to_host
+wlan_roam_sm.c:Deauth delay = %d
+wlan_roam_sm.c:ROAMING COMPLETE status:%d curr_idx:%d num_candidates:%d curr_bssid:%08x%04x
+wlan_roam_sm.c:ROAM_CACHE_BSSID_DELETE pos = %d, cache_count = %d, BSSID = 0x%08x%04x
+wlan_roam_sm.c:ROAM_CACHE_BSSID_DELETE_FAILED cache_count = %d, BSSID = 0x%08x%04x
+wlan_roam_sm.c:ROAM_CND_CACHE_EXISTING bssid = %08x%04x cur_cookie = %d new_score = %d old_score = %d
+wlan_roam_sm.c:ROAM_CND_CACHE_NOT_AVAIL bssid = %08x%04x score = %d cache full and no available entry
+wlan_roam_sm.c:ROAM_CND_LIST_DELETE_ENTRY bssid = %08x%04x index %d count %d index = %d
+wlan_roam_sm.c:ROAM_CND_LIST_DELETE_ENTRY_INVALID pho 0x%x roam_cnd_addr 0x%x
+wlan_roam_sm.c:ROAM_CND_LIST_DELETE_ENTRY_WRONG_CND_COUNT %d -> ignore this
+wlan_roam_sm.c:ROAM_FRMPARSE_OCE_ESP_CAP esp_pcnt = %d, ac_index = %d, ac_bitmap = 0x%x acc_cat = %d, airtime = %d
+wlan_roam_sm.c:ROAM_HO_ABORT cur_state=%d disconn_from_host=%d
+wlan_roam_sm.c:ROAM_HO_ABORT_CURR_NULL
+wlan_roam_sm.c:ROAM_HO_CACHE_ADD bssid=%08x%04x score=%d index=%d is_new=%d
+wlan_roam_sm.c:ROAM_HO_CACHE_MONITOR cookie=%d count=%d min_score=%d prev_min_cookie=%d cur_min_cookie=%d prev_min_index=%d cur_min_index=%d
+wlan_roam_sm.c:ROAM_HO_DELAY_PAUSE vdev_is_paused %d qdepth %d/%d/%d (hw/sw/last) pause_delay %d/%d msecs (cnt %d)
+wlan_roam_sm.c:ROAM_HO_ENTER_CH  roaming attempt to bssid = %08x%04x, mhz=%d (cur bssid = %08x%04x, mhz=%d) reason=%d
+wlan_roam_sm.c:ROAM_HO_IND_EVT disc_from_host|lost_connection|running=0x%x
+wlan_roam_sm.c:ROAM_HO_OCS_CH_CB  rcvd event = %d @ cur_state = %d
+wlan_roam_sm.c:ROAM_HO_OFFLOAD_SET_PARAM  result(0/1/2/3) = %d flags = 0x%x rssi_cat_gap = %d, sel_5g_margin = %d, ho_delay_for_rx = %d roam_candidate_validity_time=%d
+wlan_roam_sm.c:ROAM_HO_SAVE_CANDIDATE  idx = %d bssid = %08x%04x rssi = -%d dBm score = %d prefer|is_home_bssid = %d profile_md_ie0 = %x, profile_md_ie1 = %x
+wlan_roam_sm.c:ROAM_HO_SORT_CANDIDATE total_candidate = %d best_urssi = %d invoke=%d forced_bssid_num=%d
+wlan_roam_sm.c:ROAM_HO_START cnd(idx/total) %d/%d
+wlan_roam_sm.c:ROAM_HO_START_REJECT already roam on same vdev trigger_reason=%d
+wlan_roam_sm.c:ROAM_HO_START_REJECT disabled_trigger_mask = 0x%x trigger_reason=%d
+wlan_roam_sm.c:ROAM_HO_SWITCH_CH bssid = %08x%04x mac_id=%d (rssi = %d dBm mhz = %d phy_mode = 0x%x band_center_freq1 = %d band_center_freq2 = %d)
+wlan_roam_sm.c:ROAM_HO_TEMP_PEER_ALLOC_FAILED mac_id = %d
+wlan_roam_sm.c:ROAM_HO_UPDATE_STATUS rcvd status = %d@cur_state = %d
+wlan_roam_sm.c:ROAM_SEND_NOTIF_TO_HOST notify=%d vdev_id=%d, state=%d, roam_start_sent=%d
+wlan_roam_sm.c:ROAM_START_HANDOFF_FAILED curr_idx:%d num_candidates:%d curr_bssid:%08x%04x
+wlan_roam_sm.c:ROAM_VDEV_IS_ROAM_START@state=%d vdev_roam0x=%x
+wlan_roam_sm.c:ROAM_WPA3: OPEN Authentication PMK present=%d
+wlan_roam_sm.c:ROAM_WPA3: PREAUTH status=%d
+wlan_roam_sm.c:ROAM_WPA3: Send SAE Preauth start event for BSSID = %x %x %x %x %x %x
+wlan_roam_sm.c:ROAM_WPA3: wlan_roam_sae_preauth_timeout
+wlan_roam_sm.c:SAE_SPMK: spmk_enable = %d pcnd->sae_spmk_capable = %d
+wlan_roam_sm.c:bssid = %08x%04x 
+wlan_roam_sm.c:wlan_roam_resume_scan_upon_roam_fail intial_connection=%d full_roaming_scan=%d
+wlan_roam_sm.c:wlan_roam_resume_scan_upon_roam_fail lost_connection=%d ho_error=%d trigger_reason=%d
+wlan_roam_sta_kickout.c:ROAM_STA_KICKOUT_RECV error
+wlan_roam_sta_kickout.c:ROAM_STA_KICKOUT_RECV in_use = %d, running = %d, scan_status = %d, roaming = %d, cur_rssi = -%d dBm send_to_host = %d
+wlan_roam_subnet_detection.c:ROAM_SUBNET_DETECT_CONFIG_1 gw_ipv6_addr 31_0 = %08x 63_32 = %08x 95_64 = %08x 127_96 = %08x vdev_id=%d flag=0x%x
+wlan_roam_wmi.c:wlan_roam_get_scan_channel_list_event : max event size exceeded %d,max_limit %d
+wlan_roam_wmi.c:wlan_roam_get_scan_channel_list_event : memory allocation failed %d
+wlan_rtt.c:Null frame ack handler: send RTT_TRANSIMISSION_ERROR
+wlan_rtt.c:Null frame ack handler: tx_fail_count: %d, num_meas:%d, Tx fail thresold:%d
+wlan_rtt.c:cancel_measurement_req: vdev_type: %d, req_id: %d, free_curr_init: %d, is_cancelled: %d frame_type_handler_called %d
+wlan_rtt.c:wlan_rtt_get_ie: received invalid frame, ie_len=%u, len=%u
+wlan_rtt.c:wlan_rtt_send_null_frame: abf: %p channel: %x pmac = %p spoofed_seqno = %d
+wlan_rtt.c:wlan_rtt_send_tmr_frame: channel: %x pmac = %p spoofed_seqno = %d
+wlan_scan.c:%x %x %x
+wlan_scan.c:SCAN_SET_CHAN_LIST idx = %d, mhz = %d, is_passive = %d ch_info = 0x%x reg_info_1 = 0x%x max_bd=%d is_nan_disabled = %d
+wlan_scan.c:clear is bcn found flag
+wlan_scan.c:restarted ageout timer
+wlan_scan_adaptive.c:%x %x %x
+wlan_scan_mgr.c:%x %x %x
+wlan_scan_mgr.c:SCAN_MGR_SCAN_POLICY_RECOMPUTE vdev_index = %d, chan_index = %d, new_scan_policy = %d, scan_mgr_handle->cur_scan_policy = %d, suppress mode bitmap = 0x%x
+wlan_scan_sch.c:%x %x %x
+wlan_scan_sch.c:Current scan OCE FD bssids are > %d hence discarding
+wlan_scan_sm.c:%x %x %x
+wlan_scan_sm.c:SCAN_NOA_DWELL_TIME_OFFSET cur_policy=%d round_up_offset=%d scan_pre_foreign_chan_exit_time=%d
+wlan_scan_sm.c:SCAN_OCE_CCA_TIMEOUT cancel probe delay for scan_id:0x%x scanhdl_id:%d scan_policy:%d as CU < 50% percent
+wlan_scan_sm.c:wlan_scan_is_oce_probe_deferral_needed result 
+wlan_scan_unit_test.c:SCAN_SUPP_CHAN_INFO_2 is_passive (%d), is_ht_allowed (%d), is_vht_allowed (%d), is_dfs_ch (%d), is_bcn_found (%d), is_radar_detected (%d), last_bcn_timestamp (%d), csa_recv_timestamp (%d)
+wlan_smps.c:%x %x %x
+wlan_smps_unit_test.c:wlan_smps_unit_test command = %d, vdev_id = %d, num_args = %d
+wlan_smps_virtual_chan_register_beacon_rx
+wlan_stats.c:Event not getting allocated evh = NULL
+wlan_stats.c:RADIO_LINK_STATS rx_time greater than cca_busy_time
+wlan_stats.c:RADIO_LINK_STATS rx_time is greater than cca_busy_time, rx_time delta:%d cca_busy_time delta:%d
+wlan_stats.c:WMI_VDEV_SEND_BIG_DATA_EVENTID Err mem alloc failed 
+wlan_stats.c:wlan_send_big_data_to_host : VDEV EVT:WMI_VDEV_SEND_BIG_DATA_EVENTID vdevId=%d time=%d
+wlan_stats.c:wlan_stats_processor: Ran out of buffers; Aborting Report generation;		       Sending Report to Host 
+wlan_stats.c:wlan_stats_processor: peer_stats->peer_tx_rate = %d rx_rate = %dpeer_snr = %d
+wlan_stats.c:wlan_stats_processor: vdev=%d ac=%d good=%d mpdu_fail_cnt=%d fail_orig=%d (bumped up=%d%) mpdu_retry_cnt:%d
+wlan_suppl_offload.c:%x %x %x
+wlan_swbmiss_offload.c:*wlan_vdev_reset_beacon_stats vdev id %d
+wlan_swbmiss_offload.c:SWBMISS_DISABLED: vdev_id=%d, swbmiss_module_id=%d, bmiss_disable_bitmap=0x%x, curr_bmiss_bcnt=%d, cur_disable_bitmask=0x%x
+wlan_swbmiss_offload.c:SWBMISS_ENABLED: vdev_id=%d, swbmiss_module_id=%d, bmiss_disable_bitmap=0x%x, curr_bmiss_bcnt=%d, final_bmiss_detected=%d
+wlan_swbmiss_offload.c:SWBMISS_TIMER_FN: cck_flags = 0x%x 
+wlan_swbmiss_offload.c:SWBMISS_TIMER_FN: vdev_id=%d, curr_bmiss_bcnt=%d, pre_bmiss_detected=%d, first_bmiss_detected=%d, final_bmiss_detected=%d, b_timeout=%d, cons_bmiss_count = %d 
+wlan_swbmiss_offload.c:cck blkr feature init bcn rx_rate = %d 
+wlan_swbmiss_offload.c:wlan_bmiss_update_hwbmiss = %d
+wlan_swbmiss_offload.c:wlan_swbmiss_cck_blkr_timer_fn cck_blkr_disabled = %d 
+wlan_swbmiss_offload.c:wlan_swbmiss_cck_blkr_timer_start timeout_val = %u, cck_blkr_disabled = %d, drift_ms = %u bi = %u 
+wlan_swbmiss_offload.c:wlan_swbmiss_cck_blkr_unit_test_cmd command = %d , enable = %d, cck_blking_ptrn_detected = %d, cck_blkr_disabled = %d 
+wlan_swbmiss_offload.c:wlan_swbmiss_cck_blkr_unit_test_cmd fail Non STA vdev
+wlan_swbmiss_offload.c:wlan_swbmiss_cck_blkr_unit_test_cmd fail non-cck beacon
+wlan_swbmiss_offload.c:wlan_swbmiss_cck_blkr_unit_test_cmd vdev check fail
+wlan_swbmiss_offload.c:wlan_swbmiss_offload_handler beacon received num_bmiss_pattern = %d,	curr_bmiss_bcnt = %d pattern_threshold = %d, cck_blking_ptrn_detected = %d curr_index = 0x%x, current_time0_32 = 0x%x current_time32_64 = 0x%x 
+wlan_swbmiss_offload.c:wlan_swbmiss_update_bcn_stats mode %d
+wlan_swbmiss_offload.c:wlan_swbmiss_wal_pdev_evt_handler event_type = %d, new_power_state = %d, cck_blkr_disabled = %d 
+wlan_swbmiss_vdev_evt_handler
+wlan_tdls_peer.c
+wlan_tdls_peer.c:tdls_deinit_offchan_rc offchan_visited: %d freq: %d
+wlan_tdls_peer.c:tdls_init_offchan_rc freq: %d
+wlan_tdls_peer.c:wlan_tdls_create_offchan()is_peer_responder=%d offchan_active=%d
+wlan_tdls_peer.c:wlan_tdls_offchan_req_receive_timeout_handler()peer_ni_flags=0x%x offchan.phy_mode=%d enter_freq1=0x%xoff_chan.mhz=0x%x strict_start_time=%d
+wlan_tdls_peer_capability_update
+wlan_tdls_peer_connect_update_peer_param
+wlan_tdls_wmi_peer_state_connected
+wlan_thermal_mgr.c:Invalid CFCM client
+wlan_thermal_mgr.c:Invalid config : mac_id = %d
+wlan_thermal_mgr.c:Mitigation enable: But suspended 0x%x
+wlan_thermal_mgr.c:Mitigation enable: No change in config, return
+wlan_thermal_mgr.c:Mitigation enable: No vdevs active, return
+wlan_thermal_mgr.c:PDEV_POWERSAVE event received power_state = %d
+wlan_thermal_mgr.c:PDEV_POWERSAVE resumed as mac is UP
+wlan_thermal_mgr.c:PDEV_POWERSAVE stopped as mac is DOWN
+wlan_thermal_mgr.c:THERMAL_DEBUG P2P CLIENT OFFSET = %d
+wlan_thermal_mgr.c:THERMAL_DEBUG P2P GO OFFSET = %d
+wlan_thermal_mgr.c:THERMAL_DEBUG Periodal Sync timer started
+wlan_thermal_mgr.c:THERMAL_DEBUG SAP OFFSET = %d
+wlan_thermal_mgr.c:THERMAL_DEBUG STA OFFSET = %d
+wlan_thermal_mgr.c:THERMAL_DEBUG wlan_thermal_pause_unpause is_pause: 0x%x
+wlan_thermal_mgr.c:THERMAL_DEBUG wlan_thermal_periodical_sync_to_bcn offset = %d
+wlan_thermal_mgr.c:TM_LOW_XPUT started Mitigation
+wlan_thermal_mgr.c:TM_LOW_XPUT stopped Mitigation
+wlan_thermal_mgr.c:wlan_thermal_adapt_to_soc_xput in last 1 sec red_id = %d, rx_status = %d, rx_xput = %d, tx_status = %d, tx_xput = %d
+wlan_thermal_mgr.c:wlan_thermal_handle_mitigation_cmd pdev id= %d, enable %d,dc = %d, dc_off_percent = %d, client = %d 
+wlan_thermal_mgr.c:wlan_thermal_mgmt_wmi_cmd case : 0x%x
+wlan_thermal_mgr.c:wlan_thermal_vdev_evt_handlerVdev Evt notif = %d, vdev = %d
+wlan_traffic_mon.c:TRAFFIC_BYTES_START_CALC SOC 2 trim rx_bytes = %d, tx bytes = %d,trim_eventually = %d
+wlan_traffic_mon.c:TRAFFIC_BYTES_START_CALC SOC actual_rx_bytes = %d total_rx_bytes = %d rx_throughput = %d actual_tx_bytes = %d total_tx_bytes = %d tx_throughput = %d, duration = %d
+wlan_traffic_mon.c:TRAFFIC_DISABLED req_id = %d
+wlan_traffic_mon.c:TRAFFIC_MON_SOC_PDEV_EVT id= %d, power_state = %d, pdev_sleep_flag = %x, all_mac_down = %d
+wlan_traffic_mon.c:TRAFFIC_MON_SOC_VDEV_EVT id= %d, notif= %d
+wlan_traffic_mon.c:TRAFFIC_NO_ENTRY_EXIST req_id = %d
+wlan_traffic_mon.c:TRAFFIC_REG_INVALID_INFO req_id = %d rx_thresh  %d tx_thresh = %d vtraffic_mon = 0x%x
+wlan_traffic_mon.c:TRAFFIC_REG_REQ_INFO_1 is_running = %d, vdev_id = %d, req_id = %d, rx_thresh = %d, rx_status = %d, tx_thresh = %d, tx_status = %d total_req = %d
+wlan_traffic_mon.c:TRAFFIC_SOC_VDEV_EVT peer DEL trimmed rx bytes = %d, tx_bytes = %d
+wlan_traffic_mon.c:TRAFFIC_UNREG_INVALID_INFO req_id = %d, total_num_req = %d, is_enabled = 0x%x traffic_mon = 0x%x
+wlan_traffic_mon.c:TRAFFIC_UNREG_SUCCESS req_id = %d num_req = %d is_running = %d
+wlan_traffic_mon_wal_pdev_evt_handler
+wlan_traffic_vdev_evt_handler
+wlan_twt.c:Error wlan_twt_offld_handlerworong frame type subtype, T = %x, S = %x
+wlan_twt_sta.c:%x %x %x
+wlan_twt_sta.c:Error Add dialog mapping failed, List is Fulldialog_id = %d
+wlan_twt_sta.c:Error Add dialog mapping failed, dialoge id allready exists dialog_id = %d
+wlan_twt_sta.c:Error adding VOIP seesion twt voip pram is NULL
+wlan_twt_sta.c:Error delete dialog mapping failed, dialoge id does not exists, dialog_id = %d
+wlan_twt_sta.c:Error deleting session_id %d, session is NULL
+wlan_twt_sta.c:Error in resuming dialog, session handle is NULL for session_id = %d
+wlan_twt_sta.c:Error in twt session free vdev session num = %d mac session num = %d 
+wlan_twt_sta.c:Error sending pause dialoge complete, dialog id invalid, dialog_id = %d 
+wlan_twt_sta.c:Error sending resume dialoge complete, dialog id invalid, dialog_id = %d 
+wlan_twt_sta.c:Error sta twt vdev init vdev notification registration failed
+wlan_twt_sta.c:Error tx_completion_tx_renego_req twt session handle is NULL
+wlan_twt_sta.c:Error udpate dialog mapping failed, dialoge id does not exists, dialog_id = %d
+wlan_twt_sta.c:Error wlan_sta_twt_action_frame_tx_completion action frame category is not ACTION_CATEGORY_CODE_UNPROTECTED_S1G
+wlan_twt_sta.c:Error wlan_sta_twt_info_tx_completion_resume twt session handle is NULL
+wlan_twt_sta.c:Error wlan_sta_twt_initiate_renego twt session handle is NULL
+wlan_twt_sta.c:Error wlan_sta_twt_pause_dialog twt session handle is NULL
+wlan_txbf.c:%x %x %x
+wlan_txbf.c:wlan_txbf_cbf_recv:Buff len is more than remote buff size buf_len = %x offset = %x
+wlan_txbf_wal_pdev_evt_handler
+wlan_unified_vdev_stop
+wlan_vdev.c
+wlan_vdev.c:%x %x %x
+wlan_vdev.c:KA: cmd handler() -> start timer vdev_id = %d keepalive_interval = 0x%x keepalive_method = 0x%x
+wlan_vdev.c:KA: wlan_vdev_down() -> stop timer
+wlan_vdev.c:KA: wlan_vdev_stop() -> stop timer
+wlan_vdev.c:KA: wlan_vdev_up() -> start timer vdev_id = %d keepalive_interval = 0x%x keepalive_method = 0x%x
+wlan_vdev.c:Rejecting vdev_start request for vdev_id = %d from requestor_id = 0x%x. STA + STA not supported
+wlan_vdev.c:WMI_VDEV_ENCRYPT_DECRYPT_DATA_REQ_CMDID invalid data_len %d
+wlan_vdev.c:vdev id %d, aggregation type %d, ac %d, max num frames %d, enable_bitmap %d rx_size %d
+wlan_vdev.c:vdev_set_restore_mac_addr deletion status = %d freq = %d
+wlan_vdev.c:wlan_vdev_dispatch_get_big_data Err vdev || vdev not free 
+wlan_vdev_attach
+wlan_vdev_change_minimum_allowed_mcs_internal
+wlan_vdev_cmd_valid
+wlan_vdev_create
+wlan_vdev_delete_conf_msg_hdlr
+wlan_vdev_dispatch_create_cmd
+wlan_vdev_dispatch_custom_aggr_size_cmd
+wlan_vdev_dispatch_install_key
+wlan_vdev_dispatch_peer_assoc_fill_ratectrl_params
+wlan_vdev_dispatch_peer_create
+wlan_vdev_dispatch_peer_delete
+wlan_vdev_dispatch_set_mcastbcast_cmd
+wlan_vdev_dispatch_set_multiple_mcast_cmd
+wlan_vdev_down
+wlan_vdev_extract_mandatory_ies
+wlan_vdev_extract_optional_vendor_ies
+wlan_vdev_fill_vdev_mac_entry
+wlan_vdev_find_vdev
+wlan_vdev_find_vdev_by_type_subtype_possiblemacid
+wlan_vdev_free
+wlan_vdev_generate_probe_rsp
+wlan_vdev_get_active_vdev_count_per_mac
+wlan_vdev_get_max_dpd_cal_time
+wlan_vdev_get_sta_channel
+wlan_vdev_is_p2p_vdev_present
+wlan_vdev_is_sap_vdev_present
+wlan_vdev_keepalive.c:%x %x %x
+wlan_vdev_keepalive.c:KA : Sending frame
+wlan_vdev_keepalive.c:KA: Keep alive method invalid
+wlan_vdev_keepalive.c:KA: Peer = Null
+wlan_vdev_keepalive.c:KA: VDEV_MGR_AP_KEEPALIVE_INACTIVE  vdev_id = %d cur_txrx_ref_time = 0x%x last_txrx_time = 0x%xlast_tx_time = 0x%x last_rx_time = 0x%x
+wlan_vdev_keepalive.c:KA: intvl = 0
+wlan_vdev_keepalive.c:KA: wlan_vdev_keepalive_check vdev_id = %d keepalive_interval = 0x%x keepalive_method = 0x%x
+wlan_vdev_keepalive.c:KA: wlan_vdev_keepalive_ready_to_send cur_txrx_ref_time = 0x%x last_txrx_time = 0x%x inactive_time_ms = 0x%x
+wlan_vdev_keepalive.c:ndp_keepalive peer_id = %d peertype = %d vdev_type = %d, flags = 0x%x
+wlan_vdev_misc.c
+wlan_vdev_misc.c:%x %x %x
+wlan_vdev_misc.c:WLAN_VDEV_NOTIF_ROGUE_AP_IE1_DETECTED
+wlan_vdev_misc.c:WLAN_VDEV_NOTIF_ROGUE_AP_IE2_DETECTED 
+wlan_vdev_misc.c:set_ignore_check_for_OUI :: VENDOR SPECIFIC IE :%u, %u, %02x, %02x, %02x
+wlan_vdev_misc.c:wlan_vdev_handle_own_beacon: RAP: current AP bssid=0x%x 0x%x
+wlan_vdev_module_init
+wlan_vdev_mt_flow_ctrl_msg_send
+wlan_vdev_pause
+wlan_vdev_pause.c
+wlan_vdev_pause.c:%x %x %x
+wlan_vdev_register_notif_handler
+wlan_vdev_reject_vdev_start_request
+wlan_vdev_roam_external_handoff_save_cnd_list
+wlan_vdev_roam_external_roam_scan_invoke
+wlan_vdev_roam_fill_invoke_param
+wlan_vdev_schedule.c
+wlan_vdev_schedule.c:%x %x %x
+wlan_vdev_schedule.c:VDEV_START_RESPONSE_REJECTED ev:%d vdev_id:%d restart_resp:%d
+wlan_vdev_send_peer_assoc_conf_event
+wlan_vdev_send_peer_delete_resp_event
+wlan_vdev_send_wmievent_mwscoex_antenna_sharing_state
+wlan_vdev_send_wmievent_mwscoex_dpwb_state
+wlan_vdev_send_wmievent_mwscoex_idrx_state
+wlan_vdev_send_wmievent_mwscoex_state
+wlan_vdev_send_wmievent_mwscoex_tdm_state
+wlan_vdev_set_mac_addr
+wlan_vdev_set_mandatory_ie
+wlan_vdev_set_mandatory_ie_by_band
+wlan_vdev_set_param
+wlan_vdev_start
+wlan_vdev_start_crit_ch_req_setup
+wlan_vdev_store_cb_data
+wlan_vdev_tsf_tstamp_action
+wlan_vdev_unblock_home_chan_cal
+wlan_vdev_unit_test.c:wlan_vdev_config_test: vdev_id = %d, test_cmd = %d, args[1] = %d, args[2] = %d, num_args = %d 
+wlan_vdev_unpause
+wlan_vdev_up
+wlan_vdev_up_ch_req_setup
+wlan_vdev_up_setup_sta
+wlan_vdev_wal_vdev_to_vdev
+wlan_vdevs_migrate
+wlan_virtual_chan_register_beacon_rx
+wlan_wow_mgmt.c
+wmi_ftm_attach.c:ERROR: ftm_parse_unifiedcmd: dataLen %d is LESS than sizeof(segHdrInfo) %d
+wmi_svc.c:%x %x %x
+wmi_svc.c:WLS LPASS event
+wmi_svc.c:WLS LPASS event completion
+wmi_svc.c:WMI_EVENT_ALLOC length is too large, len:%d
+wow_can_deliver_mgmt_tohost
+wow_data_vdev_init

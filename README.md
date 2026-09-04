@@ -220,7 +220,7 @@ file protection) ·
 | **NFC** | Samsung `sec-nfc` on i2c7. No mainline driver. |
 | **GPS** | **A satellite fix watchdog-resets the SoC in under a second**, reproducibly, with `ipa.ko` not loaded. It was never an indoors problem. Narrowed since: the trigger is the GNSS *measurement engine* coming up, so `standalone` mode kills the phone while **`cellid` positioning works** — a live session, fifty indications, position reports and NMEA, no reset (`scripts/rhodep-gnss-test.py 60 min opmode=cellid`). The same reproducer is now the fastest way to work on the LTE reset. [`GNSS-SM6375.md`](docs/interconnect-sm6375-wip/GNSS-SM6375.md) |
 | **Camera** | **Does not capture** — no photos, no video, no viewfinder. Only groundwork is done: the FAN53870 camera PMIC driver is written and running (all 7 LDOs registered, voltages verified against the chip's registers), and the rest is feasible because the ISP pipeline (`csid530` + `tfe530` + `tpg101`) is the *same silicon* mainline already drives on qcm2290, the 52 `gcc_camss_*` clocks are in mainline, and the 50 MP main sensor (Samsung S5KJN1) has a mainline driver. Still needed before any image: a `camss` entry for SM6375, the CSIPHY/CSID/TFE nodes and the sensor node. [`CAMERA-SENSORS-FEASIBILITY.md`](docs/CAMERA-SENSORS-FEASIBILITY.md) |
-| **Monitor mode + injection on the internal WiFi** | **Management capture and injection work.** `mon0` alongside the STA captures beacons/probe/auth/assoc/deauth from overheard networks (8–14 distinct BSSIDs per 20 s run) while `wlan0` stays associated (patch 0117: firmware forwards mgmt via `WMI_MGMT_RX_EVENTID`, ath10k used to drop them with `RX_FLAG_SKIP_MONITOR`). Raw injection works too (patch 0115 + firmware raw bit): scapy/aireplay deauth on ch11 hits the air (640–1036 frames self-captured). Single channel context: shared-with-STA is locked to wlan0's channel; for another channel use `rhodep-wlan-monitor inject-setup <chan>` (drops STA) then `restore`. aireplay needs `-D`. Only other-BSS *data* RX stays a firmware limit. See item 13. |
+| **Monitor mode on the internal WiFi** | **Management-frame capture works; injection does NOT.** `mon0` alongside the STA captures beacons/probe/auth/assoc/deauth from overheard networks (8–14 distinct BSSIDs per 20 s run) while `wlan0` stays associated (patch 0117: firmware forwards mgmt via `WMI_MGMT_RX_EVENTID`, ath10k used to drop them with `RX_FLAG_SKIP_MONITOR`). **Injection/TX from the internal radio does not radiate** — proven with an external witness: HTT raw TX crashes the firmware, WMI mgmt-tx completes `status=1` (0/1638 on air), and even an AP vdev beacons `ret=0` but emits nothing OTA. It's a firmware behaviour (STA TX works, AP/monitor TX doesn't). Use the external TP-Link for injection. The WLAN firmware IS patchable (secure boot not enforced) — RE of `wlanmdsp.mbn` is the path forward. Dedicated-channel capture: `rhodep-wlan-monitor inject-setup <chan>`/`restore`. See item 13. |
 
 ## Bugs
 
@@ -3418,39 +3418,92 @@ already done.
     It is the least tractable item in this file. It is also the one that would
     change daily use the most, which is why it is here.
 
-13. **Monitor mode on the internal WiFi — management-frame capture AND injection now work; only other-BSS data RX remains a firmware limit.**
+13. **Monitor mode on the internal WiFi — management-frame CAPTURE works; injection/TX does NOT radiate (firmware limit, but the firmware is patchable). Full write-up.**
 
-    Three sessions. The internal WiFi now does real passive capture of 802.11
-    **management** frames from the networks it overhears — beacons, probe
-    req/resp, auth, assoc, deauth/disassoc — not just the associated BSS, **and
-    it injects raw 802.11 frames**. Measured on the phone across several 20 s
-    capture runs with `mon0` added alongside the associated STA: 150–325 frames
-    per run, with **8–14 distinct beaconing BSSIDs** plus dozens of
-    probe-responses, while `wlan0` stays associated with working IP (ping 0%
-    loss). How many *other-BSS* beacons show up in a given run varies — the
-    firmware forwards neighbours opportunistically — but the neighbours do come
-    through. Only other-BSS *data* capture is still blocked in firmware.
+    Three-plus sessions. The internal WiFi now does real passive capture of
+    802.11 **management** frames from the networks it overhears — beacons, probe
+    req/resp, auth, assoc, deauth/disassoc — not just the associated BSS.
+    Measured on the phone across several 20 s capture runs with `mon0` added
+    alongside the associated STA: 150–325 frames per run, with **8–14 distinct
+    beaconing BSSIDs** plus dozens of probe-responses, while `wlan0` stays
+    associated with working IP (ping 0% loss). How many *other-BSS* beacons show
+    up in a given run varies — the firmware forwards neighbours opportunistically
+    — but the neighbours do come through. Capture is the solid, shipped win here.
 
-    **Injection works (patches 0115 + firmware-5.bin raw bit), on any channel.**
-    A scapy raw-802.11 deauth and `aireplay-ng -0` on channel 11 against a lab AP
-    are transmitted and heard back over the air — a self-capture on `mon0` shows
-    640–1036 of our own deauth frames going out. The earlier "injection remains
-    impossible" verdict was wrong on two counts: the driver *does* send raw TX
-    (patch 0115), and the real blocker was **channel selection**, not TX. Two
-    facts made it look broken:
-    - The internal radio has a single channel context, so a monitor alongside an
-      associated STA is locked to the STA's channel. Injecting on a *different*
-      channel (e.g. the STA on 5 GHz ch157, the target AP on 2.4 GHz ch11)
-      requires tearing the STA down so mac80211 will let a monitors-only
-      configuration set an arbitrary channel — `iw dev monX set channel` silently
-      no-ops while any non-monitor vif is running (`cfg80211_has_monitors_only`).
-      ath10k does not support `active` monitor vifs, so the dedicated
-      monitors-only path is the way. `rhodep-wlan-monitor inject-setup <chan>`
-      automates it (drop STA, remove p2p-device, unblock rfkill, set channel);
-      `restore` brings normal WiFi back (verified: reassociates, ping 0% loss).
-    - `aireplay-ng` needs `-D` to skip its "waiting for beacon frame" step, since
-      mgmt RX in dedicated mode is intermittent; without it, it waits forever on
-      `channel -1` and never transmits — which is what the earlier logs showed.
+    **Injection does NOT work from the internal radio, and this is now proven,
+    not assumed.** An earlier version of this entry claimed injection worked; that
+    was wrong — it was fooled by mac80211's TX loopback (a frame injected on a
+    monitor vif is *also* delivered back to that same monitor, so a self-capture
+    shows "your" deauth even when nothing left the antenna). With an **external
+    TP-Link (RTL8811AU) as an independent witness in monitor on the same channel**,
+    the truth came out:
+
+    - **HTT raw TX (patch 0115 path): crashes the firmware.** The first injected
+      frame triggers `PDM: wlan_process crash ... cmnos_thread.c:4005` /
+      `firmware crashed!`, then every subsequent TX returns `-108` (ESHUTDOWN, CE
+      in crash-flush). Root cause: the HTT data-TX path needs a peer, and a
+      monitor vdev has none (see ath10k's own offchannel temp-peer comment,
+      `mac.c` `ath10k_offchan_tx_work`).
+    - **WMI mgmt-tx-by-reference path: accepted but discarded.** Rerouting monitor
+      mgmt frames to `WMI_MGMT_TX_SEND_CMD` (instead of raw HTT) stops the crash —
+      the firmware returns a completion for every frame — but the completion
+      `status` is always **1 (discard)**, never 0, and the TP-Link heard **0 of
+      1638** injected deauths on the air.
+    - **Temp peer on the monitor vdev: still discarded.** Creating a peer for the
+      destination on the monitor vdev before mgmt-tx (mirroring the offchannel
+      trick) does create the peer (`monitor vdev 0`), but frames still complete
+      `status=1` and do not radiate.
+    - **AP vdev doesn't radiate either.** Bringing up `hostapd` on the internal
+      radio: the driver does everything right — `vdev-start freq=2462 ret=0`,
+      `bcn-tmpl len=91 ret=0`, `vdev-up ret=0`, no warnings, firmware ACKs all —
+      yet the TP-Link (which simultaneously heard 115 beacons from *other* APs on
+      the channel) heard **0 beacons** from our AP. So the radio transmits fine as
+      a **STA** (it associates and pings at 0% loss), but host-driven TX from
+      **AP or monitor** vdevs never reaches the antenna on this firmware.
+
+    Conclusion: injection/TX from the internal radio is a **firmware behaviour**,
+    not a driver bug and not a channel bug. Every host-side lever was exhausted.
+    For injection, use the **external adapter** (wlan1/RTL8811AU), which does it
+    perfectly (`aireplay-ng --test`: `Injection is working!`, 30/30 100% ACK).
+
+    **BUT: the WLAN firmware is patchable — secure boot is not enforced on it.**
+    This is the important discovery for anyone continuing. The executable firmware
+    is `wlanmdsp.mbn` (ELF32 Hexagon QDSP6, served to the modem by
+    `tqftpserv-rhodep` from `/readonly/firmware/image/`), and it has a
+    hash/signature segment, so in theory TrustZone/PIL should reject a modified
+    image. **Empirically it does not:** flipping a single byte inside a code
+    (LOAD) segment and rebooting still loaded and ran the firmware — Wi-Fi
+    associated normally, no auth/PIL failure in dmesg. So the realistic path to
+    real injection on the internal radio is **reverse-engineering `wlanmdsp.mbn`
+    and patching the TX gate** that discards AP/monitor transmissions. Notes to
+    pick this up next session:
+    - Pristine blob backed up at `backups/firmware/wlanmdsp.mbn.rhodep-orig`
+      (md5 `f377d18cae70e74610ce386713ecde5c`, 3981160 bytes) and on the device at
+      `/root/wlanmdsp.mbn.rhodepbak`. Restore recipe is in that folder's README.
+    - The image keeps **function-name strings** (e.g. `wlan_mgmt_tx_send_wmi_cmd_handler`,
+      `wal_local_frame_mgmt_tx_completion`, `wal_rx_setup_monitor_mode`,
+      `MGMT_TX_WMI_FROM_HOST_COMP desc_id=0x%x tx_status=0x%x`), which makes RE far
+      more tractable.
+    - Toolchain that works on stock Ubuntu: `llvm-18` has a Hexagon backend;
+      `llvm-objdump --triple=hexagon --mcpu=hexagonv60 wlanmdsp.mbn` disassembles
+      all 778k instructions cleanly. Code segment: file `0x40000` / vaddr
+      `0xb0000000`, size `0x30d06c`. Ghidra 12.1+ (native Hexagon) is the tool for
+      xref-following the mgmt-tx `status` decision. The firmware advertises
+      `WMI_SERVICE_BEACON_OFFLOAD` and `AP_UAPSD` (so AP/beacon TX *should* be
+      possible — the gate is likely a config/coex condition the phone's Android
+      stack satisfies and this port does not, or a monitor/AP-vdev TX guard).
+
+    **Channel selection for a dedicated monitor (this part does work and is
+    useful for capture).** The internal radio has a single channel context, so a
+    monitor alongside an associated STA is locked to the STA's channel. To put the
+    monitor on an arbitrary channel, the STA must be gone so mac80211 allows a
+    monitors-only configuration to set the channel (`iw dev monX set channel`
+    silently no-ops while any non-monitor vif runs — `cfg80211_has_monitors_only`;
+    ath10k has no `active` monitor support). `rhodep-wlan-monitor inject-setup
+    <chan>` automates the teardown (drop STA, remove p2p-device, unblock rfkill,
+    set channel) and `restore` brings normal Wi-Fi back (verified: reassociates,
+    ping 0% loss). This is genuinely useful for **capturing** on a chosen channel;
+    it just won't inject, per the above.
 
     **The breakthrough (third session).** The earlier "the firmware never gives
     the host other-BSS frames" verdict was half wrong. It is true for the HTT

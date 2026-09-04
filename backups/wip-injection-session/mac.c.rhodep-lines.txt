@@ -1,0 +1,11 @@
+1549:			    "rhodep vdev-start id=%d type=%d freq=%d cf1=%d mode=%d restart=%d\n",
+1565:		ath10k_info(ar, "rhodep vdev-start id=%d wmi ret=%d\n",
+1699:		ath10k_info(ar, "rhodep bcn-tmpl vdev=%d len=%d ret=%d\n",
+1853:		ath10k_info(ar, "rhodep AP vdev-up id=%d bssid=%pM ret=%d\n",
+3767:	/* rhodep: injecting from a monitor vif normally goes through the HTT raw
+4274:/* rhodep: WCN3990 firmware only radiates a mgmt frame if the target vdev has a
+4305:		ath10k_info(ar, "rhodep inj: DA %pM is mcast, no peer (vdev %d)\n",
+4313:		ath10k_info(ar, "rhodep inj: no arvif for vdev %d\n", vdev_id);
+4318:		ath10k_info(ar, "rhodep inj: peer %pM already on vdev %d\n",
+4325:		ath10k_info(ar, "rhodep inj: peer_create %pM on vdev %d FAILED\n",
+4330:	ath10k_info(ar, "rhodep inj: temp peer %pM created on monitor vdev %d\n",

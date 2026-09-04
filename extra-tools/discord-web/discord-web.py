@@ -81,14 +81,81 @@ _INJECT_JS = r"""
         return CDN.some(function(h){ return url && url.indexOf(h) !== -1; });
     }
 
+    // --- Toast notification ---
+    function makeToast() {
+        var t = document.createElement('div');
+        t.style.cssText = [
+            'position:fixed',
+            'bottom:24px',
+            'left:50%',
+            'transform:translateX(-50%)',
+            'z-index:99999',
+            'background:rgba(20,20,30,0.93)',
+            'color:#fff',
+            'font-family:sans-serif',
+            'font-size:15px',
+            'padding:12px 20px',
+            'border-radius:14px',
+            'box-shadow:0 4px 24px rgba(0,0,0,0.5)',
+            'max-width:85vw',
+            'text-align:center',
+            'pointer-events:none',
+            'transition:opacity 0.3s',
+            'white-space:nowrap',
+            'overflow:hidden',
+            'text-overflow:ellipsis',
+        ].join(';');
+        document.body.appendChild(t);
+        return t;
+    }
+
+    function showToast(msg, duration) {
+        var t = makeToast();
+        t.textContent = msg;
+        if (duration) {
+            setTimeout(function() {
+                t.style.opacity = '0';
+                setTimeout(function() {
+                    if (t.parentNode) t.parentNode.removeChild(t);
+                }, 350);
+            }, duration);
+        }
+        return t;
+    }
+
     function triggerDownload(cdnUrl) {
-        // Fetch the file and turn it into a blob: URL, then click a temporary
-        // <a download> element.  This is the most reliable way to trigger
-        // QWebEngineDownloadRequest from injected JS -- it goes through the
-        // engine's regular download pipeline regardless of Content-Disposition.
         var fname = cdnUrl.split('?')[0].split('/').pop() || 'discord-file';
+        var shortName = fname.length > 30 ? fname.substring(0,28) + '…' : fname;
+
+        // Show "downloading" toast with live progress.
+        var toast = makeToast();
+        toast.textContent = '⬇ Descargando ' + shortName + '…';
+
         fetch(cdnUrl, {credentials: 'omit'})
-            .then(function(r) { return r.blob(); })
+            .then(function(r) {
+                // Show progress if Content-Length is known.
+                var total = parseInt(r.headers.get('Content-Length') || '0', 10);
+                if (!total || !r.body) return r.blob();
+
+                var reader = r.body.getReader();
+                var received = 0;
+                var chunks = [];
+                function pump() {
+                    return reader.read().then(function(result) {
+                        if (result.done) {
+                            return new Blob(chunks);
+                        }
+                        chunks.push(result.value);
+                        received += result.value.length;
+                        var pct = Math.round(received / total * 100);
+                        var kb  = Math.round(received / 1024);
+                        var tot = Math.round(total / 1024);
+                        toast.textContent = '⬇ ' + shortName + ' — ' + pct + '% (' + kb + '/' + tot + ' KB)';
+                        return pump();
+                    });
+                }
+                return pump();
+            })
             .then(function(blob) {
                 var burl = URL.createObjectURL(blob);
                 var a = document.createElement('a');
@@ -100,9 +167,22 @@ _INJECT_JS = r"""
                     document.body.removeChild(a);
                     URL.revokeObjectURL(burl);
                 }, 1000);
+                // Replace toast with success.
+                toast.textContent = '✓ Guardado: ' + shortName;
+                toast.style.background = 'rgba(30,130,70,0.93)';
+                setTimeout(function() {
+                    toast.style.opacity = '0';
+                    setTimeout(function() {
+                        if (toast.parentNode) toast.parentNode.removeChild(toast);
+                    }, 400);
+                }, 2500);
             })
             .catch(function(err) {
-                // Fallback: open in new tab (user can long-press to save).
+                toast.textContent = '⚠ Error — abriendo en pestaña';
+                toast.style.background = 'rgba(150,40,40,0.93)';
+                setTimeout(function() {
+                    if (toast.parentNode) toast.parentNode.removeChild(toast);
+                }, 3000);
                 window.open(cdnUrl, '_blank');
             });
     }

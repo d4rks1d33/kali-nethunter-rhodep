@@ -11,10 +11,11 @@ import sys, os
 
 os.environ["QT_IM_MODULE"] = "none"   # no auto on-screen keyboard
 
-from PyQt6.QtCore import QUrl, Qt
+from PyQt6.QtCore import QUrl, Qt, QStandardPaths
 from PyQt6.QtWidgets import QApplication, QMainWindow
 from PyQt6.QtWebEngineWidgets import QWebEngineView
-from PyQt6.QtWebEngineCore import QWebEngineProfile, QWebEnginePage
+from PyQt6.QtWebEngineCore import (QWebEngineProfile, QWebEnginePage,
+                                   QWebEngineDownloadRequest)
 
 DATA = os.path.expanduser("~/.local/share/discord-web")
 os.makedirs(DATA, exist_ok=True)
@@ -36,13 +37,36 @@ profile.setHttpUserAgent(
     "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36")
 
+# Save downloads to ~/Downloads (created if absent).
+DOWNLOADS = QStandardPaths.writableLocation(
+    QStandardPaths.StandardLocation.DownloadLocation)
+os.makedirs(DOWNLOADS, exist_ok=True)
+
+def on_download(item: QWebEngineDownloadRequest):
+    # Keep the filename Discord suggests; put it in ~/Downloads.
+    suggested = os.path.basename(item.suggestedFileName())
+    dest = os.path.join(DOWNLOADS, suggested or "discord-download")
+    # Avoid clobbering existing files.
+    base, ext = os.path.splitext(dest)
+    n = 1
+    while os.path.exists(dest):
+        dest = f"{base}_{n}{ext}"
+        n += 1
+    item.setDownloadDirectory(DOWNLOADS)
+    item.setDownloadFileName(os.path.basename(dest))
+    item.accept()
+
+profile.downloadRequested.connect(on_download)
+
 win = QMainWindow()
 win.setWindowTitle("Discord")
 
 view = QWebEngineView()
 page = QWebEnginePage(profile, view)
 view.setPage(page)
-view.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+# Keep the default context menu so "Save image / Open in new tab / Copy link"
+# work. Discord's own long-press handler (for reactions etc.) is unaffected
+# because it fires before the browser context menu.
 view.load(QUrl("https://discord.com/app"))
 
 win.setCentralWidget(view)

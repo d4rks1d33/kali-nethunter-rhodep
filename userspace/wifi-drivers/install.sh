@@ -96,6 +96,9 @@ arm_firstboot() {
 	# internal-WiFi monitor helper (patch 0117 management-frame capture)
 	install -D -m 0755 "$here/rhodep-wlan-monitor" \
 		/usr/local/sbin/rhodep-wlan-monitor
+	# interactive injection lab (offchannel mgmt-tx test with external witness)
+	install -D -m 0755 "$here/rhodep-inject-lab" \
+		/usr/local/sbin/rhodep-inject-lab
 	if [ -d /run/systemd/system ]; then
 		systemctl daemon-reload
 		systemctl enable rhodep-wifi-drivers-firstboot.service >/dev/null 2>&1 || true

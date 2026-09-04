@@ -3529,12 +3529,14 @@ already done.
       ROC; the temp-peer worker serialises one completion at a time.
     - Must still verify at runtime that this firmware actually radiates the
       offchannel frame (it accepts a lot it then drops). Test harness:
-      `userspace/wifi-drivers/rhodep-offchan-tx-test.sh <freq>` sends a probe
-      request on the chosen channel from the STA vdev; confirm with the external
-      TP-Link witness parked on that channel. If the witness hears our SA on the
-      target channel, injection-on-arbitrary-channel works **without** touching
-      the firmware (within the addr2=own-MAC limit). This is worth trying before
-      committing to the Hexagon RE.
+      **`sudo rhodep-inject-lab`** — an interactive CLI
+      (`userspace/wifi-drivers/rhodep-inject-lab`) that sets up the TP-Link as a
+      witness on a channel you pick from a menu, transmits a probe request on
+      that channel from the STA vdev, reports whether the witness heard our SA,
+      captures the ath10k `mgmt-tx-compl status=` trace, and restores WiFi at the
+      end. If the witness hears our SA on the target channel,
+      injection-on-arbitrary-channel works **without** touching the firmware
+      (within the addr2=own-MAC limit). Worth trying before the Hexagon RE.
 
     **The breakthrough (third session).** The earlier "the firmware never gives
     the host other-BSS frames" verdict was half wrong. It is true for the HTT

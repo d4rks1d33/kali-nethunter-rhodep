@@ -60,28 +60,31 @@ profile.downloadRequested.connect(on_download)
 
 # JS injected after every page load.
 #
-# Discord's image anchors use a stable, build-independent attribute:
-#   <a data-role="img" href="https://cdn.discordapp.com/attachments/...">
-# This is a literal string in Discord's source (not a hashed class name) and
-# has been stable across builds for years.
+# Covers all Discord attachment types via stable, build-independent selectors:
 #
-# We watch for these anchors via MutationObserver and overlay a ⬇ button on
-# each image.  Tapping the button triggers a custom URL scheme
-# ("discord-dl://...") which Python catches in acceptNavigationRequest() and
-# converts to a real QWebEnginePage.download() call -> on_download() ->
-# ~/Downloads.  stopPropagation() prevents Discord from opening the lightbox.
+#  TYPE              SELECTOR                        URL FROM
+#  Images            a[data-role="img"]              .href   (cdn.discordapp.com)
+#  Video / GIF       [class*="embedVideo"] video     .src    (cdn / media proxy)
+#  Audio / files     a[class*="fileNameLink"]        .href   (cdn.discordapp.com)
+#
+# All three paths share the same toast+fetch+blob download pipeline.
+# CSS module hash suffixes change per Discord deploy; only the prefix
+# (e.g. "embedVideo", "fileNameLink") is stable and matched with [class*=].
 _INJECT_JS = r"""
 (function() {
-    if (window.__rhodepDl3) return;
-    window.__rhodepDl3 = true;
+    if (window.__rhodepDl4) return;
+    window.__rhodepDl4 = true;
 
-    var CDN = ['cdn.discordapp.com/attachments', 'media.discordapp.net/attachments'];
-
+    // Discord CDN domains. /attachments is present for user-uploaded files.
+    // Videos / GIFs may also come from media.discordapp.net without /attachments.
     function isCdn(url) {
-        return CDN.some(function(h){ return url && url.indexOf(h) !== -1; });
+        if (!url) return false;
+        return url.indexOf('cdn.discordapp.com') !== -1 ||
+               url.indexOf('media.discordapp.net') !== -1 ||
+               url.indexOf('images-ext') !== -1;
     }
 
-    // --- Toast notification ---
+    // ── Toast ────────────────────────────────────────────────────────────────
     function makeToast() {
         var t = document.createElement('div');
         t.style.cssText = [
@@ -109,48 +112,36 @@ _INJECT_JS = r"""
         return t;
     }
 
-    function showToast(msg, duration) {
-        var t = makeToast();
-        t.textContent = msg;
-        if (duration) {
-            setTimeout(function() {
-                t.style.opacity = '0';
-                setTimeout(function() {
-                    if (t.parentNode) t.parentNode.removeChild(t);
-                }, 350);
-            }, duration);
-        }
-        return t;
+    function dismissToast(t, delay) {
+        setTimeout(function() {
+            t.style.opacity = '0';
+            setTimeout(function() { if (t.parentNode) t.parentNode.removeChild(t); }, 350);
+        }, delay);
     }
 
-    function triggerDownload(cdnUrl) {
-        var fname = cdnUrl.split('?')[0].split('/').pop() || 'discord-file';
-        var shortName = fname.length > 30 ? fname.substring(0,28) + '…' : fname;
-
-        // Show "downloading" toast with live progress.
+    // ── Core download: fetch → blob → <a download> ────────────────────────
+    function triggerDownload(rawUrl) {
+        // Strip query params to get the clean filename, but keep the full URL
+        // for the actual fetch (Discord's signed URLs need the query string).
+        var fname = rawUrl.split('?')[0].split('/').pop() || 'discord-file';
+        var short = fname.length > 30 ? fname.slice(0, 28) + '…' : fname;
         var toast = makeToast();
-        toast.textContent = '⬇ Descargando ' + shortName + '…';
+        toast.textContent = '⬇ Descargando ' + short + '…';
 
-        fetch(cdnUrl, {credentials: 'omit'})
+        fetch(rawUrl, {credentials: 'omit'})
             .then(function(r) {
-                // Show progress if Content-Length is known.
                 var total = parseInt(r.headers.get('Content-Length') || '0', 10);
                 if (!total || !r.body) return r.blob();
-
-                var reader = r.body.getReader();
-                var received = 0;
-                var chunks = [];
+                var reader = r.body.getReader(), received = 0, chunks = [];
                 function pump() {
-                    return reader.read().then(function(result) {
-                        if (result.done) {
-                            return new Blob(chunks);
-                        }
-                        chunks.push(result.value);
-                        received += result.value.length;
+                    return reader.read().then(function(res) {
+                        if (res.done) return new Blob(chunks);
+                        chunks.push(res.value);
+                        received += res.value.length;
                         var pct = Math.round(received / total * 100);
                         var kb  = Math.round(received / 1024);
                         var tot = Math.round(total / 1024);
-                        toast.textContent = '⬇ ' + shortName + ' — ' + pct + '% (' + kb + '/' + tot + ' KB)';
+                        toast.textContent = '⬇ ' + short + ' — ' + pct + '% (' + kb + '/' + tot + ' KB)';
                         return pump();
                     });
                 }
@@ -159,50 +150,26 @@ _INJECT_JS = r"""
             .then(function(blob) {
                 var burl = URL.createObjectURL(blob);
                 var a = document.createElement('a');
-                a.href = burl;
-                a.download = fname;
-                document.body.appendChild(a);
-                a.click();
-                setTimeout(function() {
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(burl);
-                }, 1000);
-                // Replace toast with success.
-                toast.textContent = '✓ Guardado: ' + shortName;
+                a.href = burl; a.download = fname;
+                document.body.appendChild(a); a.click();
+                setTimeout(function() { document.body.removeChild(a); URL.revokeObjectURL(burl); }, 1000);
+                toast.textContent = '✓ Guardado: ' + short;
                 toast.style.background = 'rgba(30,130,70,0.93)';
-                setTimeout(function() {
-                    toast.style.opacity = '0';
-                    setTimeout(function() {
-                        if (toast.parentNode) toast.parentNode.removeChild(toast);
-                    }, 400);
-                }, 2500);
+                dismissToast(toast, 2500);
             })
-            .catch(function(err) {
+            .catch(function() {
                 toast.textContent = '⚠ Error — abriendo en pestaña';
                 toast.style.background = 'rgba(150,40,40,0.93)';
-                setTimeout(function() {
-                    if (toast.parentNode) toast.parentNode.removeChild(toast);
-                }, 3000);
-                window.open(cdnUrl, '_blank');
+                dismissToast(toast, 3000);
+                window.open(rawUrl, '_blank');
             });
     }
 
-    function inject(anchor) {
-        if (anchor.dataset.dlDone) return;
-        anchor.dataset.dlDone = '1';
-
-        var cdnUrl = anchor.href;
-        if (!isCdn(cdnUrl)) return;
-
-        var wrapper = anchor.closest('div');
-        if (!wrapper) return;
-
-        if (getComputedStyle(wrapper).position === 'static')
-            wrapper.style.position = 'relative';
-
+    // ── Button factory ───────────────────────────────────────────────────────
+    function makeBtn(url) {
         var btn = document.createElement('button');
-        btn.textContent = '\u2b07';
-        btn.title = 'Download';
+        btn.textContent = '⬇';
+        btn.title = 'Descargar';
         btn.style.cssText = [
             'position:absolute',
             'top:6px',
@@ -225,26 +192,85 @@ _INJECT_JS = r"""
             'padding:0',
         ].join(';');
         btn.addEventListener('click', function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            triggerDownload(cdnUrl);
+            e.preventDefault(); e.stopPropagation();
+            triggerDownload(url);
         });
-        wrapper.appendChild(btn);
+        return btn;
     }
 
-    function scanNode(node) {
-        if (node.nodeType !== 1) return;
-        if (node.matches('a[data-role="img"]')) { inject(node); return; }
-        node.querySelectorAll('a[data-role="img"]').forEach(inject);
+    function addBtn(wrapper, url) {
+        if (getComputedStyle(wrapper).position === 'static')
+            wrapper.style.position = 'relative';
+        wrapper.appendChild(makeBtn(url));
     }
 
-    document.querySelectorAll('a[data-role="img"]').forEach(inject);
+    // ── Type handlers ────────────────────────────────────────────────────────
 
+    // 1. IMAGES  →  a[data-role="img"]  (stable literal prop in Discord source)
+    function injectImage(anchor) {
+        if (anchor.dataset.dlDone) return;
+        anchor.dataset.dlDone = '1';
+        var url = anchor.href;
+        if (!isCdn(url)) return;
+        var wrapper = anchor.closest('div');
+        if (!wrapper) return;
+        addBtn(wrapper, url);
+    }
+
+    // 2. VIDEOS & GIFs  →  <video> inside [class*="embedVideo"]
+    //    The <video>.src is the CDN URL (direct for uploads, media proxy for GIFs).
+    function injectVideo(video) {
+        if (video.dataset.dlDone) return;
+        video.dataset.dlDone = '1';
+        var url = video.src || (video.querySelector('source') || {}).src;
+        if (!url || !isCdn(url)) return;
+        var wrapper = video.closest('[class*="embedVideo"]') || video.parentElement;
+        if (!wrapper) return;
+        addBtn(wrapper, url);
+    }
+
+    // 3. AUDIO / GENERIC FILES  →  a[class*="fileNameLink"]
+    //    Discord renders a filename anchor for audio players and all file cards.
+    //    The href is always the direct CDN URL.
+    function injectFile(anchor) {
+        if (anchor.dataset.dlDone) return;
+        anchor.dataset.dlDone = '1';
+        var url = anchor.href;
+        if (!isCdn(url)) return;
+        // Insert a ⬇ button right after the filename link.
+        var btn = makeBtn(url);
+        btn.style.position = 'relative';  // flow, not absolute, beside the text
+        btn.style.top = '0';
+        btn.style.right = '0';
+        btn.style.display = 'inline-flex';
+        btn.style.verticalAlign = 'middle';
+        btn.style.marginLeft = '8px';
+        btn.style.flexShrink = '0';
+        anchor.parentNode.insertBefore(btn, anchor.nextSibling);
+    }
+
+    // ── Scanner: run all handlers on a subtree ───────────────────────────────
+    function scan(root) {
+        if (root.nodeType !== 1) return;
+        // Images
+        var sel = root.matches ? root : null;
+        if (sel && root.matches('a[data-role="img"]')) injectImage(root);
+        root.querySelectorAll('a[data-role="img"]').forEach(injectImage);
+        // Videos
+        if (sel && root.matches('[class*="embedVideo"] video, video[src*="discordapp"]')) injectVideo(root);
+        root.querySelectorAll('[class*="embedVideo"] video').forEach(injectVideo);
+        // Audio / files
+        if (sel && root.matches('a[class*="fileNameLink"]')) injectFile(root);
+        root.querySelectorAll('a[class*="fileNameLink"]').forEach(injectFile);
+    }
+
+    // Initial scan of whatever is already rendered.
+    scan(document.body);
+
+    // Watch for new messages and lazy-loaded content (Discord is a SPA).
     new MutationObserver(function(muts) {
-        muts.forEach(function(m) {
-            m.addedNodes.forEach(scanNode);
-        });
-    }).observe(document.body, { childList: true, subtree: true });
+        muts.forEach(function(m) { m.addedNodes.forEach(scan); });
+    }).observe(document.body, {childList: true, subtree: true});
 })();
 """
 

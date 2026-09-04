@@ -3505,6 +3505,37 @@ already done.
     ping 0% loss). This is genuinely useful for **capturing** on a chosen channel;
     it just won't inject, per the above.
 
+    **Promising untested lead (next session): inject mgmt via the STA vdev's
+    offchannel/ROC path, no firmware RE.** The reason monitor/AP TX doesn't
+    radiate but STA TX does is the *vdev*, not the radio. ath10k has an
+    offchannel management-TX path that runs on the **STA/scan vdev** (the
+    tx-capable one): `ath10k_offchan_tx_work` creates a temporary firmware peer
+    for the destination and transmits from `ar->scan.vdev_id`, and on TLV
+    firmware (WCN3990) the ROC frequency is carried directly in the HTT TX
+    descriptor (`offchan_tx.freq`, `htt_tx.c`; `htt.h:185` "freq: intended for
+    offchannel"). This is the same path association/action frames use — the ones
+    that complete `status=0` and *do* hit the air. Userspace reaches it with
+    `iw dev wlan0 mgmt-tx <freq> wait-time <ms> <hexframe>` (nl80211
+    `NL80211_CMD_FRAME` with offchannel + ROC), which mac80211 flags
+    `IEEE80211_TX_CTL_TX_OFFCHAN`. Sourced constraints to keep in mind:
+    - Every mgmt **subtype** is allowed from a STATION vif (`mgmt_stypes[STA].tx
+      = 0xffff`, `net/mac80211/main.c`); it is not limited to action frames.
+    - **addr2/SA is forced to wlan0's own MAC** (`net/wireless/mlme.c`
+      `cfg80211_allowed_address`; ath10k advertises no random-TA ext-feature), so
+      this transmits *as ourselves* — addr1/addr3 are free.
+    - Non-public **action** frames from a STA must target the associated AP;
+      non-action subtypes are exempt.
+    - ROC up to 5000 ms (`max_remain_on_channel_duration`), multiple frames per
+      ROC; the temp-peer worker serialises one completion at a time.
+    - Must still verify at runtime that this firmware actually radiates the
+      offchannel frame (it accepts a lot it then drops). Test harness:
+      `userspace/wifi-drivers/rhodep-offchan-tx-test.sh <freq>` sends a probe
+      request on the chosen channel from the STA vdev; confirm with the external
+      TP-Link witness parked on that channel. If the witness hears our SA on the
+      target channel, injection-on-arbitrary-channel works **without** touching
+      the firmware (within the addr2=own-MAC limit). This is worth trying before
+      committing to the Hexagon RE.
+
     **The breakthrough (third session).** The earlier "the firmware never gives
     the host other-BSS frames" verdict was half wrong. It is true for the HTT
     data ring, but the firmware *does* forward every overheard **management**

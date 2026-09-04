@@ -13,7 +13,7 @@
 #
 # If Nessus is not yet up (docker container stopped), the window shows a
 # friendly "waiting" page and retries every 3 seconds until it responds.
-import sys, os
+import sys, os, ssl, urllib.request, threading
 
 os.environ["QT_IM_MODULE"] = "none"
 
@@ -24,7 +24,6 @@ from PyQt6.QtWebEngineCore import (
     QWebEngineProfile, QWebEnginePage,
     QWebEngineCertificateError, QWebEngineDownloadRequest,
 )
-from PyQt6.QtNetwork import QSslCertificate
 
 NESSUS_URL = "https://127.0.0.1:8834"
 DATA = os.path.expanduser("~/.local/share/nessus-web")
@@ -109,25 +108,37 @@ view.setPage(page)
 
 # --- retry logic: show waiting page until Nessus answers ---
 _nessus_up = False
+# SSL context that ignores the self-signed cert for the probe request.
+_ssl_ctx = ssl.create_default_context()
+_ssl_ctx.check_hostname = False
+_ssl_ctx.verify_mode = ssl.CERT_NONE
+
+
+def _probe_nessus() -> None:
+    """Run in a background thread: HTTP probe, then schedule load on success."""
+    try:
+        with urllib.request.urlopen(
+            NESSUS_URL + "/server/status", context=_ssl_ctx, timeout=3
+        ):
+            pass
+        # Success — schedule the real load on the Qt main thread.
+        QTimer.singleShot(0, _do_load)
+    except Exception:
+        pass  # timer will retry
+
+
+def _do_load() -> None:
+    global _nessus_up
+    if not _nessus_up:
+        _nessus_up = True
+        _timer.stop()
+        view.load(QUrl(NESSUS_URL))
 
 
 def try_load() -> None:
-    global _nessus_up
     if _nessus_up:
         return
-    # Probe via a HEAD-like request using a temporary off-the-record page.
-    probe = QWebEnginePage()
-    probe.setUrl(QUrl(NESSUS_URL + "/server/status"))
-
-    def on_load(ok: bool) -> None:
-        global _nessus_up
-        probe.deleteLater()
-        if ok:
-            _nessus_up = True
-            view.load(QUrl(NESSUS_URL))
-        # else: timer will fire again in 3 s
-
-    probe.loadFinished.connect(on_load)
+    threading.Thread(target=_probe_nessus, daemon=True).start()
 
 
 def _show_wait() -> None:
@@ -140,7 +151,7 @@ _timer = QTimer()
 _timer.setInterval(3000)
 _timer.timeout.connect(try_load)
 _timer.start()
-# Also try right away in case Nessus is already up.
+# Try right away in case Nessus is already up.
 try_load()
 
 # Once the real Nessus page loads, stop the timer.

@@ -1,0 +1,156 @@
+#!/bin/sh
+# rhodep-wlan-monitor: 802.11 monitor + injection on the INTERNAL WiFi
+# (ath10k / WCN3990). For your own networks / lab use.
+#
+# What works and what does not, honestly:
+#   - Passive capture of MANAGEMENT frames (beacons, probe req/resp, auth,
+#     assoc, deauth/disassoc) from all overheard networks -- patch 0117 stops
+#     ath10k dropping the firmware's WMI-delivered mgmt frames for monitor.
+#   - INJECTION of raw 802.11 frames (deauth, probe, custom) -- patches 0115
+#     (raw TX on monitor vdev) + the firmware-5.bin raw-mode bit. Verified: a
+#     scapy/aireplay-ng deauth on channel 11 is transmitted and heard back over
+#     the air (self-capture shows the frames).
+#   - NOT capturing other BSSes' DATA frames (firmware keeps its RX data filter
+#     closed; only mgmt is forwarded to the host).
+#
+# TWO usage modes, because the radio has ONE channel context:
+#
+#  A) SHARED mode (keeps WiFi up): a monitor vif alongside the associated STA.
+#     Capture/inject are locked to wlan0's CURRENT channel. Good for watching or
+#     injecting on the channel you are already connected to. `start`/`capture`.
+#
+#  B) DEDICATED mode (drops WiFi): the internal radio cannot do two channels at
+#     once, so to pick an ARBITRARY channel the STA must go away entirely. This
+#     tears down wlan0, leaves a monitor as the only interface, and sets the
+#     channel -- which mac80211 only allows in a monitors-only configuration.
+#     `inject-setup <chan>` does this; `restore` brings normal WiFi back.
+#
+# Toggle mgmt delivery at runtime: /sys/module/ath10k_core/parameters/mon_mgmt
+# (1=on default, 0=stock). Injection tip: aireplay-ng needs -D (skip the
+# "waiting for beacon" step) since mgmt RX in dedicated mode is intermittent.
+#
+# Usage:
+#   rhodep-wlan-monitor start                 # shared: mon0 on wlan0's channel
+#   rhodep-wlan-monitor stop                  # remove mon0 (shared)
+#   rhodep-wlan-monitor capture [secs] [file] # shared: start, capture, stop
+#   rhodep-wlan-monitor status
+#   rhodep-wlan-monitor inject-setup <chan>   # dedicated: mon0 on <chan> (drops WiFi)
+#   rhodep-wlan-monitor restore               # bring wlan0 STA + NetworkManager back
+set -e
+
+STA=wlan0
+MON=mon0
+PHY=phy0
+PARAM=/sys/module/ath10k_core/parameters/mon_mgmt
+
+log() { echo "rhodep-wlan-monitor: $*"; }
+need_root() { [ "$(id -u)" = 0 ] || { log "run as root (sudo)"; exit 1; }; }
+
+ensure_param() {
+	if [ -w "$PARAM" ]; then
+		echo 1 > "$PARAM" 2>/dev/null || true
+	else
+		log "note: $PARAM not writable/present -- kernel may lack patch 0117"
+	fi
+}
+
+start() {
+	need_root; ensure_param
+	if iw dev "$MON" info >/dev/null 2>&1; then
+		ip link set "$MON" up
+		log "$MON already exists; brought up"
+		return 0
+	fi
+	iw dev "$STA" interface add "$MON" type monitor
+	ip link set "$MON" up
+	log "$MON up (shares $STA channel: $(iw dev "$STA" info 2>/dev/null | awk '/channel/{print $2, $3}'))"
+}
+
+stop() {
+	need_root
+	ip link set "$MON" down 2>/dev/null || true
+	iw dev "$MON" del 2>/dev/null || true
+	log "$MON removed"
+}
+
+status() {
+	echo "mon_mgmt: $(cat "$PARAM" 2>/dev/null || echo 'n/a')"
+	iw dev 2>/dev/null | awk '/Interface/{i=$2} /type/{t=$0} /channel/{print i, t, $0}'
+	iw dev 2>/dev/null | grep -qE "Interface" || echo "(no interfaces)"
+}
+
+capture() {
+	need_root
+	SECS=${1:-20}
+	OUT=${2:-/tmp/rhodep-mon-$(date +%s).pcap}
+	start >/dev/null
+	log "capturing ${SECS}s on $MON -> $OUT"
+	timeout "$SECS" tcpdump -i "$MON" -w "$OUT" -s 0 2>/dev/null || true
+	N=$(tcpdump -r "$OUT" 2>/dev/null | wc -l)
+	APS=$(tcpdump -r "$OUT" -nne "type mgt subtype beacon" 2>/dev/null \
+		| grep -oE 'BSSID:[0-9a-f:]+' | sort -u | grep -c . || echo '?')
+	log "captured $N frames from ~$APS distinct beaconing APs; file: $OUT"
+	stop >/dev/null
+}
+
+# Dedicated single-channel monitor: drops the STA so mac80211 lets us set an
+# arbitrary channel (only allowed when every running interface is a monitor).
+inject_setup() {
+	need_root; ensure_param
+	CH="${1:?usage: inject-setup <channel>}"
+	log "dropping WiFi to free the radio for a dedicated monitor on channel $CH"
+	nmcli radio wifi off 2>/dev/null || true
+	pkill -9 wpa_supplicant 2>/dev/null || true
+	sleep 1
+	# remove every existing vif on the phy (STA, p2p-device, stale monitor)
+	for dev in $(iw dev 2>/dev/null | awk '/Interface/{print $2}'); do
+		ip link set "$dev" down 2>/dev/null || true
+		iw dev "$dev" del 2>/dev/null || true
+	done
+	# also drop non-netdev wdevs (p2p-device) that still pin a channel
+	for w in $(iw dev 2>/dev/null | awk '/wdev/{print $2}'); do
+		iw wdev "$w" del 2>/dev/null || true
+	done
+	sleep 1
+	iw phy "$PHY" interface add "$MON" type monitor
+	# nmcli off soft-blocks rfkill; clear it so the vif can come up
+	rfkill unblock wifi 2>/dev/null || true
+	ip link set "$MON" up
+	sleep 1
+	iw dev "$MON" set channel "$CH"
+	CHNOW=$(iw dev "$MON" info 2>/dev/null | awk '/channel/{print $2}')
+	if [ "$CHNOW" = "$CH" ]; then
+		log "$MON up on channel $CHNOW -- ready for injection"
+		log "example: aireplay-ng -0 5 -a <BSSID> $MON -D --ignore-negative-one"
+	else
+		log "WARNING: requested channel $CH but $MON reports '${CHNOW:-none}'"
+		log "check that no STA/p2p vif remained (iw dev) -- it must be monitors-only"
+	fi
+}
+
+restore() {
+	need_root
+	log "restoring normal WiFi (STA + NetworkManager)"
+	ip link set "$MON" down 2>/dev/null || true
+	iw dev "$MON" del 2>/dev/null || true
+	# recreate the station interface if it is gone
+	if ! iw dev 2>/dev/null | grep -q "Interface $STA"; then
+		iw phy "$PHY" interface add "$STA" type managed 2>/dev/null || true
+	fi
+	rfkill unblock wifi 2>/dev/null || true
+	nmcli radio wifi on 2>/dev/null || true
+	systemctl restart wpa_supplicant 2>/dev/null || true
+	sleep 2
+	nmcli device connect "$STA" 2>/dev/null || true
+	log "done -- $STA should reassociate shortly"
+}
+
+case "${1:-}" in
+	start)        start ;;
+	stop)         stop ;;
+	status)       status ;;
+	capture)      shift; capture "$@" ;;
+	inject-setup) shift; inject_setup "$@" ;;
+	restore)      restore ;;
+	*) echo "usage: $0 {start|stop|status|capture [secs] [file]|inject-setup <chan>|restore}"; exit 1 ;;
+esac

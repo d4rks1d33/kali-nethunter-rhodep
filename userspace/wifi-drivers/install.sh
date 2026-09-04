@@ -93,6 +93,9 @@ arm_firstboot() {
 		/etc/systemd/system/rhodep-wifi-drivers-firstboot.service
 	install -D -m 0755 "$here/build-on-device.sh" \
 		/usr/local/sbin/rhodep-wifi-drivers-build
+	# internal-WiFi monitor helper (patch 0117 management-frame capture)
+	install -D -m 0755 "$here/rhodep-wlan-monitor" \
+		/usr/local/sbin/rhodep-wlan-monitor
 	if [ -d /run/systemd/system ]; then
 		systemctl daemon-reload
 		systemctl enable rhodep-wifi-drivers-firstboot.service >/dev/null 2>&1 || true

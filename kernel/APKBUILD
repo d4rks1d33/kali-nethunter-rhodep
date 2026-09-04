@@ -126,6 +126,9 @@ source="
 	0112-nfc-s3fwrn5-enumerate-nfcees.patch
 	0113-nfc-route-mifare-listen-to-ese.patch
 	0114-arm64-dts-qcom-sm6375-cpu-topology-and-capacity.patch
+	0115-ath10k-allow-raw-tx-on-monitor-vdev-for-WCN3990.patch
+	0116-ath10k-htt_rx-use-decap_align_bytes-in-nwifi-hdrlen.patch
+	0117-ath10k-deliver-wmi-mgmt-to-monitor-on-WCN3990.patch
 "
 options="!check !strip !tracedeps pmb:cross-native"
 _carch="arm64"
@@ -276,4 +279,7 @@ a002cb6caefa3cca3e9b8d9ef8755424217aef04535fad8f4f631af63a8e8ba20a755cd900e36726
 d571d62389110b447e76ed90b50def3e5136b783a7544ca314988e3507afa8dba083710a29821df21b3d72edb973158380cd9ad1267c369bfabd2c2554887e55  0112-nfc-s3fwrn5-enumerate-nfcees.patch
 d0dc2ed3ae3f338da2dabf231af98700fe7c56a4fcbc85af5fbc893a60407559375200d131819becaff3e5e2d4a399a52af9cc9fb280a42b10d905a8aa733036  0113-nfc-route-mifare-listen-to-ese.patch
 1cd1a57d9db008b6e4d502e42aeb7dedc6b52e18231a24ca6c339676eb3c3408cf7e8fca0b701e4c48c0561f0fa7df0251dd5b426ae386556c6c2b05f3c237c2  0114-arm64-dts-qcom-sm6375-cpu-topology-and-capacity.patch
+3062c649de17ebc20c55e52241c58a77cc16aa018175c1576d27b4cea0c420a6e2246aee580a435944aaf2912d995ab14233a653f3239045e4cba3af6149b555  0115-ath10k-allow-raw-tx-on-monitor-vdev-for-WCN3990.patch
+66ca395f4c0d1cfee7e7e3fb32dc19a9b15eb4507c918d2117deca4f56a0371d7c0cd74df480fe8e789e78f8764f11df6d19b520af919834bd64f9e037fffa35  0116-ath10k-htt_rx-use-decap_align_bytes-in-nwifi-hdrlen.patch
+09a09b828c0da50580233e83cfa5579b38d2aedf4ce45a0d3e199b618e41e4be938630c95e4ab58465325523efa99a7c4b96a226473ba7b4e986459cf55b384b  0117-ath10k-deliver-wmi-mgmt-to-monitor-on-WCN3990.patch
 "

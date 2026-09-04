@@ -220,7 +220,7 @@ file protection) ·
 | **NFC** | Samsung `sec-nfc` on i2c7. No mainline driver. |
 | **GPS** | **A satellite fix watchdog-resets the SoC in under a second**, reproducibly, with `ipa.ko` not loaded. It was never an indoors problem. Narrowed since: the trigger is the GNSS *measurement engine* coming up, so `standalone` mode kills the phone while **`cellid` positioning works** — a live session, fifty indications, position reports and NMEA, no reset (`scripts/rhodep-gnss-test.py 60 min opmode=cellid`). The same reproducer is now the fastest way to work on the LTE reset. [`GNSS-SM6375.md`](docs/interconnect-sm6375-wip/GNSS-SM6375.md) |
 | **Camera** | **Does not capture** — no photos, no video, no viewfinder. Only groundwork is done: the FAN53870 camera PMIC driver is written and running (all 7 LDOs registered, voltages verified against the chip's registers), and the rest is feasible because the ISP pipeline (`csid530` + `tfe530` + `tpg101`) is the *same silicon* mainline already drives on qcm2290, the 52 `gcc_camss_*` clocks are in mainline, and the 50 MP main sensor (Samsung S5KJN1) has a mainline driver. Still needed before any image: a `camss` entry for SM6375, the CSIPHY/CSID/TFE nodes and the sensor node. [`CAMERA-SENSORS-FEASIBILITY.md`](docs/CAMERA-SENSORS-FEASIBILITY.md) |
-| **Monitor mode on the internal WiFi — passive RX** | **Partially works** — monitor vdev starts, firmware enters promiscuous mode (`entered promiscuous mode` in dmesg), 802.11 frames captured with radiotap headers. Limitation: mon0 shares phy0 with wlan0, so it is locked to wlan0's current channel; changing channel fails with `-EBUSY` while wlan0 is associated. Injection (`raw 0`) remains impossible. See nice-to-have item 13 for the next step (promisc WMI pdev param, or scan-only use: disconnect wlan0 first). |
+| **Monitor mode + injection on the internal WiFi** | **Management capture and injection work.** `mon0` alongside the STA captures beacons/probe/auth/assoc/deauth from overheard networks (8–14 distinct BSSIDs per 20 s run) while `wlan0` stays associated (patch 0117: firmware forwards mgmt via `WMI_MGMT_RX_EVENTID`, ath10k used to drop them with `RX_FLAG_SKIP_MONITOR`). Raw injection works too (patch 0115 + firmware raw bit): scapy/aireplay deauth on ch11 hits the air (640–1036 frames self-captured). Single channel context: shared-with-STA is locked to wlan0's channel; for another channel use `rhodep-wlan-monitor inject-setup <chan>` (drops STA) then `restore`. aireplay needs `-D`. Only other-BSS *data* RX stays a firmware limit. See item 13. |
 
 ## Bugs
 
@@ -3418,9 +3418,73 @@ already done.
     It is the least tractable item in this file. It is also the one that would
     change daily use the most, which is why it is here.
 
-13. **Monitor mode on the internal WiFi — deep investigation, firmware limit confirmed.**
+13. **Monitor mode on the internal WiFi — management-frame capture AND injection now work; only other-BSS data RX remains a firmware limit.**
 
-    Two full sessions were spent on this. The complete picture is now known.
+    Three sessions. The internal WiFi now does real passive capture of 802.11
+    **management** frames from the networks it overhears — beacons, probe
+    req/resp, auth, assoc, deauth/disassoc — not just the associated BSS, **and
+    it injects raw 802.11 frames**. Measured on the phone across several 20 s
+    capture runs with `mon0` added alongside the associated STA: 150–325 frames
+    per run, with **8–14 distinct beaconing BSSIDs** plus dozens of
+    probe-responses, while `wlan0` stays associated with working IP (ping 0%
+    loss). How many *other-BSS* beacons show up in a given run varies — the
+    firmware forwards neighbours opportunistically — but the neighbours do come
+    through. Only other-BSS *data* capture is still blocked in firmware.
+
+    **Injection works (patches 0115 + firmware-5.bin raw bit), on any channel.**
+    A scapy raw-802.11 deauth and `aireplay-ng -0` on channel 11 against a lab AP
+    are transmitted and heard back over the air — a self-capture on `mon0` shows
+    640–1036 of our own deauth frames going out. The earlier "injection remains
+    impossible" verdict was wrong on two counts: the driver *does* send raw TX
+    (patch 0115), and the real blocker was **channel selection**, not TX. Two
+    facts made it look broken:
+    - The internal radio has a single channel context, so a monitor alongside an
+      associated STA is locked to the STA's channel. Injecting on a *different*
+      channel (e.g. the STA on 5 GHz ch157, the target AP on 2.4 GHz ch11)
+      requires tearing the STA down so mac80211 will let a monitors-only
+      configuration set an arbitrary channel — `iw dev monX set channel` silently
+      no-ops while any non-monitor vif is running (`cfg80211_has_monitors_only`).
+      ath10k does not support `active` monitor vifs, so the dedicated
+      monitors-only path is the way. `rhodep-wlan-monitor inject-setup <chan>`
+      automates it (drop STA, remove p2p-device, unblock rfkill, set channel);
+      `restore` brings normal WiFi back (verified: reassociates, ping 0% loss).
+    - `aireplay-ng` needs `-D` to skip its "waiting for beacon frame" step, since
+      mgmt RX in dedicated mode is intermittent; without it, it waits forever on
+      `channel -1` and never transmits — which is what the earlier logs showed.
+
+    **The breakthrough (third session).** The earlier "the firmware never gives
+    the host other-BSS frames" verdict was half wrong. It is true for the HTT
+    data ring, but the firmware *does* forward every overheard **management**
+    frame up via `WMI_MGMT_RX_EVENTID`. Stock ath10k was throwing them away for
+    monitor: `ath10k_wmi_event_mgmt_rx()` unconditionally tags them
+    `RX_FLAG_SKIP_MONITOR` to avoid duplicating HTT-delivered copies. On WCN3990
+    there are no HTT copies (it advertises `WMI_SERVICE_RX_FULL_REORDER`, so RX
+    is in-order and mgmt never traverses the HTT ring), so that flag was hiding
+    every neighbouring network for no reason. **Patch 0117** clears it while a
+    monitor interface is active. Gated on monitor state and behind a module
+    parameter (`mon_mgmt`, default 1), so STA/AP operation is untouched and it
+    can be turned off at runtime. Toggle proof on the phone: `mon_mgmt=1` → 80+
+    frames from many APs, `mon_mgmt=0` → 3 frames (own BSS only, stock
+    behaviour). Use it via `userspace/wifi-drivers/rhodep-wlan-monitor`
+    (`capture`/`start`/`stop`/`status`); it installs to
+    `/usr/local/sbin/rhodep-wlan-monitor`.
+
+    **Why the "add WMI_PDEV_PARAM_RX_FILTER" plan from last session was a dead
+    end** — settled with hard evidence, so nobody spends another session on it:
+    - The WMI-TLV pdev-param enum has no RX_FILTER entry at all (it ends at
+      `0x8c`); only the 10.4 AP firmware family has `WMI_10_4_PDEV_PARAM_RX_FILTER`.
+    - The `.rx_filter` and `.set_promisc_mode_cmdid` struct fields are dead code:
+      declared and filled in every map, but **never read anywhere** in the driver.
+    - The promisc capability is service **145**
+      (`WMI_TLV_SERVICE_RX_PROMISC_ENABLE_SUPPORT`), which lives in the extended
+      service range (`WMI_TLV_MAX_SERVICE = 128`) delivered only by a
+      `WMI_TLV_SERVICE_AVAILABLE` event. This firmware **never sends that event**
+      and **does not advertise 145**. Confirmed by instrumenting the driver to
+      dump the raw service bitmap on the device: 32 words, len 128, bit 145 clear
+      (70 base services present, none of them promisc/RX-filter). So there is no
+      command to send and no service to enable — the pdev route cannot work here.
+
+    Two full sessions were spent before that. The rest of the picture below.
 
     **What was found in the first session (commit da75f99):** The previous
     "infeasible" verdict was based on a bad test (`frame_mode=1 cryptmode=1`
@@ -3467,34 +3531,41 @@ already done.
       nothing to bind the monitor's channel to. This is an ath10k/mac80211
       architecture constraint, not firmware.
 
-    **Root cause, definitive:** The WCN3990 firmware (WLAN.HL.3.3.2-00472)
-    does not implement the RX path for delivering overheard frames (from
-    other BSSes) to the host when in monitor mode. The `entered promiscuous
-    mode` dmesg line reflects a mac80211 software flag, not a firmware MAC
-    programming event. qcacld-3.0 works because it sends additional WMI
-    commands (specifically `WMI_PDEV_PARAM_RX_FILTER` and a monitor vdev
-    start sequence) that instruct the firmware to open its RX filter --
-    commands that ath10k does not implement in the WMI-TLV table
-    (`set_promisc_mode_cmdid = WMI_PDEV_PARAM_UNSUPPORTED`, `wmi-tlv.c`).
+    **Root cause for the DATA plane (still a firmware limit):** the WCN3990
+    firmware does not open its RX **data** filter to the host in monitor mode,
+    and there is no host-side lever to make it (no TLV RX_FILTER command, service
+    145 not advertised — see above). The `entered promiscuous mode` dmesg line is
+    only a mac80211 software flag, not a firmware MAC programming event. So
+    other-BSS *data* capture and injection are not reachable from mainline against
+    this stock firmware; that half of the original verdict stands.
 
-    **What remains to try (the real frontier):** Implement the missing WMI
-    pdev RX filter command in the ath10k WMI-TLV table and issue it during
-    `ath10k_monitor_vdev_start()`. This requires identifying the correct
-    `WMI_TLV_PDEV_PARAM_*` enum value for the promisc/RX-filter parameter
-    from the WCN3990 firmware's WMI dictionary (not publicly documented, but
-    discoverable by comparing qcacld-3.0 TLV tables with mainline). This is
-    the single remaining blocker for full monitor RX. Injection (TX) is
-    unblocked by patch 0115 once RX works. Upstreaming both is realistic.
+    **What the management-frame path does and does not give you.** It is enough
+    for passive scanning, SSID/BSSID discovery, and protocol study of the
+    management plane (the frames Wireshark shows as beacon/probe/auth/assoc/
+    deauth). It is *not* a general sniffer of other networks' data traffic. In
+    SHARED mode (monitor alongside the STA) capture/inject are locked to
+    `wlan0`'s current channel; for another channel use DEDICATED mode
+    (`inject-setup <chan>`), which drops the STA so the radio is free.
+
+    **What remains (optional, lower priority now):** other-BSS *data* RX would
+    need monitor-capable firmware (the downstream qcacld "MON" build) or a
+    firmware-side RX-filter path that this image does not expose; not a driver
+    change. That is the only remaining gap — mgmt capture and injection both
+    work now.
 
     **Device state after this session:**
     - `firmware-5.bin` patched on device (raw-mode bit set). `firmware-5.bin.orig` kept.
-    - Kernel modules replaced in `/lib/modules/7.2.0-rc5/kernel/drivers/net/wireless/ath/ath10k/`
-      (originals kept as `.orig`). Both patches (0115 + 0116) are active.
-    - Normal STA mode works; WiFi connects normally.
+    - Kernel modules rebuilt with patches 0115 + 0116 + **0117** and installed in
+      `/lib/modules/7.2.0-rc5/kernel/drivers/net/wireless/ath/ath10k/` (stock
+      `.ko.orig`/`.ko.prediag` backups kept). `mon_mgmt` defaults to 1.
+    - Normal STA mode works; WiFi connects normally; ping 0% loss with mon0 up.
     - `modprobe.d` sets `frame_mode=1 cryptmode=0` (normal mode).
+    - Helper: `userspace/wifi-drivers/rhodep-wlan-monitor` →
+      `{start|stop|capture|status}` (shared) and
+      `{inject-setup <chan>|restore}` (dedicated, for injection on any channel).
 
-    The external TP-Link (wlan1/RTL8188EUS) still handles injection and
-    multi-channel scanning for day-to-day use.
+    The external TP-Link (wlan1/RTL8188EUS) is still handy for capturing other
+    BSSes' *data* and for watching one channel while the phone stays online.
 
 14. **The LPASS clock warning on every resume.** Each time the phone comes back
     from suspend, twice per resume:

@@ -1,0 +1,106 @@
+From: rhodep port
+Subject: [PATCH] ath10k: deliver firmware WMI mgmt frames to monitor on WCN3990
+
+WCN3990 (ath10k_snoc, firmware WLAN.HL.3.3.2-00472, WMI-TLV) has no
+host-programmable RX filter for monitor mode: the firmware does not
+advertise WMI_TLV_SERVICE_RX_PROMISC_ENABLE_SUPPORT (service 145 -- it
+lives in the extended service range and this firmware never emits a
+WMI_TLV_SERVICE_AVAILABLE event), and ath10k's WMI-TLV table maps both
+.rx_filter and .set_promisc_mode_cmdid to WMI_PDEV_PARAM_UNSUPPORTED
+(and never reads those fields anyway). So the classic monitor recipe --
+create a WMI_VDEV_TYPE_MONITOR vdev and let mac80211 flip its promisc
+flag -- yields zero over-the-air frames from other BSSes: the firmware's
+RX admission filter is internal and closed. This was confirmed on-device
+by dumping the raw firmware service bitmap (32 words, len 128, bit 145
+clear) and by capturing 0 frames on a monitor vdev while associated.
+
+However, the firmware *does* forward every management frame it overhears
+(beacons, probe-resp, auth, deauth, ...) up to the host via
+WMI_MGMT_RX_EVENTID, regardless of BSS. Stock ath10k unconditionally tags
+these with RX_FLAG_SKIP_MONITOR in ath10k_wmi_event_mgmt_rx(), on the
+assumption that the HTT RX ring delivers a duplicate copy for monitor.
+That assumption is false on WCN3990: it advertises WMI_SERVICE_RX_FULL_
+REORDER, so RX is in-order and management frames never traverse the HTT
+ring at all -- they only ever arrive via WMI. The SKIP_MONITOR tag
+therefore does not de-duplicate anything here; it simply discards every
+neighbouring network before mac80211 can show it on a monitor interface.
+
+This patch clears RX_FLAG_SKIP_MONITOR for WMI-delivered mgmt frames while
+a monitor vdev/interface is active, so passive 802.11 management-frame
+capture works on the internal WiFi. It is gated on the monitor state
+(ar->monitor_started || ar->monitor_arvif || ar->monitor), so ordinary
+STA/AP operation is completely unaffected, and behind a module parameter
+(mon_mgmt, default on) so the stock behaviour can be restored at runtime.
+
+Verified on-device: with a monitor interface added alongside the
+associated STA, tcpdump/tshark on mon0 captures beacons and probe-resp
+from ~20 distinct neighbouring BSSIDs in ~12 s, while wlan0 stays
+associated with working IP connectivity (ping 0% loss). Data-frame and
+injection capture remain a separate firmware limitation; this covers the
+management-frame plane, which is what passive scanning / protocol study /
+lab analysis need.
+
+Note this only moves mgmt frames the firmware already chose to forward
+into the monitor path; it does not and cannot open the firmware's data RX
+filter, so it is not a general-purpose sniffer of other BSSes' data.
+
+Signed-off-by: rhodep port <rhodep@postmarketos>
+---
+ drivers/net/wireless/ath/ath10k/wmi.c | 34 +++++++++++++++++++++++++++
+ 1 file changed, 34 insertions(+)
+
+diff --git a/drivers/net/wireless/ath/ath10k/wmi.c b/drivers/net/wireless/ath/ath10k/wmi.c
+--- a/drivers/net/wireless/ath/ath10k/wmi.c
++++ b/drivers/net/wireless/ath/ath10k/wmi.c
+@@ -26,6 +26,31 @@
+ #define ATH10K_WMI_BARRIER_TIMEOUT_HZ (3 * HZ)
+ #define ATH10K_WMI_DFS_CONF_TIMEOUT_HZ (HZ / 6)
+ 
++/* rhodep: WCN3990 (WLAN.HL.3.3.2) does not open a firmware RX filter for
++ * monitor mode (WMI_TLV_SERVICE_RX_PROMISC_ENABLE_SUPPORT is not advertised
++ * and there is no TLV pdev RX_FILTER command), so the classic ath10k monitor
++ * path yields no other-BSS frames. However the firmware DOES forward all
++ * overheard management frames (beacons, probe-resp, auth, deauth, ...) up via
++ * WMI_MGMT_RX_EVENTID. Stock ath10k unconditionally tags those with
++ * RX_FLAG_SKIP_MONITOR to avoid duplicating the HTT-delivered copies -- but on
++ * WCN3990 the HTT ring does not deliver mgmt at all (in-order RX + WMI mgmt
++ * path), so nothing is duplicated and the flag simply hides every neighbouring
++ * network from a monitor interface.
++ *
++ * When a monitor interface is up we therefore let these WMI mgmt frames reach
++ * monitor interfaces. This gives real passive 802.11 management-frame capture
++ * on the internal WiFi. It only takes effect while a monitor vdev/interface is
++ * active (ar->monitor_started / monitor_arvif / monitor), so normal STA/AP
++ * operation is untouched.
++ *
++ * mon_mgmt: 1 = deliver WMI mgmt to monitor when monitor is active (default),
++ *           0 = stock behaviour (always skip monitor for WMI mgmt).
++ */
++unsigned int ath10k_mon_mgmt = 1;
++module_param_named(mon_mgmt, ath10k_mon_mgmt, uint, 0644);
++MODULE_PARM_DESC(mon_mgmt,
++		 "deliver firmware WMI mgmt frames to monitor interfaces when a monitor vdev is active (1=on default, 0=stock)");
++
+ /* MAIN WMI cmd track */
+ static struct wmi_cmd_map wmi_cmd_map = {
+ 	.init_cmdid = WMI_INIT_CMDID,
+@@ -2620,6 +2645,19 @@
+ 	 */
+ 	status->flag |= RX_FLAG_SKIP_MONITOR;
+ 
++	/* rhodep: on WCN3990 the HTT ring never duplicates mgmt frames, so when a
++	 * monitor vdev is active let these WMI-delivered mgmt frames (including
++	 * other-BSS beacons/probe-resp) reach monitor interfaces.
++	 */
++	if (ath10k_mon_mgmt &&
++	    (ar->monitor_started || ar->monitor_arvif || ar->monitor)) {
++		status->flag &= ~RX_FLAG_SKIP_MONITOR;
++		ath10k_dbg(ar, ATH10K_DBG_MGMT,
++			   "mon mgmt-rx ta=%pM bssid=%pM stype=0x%02x freq=%d\n",
++			   hdr->addr2, hdr->addr3,
++			   (fc & IEEE80211_FCTL_STYPE) >> 4, status->freq);
++	}
++
+ 	ath10k_wmi_handle_wep_reauth(ar, skb, status);
+ 
+ 	if (ath10k_wmi_rx_is_decrypted(ar, hdr)) {

@@ -72,13 +72,39 @@ profile.downloadRequested.connect(on_download)
 # ~/Downloads.  stopPropagation() prevents Discord from opening the lightbox.
 _INJECT_JS = r"""
 (function() {
-    if (window.__rhodepDl2) return;
-    window.__rhodepDl2 = true;
+    if (window.__rhodepDl3) return;
+    window.__rhodepDl3 = true;
 
     var CDN = ['cdn.discordapp.com/attachments', 'media.discordapp.net/attachments'];
 
     function isCdn(url) {
         return CDN.some(function(h){ return url && url.indexOf(h) !== -1; });
+    }
+
+    function triggerDownload(cdnUrl) {
+        // Fetch the file and turn it into a blob: URL, then click a temporary
+        // <a download> element.  This is the most reliable way to trigger
+        // QWebEngineDownloadRequest from injected JS -- it goes through the
+        // engine's regular download pipeline regardless of Content-Disposition.
+        var fname = cdnUrl.split('?')[0].split('/').pop() || 'discord-file';
+        fetch(cdnUrl, {credentials: 'omit'})
+            .then(function(r) { return r.blob(); })
+            .then(function(blob) {
+                var burl = URL.createObjectURL(blob);
+                var a = document.createElement('a');
+                a.href = burl;
+                a.download = fname;
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(function() {
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(burl);
+                }, 1000);
+            })
+            .catch(function(err) {
+                // Fallback: open in new tab (user can long-press to save).
+                window.open(cdnUrl, '_blank');
+            });
     }
 
     function inject(anchor) {
@@ -91,13 +117,10 @@ _INJECT_JS = r"""
         var wrapper = anchor.closest('div');
         if (!wrapper) return;
 
-        // Make the wrapper a positioning context for the button.
         if (getComputedStyle(wrapper).position === 'static')
             wrapper.style.position = 'relative';
 
-        var btn = document.createElement('a');
-        // Use a custom scheme so Python can intercept it without navigation.
-        btn.href = 'discord-dl://' + encodeURIComponent(cdnUrl);
+        var btn = document.createElement('button');
         btn.textContent = '\u2b07';
         btn.title = 'Download';
         btn.style.cssText = [
@@ -115,13 +138,16 @@ _INJECT_JS = r"""
             'align-items:center',
             'justify-content:center',
             'border-radius:6px',
-            'text-decoration:none',
+            'border:none',
+            'cursor:pointer',
             '-webkit-tap-highlight-color:transparent',
             'user-select:none',
+            'padding:0',
         ].join(';');
         btn.addEventListener('click', function(e) {
+            e.preventDefault();
             e.stopPropagation();
-            // Navigation to discord-dl:// is caught by Python; no default needed.
+            triggerDownload(cdnUrl);
         });
         wrapper.appendChild(btn);
     }
@@ -132,10 +158,8 @@ _INJECT_JS = r"""
         node.querySelectorAll('a[data-role="img"]').forEach(inject);
     }
 
-    // Scan what is already in the DOM.
     document.querySelectorAll('a[data-role="img"]').forEach(inject);
 
-    // Watch for new messages / lazy-loaded content.
     new MutationObserver(function(muts) {
         muts.forEach(function(m) {
             m.addedNodes.forEach(scanNode);
@@ -145,21 +169,9 @@ _INJECT_JS = r"""
 """
 
 class DiscordPage(QWebEnginePage):
-    """Intercepts discord-dl:// navigation events produced by the injected JS
-    and converts them into real downloads via QWebEnginePage.download()."""
-
-    def acceptNavigationRequest(self, url, nav_type, is_main_frame):
-        if url.scheme() == 'discord-dl':
-            # Decode the CDN URL that was percent-encoded into the path.
-            cdn = QUrl.fromPercentEncoding(
-                (url.host() + url.path()).encode())
-            if cdn:
-                self.download(QUrl(cdn))
-            return False  # block the navigation itself
-        return super().acceptNavigationRequest(url, nav_type, is_main_frame)
+    """Custom page: CDN links opened as new tabs are downloaded instead."""
 
     def newWindowRequested(self, request):
-        # CDN links opened as new tabs -> download instead.
         url = request.requestedUrl()
         if (url.host().endswith('cdn.discordapp.com') or
                 url.host().endswith('media.discordapp.net')):

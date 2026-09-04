@@ -37,13 +37,13 @@ profile.setHttpUserAgent(
     "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36")
 
-# Save downloads to ~/Downloads (created if absent).
-DOWNLOADS = QStandardPaths.writableLocation(
-    QStandardPaths.StandardLocation.DownloadLocation)
+# Save downloads to ~/Downloads/Discord files (created if absent).
+DOWNLOADS = os.path.join(
+    QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DownloadLocation),
+    "Discord files")
 os.makedirs(DOWNLOADS, exist_ok=True)
 
 def on_download(item: QWebEngineDownloadRequest):
-    # Keep the filename Discord suggests; put it in ~/Downloads.
     suggested = os.path.basename(item.suggestedFileName())
     dest = os.path.join(DOWNLOADS, suggested or "discord-download")
     # Avoid clobbering existing files.
@@ -130,14 +130,14 @@ _INJECT_JS = r"""
             'z-index:9999',
             'background:rgba(0,0,0,0.65)',
             'color:#fff',
-            'font-size:20px',
+            'font-size:24px',
             'line-height:1',
-            'width:36px',
-            'height:36px',
+            'width:48px',
+            'height:48px',
             'display:flex',
             'align-items:center',
             'justify-content:center',
-            'border-radius:6px',
+            'border-radius:8px',
             'border:none',
             'cursor:pointer',
             '-webkit-tap-highlight-color:transparent',

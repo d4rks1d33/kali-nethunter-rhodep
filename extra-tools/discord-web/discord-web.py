@@ -58,108 +58,121 @@ def on_download(item: QWebEngineDownloadRequest):
 
 profile.downloadRequested.connect(on_download)
 
-# JS injected after every page load. Watches for Discord's image lightbox
-# (the full-screen overlay that opens when you tap an image) and injects a
-# prominent download button.  Uses a MutationObserver so it catches lightboxes
-# that open after the initial load (Discord is a SPA).
+# JS injected after every page load.
 #
-# How it works:
-#   - Watches <body> for any new element that contains a full-size CDN image
-#     inside a role="dialog" or a known Discord lightbox container.
-#   - When found, appends a fixed-position "⬇ Save" button that navigates to
-#     the raw CDN URL with the `download` attribute, which triggers
-#     QWebEngineDownloadRequest -> on_download() -> ~/Downloads.
-#   - The button is styled to be large enough for a finger tap (56px tall).
+# Discord's image anchors use a stable, build-independent attribute:
+#   <a data-role="img" href="https://cdn.discordapp.com/attachments/...">
+# This is a literal string in Discord's source (not a hashed class name) and
+# has been stable across builds for years.
+#
+# We watch for these anchors via MutationObserver and overlay a ⬇ button on
+# each image.  Tapping the button triggers a custom URL scheme
+# ("discord-dl://...") which Python catches in acceptNavigationRequest() and
+# converts to a real QWebEnginePage.download() call -> on_download() ->
+# ~/Downloads.  stopPropagation() prevents Discord from opening the lightbox.
 _INJECT_JS = r"""
 (function() {
-    if (window.__rhodepDlInjected) return;
-    window.__rhodepDlInjected = true;
+    if (window.__rhodepDl2) return;
+    window.__rhodepDl2 = true;
 
-    var btn = null;
+    var CDN = ['cdn.discordapp.com/attachments', 'media.discordapp.net/attachments'];
 
-    function removeBtn() {
-        if (btn && btn.parentNode) { btn.parentNode.removeChild(btn); }
-        btn = null;
+    function isCdn(url) {
+        return CDN.some(function(h){ return url && url.indexOf(h) !== -1; });
     }
 
-    function addBtn(imgUrl) {
-        removeBtn();
-        // Strip Discord's size/format query params to get the raw file.
-        var rawUrl = imgUrl.split('?')[0];
-        // Guess a filename from the URL path.
-        var fname = rawUrl.split('/').pop() || 'discord-image';
-        if (!/\.\w{2,5}$/.test(fname)) fname += '.jpg';
+    function inject(anchor) {
+        if (anchor.dataset.dlDone) return;
+        anchor.dataset.dlDone = '1';
 
-        btn = document.createElement('a');
-        btn.href = rawUrl;
-        btn.download = fname;
-        btn.textContent = '\u2b07 Save';
+        var cdnUrl = anchor.href;
+        if (!isCdn(cdnUrl)) return;
+
+        var wrapper = anchor.closest('div');
+        if (!wrapper) return;
+
+        // Make the wrapper a positioning context for the button.
+        if (getComputedStyle(wrapper).position === 'static')
+            wrapper.style.position = 'relative';
+
+        var btn = document.createElement('a');
+        // Use a custom scheme so Python can intercept it without navigation.
+        btn.href = 'discord-dl://' + encodeURIComponent(cdnUrl);
+        btn.textContent = '\u2b07';
+        btn.title = 'Download';
         btn.style.cssText = [
-            'position:fixed',
-            'bottom:80px',
-            'right:16px',
-            'z-index:99999',
-            'background:#5865f2',
+            'position:absolute',
+            'top:6px',
+            'right:6px',
+            'z-index:9999',
+            'background:rgba(0,0,0,0.65)',
             'color:#fff',
-            'font-size:18px',
-            'font-weight:bold',
-            'padding:12px 22px',
-            'border-radius:28px',
-            'box-shadow:0 4px 16px rgba(0,0,0,0.5)',
+            'font-size:20px',
+            'line-height:1',
+            'width:36px',
+            'height:36px',
+            'display:flex',
+            'align-items:center',
+            'justify-content:center',
+            'border-radius:6px',
             'text-decoration:none',
-            'user-select:none',
             '-webkit-tap-highlight-color:transparent',
+            'user-select:none',
         ].join(';');
-        document.body.appendChild(btn);
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            // Navigation to discord-dl:// is caught by Python; no default needed.
+        });
+        wrapper.appendChild(btn);
     }
 
-    // Find the largest <img> inside a lightbox-like container.
-    function findLightboxImg(node) {
-        // Discord wraps the lightbox in a div with role=dialog or a known
-        // layerContainer. Look for a big CDN image inside any overlay.
-        var imgs = node.querySelectorAll('img[src*="cdn.discordapp.com"], img[src*="media.discordapp.net"], img[src*="images-ext"]');
-        var best = null, bestArea = 0;
-        imgs.forEach(function(img) {
-            var r = img.getBoundingClientRect();
-            var area = r.width * r.height;
-            if (area > bestArea) { bestArea = area; best = img; }
-        });
-        // Only show the button if the image is large (lightbox, not thumbnail).
-        if (best && bestArea > 40000) return best;
-        return null;
+    function scanNode(node) {
+        if (node.nodeType !== 1) return;
+        if (node.matches('a[data-role="img"]')) { inject(node); return; }
+        node.querySelectorAll('a[data-role="img"]').forEach(inject);
     }
 
-    var observer = new MutationObserver(function(mutations) {
-        mutations.forEach(function(m) {
-            m.addedNodes.forEach(function(node) {
-                if (node.nodeType !== 1) return;
-                var img = findLightboxImg(node);
-                if (img) { addBtn(img.src); return; }
-                // Also check if a lightbox was removed (closed).
-                if (btn) {
-                    var still = document.querySelector(
-                        'img[src="' + btn.href.split('?')[0] + '"]');
-                    if (!still) removeBtn();
-                }
-            });
-            m.removedNodes.forEach(function(node) {
-                if (btn && node.nodeType === 1 && node.contains &&
-                    node.querySelector && findLightboxImg(node)) {
-                    removeBtn();
-                }
-            });
-        });
-    });
+    // Scan what is already in the DOM.
+    document.querySelectorAll('a[data-role="img"]').forEach(inject);
 
-    observer.observe(document.body, { childList: true, subtree: true });
+    // Watch for new messages / lazy-loaded content.
+    new MutationObserver(function(muts) {
+        muts.forEach(function(m) {
+            m.addedNodes.forEach(scanNode);
+        });
+    }).observe(document.body, { childList: true, subtree: true });
 })();
 """
+
+class DiscordPage(QWebEnginePage):
+    """Intercepts discord-dl:// navigation events produced by the injected JS
+    and converts them into real downloads via QWebEnginePage.download()."""
+
+    def acceptNavigationRequest(self, url, nav_type, is_main_frame):
+        if url.scheme() == 'discord-dl':
+            # Decode the CDN URL that was percent-encoded into the path.
+            cdn = QUrl.fromPercentEncoding(
+                (url.host() + url.path()).encode())
+            if cdn:
+                self.download(QUrl(cdn))
+            return False  # block the navigation itself
+        return super().acceptNavigationRequest(url, nav_type, is_main_frame)
+
+    def newWindowRequested(self, request):
+        # CDN links opened as new tabs -> download instead.
+        url = request.requestedUrl()
+        if (url.host().endswith('cdn.discordapp.com') or
+                url.host().endswith('media.discordapp.net')):
+            self.download(url)
+        else:
+            self.load(url)
+
 
 win = QMainWindow()
 win.setWindowTitle("Discord")
 
 view = QWebEngineView()
-page = QWebEnginePage(profile, view)
+page = DiscordPage(profile, view)
 view.setPage(page)
 
 def inject_js():

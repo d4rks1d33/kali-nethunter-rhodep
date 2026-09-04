@@ -1,0 +1,64 @@
+#!/bin/sh
+# rhodep-pwn-monstop-internal: tear down mon0 on the INTERNAL radio and put
+# wlan0 STA back so NetworkManager can reassociate. Runs from
+# rhodep-pwn-bettercap.service's ExecStopPost when RHODEP_PWN_RADIO=internal.
+#
+# Idempotent, symmetric with rhodep-pwn-monstart-internal:
+#   - remove mon0 if it exists
+#   - recreate wlan0 as type managed if it's gone
+#   - unblock rfkill / hand wlan0 back to NM
+#   - reactivate the connection we saved in /run/rhodep-pwn-internal/state
+# Never touches wlan1.
+set -e
+
+STA_IFACE=wlan0
+PHY=phy0
+MON_IFACE=${PWN_MON_IFACE:-mon0}
+STATE_FILE=/run/rhodep-pwn-internal/state
+
+log() { echo "rhodep-pwn-monstop-internal: $*"; }
+
+# --- 1) remove mon0 ---------------------------------------------------------
+if iw dev "$MON_IFACE" info >/dev/null 2>&1; then
+	ip link set "$MON_IFACE" down 2>/dev/null || true
+	iw dev "$MON_IFACE" del 2>/dev/null || true
+	log "removed $MON_IFACE"
+fi
+
+# --- 2) recreate wlan0 if missing ------------------------------------------
+if ! ip link show "$STA_IFACE" >/dev/null 2>&1; then
+	iw phy "$PHY" interface add "$STA_IFACE" type managed 2>/dev/null || {
+		log "WARN: could not recreate $STA_IFACE — you may need to reboot"
+	}
+fi
+
+# --- 3) rfkill unblock + hand back to NM -----------------------------------
+rfkill unblock wifi 2>/dev/null || true
+if command -v nmcli >/dev/null 2>&1; then
+	nmcli device set "$STA_IFACE" managed yes 2>/dev/null || true
+fi
+ip link set "$STA_IFACE" up 2>/dev/null || true
+
+# --- 4) restart wpa_supplicant if needed & reconnect saved connection ------
+if systemctl is-active --quiet wpa_supplicant 2>/dev/null; then
+	systemctl restart wpa_supplicant 2>/dev/null || true
+fi
+sleep 2
+
+if [ -r "$STATE_FILE" ]; then
+	# shellcheck disable=SC1090
+	. "$STATE_FILE"
+	if [ -n "${ACTIVE_CON:-}" ] && command -v nmcli >/dev/null 2>&1; then
+		nmcli con up "$ACTIVE_CON" 2>/dev/null || \
+			nmcli device connect "$STA_IFACE" 2>/dev/null || true
+	elif command -v nmcli >/dev/null 2>&1; then
+		nmcli device connect "$STA_IFACE" 2>/dev/null || true
+	fi
+	rm -f "$STATE_FILE" 2>/dev/null || true
+elif command -v nmcli >/dev/null 2>&1; then
+	nmcli device connect "$STA_IFACE" 2>/dev/null || true
+fi
+
+sleep 3
+log "final state: $(iw dev $STA_IFACE link 2>/dev/null | head -1 || echo 'no link')"
+exit 0

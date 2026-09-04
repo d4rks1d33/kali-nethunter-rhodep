@@ -1,0 +1,32 @@
+#!/bin/sh
+# rhodep-pwn-pwngrid-launcher: pwngrid on the monitor iface the bettercap
+# service brought up (wlan1mon for external radio, mon0 for internal radio).
+# Selection driven by the same RHODEP_PWN_RADIO env var, and the same drop-in.
+set -e
+
+RADIO=${RHODEP_PWN_RADIO:-external}
+case "$RADIO" in
+	internal) IFACE=${PWN_MON_IFACE:-mon0} ;;
+	external|"") IFACE=${PWN_MON_IFACE:-wlan1mon} ;;
+	*) echo "rhodep-pwn-pwngrid-launcher: bad RHODEP_PWN_RADIO=$RADIO" >&2; exit 2 ;;
+esac
+
+# Wait up to 60s for the iface to appear (bettercap.service brings it up).
+for i in $(seq 1 60); do
+	[ -e "/sys/class/net/$IFACE" ] && break
+	sleep 1
+done
+
+if [ ! -e "/sys/class/net/$IFACE" ]; then
+	echo "rhodep-pwn-pwngrid-launcher: $IFACE never appeared; giving up" >&2
+	exit 4
+fi
+
+exec /usr/bin/pwngrid \
+	-keys /etc/pwnagotchi \
+	-peers /root/peers \
+	-address 127.0.0.1:8666 \
+	-client-token /root/.api-enrollment.json \
+	-wait \
+	-log /etc/pwnagotchi/log/pwngrid-peer.log \
+	-iface "$IFACE"

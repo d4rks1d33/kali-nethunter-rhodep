@@ -481,8 +481,10 @@ The README there covers, one section per directory:
   the shell side because the keyboard cannot reach the clipboard
 - `claude-free/` — Claude Code re-pointed at the model keys opencode
   already holds
-- `pwnagotchi/` — pwnagotchi on the external TP-Link (wlan1), never
-  touching the internal wlan0
+- `pwnagotchi/` — pwnagotchi on the external TP-Link (wlan1) by default,
+  with an opt-in mode that runs it on the internal wlan0 (mon0 sibling for
+  capture + channel hopping, `rhodep-inject-lab` for deauth via the STA
+  offchannel path). See `extra-tools/pwnagotchi/README.md` and item 13 below
 - `nethunter-pro-app/` — the NetHunter Pro control panel: a GTK4 /
   libadwaita app for Phosh with the port's Wi-Fi / IoT / BLE / KRACK /
   loot suite driven from a touch UI instead of a terminal
@@ -701,9 +703,10 @@ extra-tools/          not needed to boot or to make a call: tools that make the
                       because the keyboard cannot read the clipboard (install.sh)
   claude-free/        Claude Code routed through the model providers opencode
                       already holds keys for (install.sh)
-  pwnagotchi/         pwnagotchi capturing WPA handshakes on the external
-                      TP-Link (wlan1mon), never touching the internal wlan0
-                      (install.sh; on-demand services, needs otg on)
+  pwnagotchi/         pwnagotchi capturing WPA handshakes. Default: on the
+                      external TP-Link (wlan1mon). Opt-in: on the internal
+                      wlan0 (mon0 + STA-offchannel deauth via rhodep-inject-lab).
+                      (install.sh; on-demand services)
   nethunter-pro-app/  the NetHunter Pro control panel (GTK4/libadwaita for
                       Phosh): pwnagotchi, wifipumpkin3, Phishkin3 (wp3 +
                       evilginx2), driftnet, Network Discovery, RouterSploit,

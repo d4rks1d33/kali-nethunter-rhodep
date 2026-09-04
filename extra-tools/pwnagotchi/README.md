@@ -15,18 +15,29 @@ auto-mode run, e.g.
 
 	!!! captured new handshake on channel 1: b2:4e:26:df:2b:2f -> Claro Fibra !!!
 
-## The one thing that matters: it uses wlan1, never wlan0
+**Two radios supported, one at a time**: the shipped default is the **external
+TP-Link (`wlan1mon`)** exactly as described below. There is now an **opt-in
+"internal radio" mode** that runs pwnagotchi on the phone's own WCN3990 radio
+(`wlan0` gone, `mon0` doing channel-hopping capture, deauth/associate routed
+through the STA offchannel injector). It's opt-in via a systemd drop-in — see
+"Internal-radio (wlan0/mon0) mode" below.
 
-pwnagotchi is built for a Raspberry Pi whose only WiFi does monitor mode. This
-phone is the opposite:
+## Default (external): it uses wlan1, never wlan0
 
-- **wlan0** is the internal ath10k / WCN3990. It is the only real WiFi and
-  **cannot do monitor mode at all** — the firmware reports `raw 0` — so it has
-  to stay a managed client (that is your actual network).
-- **wlan1** is the external TP-Link TL-WN722N (RTL8188EUS), which does monitor
-  and injection. All capture happens here.
+pwnagotchi is built for a Raspberry Pi whose only WiFi does monitor mode. On
+this phone we have two radios; by default we keep them separate:
 
-So everything is pinned to wlan1 and wlan0 is never touched:
+- **wlan0** is the internal ath10k / WCN3990. In the default (external) mode
+  it stays a managed client (that is your actual network) and is never touched.
+  Whether wlan0 itself can do monitor was long "no" and is now "partially yes"
+  — see the internal-radio section for what changed and item 13 in the top-level
+  README for the details (patches 0117/0118).
+- **wlan1** is the external TP-Link TL-WN722N (RTL8188EUS) or Archer T2U Nano
+  (RTL8811AU), which does full raw monitor + injection. All capture happens here
+  in the default mode.
+
+In the default (external) mode, everything is pinned to wlan1 and wlan0 is
+never touched:
 
 - `main.iface = "wlan1mon"` in the config — a distinct name, impossible to
   confuse with wlan0.
@@ -150,3 +161,82 @@ pwnagotchi update.
 - This is not held or protected like the core port packages — it is an
   extra-tool, optional, and lives entirely under /opt/pwnagotchi,
   /usr/local/sbin and /etc/pwnagotchi.
+
+## Internal-radio (wlan0/mon0) mode — opt-in
+
+Runs pwnagotchi on the phone's own WCN3990 radio, no external adapter needed.
+
+**Trade-off you must accept:** wlan0 STA is deleted for the duration of the run,
+so you lose WiFi. The chanctx model of ath10k requires monitors-only for
+channel-hopping to actually retune the radio; if wlan0 STA is up, mon0 is
+locked to the STA's channel (silently). We tear wlan0 down completely at start
+and put it back at stop. `systemctl stop rhodep-pwn-bettercap.service` (or the
+NetHunter Pro toggle off) restores wlan0 and NetworkManager reassociates.
+
+**What the internal mode can and can't do vs the external one:**
+
+|                        | external (wlan1) | internal (wlan0/mon0)                    |
+| ---                    | ---              | ---                                      |
+| Passive capture        | full             | full (patch 0117, `mon_mgmt=1`)          |
+| Channel hopping        | full             | full (mon0 monitors-only, real retune)   |
+| Deauth injection       | bettercap raw    | STA offchannel via `rhodep-inject-lab`   |
+| Assoc injection        | bettercap raw    | limited (see below)                      |
+| WiFi stays up          | yes              | **no** (wlan0 deleted while running)     |
+| Adapter required       | TP-Link          | none                                     |
+
+Deauth on the internal radio goes through the STA offchannel mgmt-tx path
+(`nl80211-mgmt-tx.py` + `rhodep-inject-lab`) instead of bettercap's raw
+radiotap injection — because raw TX on a monitor vdev **crashes the WCN3990
+firmware**. A pwnagotchi plugin (`rhodep_internal_inject.py`) monkey-patches
+`agent.deauth`/`agent.associate` before those bettercap commands are ever sent,
+so bettercap only ever does capture + channel hopping. Verified: deauth with
+spoofed addr2 works on-air, target clients disconnect. Assoc injection is
+implemented as a targeted probe-request (cfg80211 doesn't allow arbitrary
+addr2 spoofing on assoc frames, so full-fidelity assoc emulation isn't
+possible without more work).
+
+Rate is lower than bettercap's raw ~128-frame bursts (offchannel serializes on
+tx-completion, ~ms per frame) — enough to knock a client, but slower.
+
+### How to enable
+
+Install the drop-in on both units and edit the config:
+
+```sh
+sudo install -Dm0644 /path/to/repo/extra-tools/pwnagotchi/systemd/dropins/20-radio-internal.conf \
+    /etc/systemd/system/rhodep-pwn-bettercap.service.d/20-radio.conf
+sudo install -Dm0644 /path/to/repo/extra-tools/pwnagotchi/systemd/dropins/20-radio-internal.conf \
+    /etc/systemd/system/rhodep-pwngrid-peer.service.d/20-radio.conf
+sudo systemctl daemon-reload
+sudoedit /etc/pwnagotchi/config.toml    # under [main]: iface = "mon0"
+                                        # and: mon_start_cmd = "/usr/local/sbin/rhodep-pwn-monstart-dispatch"
+                                        # and: mon_stop_cmd = "/usr/local/sbin/rhodep-pwn-monstop-dispatch"
+                                        # under [main.plugins.rhodep_internal_inject]: enabled = true
+sudo systemctl start rhodep-pwnagotchi.service
+```
+
+**Go back to external:** remove both `20-radio.conf` drop-ins, revert the four
+config keys, `daemon-reload`, re-`start`.
+
+The NetHunter Pro app writes/removes these drop-ins for you (same pattern it
+already uses for the manual/auto mode `10-mode.conf`).
+
+### Requirements
+
+- Kernel patches **0117 + 0118** in the running kernel (top-level README item
+  13). `rhodep-pwn-monstart-internal` refuses to start if `mon_mgmt` isn't
+  there and warns loudly if `AUTH_AND_DEAUTH_RANDOM_TA` isn't advertised.
+- `/usr/local/sbin/rhodep-inject-lab` + `/usr/local/sbin/nl80211-mgmt-tx.py`
+  installed (they come with `userspace/wifi-drivers/install.sh`).
+
+### Extra pieces (installed by install.sh)
+
+```
+bin/rhodep-pwn-monstart-internal      wlan0 STA -> gone, mon0 up on phy0
+bin/rhodep-pwn-monstop-internal       mon0 -> gone, wlan0 STA recreated + reconnected
+bin/rhodep-pwn-monstart-dispatch      picks -monstart or -monstart-internal by RHODEP_PWN_RADIO
+bin/rhodep-pwn-monstop-dispatch       symmetric dispatch on stop
+bin/rhodep-pwn-pwngrid-launcher       pwngrid on the right iface (wlan1mon or mon0)
+plugins/rhodep_internal_inject.py     intercepts agent.deauth/.associate -> rhodep-inject-lab
+systemd/dropins/20-radio-internal.conf  drop-in template that sets RHODEP_PWN_RADIO=internal
+```

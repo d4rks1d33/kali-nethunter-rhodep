@@ -1,5 +1,5 @@
 [Unit]
-Description=pwngrid peer for pwnagotchi (rhodep)
+Description=pwngrid peer for pwnagotchi (rhodep, radio via RHODEP_PWN_RADIO)
 Documentation=https://pwnagotchi.org
 Wants=network.target
 Requires=rhodep-pwn-bettercap.service
@@ -7,10 +7,10 @@ After=rhodep-pwn-bettercap.service
 
 [Service]
 Type=simple
-# Wait for the monitor interface the bettercap service brings up, then peer on
-# it. -iface is wlan1mon here, never wlan0mon.
-ExecStartPre=/bin/sh -c 'for i in $(seq 1 60); do [ -e /sys/class/net/wlan1mon ] && exit 0; sleep 1; done; exit 0'
-ExecStart=/usr/bin/pwngrid -keys /etc/pwnagotchi -peers /root/peers -address 127.0.0.1:8666 -client-token /root/.api-enrollment.json -wait -log /etc/pwnagotchi/log/pwngrid-peer.log -iface wlan1mon
+# The launcher waits for the monitor iface the bettercap service brought up
+# (wlan1mon for external, mon0 for internal) and execs pwngrid on it.
+Environment=RHODEP_PWN_RADIO=external
+ExecStart=/usr/local/sbin/rhodep-pwn-pwngrid-launcher
 Restart=always
 RestartSec=30
 

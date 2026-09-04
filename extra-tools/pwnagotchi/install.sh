@@ -78,11 +78,21 @@ if ! command -v pwngrid >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------- our glue
-install -d /usr/local/sbin /etc/pwnagotchi/log /etc/pwnagotchi/handshakes
+install -d /usr/local/sbin /etc/pwnagotchi/log /etc/pwnagotchi/handshakes /etc/pwnagotchi/custom-plugins
 for s in rhodep-pwn-monstart rhodep-pwn-monstop \
+         rhodep-pwn-monstart-internal rhodep-pwn-monstop-internal \
+         rhodep-pwn-monstart-dispatch rhodep-pwn-monstop-dispatch \
+         rhodep-pwn-pwngrid-launcher \
          rhodep-pwn-bettercap-launcher rhodep-pwn-launcher; do
 	install -m 0755 "$here/bin/$s" "/usr/local/sbin/$s"
 done
+
+# Custom plugin: intercepts agent.deauth/.associate when we're on the internal
+# radio, so bettercap never sends raw radiotap TX to a WCN3990 monitor vdev
+# (that path crashes the firmware). Ships enabled by default in the internal
+# radio drop-in; harmless (no-op unless the operator flips personality.deauth).
+install -m 0644 "$here/plugins/rhodep_internal_inject.py" \
+	/etc/pwnagotchi/custom-plugins/rhodep_internal_inject.py
 
 # config.toml is the user override merged over default.toml. main.name is pinned
 # to the current hostname on purpose: pwnagotchi reboots the machine if it does

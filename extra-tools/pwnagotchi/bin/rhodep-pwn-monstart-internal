@@ -1,0 +1,169 @@
+#!/bin/sh
+# rhodep-pwn-monstart-internal: bring up mon0 on the INTERNAL WCN3990 radio for
+# pwnagotchi (channel-hopping capture on wlan0 / ath10k_snoc). Opt-in variant of
+# rhodep-pwn-monstart; the wlan1 (TP-Link) path is unchanged and still the
+# default. Selection is driven by the launcher via RHODEP_PWN_RADIO=internal.
+#
+# What this does, and why:
+#
+# 1. We DO tear down wlan0 STA entirely and mask NM/wpa_supplicant on it for
+#    the duration of the run. Reason (confirmed by code + tests):
+#    ieee80211_add_virtual_monitor() only creates a proper monitor sdata (with
+#    its own chanctx) when local->open_count == 0 && local->monitors == 0
+#    (net/mac80211/iface.c). If wlan0 STA is up when mon0 is opened, mon0 gets
+#    NO chanctx of its own -- it becomes a passive radiotap sink locked to the
+#    STA's channel, and 'iw dev mon0 set channel N' silently no-ops on the
+#    radio. Channel hopping only actually retunes the radio in a monitors-only
+#    config. Losing WiFi during the run is the accepted trade-off (documented).
+# 2. Once mon0 is created monitors-only, ath10k adds a real WMI_VDEV_TYPE_MONITOR
+#    vdev (ath10k sets WANT_MONITOR_VIF), and bettercap's SetInterfaceChannel
+#    (nl80211 direct, ~250 ms/hop) drives normal vdev_restart cycles that WCN3990
+#    handles fine (same primitive as CSA). No monitor-vdev TX is used -- that
+#    would crash the firmware; deauth/assoc are redirected to the STA-offchannel
+#    injector by the pwnagotchi plugin, but that runs from wlan0 -- so wlan0 has
+#    to be *recreated as a managed STA* short-term for each injection burst. To
+#    keep things simple we instead route deauth from a plugin that shells out to
+#    rhodep-inject-lab which, when wlan0 is deleted, will re-add it internally
+#    for its own TX and remove it after. That's the plugin's problem, not this
+#    script's.
+# 3. Pre-check that patches 0117 + 0118 are actually live in the running kernel
+#    (mon_mgmt param + AUTH_AND_DEAUTH_RANDOM_TA ext-feature). If either is
+#    missing this whole setup is silent-but-broken, so bail loudly.
+#
+# Env:
+#   PWN_COUNTRY   regulatory domain, default 00
+#   PWN_MON_IFACE monitor iface name, default mon0
+# Exit 0 on success (mon0 up, type=monitor, phy0 monitors-only), non-zero on
+# any hard failure. The launcher inspects the exit code.
+set -e
+
+STA_IFACE=wlan0
+PHY=phy0
+MON_IFACE=${PWN_MON_IFACE:-mon0}
+COUNTRY=${PWN_COUNTRY:-00}
+STATE_DIR=/run/rhodep-pwn-internal
+STATE_FILE=$STATE_DIR/state
+
+log() { echo "rhodep-pwn-monstart-internal: $*"; }
+
+# --- preflight: the two kernel bits we NEED ---------------------------------
+if [ ! -w /sys/module/ath10k_core/parameters/mon_mgmt ]; then
+	log "FATAL: /sys/module/ath10k_core/parameters/mon_mgmt not found"
+	log "  the running kernel appears to lack patch 0117 (mgmt-rx delivery to monitor)"
+	log "  install a kernel built with the rhodep patches and try again"
+	exit 2
+fi
+# force mon_mgmt=1 (default) — capture won't work otherwise
+echo 1 > /sys/module/ath10k_core/parameters/mon_mgmt 2>/dev/null || true
+
+# patch 0118 gives us random-TA on auth/deauth via mgmt-tx (needed by the plugin
+# to send spoofed deauths). Test by inspecting iw phy0 info for the ext-feature.
+if ! iw phy $PHY info 2>/dev/null | grep -q "AUTH_AND_DEAUTH_RANDOM_TA"; then
+	log "WARNING: phy0 does not advertise AUTH_AND_DEAUTH_RANDOM_TA (patch 0118)"
+	log "  deauth injection will not spoof the AP's MAC; clients will ignore our frames"
+	log "  proceeding anyway (capture still works)"
+fi
+
+# --- fast path: already set up ---------------------------------------------
+if iw dev "$MON_IFACE" info 2>/dev/null | grep -q "type monitor"; then
+	# verify wlan0 is really gone (otherwise mon0 has no chanctx)
+	if ! ip link show "$STA_IFACE" >/dev/null 2>&1; then
+		log "$MON_IFACE already up and $STA_IFACE deleted — nothing to do"
+		exit 0
+	fi
+	log "$MON_IFACE exists but $STA_IFACE is still around; redoing setup"
+	iw dev "$MON_IFACE" del 2>/dev/null || true
+fi
+
+# --- record state so monstop can put things back exactly as they were -------
+mkdir -p "$STATE_DIR"
+: > "$STATE_FILE"
+
+# Was NM managing wlan0? Was there an active connection? Remember, to reconnect.
+# Quote everything: SSIDs contain spaces and dots and shell metacharacters, and
+# the state file is `sourced` back by monstop-internal.
+if command -v nmcli >/dev/null 2>&1; then
+	ACTIVE_CON=$(nmcli -t -f NAME,DEVICE connection show --active 2>/dev/null \
+		| awk -F: -v d="$STA_IFACE" '$2==d{print $1; exit}')
+	# escape single-quotes inside the name, then wrap in single quotes
+	esc_con=$(printf "%s" "$ACTIVE_CON" | sed "s/'/'\\\\''/g")
+	printf "ACTIVE_CON='%s'\n" "$esc_con" >> "$STATE_FILE"
+fi
+# Was NM radio wifi on?
+if command -v nmcli >/dev/null 2>&1; then
+	NM_WIFI=$(nmcli radio wifi 2>/dev/null || echo unknown)
+	printf "NM_WIFI='%s'\n" "$NM_WIFI" >> "$STATE_FILE"
+fi
+
+# --- 1) stop NM's grip on wlan0, kill wpa_supplicant on it ------------------
+log "quiescing wlan0 STA (this drops WiFi for the duration)"
+# nmcli scoped: prevents NM from re-adding wlan0 later. NOT nmcli radio wifi off
+# — that also blocks the wlan1 TP-Link if it's present.
+if command -v nmcli >/dev/null 2>&1; then
+	nmcli device set "$STA_IFACE" managed no 2>/dev/null || true
+fi
+# wpa_supplicant on wlan0
+pkill -9 -f "wpa_supplicant.*-i${STA_IFACE}" 2>/dev/null || true
+pkill -9 -f "wpa_supplicant.*-i ${STA_IFACE}" 2>/dev/null || true
+
+# --- 2) delete wlan0 STA and any lingering vifs on phy0 (except mon0) ------
+ip link set "$STA_IFACE" down 2>/dev/null || true
+iw dev "$STA_IFACE" del 2>/dev/null || true
+# remove stray p2p-device / other vifs on phy0 so ieee80211_add_virtual_monitor()
+# sees open_count==0 when we open mon0
+for dev in $(iw dev 2>/dev/null | awk '/Interface/{i=$2} /wdev/{w=$2} /type/{t=$2; if(i && t!="monitor") print i}'); do
+	case "$dev" in
+		"$MON_IFACE"|"") continue ;;
+	esac
+	# is it on phy0?
+	p=$(basename "$(readlink -f "/sys/class/net/$dev/phy80211" 2>/dev/null)" 2>/dev/null)
+	[ "$p" = "$PHY" ] || continue
+	log "removing stray phy0 iface $dev (was needed to reach monitors-only)"
+	ip link set "$dev" down 2>/dev/null || true
+	iw dev "$dev" del 2>/dev/null || true
+done
+# non-netdev wdevs (p2p-device on phy0)
+for w in $(iw dev 2>/dev/null | awk -v p="$PHY" '/^phy#/{cur=$0; sub(/phy#/,"",cur); pn=cur} /wdev/{wd=$2} /type P2P-device/{if(pn==substr(p,4)) print wd}'); do
+	iw wdev "$w" del 2>/dev/null || true
+done
+sleep 1
+
+# --- 3) set regdomain and create mon0 ---------------------------------------
+iw reg set "$COUNTRY" 2>/dev/null || true
+if ! iw phy "$PHY" interface add "$MON_IFACE" type monitor 2>/dev/null; then
+	log "FATAL: could not add $MON_IFACE on $PHY"
+	exit 3
+fi
+# rfkill sometimes soft-blocks phy0 after nmcli fiddling
+rfkill unblock wifi 2>/dev/null || true
+ip link set "$MON_IFACE" up 2>/dev/null || {
+	log "FATAL: could not bring $MON_IFACE up"
+	iw dev "$MON_IFACE" del 2>/dev/null || true
+	exit 4
+}
+sleep 1
+
+# --- 4) sanity: is it really monitors-only and does set_channel retune? ----
+if ! iw dev "$MON_IFACE" info 2>/dev/null | grep -q "type monitor"; then
+	log "FATAL: $MON_IFACE did not stay in type monitor"
+	iw dev "$MON_IFACE" del 2>/dev/null || true
+	exit 5
+fi
+# try setting channel 1; if it works, we're good
+if iw dev "$MON_IFACE" set channel 1 2>/dev/null; then
+	sleep 0.3
+	CH=$(iw dev "$MON_IFACE" info 2>/dev/null | awk '/channel/{print $2; exit}')
+	if [ -n "$CH" ]; then
+		log "$MON_IFACE up, type=monitor, channel=$CH (retune verified)"
+	else
+		log "$MON_IFACE up, type=monitor, but no channel reported (set_channel silent no-op?)"
+		log "  this usually means phy0 is not monitors-only; other vifs may be up"
+		iw dev 2>/dev/null | awk '/Interface|type/'
+		exit 6
+	fi
+else
+	log "WARNING: set channel 1 on $MON_IFACE returned non-zero"
+fi
+
+log "success: $MON_IFACE ready on $PHY (internal WCN3990 radio)"
+exit 0

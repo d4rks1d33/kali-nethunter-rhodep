@@ -1,8 +1,18 @@
-# rhodep: pwnagotchi on the Moto G82, capturing on the external TP-Link only.
+# rhodep: pwnagotchi on the Moto G82.
 #
-# Overrides pwnagotchi/defaults.toml. The important lines are the interface and
-# the monitor commands: everything captures on wlan1 (RTL8188EUS), and the
-# internal wlan0 (ath10k/WCN3990, no monitor mode) is never touched.
+# Overrides pwnagotchi/defaults.toml. This template ships the EXTERNAL radio
+# (TP-Link wlan1mon) as the default; the INTERNAL WCN3990 radio (wlan0 + mon0)
+# is opt-in via a systemd drop-in that sets RHODEP_PWN_RADIO=internal on the
+# bettercap + pwngrid units — the NetHunter Pro app writes that drop-in when
+# the user picks the internal radio in the pwnagotchi screen.
+#
+# Interface + monitor commands: rhodep-pwn-bettercap-launcher and
+# rhodep-pwn-pwngrid-launcher pick the right iface / monstart / monstop for the
+# selected radio, so main.iface below only matters as a *default* for the
+# pwnagotchi agent itself — if you switch to internal via drop-in, also set
+# main.iface = "mon0" in this file (or in a conf.d snippet), otherwise the
+# agent will send `wifi.interface wlan1mon` over bettercap's REST and confuse
+# things.
 
 # CAUTION: pwnagotchi's set_name() rewrites /etc/hostname and REBOOTS the whole
 # machine whenever main.name differs from the current hostname. main.name is
@@ -15,13 +25,27 @@ main.lang = "en"
 
 # A distinct name, not "wlan0mon": rhodep-pwn-monstart renames the external
 # adapter to exactly this, so nothing can confuse it with the internal wlan0.
+# For the INTERNAL radio, set main.iface = "mon0" via a conf.d override.
 main.iface = "wlan1mon"
 
-# Monitor scripts that operate ONLY on wlan1 and never run `airmon-ng check
-# kill`, so NetworkManager and wlan0 stay up. See the scripts for why.
-main.mon_start_cmd = "/usr/local/sbin/rhodep-pwn-monstart"
-main.mon_stop_cmd  = "/usr/local/sbin/rhodep-pwn-monstop"
+# By the time pwnagotchi runs, the bettercap service has already brought up
+# whichever monitor iface the drop-in selected via RHODEP_PWN_RADIO. The agent
+# still calls mon_start_cmd though, so wire it to the same launcher — it takes
+# its fast path when the iface is already up. mon_stop_cmd is unused at agent
+# shutdown; bettercap.service's ExecStopPost is what restores the radio.
+main.mon_start_cmd = "/usr/local/sbin/rhodep-pwn-monstart-dispatch"
+main.mon_stop_cmd  = "/usr/local/sbin/rhodep-pwn-monstop-dispatch"
 main.no_restart = false
+
+# Custom plugin dir + the internal-radio deauth interceptor (rhodep_internal_inject).
+# The plugin is DISABLED by default here; the internal-radio drop-in flips it on
+# by adding a [main.plugins.rhodep_internal_inject] enabled=true snippet, so
+# external-mode runs are unaffected.
+main.custom_plugins = "/etc/pwnagotchi/custom-plugins"
+
+[main.plugins.rhodep_internal_inject]
+enabled = false
+inject_lab = "/usr/local/sbin/rhodep-inject-lab"
 
 # This is a phone, not a Pi with a Waveshare e-ink hat. No display; use the web
 # UI instead (http://<phone>:8080, or over usb0 at 172.16.42.1:8080).

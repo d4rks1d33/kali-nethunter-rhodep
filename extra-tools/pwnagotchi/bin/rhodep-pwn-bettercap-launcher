@@ -1,16 +1,53 @@
 #!/bin/sh
-# rhodep: bettercap for pwnagotchi, on the external adapter.
+# rhodep: bettercap for pwnagotchi, radio-agnostic launcher.
 #
-# Upstream's bettercap-launcher hardcodes wlan0mon and does Pi-specific brcm
-# firmware reloads. Here the monitor interface is brought up by
-# rhodep-pwn-monstart on the external wlan1, named wlan1mon, and bettercap is
-# pointed at it. The pwnagotchi agent later re-sets wifi.interface over the API
-# anyway, but -iface has to be right for the initial bring-up.
+# Which radio (and therefore which monstart, which monitor iface) is chosen by
+# the RHODEP_PWN_RADIO env var, set via a systemd drop-in:
+#
+#   external (default) — TP-Link wlan1 -> wlan1mon (rhodep-pwn-monstart).
+#                        Full raw injection via bettercap; the current shipped
+#                        setup.
+#   internal          — INTERNAL WCN3990 wlan0 -> mon0 (rhodep-pwn-monstart-internal).
+#                        Bettercap does capture + channel-hopping ONLY.
+#                        Injection (deauth/assoc) is intercepted by the
+#                        rhodep_internal_inject.py pwnagotchi plugin and routed
+#                        through nl80211-mgmt-tx.py (STA offchannel path). We do
+#                        NOT let bettercap try to inject on mon0 -- that would
+#                        crash the WCN3990 firmware; the plugin replaces
+#                        agent.deauth/.associate before those bettercap commands
+#                        are ever sent.
+#
+# Selected via /etc/systemd/system/rhodep-pwn-bettercap.service.d/20-radio.conf
+# (Environment=RHODEP_PWN_RADIO=internal), which the NetHunter Pro app writes
+# with the same pattern it already uses for the manual/auto mode drop-in.
 set -e
 
-MON_IFACE=wlan1mon
+RADIO=${RHODEP_PWN_RADIO:-external}
 CAPLET=${PWN_CAPLET:-pwnagotchi-manual}   # manual = no auto-deauth by default
 
-/usr/local/sbin/rhodep-pwn-monstart
+case "$RADIO" in
+	internal)
+		MON_IFACE=${PWN_MON_IFACE:-mon0}
+		MONSTART=/usr/local/sbin/rhodep-pwn-monstart-internal
+		;;
+	external|"")
+		MON_IFACE=${PWN_MON_IFACE:-wlan1mon}
+		MONSTART=/usr/local/sbin/rhodep-pwn-monstart
+		;;
+	*)
+		echo "rhodep-pwn-bettercap-launcher: unknown RHODEP_PWN_RADIO=$RADIO" >&2
+		echo "  valid values: internal, external" >&2
+		exit 2
+		;;
+esac
+
+echo "rhodep-pwn-bettercap-launcher: radio=$RADIO iface=$MON_IFACE monstart=$MONSTART"
+export PWN_MON_IFACE="$MON_IFACE"
+
+if [ ! -x "$MONSTART" ]; then
+	echo "rhodep-pwn-bettercap-launcher: missing $MONSTART" >&2
+	exit 3
+fi
+"$MONSTART"
 
 exec /usr/bin/bettercap -no-colors -caplet "$CAPLET" -iface "$MON_IFACE"

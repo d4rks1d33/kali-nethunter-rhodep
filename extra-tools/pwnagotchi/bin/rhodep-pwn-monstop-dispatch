@@ -1,0 +1,14 @@
+#!/bin/sh
+# rhodep-pwn-monstop-dispatch: pick the right teardown for whichever radio the
+# start-side selected. Wired as ExecStopPost on rhodep-pwn-bettercap.service.
+#
+# We use the same env var the start-side reads, so the drop-in that selects
+# radio=internal on start also drives radio=internal on stop.
+set -e
+
+RADIO=${RHODEP_PWN_RADIO:-external}
+case "$RADIO" in
+	internal) exec /usr/local/sbin/rhodep-pwn-monstop-internal ;;
+	external|"") exec /usr/local/sbin/rhodep-pwn-monstop ;;
+	*) echo "rhodep-pwn-monstop-dispatch: unknown RHODEP_PWN_RADIO=$RADIO" >&2; exit 2 ;;
+esac

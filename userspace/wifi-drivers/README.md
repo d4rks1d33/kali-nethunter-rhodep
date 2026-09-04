@@ -1,9 +1,19 @@
 # rhodep-wifi-drivers
 
 Install the **external USB Wi-Fi adapter drivers** so a freshly flashed image
-comes up ready for **monitor mode + packet injection** on `wlan1`, instead of
-needing the drivers built by hand. The internal WCN3990 (`wlan0`) cannot do raw
-mode; these adapters are how the port does WiFi auditing.
+comes up ready for **monitor mode + full raw packet injection** on `wlan1`,
+instead of needing the drivers built by hand.
+
+The internal WCN3990 (`wlan0`) is no longer inert for auditing either — it now
+does passive management-frame capture (patch 0117) and **effective deauth /
+management-frame injection over the STA offchannel path** (patch 0118 + the
+`rhodep-inject-lab` CLI in this same directory). See the **"Internal radio
+(wlan0) auditing"** section below and the [helper's
+README](rhodep-inject-lab.README.md), or item 13 in the top-level README for the
+full write-up and OTA evidence. The external adapters are still how you get
+*raw* monitor-mode injection (arbitrary frame types, spoofed source, high rate);
+the internal path is limited to the auth/deauth subtypes cfg80211 permits
+random-TA on, but that covers the common deauth attack fully.
 
 Two adapters, two drivers (this is an orchestrator around the two driver
 packages, not a third driver):
@@ -114,3 +124,59 @@ Two frictions to know about:
   never appears. Let the firstboot service rebuild it, or run `dkms install
   rtw88/0.6 -k $(uname -r) --force` yourself. See "Build & install a clean kernel
   image" step 5 in the top-level README.
+
+## Internal radio (wlan0) auditing — capture and injection without an external adapter
+
+The WCN3990 firmware does not let the driver do "real" monitor-mode TX (raw
+injection from a monitor vif crashes the firmware), so it can never be a full
+airmon-ng target the way an RTL card is. But two shipped patches + one tiny CLI
+turn it into a usable auditing radio for the common cases, **without dropping
+your Wi-Fi association**:
+
+- **Passive management-frame capture** — patch **0117**
+  (`kernel/patches/0117-ath10k-deliver-wmi-mgmt-to-monitor-on-WCN3990.patch`).
+  The firmware forwards every overheard mgmt frame via `WMI_MGMT_RX_EVENTID`;
+  stock ath10k dropped them for monitor with `RX_FLAG_SKIP_MONITOR`. With 0117,
+  `mon0` alongside the STA sees beacons/probe/auth/assoc/deauth from 8–14
+  distinct BSSIDs per 20 s. Toggle at runtime with
+  `/sys/module/ath10k_core/parameters/mon_mgmt` (1 = on, default). Helper:
+  `rhodep-wlan-monitor {start|stop|capture|status}`.
+
+- **Effective management-frame injection (probe, auth, deauth) on any channel**
+  — patch **0118**
+  (`kernel/patches/0118-ath10k-advertise-AUTH_AND_DEAUTH_RANDOM_TA-ext-feature.patch`)
+  plus this directory's CLI. The mechanism is mac80211's
+  offchannel/ROC path through the STA vdev (`NL80211_CMD_FRAME` with
+  `IEEE80211_TX_CTL_TX_OFFCHAN`), which the WCN3990 firmware *does* transmit
+  (status=0, verified OTA). 0118 advertises
+  `NL80211_EXT_FEATURE_AUTH_AND_DEAUTH_RANDOM_TA` so cfg80211 accepts a spoofed
+  addr2/SA on auth/deauth frames — needed for a useful deauth ("from the AP").
+  Verified with a TP-Link witness on ch11: **130 deauths captured at -23 dBm
+  with SA = the AP's BSSID, and a real client on that AP actually disconnected**.
+  Wlan0 stays associated the whole time.
+
+  Tools installed by `install.sh`:
+
+  ```sh
+  # menu:
+  sudo rhodep-inject-lab
+  # or direct:
+  sudo rhodep-inject-lab probe   <ch|freq> [dest] [bssid] [count]
+  sudo rhodep-inject-lab deauth  <ch|freq>  <dest>  <bssid> [count]
+  sudo rhodep-inject-lab raw     <ch|freq> <hexframe> [count]
+  sudo rhodep-inject-lab witness <ch|freq>          # verify OTA with the TP-Link
+  ```
+
+  Under the hood: `nl80211-mgmt-tx.py` issues `NL80211_CMD_FRAME` over raw
+  generic-netlink (needed because `iw` 6.17 has no `mgmt-tx` subcommand and
+  there is no `libnl-dev` on the device to build a C tool).
+
+- **What still needs the external adapter.** Raw monitor-mode injection of
+  *arbitrary* frame types (data frames; mgmt subtypes cfg80211 does not permit
+  random-TA on; airmon-ng/aireplay style `-1`/`-3`/`-4` attacks), and
+  high-throughput injection. Those live on `wlan1` (RTL8811AU / RTL8188EUS)
+  through the DKMS drivers packaged here. The internal-radio limitations are a
+  firmware-side gate documented in item 13 of the top-level README; the
+  firmware is patchable (secure boot is not enforced on the WLAN image), so a
+  future firmware-RE session could lift them — the tools and pristine backup
+  are in `backups/`.

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Nessus
+GenericName=Vulnerability Scanner
+Comment=Nessus Professional web UI (native, fullscreen)
+Exec=/usr/local/bin/nessus-web
+Icon=nessus-web
+Type=Application
+Categories=Network;Security;
+StartupWMClass=nessus-web.py
+Terminal=false
+Keywords=nessus;scanner;vulnerability;security;

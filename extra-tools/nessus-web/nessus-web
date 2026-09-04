@@ -1,0 +1,12 @@
+#!/bin/sh
+# nessus-web: Nessus Professional native QtWebEngine client.
+#
+# Hardware GL via freedreno (--use-gl=egl) -- same as discord-web.
+# Desktop scale factor: 2.5 gives a comfortable 1080p layout on the phone.
+# Tune with NESSUS_SCALE env var.
+SCALE="${NESSUS_SCALE:-2.5}"
+export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}"
+export QT_IM_MODULE=none
+export VK_DRIVER_FILES="${VK_DRIVER_FILES:-/usr/share/vulkan/icd.d/freedreno_icd.json}"
+export QTWEBENGINE_CHROMIUM_FLAGS="--use-gl=egl --ignore-gpu-blocklist --enable-gpu-rasterization --enable-zero-copy --force-device-scale-factor=$SCALE --ignore-certificate-errors-spki-list"
+exec python3 /usr/local/share/rhodep/nessus-web/nessus-web.py "$@"

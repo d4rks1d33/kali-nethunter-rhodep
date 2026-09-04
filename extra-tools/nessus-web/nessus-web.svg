@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Background circle -->
+  <circle cx="50" cy="50" r="50" fill="#1a1a2e"/>
+  <!-- Shield body -->
+  <path d="M50 12 L78 24 L78 52 Q78 72 50 88 Q22 72 22 52 L22 24 Z"
+        fill="#00b4d8" opacity="0.15"/>
+  <path d="M50 16 L75 27 L75 52 Q75 70 50 84 Q25 70 25 52 L25 27 Z"
+        fill="none" stroke="#00b4d8" stroke-width="2.5"/>
+  <!-- N letter -->
+  <text x="50" y="62" text-anchor="middle"
+        font-family="sans-serif" font-weight="bold" font-size="38"
+        fill="#00b4d8">N</text>
+</svg>

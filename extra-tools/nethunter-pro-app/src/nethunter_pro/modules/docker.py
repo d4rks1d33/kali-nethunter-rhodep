@@ -35,6 +35,21 @@ HUB_SEARCH = "https://hub.docker.com/v2/search/repositories/?query=%s&page_size=
 # Ports that, if a container exposes them, are worth offering as a web link.
 WEB_PORTS = {80, 443, 3000, 8080, 8000, 8888, 5000, 9000, 4200, 8081}
 
+# Images that need extra Docker flags beyond the standard port-publishing run.
+# Key: image name prefix (matched with str.startswith).
+# Value: extra flags inserted between `docker run -d` and the image name.
+# Nessus needs NET_RAW + NET_ADMIN for raw-socket port and vuln scanning;
+# without them nessusd fails at startup with "operation not permitted".
+IMAGE_EXTRA_FLAGS: dict[str, str] = {
+    "nessus-local": (
+        "--cap-add=NET_RAW --cap-add=NET_ADMIN "
+        "--cap-add=CHOWN --cap-add=DAC_OVERRIDE "
+        "--cap-add=FOWNER --cap-add=SETUID --cap-add=SETGID "
+        "--security-opt no-new-privileges:true "
+        "-v nessus_data:/opt/nessus/var"
+    ),
+}
+
 
 @register
 class Docker(NHModule):
@@ -326,6 +341,12 @@ class Docker(NHModule):
         # Chain it as one shell command through the root helper: pull, then read
         # the exposed ports out of the image and run detached publishing them.
         safe = shlex_quote(image)
+        # Extra flags for images that require capabilities or volumes.
+        extra = ""
+        for prefix, flags in IMAGE_EXTRA_FLAGS.items():
+            if image.startswith(prefix):
+                extra = flags
+                break
         script = (
             "set -e\n"
             "docker pull %s\n"
@@ -336,11 +357,11 @@ class Docker(NHModule):
             "for p in $ports; do n=${p%%/*}; pub=\"$pub -p $n:$n\"; done\n"
             "name=$(echo %s | tr '/:' '__')\n"
             "docker rm -f \"$name\" >/dev/null 2>&1 || true\n"
-            "cid=$(docker run -d --name \"$name\" $pub %s)\n"
+            "cid=$(docker run -d --name \"$name\" $pub %s %s)\n"
             "echo\n"
             "echo \"started $name ($cid)\"\n"
             "echo \"ports:$ports\"\n"
-        ) % (safe, safe, safe, safe)
+        ) % (safe, safe, safe, extra, safe)
         self.runner.run(["sh", "-c", script], root=True)
         # After a moment, look at what came up and offer a URL if it is web.
         GLib.timeout_add_seconds(4, self._after_run, image)

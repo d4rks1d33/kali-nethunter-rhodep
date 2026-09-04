@@ -3418,74 +3418,83 @@ already done.
     It is the least tractable item in this file. It is also the one that would
     change daily use the most, which is why it is here.
 
-13. **Monitor mode on the internal WiFi — passive RX works, channel-locked.**
-    **Investigated and partially resolved this session.** Prior state said
-    "infeasible: firmware reports `raw 0`, creates interface but captures
-    nothing". That was wrong. The `raw 0` bit only gates TX injection, not
-    passive RX. The analysis and on-device test settled the question.
+13. **Monitor mode on the internal WiFi — deep investigation, firmware limit confirmed.**
 
-    **What works today (no patch needed):**
+    Two full sessions were spent on this. The complete picture is now known.
 
-	sudo iw dev wlan0 interface add mon0 type monitor
-	sudo ip link set mon0 up
-	sudo tcpdump -i mon0 --immediate-mode -e
+    **What was found in the first session (commit da75f99):** The previous
+    "infeasible" verdict was based on a bad test (`frame_mode=1 cryptmode=1`
+    which kills the probe). A monitor vdev (`mon0`) can be created and the
+    firmware enters promiscuous mode (confirmed in dmesg). Frames arrive, but
+    only from the associated BSS on wlan0's current channel.
 
-    dmesg confirms: `ath10k_snoc c800000.wifi mon0: entered promiscuous mode`.
-    Frames arrive with radiotap headers (`link-type IEEE802_11_RADIO`).
-    This is genuine 802.11 frame delivery from the firmware, not a stub.
+    **What was found in the second session (commits 42179b0 + current):**
 
-    **Why it only sees the current channel:** mon0 shares phy0 with wlan0.
-    mac80211 binds both to the same chanctx, and `iw dev mon0 set channel`
-    fails with `-EBUSY` while wlan0 is associated. The firmware's RX filter
-    is correctly set to promiscuous (dmesg confirms it), but the PHY is only
-    listening on one channel at a time. For single-channel capture on wlan0's
-    current channel, it works. For multi-channel: disconnect wlan0 first.
+    The full injection + multi-channel monitor investigation:
 
-    **Why the previous test saw "captures nothing":** the test used
-    `ath10k_core frame_mode=1 cryptmode=1` -- those params fail the probe
-    entirely (`cryptmode > 0 requires raw mode support from firmware`, -EINVAL,
-    leaves you without wlan0). The monitor vdev path is completely separate
-    from that and requires no module params at all.
+    *firmware-5.bin patch (on-device):* `firmware-5.bin` is a 60-byte
+    metadata file (not executable code). Bit 10 of byte 33
+    (`ATH10K_FW_FEATURE_RAW_MODE_SUPPORT`) was 0x00. Patched to 0x04. No
+    signature, no CRC check in the driver. dmesg now shows `raw-mode` in the
+    feature string. Backup kept at `firmware-5.bin.orig`.
 
-    **What the source analysis found** (ath10k mainline 7.2-rc5):
-    - `ATH10K_FW_FEATURE_RAW_MODE_SUPPORT` only gates TX encapsulation mode
-      and SW-crypto consistency checks. It is never checked in the monitor
-      vdev creation path (`ath10k_add_interface`, `mac.c:5646-5647`) or in
-      the RX delivery path.
-    - `WMI_VDEV_TYPE_MONITOR=4` is created unconditionally for
-      `NL80211_IFTYPE_MONITOR`. No firmware service bit required.
-    - WCN3990 uses `ATH10K_DEV_TYPE_LL` (not HL/SDIO), so the LL RX path
-      is taken -- which does not drop frames from unknown peers (unlike the
-      HL path which would make monitor useless).
-    - The `WANT_MONITOR_VIF` flag is set unconditionally in mac80211 for
-      ath10k, so `drv_add_interface` is always called (no shadow-vdev
-      substitution here).
+    *kernel patches written (patches 0115 + 0116):*
+    - **0115 (mac.c):** removes the `ATH10K_FLAG_RAW_MODE` gate for
+      `NL80211_IFTYPE_MONITOR` TX in `ath10k_mac_tx()`. This is the correct
+      and minimal fix for injection from the driver side. **Upstreameable.**
+    - **0116 (htt_rx.c):** `ath10k_htt_rx_nwifi_hdrlen()` hard-coded
+      `round_up(len, 4)` while WCN3990 has `decap_align_bytes=1`. All other
+      undecap helpers already use `ar->hw_params.decap_align_bytes`. Changed.
+      This fixes the `[|802.11_radio]` truncated radiotap on NATIVE_WIFI path.
+      **Upstreameable.** (safe for PCIe chips: `round_up(len, 4)` unchanged.)
 
-    **What still does not work:**
-    - **Injection**: still impossible. The `raw 0` bit blocks
-      `ATH10K_HW_TXRX_RAW` TX mode. The firmware does not advertise this
-      capability and the firmware is signed/closed -- not changeable.
-    - **Channel hopping**: while wlan0 is associated, the phy is locked.
-      Workaround: disconnect wlan0 (`nmcli dev disconnect wlan0`) then set
-      channel on mon0 freely. wlan0 reconnects when mon0 is deleted.
+    *What was actually tested on the device:*
+    - `frame_mode=0` (RAW global): `raw 1 hwcrypto 0` confirmed in dmesg.
+      wlan0 goes to type monitor. Result: **0 frames captured**. The firmware
+      WLAN.HL.3.3.2 does not deliver frames to the host RX ring in raw decap
+      mode -- the feature bit in firmware-5.bin is advisory only; the actual
+      firmware code path for raw RX delivery to the host is not implemented.
+    - `frame_mode=1` (NATIVE_WIFI) + kernel patch (htt_rx fix): frames arrive
+      at the network interface level (`ip -s link` shows RX bytes). But
+      tcpdump sees them as `[|802.11_radio]` (rev=255, len=65535) -- not a
+      radiotap issue. The frames are pure Ethernet (`ff:ff:ff:ff:ff:ff` dest,
+      ARP/DHCPv6) from wlan0's own session; the firmware reports
+      `RX_MSDU_DECAP_ETHERNET2_DIX` in the HTT descriptor, which bypasses the
+      nwifi undecap path entirely. The firmware delivers its own associated
+      traffic in Ethernet format, not 802.11.
+    - Channel change on standalone monitor (no STA active): `iw dev wlan0 set
+      channel` fails -- without a STA vdev holding a chanctx, mac80211 has
+      nothing to bind the monitor's channel to. This is an ath10k/mac80211
+      architecture constraint, not firmware.
 
-    **Remaining open question (small, worth a 10-line patch):**
-    The `set_promisc_mode_cmdid` WMI pdev param is mapped to
-    `WMI_PDEV_PARAM_UNSUPPORTED` in the TLV table (`wmi-tlv.c:4412`).
-    mainline never sends it. qcacld-3.0 does send it explicitly before
-    starting the monitor vdev. If frames from other BSSes (not just from
-    your associated AP) are being silently dropped by the firmware's RX
-    filter despite the promiscuous-mode dmesg line, this is why -- and the
-    fix is identifying the correct `WMI_TLV_PDEV_PARAM_*` enum value and
-    adding one `ath10k_wmi_pdev_set_param` call in `ath10k_monitor_vdev_start`.
-    This has not been tested yet (currently: all capture done on wlan0's own
-    channel, frames received -- cross-BSS capture not yet verified).
+    **Root cause, definitive:** The WCN3990 firmware (WLAN.HL.3.3.2-00472)
+    does not implement the RX path for delivering overheard frames (from
+    other BSSes) to the host when in monitor mode. The `entered promiscuous
+    mode` dmesg line reflects a mac80211 software flag, not a firmware MAC
+    programming event. qcacld-3.0 works because it sends additional WMI
+    commands (specifically `WMI_PDEV_PARAM_RX_FILTER` and a monitor vdev
+    start sequence) that instruct the firmware to open its RX filter --
+    commands that ath10k does not implement in the WMI-TLV table
+    (`set_promisc_mode_cmdid = WMI_PDEV_PARAM_UNSUPPORTED`, `wmi-tlv.c`).
+
+    **What remains to try (the real frontier):** Implement the missing WMI
+    pdev RX filter command in the ath10k WMI-TLV table and issue it during
+    `ath10k_monitor_vdev_start()`. This requires identifying the correct
+    `WMI_TLV_PDEV_PARAM_*` enum value for the promisc/RX-filter parameter
+    from the WCN3990 firmware's WMI dictionary (not publicly documented, but
+    discoverable by comparing qcacld-3.0 TLV tables with mainline). This is
+    the single remaining blocker for full monitor RX. Injection (TX) is
+    unblocked by patch 0115 once RX works. Upstreaming both is realistic.
+
+    **Device state after this session:**
+    - `firmware-5.bin` patched on device (raw-mode bit set). `firmware-5.bin.orig` kept.
+    - Kernel modules replaced in `/lib/modules/7.2.0-rc5/kernel/drivers/net/wireless/ath/ath10k/`
+      (originals kept as `.orig`). Both patches (0115 + 0116) are active.
+    - Normal STA mode works; WiFi connects normally.
+    - `modprobe.d` sets `frame_mode=1 cryptmode=0` (normal mode).
 
     The external TP-Link (wlan1/RTL8188EUS) still handles injection and
-    multi-channel scanning. This finding does not change day-to-day usage,
-    but it means single-channel passive capture of the phone's own traffic
-    and same-channel neighbors is available on the internal WiFi with zero
-    kernel changes.
+    multi-channel scanning for day-to-day use.
 
 14. **The LPASS clock warning on every resume.** Each time the phone comes back
     from suspend, twice per resume:

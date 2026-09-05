@@ -34,7 +34,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # Ubuntu 22.04 has all these with the exact names Acunetix expects.
 RUN apt-get update -qq && \
     apt-get install -y --no-install-recommends \
-        ca-certificates curl procps sudo \
+        ca-certificates curl procps sudo bzip2 \
         libx11-6 libxext6 libxfixes3 libxdamage1 libxrandr2 libxcomposite1 \
         libxcb1 libxkbcommon0 libdrm2 \
         libpango-1.0-0 libcairo2 libatk1.0-0 \
@@ -77,13 +77,9 @@ RUN VERSION=v_240111130 && \
                              "$LICENSE_DIR/wa_data.dat" && \
     chmod 444 "$LICENSE_DIR/license_info.json" \
               "$LICENSE_DIR/wa_data.dat" && \
-    chattr +i "$LICENSE_DIR/license_info.json" \
-              "$LICENSE_DIR/wa_data.dat" && \
     rm -f /tmp/wvsc /tmp/license_info.json /tmp/wa_data.dat
 
-# /etc/hosts entries required by the crack to redirect license validation.
-RUN printf '\n127.0.0.1  erp.acunetix.com\n127.0.0.1  erp.acunetix.com.\n::1  erp.acunetix.com\n::1  erp.acunetix.com.\n' \
-    >> /etc/hosts
+# /etc/hosts entries are added at runtime in the entrypoint (read-only during build).
 
 # Acunetix web UI + scanner.
 EXPOSE 3443

@@ -17,7 +17,7 @@ import sys, os, ssl, urllib.request, threading
 
 os.environ["QT_IM_MODULE"] = "none"
 
-from PyQt6.QtCore import QUrl, QTimer, Qt
+from PyQt6.QtCore import QUrl, QTimer, Qt, pyqtSignal, QObject
 from PyQt6.QtWidgets import QApplication, QMainWindow
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import (
@@ -108,6 +108,7 @@ view.setPage(page)
 
 # --- retry logic: show waiting page until Nessus answers ---
 _nessus_up = False
+_probe_succeeded = False   # written by bg thread, read by Qt timer
 # SSL context that ignores the self-signed cert for the probe request.
 _ssl_ctx = ssl.create_default_context()
 _ssl_ctx.check_hostname = False
@@ -115,29 +116,30 @@ _ssl_ctx.verify_mode = ssl.CERT_NONE
 
 
 def _probe_nessus() -> None:
-    """Run in a background thread: HTTP probe, then schedule load on success."""
+    """Background thread: probe Nessus, set flag on success."""
+    global _probe_succeeded
     try:
         with urllib.request.urlopen(
             NESSUS_URL + "/server/status", context=_ssl_ctx, timeout=3
         ):
             pass
-        # Success — schedule the real load on the Qt main thread.
-        QTimer.singleShot(0, _do_load)
+        _probe_succeeded = True
     except Exception:
-        pass  # timer will retry
-
-
-def _do_load() -> None:
-    global _nessus_up
-    if not _nessus_up:
-        _nessus_up = True
-        _timer.stop()
-        view.load(QUrl(NESSUS_URL))
+        pass
 
 
 def try_load() -> None:
+    """Called by the Qt timer on the main thread every 3 s."""
+    global _nessus_up, _probe_succeeded
     if _nessus_up:
         return
+    if _probe_succeeded:
+        # Probe succeeded in a previous bg thread — load now on main thread.
+        _nessus_up = True
+        _timer.stop()
+        view.load(QUrl(NESSUS_URL))
+        return
+    # Launch a fresh probe in the background.
     threading.Thread(target=_probe_nessus, daemon=True).start()
 
 

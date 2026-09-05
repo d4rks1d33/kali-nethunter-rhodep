@@ -74,6 +74,44 @@ reproducibly, with `ipa.ko` not loaded.**
 > votes every RPM clock at probe, so the test changed nothing and **QDSS is not
 > excluded**. See `kernel/diag-modules/README.md`.
 
+## Live confirmation: memshare is silent, and the NoC binding does not help
+
+Two of the leads above were re-checked directly on the device, standalone
+reproducer, radio online, `qmicli --dms-set-operating-mode=online` first. Both
+runs ended in `bootreason=watchdog`, so both reproduced the reset; the point was
+what the instrumentation caught before it.
+
+**memshare emits nothing when the measurement engine starts — empirically.** The
+`rhodep-memshare` daemon (QMI 52) was followed live with `journalctl -f` piped
+into `/dev/kmsg`, so its every line lands in the ramoops console and survives the
+reset. Across the whole standalone run the only memshare traffic is the one
+`MEM_QUERY_SIZE (0x0024)` the modem sends **at boot** (answered `size 0`). Between
+`session 11 started` and the death there is **not one memshare request** — no
+`MEM_ALLOC`, no `MEM_QUERY`, nothing. Console tail, kernel timestamps:
+
+	6660.130 MEMSHARE-LIVE: ... MEM_QUERY_SIZE (0x0024) txn=1   <- boot, 02:30
+	6660.130 MEMSHARE-LIVE: ... reporting size 0
+	6661.389 rhodep-gnss: operation mode set to standalone
+	6661.392 rhodep-gnss: session 11 started; listening 30 s
+	6661.392 rhodep-gnss: ------------------------------------  <- console ends, SoC gone
+
+This closes the memshare hypothesis with evidence rather than inference:
+reserving `memshare_mem` and starting the daemon with a non-zero offer would not
+change this, because the engine never asks memshare for anything. `offer=0` stays.
+
+**Binding the NoC provider by hand does not help either.** `qnoc-sm6375` was
+loaded with `modprobe --ignore-install` (past the `rhodep-icc-hold.conf`
+`install ... /bin/false`); it bound cleanly, no oops, and
+`interconnect_summary` went from empty to fully populated (epss L3, the IPA
+voting its a2noc/qxm_ipa paths, the display voting mdp0). With the provider
+live and votes flowing, the standalone reproducer **still resets**, same
+signature. So the "one untested cheap lead" is now tested from the other
+direction too (the module bound, not just built-in) and excluded.
+
+Everything above was captured on the shipped `#1-motorola-rhodep` 7.2.0-rc5,
+`ipa.ko` now loaded (the `rhodep-ipa-hold.conf` is gone on this image), which
+also shows the reset does not need IPA held out.
+
 Every revision of the root `README.md` before this one said GPS was the cheapest
 open item in the port — "the modem publishes the location service and
 `qmicli --loc-start` works, it has never emitted NMEA, but it has only ever been

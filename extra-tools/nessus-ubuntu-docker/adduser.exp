@@ -1,0 +1,13 @@
+#!/usr/bin/expect -f
+spawn /opt/nessus/sbin/nessuscli adduser admin
+expect "Login password:"
+send "1234567890\r"
+expect "Login password (again):"
+send "1234567890\r"
+expect -re "can upload plugins"
+send "y\r"
+expect -re "rules set"
+send "\r"
+expect -re "Is that ok"
+send "y\r"
+expect eof

@@ -17,7 +17,7 @@ import sys, os, ssl, urllib.request, threading
 
 os.environ["QT_IM_MODULE"] = "none"
 
-from PyQt6.QtCore import QUrl, QTimer, Qt, pyqtSignal, QObject
+from PyQt6.QtCore import QUrl, QTimer, Qt, pyqtSignal, QObject, QMetaObject, Q_ARG
 from PyQt6.QtWidgets import QApplication, QMainWindow
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import (
@@ -106,64 +106,44 @@ view = QWebEngineView()
 page = NessusPage(profile, view)
 view.setPage(page)
 
-# --- retry logic: show waiting page until Nessus answers ---
-_nessus_up = False
-_probe_succeeded = False   # written by bg thread, read by Qt timer
 # SSL context that ignores the self-signed cert for the probe request.
 _ssl_ctx = ssl.create_default_context()
 _ssl_ctx.check_hostname = False
 _ssl_ctx.verify_mode = ssl.CERT_NONE
 
 
-def _probe_nessus() -> None:
-    """Background thread: probe Nessus, set flag on success."""
-    global _probe_succeeded
-    try:
-        with urllib.request.urlopen(
-            NESSUS_URL + "/server/status", context=_ssl_ctx, timeout=3
-        ):
+class _Notifier(QObject):
+    """Bridge between the background probe thread and the Qt main thread."""
+    ready = pyqtSignal()
+
+
+_notifier = _Notifier()
+
+
+def _probe_loop() -> None:
+    """Background thread: keep probing until Nessus answers, then signal."""
+    while True:
+        try:
+            urllib.request.urlopen(
+                NESSUS_URL + "/server/status", context=_ssl_ctx, timeout=3)
+            _notifier.ready.emit()   # safe: pyqtSignal is thread-safe
+            return
+        except Exception:
             pass
-        _probe_succeeded = True
-    except Exception:
-        pass
-
-
-def try_load() -> None:
-    """Called by the Qt timer on the main thread every 3 s."""
-    global _nessus_up, _probe_succeeded
-    if _nessus_up:
-        return
-    if _probe_succeeded:
-        # Probe succeeded in a previous bg thread — load now on main thread.
-        _nessus_up = True
-        _timer.stop()
-        view.load(QUrl(NESSUS_URL))
-        return
-    # Launch a fresh probe in the background.
-    threading.Thread(target=_probe_nessus, daemon=True).start()
+        threading.Event().wait(3)
 
 
 def _show_wait() -> None:
     page.setContent(WAIT_HTML.encode(), "text/html;charset=utf-8", QUrl(NESSUS_URL))
 
 
-# Show the waiting page immediately, then start probing.
+def _on_ready() -> None:
+    view.load(QUrl(NESSUS_URL))
+
+
+_notifier.ready.connect(_on_ready)
 _show_wait()
-_timer = QTimer()
-_timer.setInterval(3000)
-_timer.timeout.connect(try_load)
-_timer.start()
-# Try right away in case Nessus is already up.
-try_load()
-
-# Once the real Nessus page loads, stop the timer.
-def _on_load_finished(ok: bool) -> None:
-    global _nessus_up
-    if ok and view.url().toString().startswith(NESSUS_URL):
-        _nessus_up = True
-        _timer.stop()
-
-view.loadFinished.connect(_on_load_finished)
+threading.Thread(target=_probe_loop, daemon=True).start()
 
 win.setCentralWidget(view)
 win.showMaximized()

@@ -16,7 +16,9 @@ OpenCelliD's own downloads (https://opencellid.org/downloads.php) are gated
 behind an API access token. Registration is free but it is a web form asking
 for a name and an e-mail address and it is behind reCAPTCHA, so a token cannot
 be obtained non-interactively and this script does not ship one. If you have
-one, pass --token and the official per-MCC export is used.
+one, pass --token and the `ocid` source fetches the official per-MCC export
+instead of the mirror. The token is an OpenCelliD credential, so it changes
+nothing about `--source mls`, a URL, or a local file.
 
 Without a token the default source is the Internet Archive's mirror of the
 2024-05-19 OpenCelliD full export, which is published under CC-BY-SA 4.0, the
@@ -62,6 +64,7 @@ import csv
 import io
 import math
 import os
+import re
 import sqlite3
 import sys
 import tempfile
@@ -89,6 +92,12 @@ SOURCES = {
 # which is a hundredth of the bandwidth of the full dump.
 OCID_OFFICIAL = ("https://opencellid.org/ocid/downloads"
                  "?token=%s&type=mcc&file=%d.csv.gz")
+
+# A credential sitting in a URL query string. `token` is the one this script
+# builds itself; the other spellings are what the comparable cell-location
+# services call theirs, and they can arrive in a --source URL. See
+# redact_url() for why anything matching here never reaches a log line.
+_SECRET_QS = re.compile(r"([?&](?:token|key|api_?key)=)[^&\s]*", re.I)
 
 USER_AGENT = "rhodep-cell-db/%s (+nethunter-rhodep)" % VERSION
 
@@ -145,6 +154,50 @@ def radio_name(code):
 
 # ------------------------------------------------------------------- building
 
+def redact_url(text):
+    """Strip credentials out of a URL before it is printed or stored.
+
+    Everything this script prints is a journal line: it is run from
+    rhodep-cell-db.service, so a token-bearing URL logged verbatim leaves the
+    token in the journal in plaintext for as long as the journal is kept, and
+    `journalctl -u rhodep-cell-db` is exactly what an operator is told to run
+    when a build fails. The scheme, host and parameter names survive, because
+    which endpoint was being fetched is the part that is worth logging.
+    """
+    return _SECRET_QS.sub(r"\1<token>", str(text))
+
+
+def _source_url(spec, mcc_list, token=None):
+    """One --source entry -> (url, desc). url is None for a local file.
+
+    Split out of open_source() so that which endpoint a source name plus a
+    token select can be checked without touching the network.
+
+    The token is consulted only for `ocid`: it is an OpenCelliD API
+    credential and means nothing to the Mozilla export, to an arbitrary URL,
+    or to a file on disk. Deciding on the source name and not merely on "is
+    there a token" is what makes the shipped default SOURCE="ocid,mls" work.
+    Before, a token sent every entry of the list to the official per-MCC
+    endpoint, so "ocid,mls" downloaded that one export twice and merged it
+    with itself -- two identical passes, no MLS rows, and the second pass
+    could not add anything the first had not already inserted.
+    """
+    if token and spec == "ocid":
+        # The token endpoint is type=mcc: one country per request. Picking
+        # one of several on the operator's behalf would quietly build a
+        # database missing the others, so refuse instead.
+        if len(mcc_list) != 1:
+            raise SystemExit("--token downloads one MCC at a time; "
+                             "give exactly one --mcc")
+        return (OCID_OFFICIAL % (token, mcc_list[0]),
+                "OpenCelliD official export for MCC %d" % mcc_list[0])
+    if spec in SOURCES:
+        return SOURCES[spec]
+    if spec.startswith(("http://", "https://")):
+        return spec, spec
+    return None, spec
+
+
 def open_source(spec, mcc_list, token=None, log=sys.stderr):
     """Return a text line iterator over the CSV, decompressing as we go.
 
@@ -152,33 +205,29 @@ def open_source(spec, mcc_list, token=None, log=sys.stderr):
     open, and this runs on a phone with a few gigabytes of storage. Nothing is
     ever spooled to disk.
     """
-    if token:
-        if len(mcc_list) != 1:
-            raise SystemExit("--token downloads one MCC at a time; "
-                             "give exactly one --mcc")
-        url = OCID_OFFICIAL % (token, mcc_list[0])
-        desc = "OpenCelliD official export for MCC %d" % mcc_list[0]
-    elif spec in SOURCES:
-        url, desc = SOURCES[spec]
-    elif spec.startswith(("http://", "https://")):
-        url, desc = spec, spec
-    else:
-        url, desc = None, spec
+    url, desc = _source_url(spec, mcc_list, token)
 
     if url is None:
         print("source: %s" % desc, file=log)
         fh = open(spec, "rb")
         raw = iter(lambda: fh.read(1 << 20), b"")
     else:
-        print("source: %s" % desc, file=log)
-        print("  %s" % url, file=log)
+        # Both lines go through redact_url(): the URL line carries the token
+        # for the official export, and desc *is* the URL when --source was
+        # given as one, which is the other way a secret gets in here.
+        print("source: %s" % redact_url(desc), file=log)
+        print("  %s" % redact_url(url), file=log)
         req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
         resp = urllib.request.urlopen(req, timeout=60)
         ctype = resp.headers.get("Content-Type", "")
         if "json" in ctype or "html" in ctype:
             body = resp.read(400).decode("utf-8", "replace")
+            # The body too: an HTML error page routinely quotes the request
+            # it refused ("Cannot GET /ocid/downloads?token=..."), and this
+            # message is the one that reaches the journal when a token is
+            # wrong, which is precisely when a bad token gets pasted about.
             raise SystemExit("that URL returned %s, not a gzip stream: %s"
-                             % (ctype, body.strip()[:300]))
+                             % (ctype, redact_url(body.strip()[:300])))
         raw = iter(lambda: resp.read(1 << 20), b"")
 
     gz = str(url or spec).endswith(".gz")
@@ -269,6 +318,12 @@ def build(db_path, mcc_list, source="ocid", token=None, log=sys.stderr):
     sources = [s.strip() for s in str(source).split(",") if s.strip()]
     if not sources:
         raise SystemExit("--source is empty")
+    # Check the token path before a single byte is streamed. The one-MCC rule
+    # lives in _source_url(), which is only reached when that source's turn
+    # comes: with --source mls,ocid it would otherwise fire after the 1.6 GB
+    # MLS dump had already been pulled.
+    if token and "ocid" in sources:
+        _source_url("ocid", sorted(want), token)
     d = os.path.dirname(db_path)
     if d and not os.path.isdir(d):
         os.makedirs(d, 0o755)
@@ -292,11 +347,19 @@ def build(db_path, mcc_list, source="ocid", token=None, log=sys.stderr):
             total_seen += seen
             total_bad += bad
             print("%s: scanned %d rows, %d for these MCCs, %d new, %d malformed"
-                  % (src, seen, kept, after - before, bad), file=log)
-            if token:
+                  % (redact_url(src), seen, kept, after - before, bad),
+                  file=log)
+            if token and src == "ocid":
+                # Only `ocid` uses the token; see _source_url(). Labelling an
+                # mls or URL pass as the official export would put a lie in
+                # the meta table, and meta.source is what `info` and the
+                # daemon's startup line quote as the provenance.
                 descs.append("OpenCelliD official export (token)")
             else:
-                descs.append(SOURCES.get(src, (None, src))[1])
+                # redact_url() because for a --source URL the description is
+                # that URL: this string is written to the database and lives
+                # there until the next rebuild.
+                descs.append(redact_url(SOURCES.get(src, (None, src))[1]))
             if src == "mls":
                 credits.append("Cell tower data from the Mozilla Location "
                                "Service, public domain")
@@ -526,6 +589,32 @@ def self_test():
     check("haversine ~ 278 km", 275000 < d < 282000)
     check("haversine identity", haversine(1.0, 2.0, 1.0, 2.0) == 0.0)
 
+    # A token is an OpenCelliD credential and must not drag the other sources
+    # to the official endpoint: that turned the shipped SOURCE="ocid,mls"
+    # into the same export downloaded twice. No network here -- _source_url()
+    # only picks the URL, it does not open it.
+    u, d = _source_url("mls", [722], token="SEKRIT")
+    check("token leaves mls alone",
+          (u, d) == SOURCES["mls"] and "SEKRIT" not in u)
+    u, d = _source_url("ocid", [722], token="SEKRIT")
+    check("token selects official ocid",
+          u.startswith("https://opencellid.org/") and "SEKRIT" in u
+          and "722.csv.gz" in u and "722" in d)
+    check("no token keeps the ocid mirror",
+          _source_url("ocid", [722]) == SOURCES["ocid"])
+    try:
+        _source_url("ocid", [722, 730], token="SEKRIT")
+        check("token refuses two MCCs", False)
+    except SystemExit:
+        check("token refuses two MCCs", True)
+    # That URL gets printed, and this runs under systemd, so it is a journal
+    # line that outlives the build.
+    r = redact_url(OCID_OFFICIAL % ("SEKRIT", 722))
+    check("token redacted for logging",
+          "SEKRIT" not in r and "<token>" in r and "722.csv.gz" in r)
+    check("redaction leaves clean URLs be",
+          redact_url(SOURCES["ocid"][0]) == SOURCES["ocid"][0])
+
     path = tempfile.mktemp(suffix=".sqlite")
     csvp = tempfile.mktemp(suffix=".csv")
     with open(csvp, "w") as f:
@@ -619,8 +708,12 @@ def main(argv=None):
                         "first one named wins where they disagree. "
                         "'ocid,mls' gives the widest coverage.")
     b.add_argument("--token", default=None,
-                   help="OpenCelliD API access token, if you have one; uses "
-                        "the official per-MCC export instead of the mirror")
+                   help="OpenCelliD API access token, if you have one. It "
+                        "applies to the 'ocid' source only, which then uses "
+                        "the official per-MCC export instead of the mirror "
+                        "and needs exactly one --mcc; every other source, "
+                        "including 'mls', is fetched unchanged. The token is "
+                        "redacted from the log, but not from `ps`.")
 
     l = sub.add_parser("lookup", help="resolve one cell")
     l.add_argument("--db", default=DEFAULT_DB)

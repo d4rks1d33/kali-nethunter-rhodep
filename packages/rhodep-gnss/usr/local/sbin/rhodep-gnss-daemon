@@ -2240,12 +2240,31 @@ def modem_is_registered(timeout=4000):
     engine -- which matters, because on this SoC the things that talk to that
     engine are the things that reboot the phone.
 
-    MMModem3gppRegistrationState: 1 = home, 5 = roaming, 8 = home SMS-only,
-    9 = home CSFB-not-preferred, 6/7 = roaming variants. Anything else
-    (0 = idle, 2 = searching, 3 = denied, 4 = unknown) is not a usable
-    registration.
+    MMModem3gppRegistrationState, in full, because an off-by-one in this
+    mapping is an off-by-one in the gate that decides whether a LOC client
+    gets allocated at all: 0 = idle, 1 = home, 2 = searching, 3 = denied,
+    4 = unknown, 5 = roaming, 6 = home SMS-only, 7 = roaming SMS-only,
+    8 = emergency-only, 9 = home CSFB-not-preferred, 10 = roaming
+    CSFB-not-preferred, 11 = attached-RLOS.
+
+    8 (emergency-only) and 11 (attached-RLOS) are deliberately NOT in the
+    allow-list, even though a previous version of this comment mis-mapped the
+    enum and let them through. Both mean the network has not accepted this
+    subscriber -- they are where an unprovisioned or rejected SIM lands. A
+    modem in either state has no serving cell it can resolve on its own, so
+    qmi-cellid would produce nothing from it; opening the LOC service there
+    buys no position and only widens the surface on which this SoC can
+    power-cycle itself. The cell source still works in those states, because
+    it reads identities the radio decoded while searching.
     """
-    REGISTERED = (1, 5, 6, 7, 8, 9, 10, 11)
+    REGISTERED = (1, 5, 6, 7, 9, 10)
+    # Names for the states that do not qualify, so the refusal reason that
+    # ends up in the journal says what the modem is doing instead of printing
+    # a number the reader has to go and look up. 8 and 11 in particular used
+    # to be accepted here, and "not registered: state 8 (emergency-only)" is
+    # the line that makes that regression obvious if it ever comes back.
+    UNUSABLE = {0: "idle", 2: "searching", 3: "denied", 4: "unknown",
+                8: "emergency-only", 11: "attached-RLOS"}
     MM = "org.freedesktop.ModemManager1"
     try:
         bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
@@ -2258,6 +2277,7 @@ def modem_is_registered(timeout=4000):
         return False, "ModemManager not answering"
     if not managed:
         return False, "no modem known to ModemManager"
+    seen = []
     for path, ifaces in managed.items():
         props = ifaces.get(MM + ".Modem.Modem3gpp")
         if not props:
@@ -2267,6 +2287,12 @@ def modem_is_registered(timeout=4000):
             continue
         if int(state) in REGISTERED:
             return True, "%s registered (state %d)" % (path, int(state))
+        seen.append(int(state))
+    if seen:
+        return False, ("modem present but not registered: %s"
+                       % "; ".join("state %d (%s)"
+                                   % (s, UNUSABLE.get(s, "reserved"))
+                                   for s in seen))
     return False, "modem present but not registered"
 
 
@@ -2421,6 +2447,19 @@ class GnssDaemon(object):
         source does allocate a QMI *NAS* client, which is a different service
         and cannot start the measurement engine; see CellReader.
         """
+        if self.args.no_qmi:
+            # Checked before anything else, because --no-qmi is a promise
+            # about this whole process and not a preference between sources:
+            # it has to beat the registration check that 'auto' would
+            # otherwise run. Returning here also skips arming the --recheck
+            # timer on purpose -- _recheck_source() sets use_qmi back to True
+            # when a modem registers, which would quietly break the promise
+            # some minutes after start-up. --source=qmi-cellid never reaches
+            # this point; parse_args() rejects that combination outright.
+            self.use_qmi = False
+            log.info("source: %s with --no-qmi (the LOC service is never "
+                     "opened)", self.args.source)
+            return
         if self.args.source == SOURCE_WIFI:
             self.use_qmi = False
             log.info("source: wifi (the modem is not touched)")
@@ -2465,6 +2504,14 @@ class GnssDaemon(object):
             log.info("modem no longer registered (%s), falling back to "
                      "wifi/cell", why)
             self.use_qmi = False
+            # Clearing use_qmi is not enough on its own: restart() may have
+            # armed a reconnect timer that is still pending, and that timer
+            # used to re-open the device and allocate a LOC client for the
+            # very modem this branch has just concluded is unusable. Cancel it
+            # here so the decision sticks. _clear_source() swallows the error
+            # from removing a source that has already fired, so a
+            # double-cancel is harmless.
+            self._clear_source("retry_source")
             self._start_network_sources()
         return True
 
@@ -2584,8 +2631,41 @@ class GnssDaemon(object):
 
     def _retry(self):
         self.retry_source = 0
-        if not self.shutting_down:
-            self.open_device()
+        if self.shutting_down:
+            return False
+        # This is the only path that reaches open_device() after start-up, so
+        # it re-checks everything _select_source() checked. A timer armed
+        # seconds or minutes ago is not evidence that the modem is still
+        # usable now, and previously it was treated as if it were: once 'auto'
+        # had passed the registration check a single time, every reconnect
+        # allocated a LOC client unconditionally.
+        if not self.use_qmi:
+            log.debug("retry: the QMI path has been given up in the "
+                      "meantime, not re-opening the device")
+            return False
+        if self.device is not None or self.client is not None:
+            # restart() releases the client and closes the device before
+            # arming this timer, so anything still here was opened by another
+            # path. Opening a second Qmi.Device would leak the first client's
+            # CID and stack a second set of signal handlers into
+            # self.handlers, leaving two live LOC clients against a service
+            # where exactly one session is known to be safe.
+            log.debug("retry: a QMI device is already open, not opening a "
+                      "second one")
+            return False
+        if self.args.source == SOURCE_AUTO:
+            # 2 s rather than the default 4 s for the same reason
+            # _recheck_source() uses 2 s: this is a synchronous D-Bus call on
+            # the main loop, so the timeout is also how long the 1 Hz NMEA
+            # pump stalls.
+            registered, why = modem_is_registered(2000)
+            if not registered:
+                log.info("modem no longer registered (%s), abandoning the "
+                         "qmi-cellid retry for wifi/cell", why)
+                self.use_qmi = False
+                self._start_network_sources()
+                return False
+        self.open_device()
         return False
 
     # ------------------------------------------------------------- QMI chain
@@ -3032,6 +3112,16 @@ def parse_args(argv):
                         "preferring wifi)")
     p.add_argument("--device", default="qrtr://0",
                    help="QMI device (default: qrtr://0)")
+    p.add_argument("--no-qmi", action="store_true",
+                   help="never open the QMI LOC service, whatever --source "
+                        "would otherwise decide. This is the hard switch: no "
+                        "LOC client is allocated and QMI_LOC_START is never "
+                        "built, so the three operation-mode gates are not "
+                        "merely trusted, they are unreachable. --source=auto "
+                        "degrades to wifi and cell; --source=qmi-cellid is "
+                        "refused rather than silently neutered. Cell identity "
+                        "reads are unaffected: those are QMI NAS, a different "
+                        "service that starts no measurement engine.")
     p.add_argument("--socket", default=DEFAULT_SOCKET,
                    help="UNIX socket to publish NMEA on "
                         "(default: %s; '' to disable)" % DEFAULT_SOCKET)
@@ -3120,9 +3210,13 @@ def parse_args(argv):
 
     c = p.add_argument_group("cell-tower source")
     c.add_argument("--no-cell", dest="cell", action="store_false",
-                   help="never read cell identities, not even in --source=auto. "
-                        "With this the QMI device is not opened at all outside "
-                        "--source=qmi-cellid.")
+                   help="never read cell identities, not even in "
+                        "--source=auto. This drops the QMI NAS cell reader "
+                        "and nothing else. In particular it does NOT stop "
+                        "--source=auto from opening the QMI LOC service and "
+                        "starting a cellid session when ModemManager reports "
+                        "the modem as registered; --no-qmi is the switch for "
+                        "that.")
     c.add_argument("--cell-db", default=DEFAULT_CELL_DB, metavar="PATH",
                    help="offline OpenCelliD extract to try before the network "
                         "providers (default: %s; '' to skip). Build it with "
@@ -3215,6 +3309,17 @@ def parse_args(argv):
         p.error("--no-mode-readback removes one of the three operation-mode "
                 "gates that stop this phone power-cycling itself. If you "
                 "really mean it, pass --i-know-this-reboots-the-phone.")
+    # The two flags ask for opposite things and there is no reading of the
+    # pair that is not a mistake, so say so instead of picking a winner
+    # silently: an operator who passed --no-qmi and got a LOC session anyway,
+    # or asked for qmi-cellid and got no source at all, learns the wrong
+    # thing about which invocations are safe. Same reasoning as the
+    # --operation-mode check above.
+    if args.no_qmi and args.source == SOURCE_QMI:
+        p.error("--no-qmi contradicts --source=qmi-cellid: qmi-cellid is the "
+                "one source that opens the QMI LOC service. Use "
+                "--source=auto, --source=wifi or --source=cell with --no-qmi, "
+                "or drop --no-qmi.")
     if args.self_test or args.locate_once:
         return args
     if args.cells_once:
@@ -3305,6 +3410,14 @@ def cells_once(args):
     The diagnostic that answers "is this location in anybody's database", which
     is the only question that matters when the cell source produces nothing.
     """
+    # --no-cell says "never read cell identities" and this mode is nothing but
+    # a cell identity read, so it used to quietly build a CellReader and
+    # allocate a QMI NAS client for an operator who had just asked for none.
+    # Refusing is the only honest reading of the pair.
+    if not args.cell:
+        print("--cells-once is a cell identity read and --no-cell forbids "
+              "one; nothing to do.")
+        return 1
     result = {}
     loop = GLib.MainLoop()
     reader = CellReader(args)
@@ -3735,15 +3848,24 @@ def self_test():
     check("failed ack gate -> refused", _attempt(False, True, True) == (0, 1))
     check("no indication gate -> refused", _attempt(True, False, True) == (0, 1))
     check("no readback gate -> refused", _attempt(True, True, False) == (0, 1))
-    check("gates 1+2 alone are not enough without --no-mode-readback",
-          _attempt(True, True, False, no_readback=True) != (0, 1)
-          and _attempt(True, False, False, no_readback=True) == (0, 1))
     check("non-cellid mode without the unsafe flag -> refused",
           _attempt(True, True, True, mode="standalone") == (0, 1))
     if Qmi is None:
-        print("  (gir1.2-qmi-1.0 absent: the paths that build a "
-              "QMI_LOC_START message are not exercised)")
+        # Every remaining check in this section asserts that some attempt does
+        # start a session, and start_session() builds a real
+        # Qmi.MessageLocStartInput to do that. Without the bindings that
+        # raises, _attempt() counts the exception as a refusal, and the check
+        # would fail for a reason that says nothing about the gates. Skip them
+        # loudly rather than pretend they passed or let them fail: the gate
+        # logic they cover is only meaningful on a host that has libqmi, and
+        # the refusal half of each is already covered above.
+        print("  (gir1.2-qmi-1.0 absent: 4 checks skipped (no Qmi "
+              "bindings); the paths that build a QMI_LOC_START message are "
+              "not exercised)")
     else:
+        check("gates 1+2 alone are not enough without --no-mode-readback",
+              _attempt(True, True, False, no_readback=True) != (0, 1)
+              and _attempt(True, False, False, no_readback=True) == (0, 1))
         check("all three gates -> session starts",
               _attempt(True, True, True) == (1, 0))
         check("--no-mode-readback starts on gates 1+2",
@@ -3763,6 +3885,32 @@ def self_test():
     check("refuse() leaves the gate states",
           r.state == GnssDaemon.ST_IDLE and r.gate_ack is False
           and r.gate_indication is False and r.gate_readback is False)
+
+    print("--- the --no-qmi switch ---")
+    # --no-qmi belongs next to the gates because it is the switch that makes
+    # them unreachable rather than merely trusted, so it gets the same
+    # treatment: prove it beats the 'auto' source decision, and prove the
+    # contradictory combination is refused instead of quietly resolved.
+    # _select_source() returns before modem_is_registered() on this path, so
+    # nothing here touches D-Bus, the modem or a socket.
+    nq = GnssDaemon.__new__(GnssDaemon)
+    nq.args = parse_args(["--no-qmi", "--source", "auto"])
+    nq.use_qmi = True               # what a stale re-check would have left
+    GnssDaemon._select_source(nq)
+    check("--no-qmi beats --source=auto", nq.use_qmi is False)
+    # argparse writes its usage message to stderr and raises SystemExit; muffle
+    # that so a deliberate, correct refusal does not read like a failure in
+    # the middle of the self-test output.
+    saved, sys.stderr = sys.stderr, open(os.devnull, "w")
+    try:
+        parse_args(["--no-qmi", "--source", "qmi-cellid"])
+        combo_refused = False
+    except SystemExit:
+        combo_refused = True
+    finally:
+        sys.stderr.close()
+        sys.stderr = saved
+    check("--no-qmi with --source=qmi-cellid is refused", combo_refused)
 
     print("--- cell NMEA ---")
     s.update(Fix.from_geolocation(-32.952961, -60.643772, 250.0,

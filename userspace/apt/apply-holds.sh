@@ -184,6 +184,23 @@ install -D -m 0644 "$here/apply-holds.sh" /usr/share/doc/rhodep-apt/apply-holds.
 # ModemManager, and enabling GNSS on this modem power-cycles the phone. If an
 # upgrade or an `rm` took it out, an unprivileged D-Bus call could reset the
 # device with no warning. Immutable is exactly right for it.
+#
+# /etc/default/rhodep-cell-db is here for a quieter version of the same reason:
+# it names the MCCs to index, the source to fetch and, now that the unit passes
+# $TOKEN_ARG through, part of the command line rhodep-cell-db.service runs as
+# root. Anything that can rewrite it can redirect a gigabyte-scale download.
+# CHECKED that nothing needs it mutable before adding it: none of the four
+# maintainer scripts touches it (the postinst rewrites /etc/default/gpsd, which
+# is gpsd's file, not this one), and userspace/gnss/install.sh installs it only
+# when it is absent, so an immutable copy that already exists is skipped rather
+# than written over. It is a dpkg conffile, exactly like 20-rhodep-wifi.conf
+# below it, so it inherits the same `rhodep-protect-files release` friction on
+# upgrade that the top of this section already describes.
+#
+# /usr/share/doc/rhodep-gnss/README is the one file in the package left out on
+# purpose. It is documentation: losing it costs nothing that a reinstall or the
+# copy in this repo does not replace, and it changes on every release, so
+# protecting it would add upgrade friction for no safety.
 /usr/local/sbin/rhodep-protect-files register gnss 0755 \
 	/usr/local/sbin/rhodep-gnss-daemon \
 	/usr/local/sbin/rhodep-cell-db \
@@ -197,7 +214,8 @@ install -D -m 0644 "$here/apply-holds.sh" /usr/share/doc/rhodep-apt/apply-holds.
 	/usr/lib/systemd/system/rhodep-cell-db.timer \
 	/usr/lib/systemd/system/gpsd.service.d/10-rhodep-gnss.conf \
 	/usr/share/dbus-1/system.d/zz-rhodep-no-modem-gnss.conf \
-	/etc/geoclue/conf.d/20-rhodep-wifi.conf 2>/dev/null || true
+	/etc/geoclue/conf.d/20-rhodep-wifi.conf \
+	/etc/default/rhodep-cell-db 2>/dev/null || true
 
 # rhodep-phosh-wifi-guard and the two rhodep-gpu-* packages, same local-.deb
 # case again. The gpu postinst scripts already register their /etc/profile.d

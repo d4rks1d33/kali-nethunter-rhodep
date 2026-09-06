@@ -14,6 +14,11 @@
 # Neither is required. Without a database the cell source simply starts at the
 # network providers instead, which is where it would end up anyway for any cell
 # the dumps do not have.
+#
+# CONFFILE. This file is listed in the package's DEBIAN/conffiles, so dpkg
+# tracks whatever you write here: an upgrade that ships a different default
+# stops and asks rather than overwriting your edits. That also means an
+# upgrade is not silent if you have touched this file, so read the prompt.
 
 # Mobile country codes to index, comma-separated. 722 is Argentina.
 # Each extra country costs disk and download time but nothing at query time.
@@ -35,9 +40,36 @@ SOURCE="ocid,mls"
 # Where to write it. The daemon's --cell-db default is this same path.
 DB="/var/lib/rhodep-gnss/cells.sqlite"
 
-# If you have an OpenCelliD API access token, put it here and the official
-# per-MCC export is downloaded instead of the mirror: far smaller, and current
-# rather than two years old. Tokens are free but registration is a web form
-# with a reCAPTCHA, so there is no way to obtain one from a script and this
-# package does not ship one. https://opencellid.org/
-#TOKEN=""
+# If you have an OpenCelliD API access token, the official per-MCC export is
+# downloaded instead of the mirror: far smaller, and current rather than two
+# years old. Tokens are free but registration is a web form with a reCAPTCHA,
+# so there is no way to obtain one from a script and this package does not
+# ship one. https://opencellid.org/
+#
+# WRITE THE WHOLE FLAG, not just the token. The value of TOKEN_ARG is pasted
+# onto the rhodep-cell-db command line by rhodep-cell-db.service as an
+# unquoted $TOKEN_ARG, which systemd splits at whitespace, so
+#
+#     TOKEN_ARG="--token 0123456789abcdef0123456789abcdef01234567"
+#
+# arrives as the two arguments --token and the token, while leaving the line
+# commented out or empty arrives as no arguments at all. That is the only way
+# a unit file can add an argument only sometimes without pulling in a shell;
+# see the comment above ExecStart= in rhodep-cell-db.service. A bare TOKEN=
+# does nothing, here or in any earlier version of this file: nothing has ever
+# read it.
+#
+# TWO THINGS THE OFFICIAL EXPORT REQUIRES, both checked against
+# rhodep-cell-db's own code rather than assumed:
+#   - MCC above must name exactly ONE country. The token endpoint serves one
+#     MCC per request and rhodep-cell-db refuses to guess which one you meant.
+#   - SOURCE above must name exactly ONE source. A token overrides the source
+#     name entirely, so "ocid,mls" with a token downloads the same official
+#     export twice and merges it with itself. Set SOURCE="ocid".
+#
+# The token ends up in the journal, because rhodep-cell-db prints the URL it
+# is fetching. It also ends up in /proc/PID/cmdline while the build runs.
+# Neither is worse than it sitting in this file, but do not assume it is
+# secret once the timer has run.
+#
+#TOKEN_ARG="--token 0123456789abcdef0123456789abcdef01234567"

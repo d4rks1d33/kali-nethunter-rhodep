@@ -77,7 +77,27 @@ DIAG_CTRL_MSG_DIAGID = 33
 DIAGID_VERSION_1 = 1
 DIAG_ID_APPS = 1
 DIAG_CTRL_MASK_ALL_ENABLED = 2
+DIAG_CTRL_MASK_VALID = 3
 STREAM_1 = 1
+# The peripheral pushes these up unrequested when it has mask centralization,
+# which this modem advertises (feature bit 11 of f7fe1b). They are how the AP
+# learns which ssid ranges exist and what severities each was built with --
+# which this server needs and had been throwing away unparsed.
+DIAG_CTRL_MSG_LOG_RANGE_REPORT = 23
+DIAG_CTRL_MSG_SSID_RANGE_REPORT = 24
+DIAG_CTRL_MSG_BUILD_MASK_REPORT = 25
+# Every command code that carries an F3 message. 0x79 is the plain extended
+# message; 0x92, 0x99 are the QSR and QSR4 hash-compressed forms, and a 2024
+# build is at least as likely to use QSR4 as plain text. Counting only 0x79
+# and 0x92 would report "no F3" for a modem that is emitting plenty.
+F3_CMD_CODES = (0x79, 0x92, 0x99, 0x9C, 0x9D)
+# The ssid ranges this modem reported on 2026-09-06, used until its own
+# SSID_RANGE_REPORT arrives -- which it does *after* the first DIAGID, i.e.
+# after the masks would otherwise already have gone out. The stock driver does
+# not have this problem because it has a msg_mask_tbl compiled in.
+DEFAULT_SSID_RANGES = ((0, 134), (500, 506), (1000, 1007), (2000, 2008),
+                       (3000, 3014), (4000, 4010), (4500, 4584), (4600, 4616),
+                       (5000, 5036), (5500, 5517), (6000, 6081), (6500, 6521))
 
 
 def event_mask_all():
@@ -98,11 +118,48 @@ def log_mask_all():
     return struct.pack("<II", DIAG_CTRL_MSG_EQUIP_LOG_MASK, len(body)) + body
 
 
-def msg_mask_all():
-    """struct diag_ctrl_msg_mask, status ALL_ENABLED, whole ssid range."""
-    body = struct.pack("<BBBHHI", STREAM_1, DIAG_CTRL_MASK_ALL_ENABLED,
-                       0, 0, 0, 0)
-    return struct.pack("<II", DIAG_CTRL_MSG_F3_MASK_V2, len(body)) + body
+def msg_mask_range(ssid_first, ssid_last, body=b"\x01\x01\x01\x01"):
+    """One struct diag_ctrl_msg_mask per ssid RANGE, as the driver emits it.
+
+    This is the packet msg_mask_all() should always have been, and the reason
+    no F3 message has ever arrived on this port.
+
+    diag_send_msg_mask_update() does NOT use the size-0 shortcut for messages.
+    For DIAG_CTRL_MASK_ALL_ENABLED it sets mask_size = 1, multiplies by
+    sizeof(u32), memcpy's four bytes of mask body, and sets data_len to
+    MSG_MASK_CTRL_HEADER_LEN + 4 = 15. Then it loops: one packet per entry of
+    msg_mask_tbl, each carrying that entry's own ssid_first/ssid_last, and it
+    only breaks out early when the caller named a single range. The log mask
+    and the event mask DO use the size-0 shortcut -- which is why those two
+    have always worked here and this one never has. Copying their shape onto
+    this path produced a 19-byte packet where the driver sends 23.
+
+    ALL_SSID (-1) is an AP-internal sentinel meaning "walk every range". It
+    never reaches the wire: the driver always writes mask->ssid_first. Sending
+    0xffff/0xffff, as this did briefly, names a range the modem does not have.
+
+    The four body bytes are what diag_cmd_set_all_msg_mask() memsets, so 0x01
+    per byte for the usual runtime mask. Severity is per-ssid and is what
+    msg_mask_build() sends instead once the modem has reported its own.
+    """
+    b = struct.pack("<BBBHHI", STREAM_1, DIAG_CTRL_MASK_ALL_ENABLED, 0,
+                    ssid_first, ssid_last, 1) + body
+    return struct.pack("<II", DIAG_CTRL_MSG_F3_MASK_V2, len(b)) + b
+
+
+def msg_mask_build(ssid_first, levels):
+    """status VALID, one u32 severity per ssid, from the modem's build mask.
+
+    What SCAT does over the legacy 0x7d/0x04 command, and the one approach
+    demonstrated to get F3 out of real hardware: do not ask for "everything",
+    ask each ssid for exactly the severities its build was compiled with. The
+    modem hands those over unrequested in DIAG_CTRL_MSG_BUILD_MASK_REPORT, so
+    this costs nothing to send and cannot ask for a level that does not exist.
+    """
+    b = struct.pack("<BBBHHI", STREAM_1, DIAG_CTRL_MASK_VALID, 0,
+                    ssid_first, ssid_first + len(levels) - 1, len(levels))
+    b += b"".join(struct.pack("<I", x) for x in levels)
+    return struct.pack("<II", DIAG_CTRL_MSG_F3_MASK_V2, len(b)) + b
 
 
 def diagmode_packet():
@@ -259,6 +316,67 @@ def main():
         lk.close()
         return found
 
+    ssid_ranges = [list(DEFAULT_SSID_RANGES)]
+    resent = [False]
+
+    def send_msg_masks(sock, addr, ranges, why):
+        """One F3 control packet per ssid range. See msg_mask_range()."""
+        for a, z in ranges:
+            mp = msg_mask_range(a, z)
+            try:
+                sock.sendto(mp, addr)
+                time.sleep(0.01)
+            except OSError as e:
+                say("  could not send msg mask %d-%d: %s" % (a, z, e))
+                return
+        say("  sent %d msg mask packets (%s), first: %s"
+            % (len(ranges), why, msg_mask_range(*ranges[0]).hex()))
+
+    def handle_cntl(sock, addr, pid, pkt):
+        """The three reports a mask-centralizing peripheral pushes up.
+
+        With feature bit 11 the peripheral does not own its masks: it uploads
+        its tables and expects the master to send masks back down. This server
+        was sending masks down without ever reading the tables up, which is
+        half a protocol.
+        """
+        if pid == DIAG_CTRL_MSG_SSID_RANGE_REPORT and len(pkt) >= 16:
+            ver, count = struct.unpack_from("<II", pkt, 8)
+            rngs = [struct.unpack_from("<HH", pkt, 16 + 4 * i)
+                    for i in range(count) if 16 + 4 * i + 4 <= len(pkt)]
+            if not rngs:
+                return
+            say("  modem ssid ranges (%d): %s"
+                % (count, " ".join("%d-%d" % r for r in rngs)))
+            ssid_ranges[0] = rngs
+            if not resent[0]:
+                resent[0] = True
+                send_msg_masks(sock, addr, rngs, "modem's own ranges")
+        elif pid == DIAG_CTRL_MSG_BUILD_MASK_REPORT and len(pkt) >= 20:
+            # Per range: u16 first, u16 last, then (last-first+1) u32 levels.
+            # 0x1f is LOW|MED|HIGH|ERROR|FATAL, i.e. the strings are compiled
+            # in -- which settles, from the modem's own mouth, that F3 silence
+            # here is a protocol problem and not a stripped build.
+            a, z = struct.unpack_from("<HH", pkt, 16)
+            n = z - a + 1
+            if n <= 0 or 20 + 4 * n > len(pkt):
+                return
+            lv = list(struct.unpack_from("<%dI" % n, pkt, 20))
+            say("  modem build mask %d-%d: %s%s"
+                % (a, z, " ".join("%#x" % x for x in lv[:12]),
+                   " ..." if n > 12 else ""))
+            mp = msg_mask_build(a, lv)
+            try:
+                sock.sendto(mp, addr)
+                say("  sent build-derived msg mask %d-%d (%d bytes)"
+                    % (a, z, len(mp)))
+            except OSError as e:
+                say("  could not send build mask: %s" % e)
+        elif pid == DIAG_CTRL_MSG_LOG_RANGE_REPORT and len(pkt) >= 16:
+            ver, last_eq, nr = struct.unpack_from("<III", pkt, 8)[:3]
+            say("  modem log ranges: last_equip=%d num_ranges=%d"
+                % (last_eq, nr))
+
     cmd_sock = None
     cmd_deadline = time.time() + args.cmd_after if args.cmd else None
 
@@ -283,8 +401,29 @@ def main():
                 dump.write(b"DGPK" + struct.pack("<II", len(data), ms) + data)
                 dump.flush()
                 os.fsync(dump.fileno())
+            # CNTL is never truncated. It is where the modem reports its ssid
+            # ranges, its build masks and the command codes it handles, and
+            # clipping at 64 bytes hid all three for the whole life of this
+            # tool. DATA is still clipped; it is 4 KB a packet and it is in
+            # the dump anyway.
             say("RX on %s from %s: %d bytes: %s"
-                % (INSTANCES[inst], addr, len(data), data[:64].hex()))
+                % (INSTANCES[inst], addr, len(data),
+                   data.hex() if INSTANCES[inst] == "CNTL"
+                   else data[:64].hex()))
+            # The modem concatenates several control packets into one
+            # datagram -- the 4020, 3692 and 2888 byte reads are all
+            # multi-packet -- and this used to parse only the first, so
+            # everything after it was silently dropped. Walk the datagram the
+            # way diag_cntl_process_read_data() does.
+            if INSTANCES[inst] == "CNTL" and addr[0] != 1:
+                pos = 0
+                while pos + 8 <= len(data):
+                    pid, dl = struct.unpack_from("<II", data, pos)
+                    end_p = pos + 8 + dl
+                    if dl == 0 or end_p > len(data):
+                        break
+                    handle_cntl(s, addr, pid, data[pos:end_p])
+                    pos = end_p
             # The handshake is modem-first: it sends its feature mask and only
             # then will it talk. Answer with ours, to the port it came from.
             if len(data) >= 12 and addr[0] != 1:
@@ -317,8 +456,14 @@ def main():
                     # comment. Send them once, after the first ack.
                     if not masks_sent[0]:
                         masks_sent[0] = True
+                        # msg first, then log, then event: the order
+                        # diag_send_updates_peripheral() uses. The msg mask is
+                        # now one packet per ssid range and is sent by
+                        # send_msg_masks(), then sent again from
+                        # handle_cntl() once the modem reports its real
+                        # ranges, which it does after this point.
+                        send_msg_masks(s, addr, ssid_ranges[0], "default ranges")
                         for nm, mp in (("diagmode", diagmode_packet()),
-                                       ("msg mask all", msg_mask_all()),
                                        ("log mask all", log_mask_all()),
                                        ("event mask all", event_mask_all())):
                             try:

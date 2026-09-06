@@ -53,3 +53,4 @@ debos/rootfs*.tar.xz
 !docs/screenshots/*.png
 !docs/screenshots/*.jpg
 __pycache__/
+backups/diag-gnss-20260906/

@@ -12,7 +12,23 @@ Type=oneshot
 EnvironmentFile=/etc/default/rhodep-cell-db
 # $MCC and $SOURCE are comma-separated single tokens; rhodep-cell-db splits
 # them itself so that no shell is needed here.
-ExecStart=/usr/local/sbin/rhodep-cell-db build --mcc $MCC --source $SOURCE --output $DB
+#
+# $TOKEN_ARG is empty or the whole flag, e.g. "--token abcdef", and it is
+# unquoted on purpose. systemd.service(5): an unquoted $VAR used as a word of
+# its own is "replaced by the value of the environment variable split at
+# whitespace, resulting in zero or more arguments" -- zero when the variable
+# is empty or unset, which is the case for every install that has not put a
+# token in /etc/default/rhodep-cell-db. So the default command line is
+# byte-for-byte the one this unit shipped before the variable existed.
+# ${TOKEN_ARG} would be WRONG: the braced form always yields exactly one
+# argument, so an unset token would pass an empty string and a set one would
+# pass "--token abcdef" as a single argv entry that argparse rejects. That
+# distinction is spelled out in the systemd.service(5) example with THREE=.
+# The variable is not required to exist: an admin whose conffile predates it
+# gets the same zero arguments, because systemd treats an unknown variable as
+# an empty string.
+ExecStart=/usr/local/sbin/rhodep-cell-db build --mcc $MCC --source $SOURCE \
+          --output $DB $TOKEN_ARG
 # This is background housekeeping competing with a phone someone is using.
 Nice=15
 IOSchedulingClass=idle

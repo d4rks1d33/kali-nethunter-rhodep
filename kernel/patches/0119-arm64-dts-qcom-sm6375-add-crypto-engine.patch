@@ -1,0 +1,171 @@
+From: rhodep port
+Subject: [PATCH] arm64: dts: qcom: sm6375: add the crypto engine and its BAM
+
+Mainline sm6375.dtsi describes no crypto engine at all. The stock vendor tree
+describes an entire subsystem around one:
+
+	qcedev@1b20000	  reg = <0x1b20000 0x20000  0x1b04000 0x24000>
+			  reg-names = "crypto-base", "crypto-bam-base"
+			  interrupts = <0 0xf7 4>
+			  qcom,bam-pipe-pair = <3>
+			  qcom,ce-hw-instance = <0>
+			  qcom,ce-hw-shared
+			  qcom,ce-opp-freq = <0xb71b000>	(192 MHz)
+			  clock-names = "core_clk_src", "core_clk",
+					"iface_clk", "bus_clk"
+			  clocks = <&rpmcc 78> x4			(CE1)
+	qcrypto@1b20000	  same window, qcom,bam-pipe-pair = <2>
+	hwkm@4440000	  clocks = <&rpmcc 80>			(HWKM)
+	qrng@4453000	  clocks = <&rpmcc 80>
+	qseecom@c1800000  the same four CE1 clocks again
+
+so on this port nothing ever claims CE1, and by extension nothing claims the
+RPM crypto clocks. That is observable, not inferred -- on the running device:
+
+	    ce1_clk      0  0  0  2147483647 ... firmware:scm  core
+	    ce1_a_clk    0  0  0  2147483647 ... deviceless    no_connection_id
+	    hwkm_clk     0  0  0  2147483647 ... deviceless    no_connection_id
+	    hwkm_a_clk   0  0  0  2147483647 ... deviceless    no_connection_id
+	    pka_clk      0  0  0  2147483647 ... deviceless    no_connection_id
+	    pka_a_clk    0  0  0  2147483647 ... deviceless    no_connection_id
+
+(enable_count, prepare_count, protect_count). The single consumer, the scm
+node's optional "core" clock, does a clk_get and never a clk_prepare_enable on
+the SMC calling convention, so the count stays at zero. clk_smd_rpm_handoff()
+votes every clock in sm6375_clks[] at probe, and clk_disable_unused() takes the
+vote straight back off at late_initcall_sync, because clk_smd_rpm implements
+.prepare/.unprepare rather than .enable/.disable and the prepare count is zero.
+
+sm6375 (blair/holi) is the same crypto generation as sm6115 (bengal) and
+qcm2290: one RPM-managed CE1 clock rather than three GCC branches, which is why
+the compatible belongs in the qcom,ipq4019-qce family with clocks maxItems 1
+and clock-names "core", next to qcom,sm6115-qce and qcom,qcm2290-qce.
+
+The addresses reconcile with mainline convention rather than contradicting it.
+The vendor's "crypto-base" 0x1b20000/0x20000 is the whole CE block; the qce
+driver wants the CE core register bank inside it, which on every part of this
+generation is the BAM base plus 0x36000:
+
+	sdm845   cryptobam 0x1dc4000  crypto 0x1dfa000
+	sm8250   cryptobam 0x1dc4000  crypto 0x1dfa000
+	sm6115   cryptobam 0x1b04000  crypto 0x1b3a000
+	sm6375   cryptobam 0x1b04000  crypto 0x1b3a000   <- same as sm6115
+
+so the reg values here are 0x01b04000/0x24000 (verbatim from the vendor's
+"crypto-bam-base") and 0x01b3a000/0x6000. The interrupt 0xf7 is 247 decimal,
+which is also what sm6115 declares. qcom,bam-pipe-pair = <3> is the qcedev
+pair, and a pipe pair N means pipes 2N and 2N+1, hence dmas = <&cryptobam 6>,
+<&cryptobam 7> -- again identical to sm6115.
+
+The stream IDs are the union of the vendor's qcedev, qcrypto and non-secure
+context-bank entries, 0x484/0x11, 0x486/0x11, 0x492/0, 0x498/0x1, 0x49f/0.
+That is exactly sm6115's set offset by 0x400: 0x484 with mask 0x11 covers
+{0x484,0x485,0x494,0x495} and sm6115's 0x94 with the same mask covers
+{0x84,0x85,0x94,0x95}, so the two spellings describe the same coverage. The
+vendor's secure context bank (0x493, 0x49c, 0x49e, qcom,iommu-vmid = <9>) is
+deliberately not carried over; it belongs to qseecom, not to HLOS qce.
+
+Two things the vendor node has are deliberately not reproduced:
+
+  - interconnects. Stock has interconnect-names = "data_path" on all four
+    crypto nodes, a SNOC -> EBI path. This port has no NoC interconnect
+    provider: sm6375.dtsi's only provider is cpucp_l3, and every attempt to
+    bind a bimc/qnoc node so far resets the SoC the instant the driver adopts
+    it (docs/interconnect-sm6375-wip/HANDOFF-SESSION3.md). Mainline's binding
+    spells this property interconnect-names = "memory" and neither sm6115,
+    sm6350 nor sm8250 declares it; qce's devm_of_icc_get() returns NULL when
+    the property is absent and icc_set_bw(NULL, ...) is a no-op, so omitting it
+    is correct rather than merely convenient. It can be added in the same patch
+    that lands a working NoC provider.
+
+  - qcom,ce-opp-freq = <192000000>. There is no OPP table to attach it to: the
+    CE1 clock is an RPM clock whose rate the RPM chooses, and clk_smd_rpm votes
+    INT_MAX kHz, i.e. "as fast as you like", which is what the rate column
+    above shows. Mainline has no property for it on any part.
+
+CONFIG_CRYPTO_DEV_QCE=m and CONFIG_QCOM_BAM_DMA=y are already set in this
+port's config, so no config change accompanies this.
+
+What this is for, and what it does not do
+-----------------------------------------
+The reason to want this is not AES throughput. The vendor's qcom,ce-hw-shared
+says HLOS shares the crypto engine with another master, the vendor NoC ID map
+has ICBID_MASTER_MSS_NAV = 27 and ICBID_SLAVE_MSS_NAV_CE_MPU_CFG = 218, and the
+modem firmware contains the strings NAV_CE_MPU_CFG and
+SNOC_MSS_NAV_CE_MS_MPU_NAV_CE_MPU_CFG. That makes "the GNSS measurement engine
+touches a CE slave the AP has left unclocked" a candidate for the instant
+PS_HOLD deassert that bringing up standalone GNSS causes on this port.
+
+This patch is *not* that experiment, and should not be mistaken for it. qce
+uses runtime PM with a 100 ms autosuspend delay, so the CE1 vote it places is
+held only while a crypto request is in flight; between requests the clock goes
+straight back to enable_count 0. Holding the clocks continuously is what
+kernel/diag-modules/rhodep_cehold.c is for, and it needs no DTB at all. This
+patch is worth having on its own merits -- it is a real block the port is
+missing -- but it is a poor instrument for the GNSS question.
+
+It is also not known-safe. qcom,ce-hw-shared and the qseecom node mean TZ has a
+claim on this block, and this port has a history of resetting the SoC the moment
+a driver adopts a node the firmware considers its own. The first boot carrying
+this patch is itself an experiment and should be done with a known-good image to
+fall back to.
+
+--- a/arch/arm64/boot/dts/qcom/sm6375.dtsi
++++ b/arch/arm64/boot/dts/qcom/sm6375.dtsi
+@@ -981,6 +981,38 @@
+ 			reg = <0x0 0x0162f000 0x0 0x84>;
+ 		};
+ 
++		cryptobam: dma-controller@1b04000 {
++			compatible = "qcom,bam-v1.7.4", "qcom,bam-v1.7.0";
++			reg = <0x0 0x01b04000 0x0 0x24000>;
++			interrupts = <GIC_SPI 247 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&rpmcc RPM_SMD_CE1_CLK>;
++			clock-names = "bam_clk";
++			#dma-cells = <1>;
++			qcom,ee = <0>;
++			qcom,controlled-remotely;
++			iommus = <&apps_smmu 0x484 0x11>,
++				 <&apps_smmu 0x486 0x11>,
++				 <&apps_smmu 0x492 0x0>,
++				 <&apps_smmu 0x498 0x1>,
++				 <&apps_smmu 0x49f 0x0>;
++		};
++
++		crypto: crypto@1b3a000 {
++			compatible = "qcom,sm6375-qce", "qcom,ipq4019-qce",
++				     "qcom,qce";
++			reg = <0x0 0x01b3a000 0x0 0x6000>;
++			clocks = <&rpmcc RPM_SMD_CE1_CLK>;
++			clock-names = "core";
++
++			dmas = <&cryptobam 6>, <&cryptobam 7>;
++			dma-names = "rx", "tx";
++			iommus = <&apps_smmu 0x484 0x11>,
++				 <&apps_smmu 0x486 0x11>,
++				 <&apps_smmu 0x492 0x0>,
++				 <&apps_smmu 0x498 0x1>,
++				 <&apps_smmu 0x49f 0x0>;
++		};
++
+ 		spmi_bus: spmi@1c40000 {
+ 			compatible = "qcom,spmi-pmic-arb";
+ 			reg = <0 0x01c40000 0 0x1100>,
+--- a/Documentation/devicetree/bindings/crypto/qcom-qce.yaml
++++ b/Documentation/devicetree/bindings/crypto/qcom-qce.yaml
+@@ -40,6 +40,7 @@
+               - qcom,qcm2290-qce
+               - qcom,sdm845-qce
+               - qcom,sm6115-qce
++              - qcom,sm6375-qce
+           - const: qcom,ipq4019-qce
+           - const: qcom,qce
+ 
+@@ -133,6 +134,7 @@
+             enum:
+               - qcom,qcm2290-qce
+               - qcom,sm6115-qce
++              - qcom,sm6375-qce
+     then:
+       properties:
+         clocks:

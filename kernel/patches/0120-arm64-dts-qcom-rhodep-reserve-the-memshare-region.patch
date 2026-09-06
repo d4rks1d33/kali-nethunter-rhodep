@@ -1,0 +1,134 @@
+From: rhodep port <none@example.com>
+Date: Sat, 5 Sep 2026 19:30:00 -0300
+Subject: [PATCH] arm64: dts: qcom: rhodep: reserve the memshare region
+
+The modem asks the application processor for a shared heap once, during
+bring-up, over QMI service 52. Stock answers 5 MiB. This port answers 0,
+and it answers 0 because there is nowhere to answer from: no reservation
+exists, so every byte the daemon could name is memory Linux is already
+using. Add the reservation, so that the honest answer can become the
+stock one.
+
+What stock actually declares. From the extracted stock vendor DTB, the
+memshare node has three clients and exactly one of them is non-zero:
+
+	qcom,client_3 {
+		qcom,peripheral-size = <0x500000>;
+		qcom,client-id = <0x01>;
+		qcom,allocate-on-request;
+		memory-region = <&memshare_region>;
+		label = "modem";
+	};
+
+	memshare_region {
+		compatible = "shared-dma-pool";
+		no-map;
+		alloc-ranges = <0 0 0 0xffffffff>;
+		alignment = <0 0x100000>;
+		size = <0 0x800000>;
+	};
+
+The other two clients declare qcom,peripheral-size = <0x0>.
+
+Why qcom,allocate-on-request does not mean "answer zero". In the vendor
+driver, drivers/soc/qcom/memshare/msm_memshare.c, init_size is assigned
+from qcom,peripheral-size unconditionally at probe -- allocate-on-request
+only defers the *allocation*, not the advertised size -- and
+handle_query_size_req() answers init_size. So a stock kernel with this
+exact node answers 5 MiB to MEM_QUERY_SIZE for client-id 1 before a
+single byte has been allocated.
+
+What the modem on this device asks for, measured at boot
+(scripts/modem/memshare-probe.c, then userspace/modem/memshare-daemon.c):
+
+	memshare: request from node=0 port=8 MEM_QUERY_SIZE (0x0024) txn=1
+	memshare: raw 00010024000e000104000100000010040000000000
+	                             ^^ client_id = 1   ^^ proc_id = 0
+
+One query, for client-id 1, which is the one client stock gives 5 MiB.
+This port replies:
+
+	memshare: reporting size 0
+
+so the single question the modem asks about the single client that has a
+size gets the one answer stock never gives. Told there is nothing, the
+modem does not follow up; told 5 MiB, it follows up immediately with
+MEM_ALLOC_GENERIC carrying num_bytes = 0x500000, client_id = 1,
+alloc_contiguous = 1.
+
+Where the region goes, and why it is safe. This tree has no dynamically
+placed reserved regions at all -- every one has a fixed address -- so the
+free holes are stable across boots and can be measured once. On the
+device, /proc/iomem:
+
+	86500000-8aa1bfff : reserved        <- ends with pil-gpu-ucode
+	8aa1c000-8b7fffff : System RAM      <- the hole, 13.89 MiB
+	8b800000-9b7fffff : reserved        <- pil-mpss-wlan, 256 MiB
+
+pil_gpu_micro_code is 0x8aa1a000 + 0x2000 and ends at 0x8aa1c000;
+pil_mpss_wlan begins at 0x8b800000. 0x8ab00000 is 1 MiB aligned as stock
+requires, 8 MiB is stock's size, and the region ends at 0x8b300000, five
+megabytes clear of the modem's own reservation. Both neighbours were read
+back from /proc/device-tree/reserved-memory/*/reg rather than assumed.
+
+The region is deliberately given stock's 8 MiB and not the client's
+5 MiB: the size in the vendor tree is the size of the pool, the 5 MiB is
+one client's slice of it, and matching the pool keeps the shape of the
+map the same as the one the modem firmware was built against.
+
+This is a reservation only. It changes no driver and binds to nothing:
+with the shipped userspace the daemon still answers 0 and the eight
+megabytes simply sit unused, which makes the change safe to carry
+independently of whether anything is ever handed out. What it costs is
+8 MiB of the 2 GiB the board has.
+
+Two things this patch is not. It is not a memshare implementation: there
+is no in-tree client for the node, the responder is userspace. And it is
+not sufficient on its own to hand the buffer over safely -- the vendor
+driver calls shared_hyp_mapping() -> hyp_assign_phys() to move the pages
+from VMID_HLOS to VMID_MSS_MSA before the modem touches them, and nothing
+in this port does that yet. Reserving the memory is the part that has to
+happen first and the part that has to be in the device tree.
+
+Verified against the running device before writing: no memshare node
+exists under /proc/device-tree/reserved-memory/, and 0x8ab00000-0x8b2fffff
+is currently plain "System RAM".
+
+Signed-off-by: rhodep port <none@example.com>
+---
+ arch/arm64/boot/dts/qcom/sm6375-motorola-rhodep.dts | 24 ++++++++++++++++++++++
+ 1 file changed, 24 insertions(+)
+
+--- a/arch/arm64/boot/dts/qcom/sm6375-motorola-rhodep.dts
++++ b/arch/arm64/boot/dts/qcom/sm6375-motorola-rhodep.dts
+@@ -185,6 +185,30 @@
+ 			reg = <0x0 0xaefd2000 0x0 0x2e000>;
+ 			no-map;
+ 		};
++
++		/*
++		 * The modem's memshare heap. Stock reserves this as a
++		 * dynamically placed shared-dma-pool; here it is a fixed
++		 * address, because the responder for QMI service 52 is a
++		 * userspace daemon that has nothing to allocate from and only
++		 * needs a number to hand over.
++		 *
++		 * 0x8ab00000 sits in the hole between pil_gpu_micro_code
++		 * (0x8aa1a000 + 0x2000, ends 0x8aa1c000) and pil_mpss_wlan
++		 * (starts 0x8b800000): measured on the device as
++		 * "8aa1c000-8b7fffff : System RAM" in /proc/iomem. It is 1 MiB
++		 * aligned as stock requires, and ends at 0x8b300000, 5 MiB
++		 * clear of the modem region above it.
++		 *
++		 * 8 MiB, stock's size, although the client only ever asks for
++		 * 5 MiB: keeping the region the same size as stock's means the
++		 * hole this port leaves in the map is the hole the firmware
++		 * was built against.
++		 */
++		memshare_mem: memshare@8ab00000 {
++			reg = <0x0 0x8ab00000 0x0 0x800000>;
++			no-map;
++		};
+ 	};
+ 
+ 	panel_vci: panel-vci-regulator {

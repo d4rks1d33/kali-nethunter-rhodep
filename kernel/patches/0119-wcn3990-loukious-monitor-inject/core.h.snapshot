@@ -1333,6 +1333,7 @@ struct ath10k {
 		u8 monitor_vdev_id; /* originating monitor vdev id */
 		u32 chanfreq;       /* frequency of the vdev_start */
 		u8 mac_addr[ETH_ALEN]; /* LAA MAC assigned to helper */
+		u8 last_peer[ETH_ALEN]; /* cache of last per-DA temp peer */
 		struct mutex lock;
 	} rhodep_inject;
 

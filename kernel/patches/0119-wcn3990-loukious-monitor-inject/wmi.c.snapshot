@@ -2527,6 +2527,22 @@ int ath10k_wmi_event_mgmt_tx_compl(struct ath10k *ar, struct sk_buff *skb)
 				    raw, param.status);
 	}
 
+	/* rhodep: WMI_MGMT_TX_COMP_TYPE semantics for injection:
+	 *   0 COMPLETE_OK  - radiated + ACKed (unicast) or radiated OK (bcast)
+	 *   1 DISCARD      - never on air (fw dropped before HW submission)
+	 *   2 NO_ACK       - radiated on air, no ACK received
+	 *   3 INSPECT      - radiated on air, fw wants host to inspect
+	 * For monitor injection (aircrack-ng --deauth etc) the frame's fate
+	 * on the wire matters more than ACK, so treat NO_ACK/INSPECT as
+	 * "radiated OK" for tx-status accounting. Only status=1 is a true
+	 * failure. Mirrors Loukious's semantics where he tracks all as
+	 * "sent" for stats but only marks DISCARD as a failure.
+	 */
+	if (ath10k_mon_mgmt && param.status == 3) {
+		/* INSPECT: frame radiated. Report as success to mac80211. */
+		param.status = 0;
+	}
+
 	if (test_bit(WMI_SERVICE_TX_DATA_ACK_RSSI, ar->wmi.svc_map))
 		param.ack_rssi = __le32_to_cpu(arg.ack_rssi);
 

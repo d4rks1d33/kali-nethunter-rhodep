@@ -4292,7 +4292,58 @@ static int ath10k_mon_inject_peer_add(struct ath10k *ar, struct sk_buff *skb,
 	if (!ar->monitor_started && !ar->monitor_arvif && !ar->monitor)
 		return -1;
 
-	/* find the monitor vdev id */
+	/* rhodep: when the hidden STA vdev exists, create the temp peer for
+	 * the unicast target MAC there via RAW WMI (bypass ath10k_peer_create
+	 * wrapper which uses wait_for_peer_created -- PEER_MAP never fires
+	 * on the hidden STA vdev and it times out).
+	 *
+	 * WCN3990 fw's wal_tx path DISCARDS unicast mgmt frames when addr1
+	 * has no matching peer entry on the vdev (empirically verified:
+	 * without a per-DA peer, 100% DISCARD for unicast; broadcast works
+	 * via a fallback fw path). So per-DA peer IS required for unicast.
+	 *
+	 * Use raw wmi_peer_create -- it only sends {vdev_id, addr, type} to
+	 * fw and doesn't touch ar->peers state that requires a valid arvif.
+	 */
+	if (ar->rhodep_inject.created) {
+		int rc;
+		da = ieee80211_get_DA(hdr);
+		if (is_multicast_ether_addr(da))
+			return -1; /* no peer needed for broadcast */
+
+		vdev_id = ar->rhodep_inject.vdev_id;
+
+		/* Cache last-created peer: aireplay/mdk4 send bursts to the
+		 * same DA. Recreating the peer 64x/sec races the fw and
+		 * causes cmnos_thread.c:4005 assert.
+		 */
+		mutex_lock(&ar->rhodep_inject.lock);
+		if (ether_addr_equal(ar->rhodep_inject.last_peer, da)) {
+			mutex_unlock(&ar->rhodep_inject.lock);
+			ether_addr_copy(peer_addr_out, da);
+			return -2; /* peer exists, do not delete */
+		}
+		mutex_unlock(&ar->rhodep_inject.lock);
+
+		mutex_lock(&ar->conf_mutex);
+		rc = ath10k_wmi_peer_create(ar, vdev_id, da,
+					    WMI_PEER_TYPE_DEFAULT);
+		mutex_unlock(&ar->conf_mutex);
+		if (rc && rc != -EEXIST) {
+			ath10k_dbg(ar, ATH10K_DBG_MAC,
+				   "rhodep raw peer_create %pM on hidden STA %u failed: %d\n",
+				   da, vdev_id, rc);
+			return -1;
+		}
+		msleep(20);
+		mutex_lock(&ar->rhodep_inject.lock);
+		ether_addr_copy(ar->rhodep_inject.last_peer, da);
+		mutex_unlock(&ar->rhodep_inject.lock);
+		ether_addr_copy(peer_addr_out, da);
+		return -2; /* peer created, but keep it -- burst optimization */
+	}
+
+	/* Legacy path (monitor vdev inject, pre-Loukious). Kept as fallback. */
 	if (ar->monitor_arvif)
 		vdev_id = ar->monitor_arvif->vdev_id;
 	else if (ar->monitor_started)
@@ -4304,7 +4355,7 @@ static int ath10k_mon_inject_peer_add(struct ath10k *ar, struct sk_buff *skb,
 	if (is_multicast_ether_addr(da)) {
 		ath10k_info(ar, "rhodep inj: DA %pM is mcast, no peer (vdev %d)\n",
 			    da, vdev_id);
-		return -1;	/* broadcast/multicast needs no peer */
+		return -1;
 	}
 
 	mutex_lock(&ar->conf_mutex);
@@ -4341,7 +4392,14 @@ static void ath10k_mon_inject_peer_del(struct ath10k *ar, int vdev_id,
 	if (vdev_id < 0)
 		return;
 	mutex_lock(&ar->conf_mutex);
-	ath10k_peer_delete(ar, vdev_id, peer_addr);
+	/* rhodep: hidden STA vdev has no arvif in ar->peers. Use raw WMI
+	 * to avoid ath10k_peer_delete waiting on PEER_UNMAP that never fires.
+	 */
+	if (ar->rhodep_inject.created &&
+	    vdev_id == (int)ar->rhodep_inject.vdev_id)
+		ath10k_wmi_peer_delete(ar, vdev_id, peer_addr);
+	else
+		ath10k_peer_delete(ar, vdev_id, peer_addr);
 	mutex_unlock(&ar->conf_mutex);
 }
 

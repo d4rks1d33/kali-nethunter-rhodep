@@ -29,11 +29,21 @@ that never registers:
 metres, derived from the HDOP the daemon emits — see "Not over-claiming
 accuracy", which is the part of this that took the most care.
 
-Package: `rhodep-gnss`, version 3, installed and verified. Sources in
+Package: `rhodep-gnss`, version 5, installed and verified. Sources in
 `userspace/gnss/`, packaging in `packages/rhodep-gnss/`, built by
 `scripts/build-support-debs.sh`. `userspace/gnss/README.md` is the operator
 manual; this file is the write-up of what was found and why the design is what
 it is.
+
+This document has three parts. The first, and longest, is the location that
+works today — the four sources, how they are wired into gpsd and geoclue, the
+safety design, the provider findings, and the accuracy work. The second is the
+supporting machinery the package ships around it: the predicted-orbit
+downloader, the D-Bus deny that keeps ModemManager from resetting the phone, and
+the apt/dpkg/immutable protection that keeps the whole package from being
+undone by an upgrade. The third is the satellite fix itself — why it does not
+work, exactly how far the investigation got, and what would, in theory, fix it,
+kept honest about the fact that none of those has been tried.
 
 ---
 
@@ -384,7 +394,7 @@ silent socket.
 
 ## Using it
 
-	sudo apt-get install ./rhodep-gnss_3_arm64.deb
+	sudo apt-get install ./rhodep-gnss_5_arm64.deb
 	sudo systemctl enable --now rhodep-gnss
 	sudo systemctl restart gpsd
 
@@ -399,8 +409,9 @@ One-shot queries, which touch nothing persistent:
 	rhodep-gnss-daemon --locate-once      # wifi
 	sudo /usr/local/sbin/rhodep-gnss-daemon --cells-once   # cell
 
-	rhodep-gnss-daemon --self-test        # 90 checks, no hardware, no network
+	rhodep-gnss-daemon --self-test        # 112 checks, no hardware, no network
 	rhodep-cell-db     self-test          # 29 checks
+	rhodep-xtra        self-test          # 33 checks, incl. the QMI allow-list
 
 The offline cell database is optional and is built by hand — the timer ships
 **disabled**, because a refresh streams over a gigabyte and the archived sources
@@ -446,6 +457,107 @@ is unprovisioned, so the modem reports `registration: searching` with
 `session status = general-failure`. Put in a SIM the network accepts and the
 daemon switches over on its own.
 
+---
+
+# Part two: the machinery around it
+
+## `rhodep-xtra` — predicted orbits, the job stock Android gives xtra-daemon
+
+The modem's positioning stack expects predicted-orbit assistance (Qualcomm's
+gpsOneXTRA): a small almanac of where the satellites will be, fetched from a CDN,
+so a cold start does not have to decode the whole thing off the air. On stock
+Android a `xtra-daemon` process fetches and injects it. This port never had one,
+so the modem's almanac read the GPS epoch, meaning it had never been loaded:
+
+	$ qmicli -d qrtr://0 --loc-get-predicted-orbits-data-validity
+	1980-01-06T00:00:00Z, valid for 0 hours
+
+`rhodep-xtra` is that daemon. It fetches the 40 kB `xtra3grej.bin` from the
+three CDN endpoints the modem names itself (`path1..3.xtracloud.net`), and
+injects it over QMI LOC together with UTC time and a coarse position taken from
+the WiFi source. Its `systemd` timer **is** enabled — 40 kB every six hours —
+because injection is what A-GPS does before a fix and it cannot start the
+measurement engine:
+
+	sudo /usr/local/sbin/rhodep-xtra status    # read-only inventory of stored LOC state
+	sudo /usr/local/sbin/rhodep-xtra inject    # fetch + inject orbits, time, position
+
+`rhodep-xtra status` is also the only way to read this port's stored LOC state
+— including the SUPL server — because `qmicli` cannot print it.
+
+Two firmware quirks were found building this and are worth knowing:
+
+* `InjectPredictedOrbitsData` (`0x0035`) returns `NotSupported` on this modem;
+  the working message is `InjectXtraData` (`0x00A7`). `rhodep-xtra` probes and
+  falls back.
+* `InjectUtcTime` (`0x0038`) **requires** the Time Source TLV `0x10` on this
+  firmware, even though libqmi marks it optional. That is why
+  `qmicli --loc-inject-time` works and a hand-rolled two-TLV message does not.
+
+**One hazard this creates, and it is important.** Injecting UTC time is one of
+the two things that arm the satellite reset (see part three). `rhodep-xtra`
+injecting time is harmless *only* because `rhodep-gnss.service` runs in `auto`,
+which stays in `cellid`/WiFi/cell and never brings the measurement engine up.
+Anyone enabling a `standalone` path must stop `rhodep-xtra.timer` first, or the
+next `QMI_LOC_START` after a time injection resets the phone. This is why every
+reproducer run in `GNSS-SM6375.md` disables that timer before starting.
+
+## The D-Bus deny: ModemManager is the other way into the reset
+
+The daemon's own gates (§A) only guard the path *it* takes. ModemManager is a
+second, independent way into the same measurement engine, and it has no such
+guard: on this modem its Location interface advertises `gps-raw`, `gps-nmea`,
+`agps-msa` and `agps-msb`, any of which resets the phone, and any of which is one
+unprivileged `mmcli` or D-Bus call away — a settings toggle, a desktop location
+switch, geoclue's own `modem-gps` source.
+
+So the package ships `zz-rhodep-no-modem-gnss.conf`, a **mandatory** D-Bus deny
+of `Location.Setup`, `Location.InjectAssistanceData` and
+`Location.SetSuplServer`. Mandatory because D-Bus applies
+`default < user < mandatory` and ModemManager's own policy allows root
+everything — the accident being prevented is a `sudo mmcli` one. `GetLocation`
+and `SetGpsRefreshRate` stay allowed; nothing else in ModemManager is touched.
+
+	$ mmcli -m any --location-enable-gps-nmea
+	error: ... AccessDenied: Rejected send message ... member="Setup"
+
+There is one more piece of ModemManager hygiene here. `libqmi` forks a shared
+`qmi-proxy` on demand, and it lands in the cgroup of whichever client started it
+first. That used to be `rhodep-gnss.service`, so restarting the location daemon
+killed the proxy ModemManager was talking through, which re-enumerated the modem
+and made ModemManager re-probe the LOC service for SUPL and XTRA every time — a
+latent way for the phone to reset itself with no user action. The package ships
+`rhodep-qmi-proxy.service` to own the proxy so that no longer happens.
+
+## Keeping it from being undone: holds, dpkg protection, immutability
+
+`rhodep-gnss` is a `.deb` built in this repo. It exists only in
+`/var/lib/dpkg/status` — there is no repository and no cached archive, so apt
+cannot re-fetch a file that gets removed. That is the same case as
+`rhodep-battery-jeita`, `rhodep-modem-support` and `rhodep-usb-otg`, and it gets
+the same three protection layers, applied by `userspace/apt/apply-holds.sh`:
+
+* **apt hold** — `rhodep-gnss` is in `userspace/apt/apt-holds.txt`, so an upgrade
+  cannot silently replace it.
+* **dpkg `Protected`** — set from that same list, so a raw `dpkg -P` cannot walk
+  past the hold and remove the package.
+* **immutable + snapshot** — every binary and config file is `chattr +i` and
+  snapshotted, and `rhodep-holds-enforce` restores anything that goes missing.
+  `systemctl disable` still works on an undeletable file, so the enabled state
+  of `rhodep-gnss.service`, `rhodep-qmi-proxy.service` and `rhodep-xtra.timer` is
+  registered too.
+
+The file most worth this treatment is `zz-rhodep-no-modem-gnss.conf`: without
+it, an upgrade or an `rm` re-opens the ModemManager path that resets the phone.
+
+Deliberately left out: `rhodep-cell-db.timer`, which the package ships disabled
+because a database refresh streams over a gigabyte, and `gpsd.service` /
+`gpsd.socket`, which belong to the gpsd package and can be re-enabled from it.
+
+---
+
+# Part three: the satellite fix
+
 ## What this does not do, and what is not proven
 
 * **It is not a GPS.** There is no satellite involved anywhere. A fix indoors is
@@ -466,3 +578,98 @@ daemon switches over on its own.
   produce is itself derived from a geolocation service — feeding that back would
   launder a guess into the database as ground truth. `submit-data=false`, and
   SSIDs ending in `_nomap` are excluded from queries as well.
+
+## Why the satellite fix resets the phone
+
+Asking the modem for a real satellite fix — a QMI LOC session in `standalone`,
+`default`, `msa` or `msb` — brings up the modem's GNSS measurement engine, and
+the whole SoC deasserts PS_HOLD and power-cycles about 100 ms after
+`QMI_LOC_START`. Next boot reports `androidboot.bootreason=watchdog`. There is no
+panic, no oops, no kernel log line: an instrumented kernel showed all eight CPU
+cores sitting idle at the instant it happened, so the application processor is
+not the one crashing. Stock Android runs the same receiver on this same phone
+with byte-identical modem firmware, so whatever is missing is on the Linux side
+and, in principle, findable.
+
+The investigation is in
+[`interconnect-sm6375-wip/GNSS-SM6375.md`](interconnect-sm6375-wip/GNSS-SM6375.md)
+and it is long. The short version of where it got to:
+
+* The failure is not steady-state operation. It is a single firmware step: the
+  measurement engine being brought up. `cellid`, which runs the whole session
+  state machine but never starts that engine, survives indefinitely. This is
+  what makes the `qmi-cellid` source above safe.
+* There are exactly two ways to put the engine into the state where
+  `QMI_LOC_START` is fatal: a non-background `powerMode` (0, 1 or 2), or giving
+  the modem valid UTC time. `powerMode 3` (background) with no time injected runs
+  309 fix cycles and never resets — and never tracks a satellite either, because
+  without time the firmware skips the NAV-core reset that both starts the
+  receiver and kills the SoC. Two runs one word apart, `preinject=time` versus
+  `preinject=position`, land on opposite sides of the reset.
+* Roughly twenty application-processor hypotheses have been tested on the device
+  and eliminated: power-supply capacity, an external low-noise amplifier,
+  dynamic power optimisation, memory sharing with the modem, the NAV
+  virtual-machine memory identifier, the event registration mask, constellation
+  and band restriction, assistance data injected in advance, specific clocks and
+  rails. Each is written up with how it was ruled out.
+* The NAV-core reset path itself
+  ([`NAV-CORE-RESET.md`](interconnect-sm6375-wip/NAV-CORE-RESET.md)) turns out to
+  be entirely modem-owned: every register the sequence touches is behind the
+  TrustZone boundary, the NAV clock controller lives in the modem, and the bus
+  identifiers that looked promising are from a generic Qualcomm header, not this
+  chip. The application-processor surface for this bug is essentially exhausted.
+
+## What would, in theory, fix it — none of it tried
+
+Everything below is a hypothesis. The application-processor side has come back
+negative enough times that the honest position is "the answer is probably in the
+secure world or the modem image, where this port cannot currently see", not "try
+X and it will work". These are the leads that remain, ranked by how much they
+would teach, not by how likely they are:
+
+1. **Modem-side visibility, and this is the real one.** DIAG/QXDM, or a modem
+   ramdump taken after the reset. Every attempt so far to see *why* the modem
+   pulls PS_HOLD down has come back empty because nothing on this port records
+   modem state across the power cycle. Without this, everything else is guessing
+   at a processor nobody can observe — and the last session's four fresh
+   application-processor hypotheses were exactly that guess, and all four were
+   negative. Getting DIAG working is the highest-value item and it is not a
+   position fix, it is instrumentation.
+
+2. **Register a memory-dump table with TrustZone.** Stock's `msm-imem` node has a
+   `mem_dump_table@10` child that this port does not declare. Its driver
+   publishes a table of DRAM regions to the secure firmware so that firmware can
+   record what happened before a reset — which is exactly why every post-mortem
+   capture on this port has been empty. Standing this up would not fix the reset,
+   but it might make the reset *explain itself*, which is the same value as (1)
+   by a different route. Three separate attempts to build the module for this
+   were blocked by an unrelated tooling issue and it has never actually run.
+
+3. **The `pmr735a_l1` operating mode.** Holding this rail on at 600 mV was tested
+   and did not help — but the 62 mA *load* vote that would move the LDO out of
+   low-power mode almost certainly never reached RPM, because mainline needs
+   `regulator-allow-set-load` in the device tree and this port does not have it.
+   So the rail's *mode*, as opposed to its voltage, is genuinely untested.
+   `kernel/patches/0121` adds exactly that. It needs a flashed boot image to
+   test, which needs working fastboot over USB — this port's only recovery path,
+   and not available from where the reproducer has been run.
+
+4. **QDSS/CoreSight as a subsystem.** 110 device-tree nodes downstream, zero in
+   mainline. The RPM-clock half of this was already covered by an earlier
+   elimination, so what is left is the nodes themselves. Low confidence, high
+   effort.
+
+5. **The seven other `msm-imem` children** mainline does not declare
+   (`restart_reason`, `dload_type`, `boot_stats`, and so on). Newly visible from
+   the recovered stock tree, completely untested, and with nothing yet tying any
+   of them to this bug — listed for completeness, not because there is a reason
+   to expect it.
+
+The recovered stock device tree that made items 2 and 5 visible is kept in
+`backups/vendor-dt-rhodep-20260906/` (git-ignored — it is Motorola's), and its
+own `README.md` records what it settled and what it opened.
+
+**So: location works today, and it works well enough that the phone is genuinely
+useful without a satellite. The satellite fix is a hardware/firmware
+investigation that is not blocked on ideas so much as on the ability to see
+inside the modem, and until that changes the four sources above are the answer.**

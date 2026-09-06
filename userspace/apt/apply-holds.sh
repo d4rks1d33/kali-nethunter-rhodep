@@ -123,9 +123,10 @@ install -D -m 0644 "$here/apply-holds.sh" /usr/share/doc/rhodep-apt/apply-holds.
 	/usr/local/share/rhodep/apt-holds.txt 2>/dev/null || true
 
 # --- the port's own .debs, which a hold does NOT fully cover ------------------
-# rhodep-battery-jeita, rhodep-modem-support, rhodep-usb-otg and rhodep-gnss are
-# built here and exist only in /var/lib/dpkg/status: no repo, no cached archive.
-# apt says so outright --
+# rhodep-battery-jeita, rhodep-modem-support, rhodep-usb-otg, rhodep-gnss,
+# rhodep-phosh-wifi-guard and the two rhodep-gpu-* packages are built here and
+# exist only in /var/lib/dpkg/status: no repo, no cached archive. apt says so
+# outright --
 #
 #	# apt-get install --reinstall rhodep-battery-jeita
 #	Reinstallation of rhodep-battery-jeita is not possible, it cannot be downloaded.
@@ -197,6 +198,30 @@ install -D -m 0644 "$here/apply-holds.sh" /usr/share/doc/rhodep-apt/apply-holds.
 	/usr/lib/systemd/system/gpsd.service.d/10-rhodep-gnss.conf \
 	/usr/share/dbus-1/system.d/zz-rhodep-no-modem-gnss.conf \
 	/etc/geoclue/conf.d/20-rhodep-wifi.conf 2>/dev/null || true
+
+# rhodep-phosh-wifi-guard and the two rhodep-gpu-* packages, same local-.deb
+# case again. The gpu postinst scripts already register their /etc/profile.d
+# shim under their own tag, but the /usr/lib/environment.d file next to it and
+# the wifi-guard files are not covered by anything, so they get the file layer
+# here. register is idempotent, so re-registering the profile.d shims does no
+# harm and keeps each package's whole surface in one place.
+#
+# The wifi-guard phosh drop-in is the load-bearing one: it stops the compositor
+# from tearing down the interface when airodump/airmon put wlan0 into monitor
+# mode, so losing it turns every monitor-mode capture into a dropped Wi-Fi
+# connection and, on a phone, a lost ssh session mid-audit.
+/usr/local/sbin/rhodep-protect-files register phosh-wifi-guard 0755 \
+	/usr/local/sbin/airmon-safe 2>/dev/null || true
+/usr/local/sbin/rhodep-protect-files register phosh-wifi-guard-conf 0644 \
+	/etc/systemd/system/phosh.service.d/10-protect.conf 2>/dev/null || true
+
+/usr/local/sbin/rhodep-protect-files register gpu-opencl 0644 \
+	/etc/profile.d/rhodep-rusticl.sh \
+	/usr/lib/environment.d/90-rhodep-rusticl.conf 2>/dev/null || true
+
+/usr/local/sbin/rhodep-protect-files register gpu-vulkan 0644 \
+	/etc/profile.d/rhodep-turnip.sh \
+	/usr/lib/environment.d/90-rhodep-turnip.conf 2>/dev/null || true
 
 # The enabled state, which the immutable bit cannot protect: `systemctl
 # disable` still works on a file that cannot be deleted. Only `disabled` is

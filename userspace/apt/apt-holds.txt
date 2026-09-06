@@ -45,7 +45,10 @@ qrtr-tools
 realtek-rtl8188eus-dkms
 rhodep-battery-jeita
 rhodep-gnss
+rhodep-gpu-opencl
+rhodep-gpu-vulkan
 rhodep-modem-support
+rhodep-phosh-wifi-guard
 rhodep-usb-otg
 rmtfs
 squeekboard

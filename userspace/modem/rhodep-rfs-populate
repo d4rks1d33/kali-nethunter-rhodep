@@ -16,10 +16,25 @@
 #                                      times per boot and gave up; without it it
 #                                      stayed in DMS operating mode 'offline'
 #                                      and refused every mode transition.
+#   modem_a  image/strait/qdsp6m.qdb   6 MB Hexagon symbol database. The modem
+#                                      names /readonly/firmware/image/strait/
+#                                      qdsp6m.qdb literally in its own string
+#                                      table ("strait" is SM6375's internal
+#                                      codename, cf. nav_ConfigStrait).
 #   fsg_a    mcfg_sw/mbn_sw.dig, ...   carrier (MCFG) configuration set.
 #   persist  rfs/msm/mpss/*            per-device data written in the factory:
 #                                      RF calibration (cal_rfs), the Motorola
 #                                      datablock/simlock records, shob/dhob.
+#   persist  rfs/shared/*              server_info.txt, "TFTP_SERVER.1.0". On
+#                                      stock every RFS root symlinks
+#                                      shared -> /mnt/vendor/persist/rfs/shared,
+#                                      and the modem names "/shared/".
+#   persist  rfs/apq/gnss/*            the positioning subsystem's own read/write
+#                                      root, QMI service 4096 instance 6. EMPTY
+#                                      on this device's factory partition, which
+#                                      is the answer to "what is stock giving the
+#                                      GNSS engine that we are not": nothing.
+#                                      Seeded anyway so the directory exists.
 #
 # The persist copy is deliberately a COPY, not a bind mount: the modem writes
 # to this tree (mcfg.tmp, ticf.bin, *_report.txt) and the stock persist
@@ -56,17 +71,26 @@ unmount() {
 }
 trap unmount EXIT
 
-# 1. Hexagon shared objects and anything else under image/modem_pr.
-if [ ! -d "$FW/modem_pr/so" ]; then
+# 1. Hexagon shared objects and anything else under image/modem_pr, plus the
+#    Hexagon symbol database under image/strait. Both are reached through
+#    /readonly/firmware/image/, which tqftpserv resolves under the remoteproc
+#    firmware directory, so they go side by side with modem.mdt.
+if [ ! -d "$FW/modem_pr/so" ] || [ ! -e "$FW/strait/qdsp6m.qdb" ]; then
 	if dev=$(part modem); then
 		mount_ro "$dev"
-		if [ -d "$MNT/image/modem_pr" ]; then
+		if [ -d "$MNT/image/modem_pr" ] && [ ! -d "$FW/modem_pr/so" ]; then
 			mkdir -p "$FW"
 			cp -r "$MNT/image/modem_pr" "$FW/"
 			chmod -R a+rX "$FW/modem_pr"
 			log "installed modem_pr ($(ls "$FW/modem_pr/so" | wc -l) shared objects)"
-		else
+		elif [ ! -d "$MNT/image/modem_pr" ]; then
 			log "WARNING: no image/modem_pr on $dev"
+		fi
+		if [ -e "$MNT/image/strait/qdsp6m.qdb" ] && [ ! -e "$FW/strait/qdsp6m.qdb" ]; then
+			mkdir -p "$FW"
+			cp -r "$MNT/image/strait" "$FW/"
+			chmod -R a+rX "$FW/strait"
+			log "installed strait/qdsp6m.qdb ($(du -sh "$FW/strait" | cut -f1))"
 		fi
 		unmount
 	else
@@ -94,15 +118,46 @@ fi
 
 # 3. Per-device factory data from persist. Never overwrite: once the modem has
 #    started writing here, our copy is the live one.
-if [ ! -e "$RW/shob.bin" ]; then
+#
+#    $RW is the read/write root of RFS instance 1, stock's /vendor/rfs/msm/mpss,
+#    whose readwrite symlink points at persist rfs/msm/mpss. The other three
+#    entries of that root map to the rfs_* directories below; see
+#    tqftpserv/translate.c.
+#
+#    The guard is per target, not one guard for the whole block: shob.bin has
+#    been there since the first boot of this port, and gating the newer copies
+#    on it would mean they never ran.
+if [ ! -e "$RW/shob.bin" ] || [ ! -e "$RW/rfs_shared/server_info.txt" ]; then
 	if dev=$(part persist); then
 		mount_ro "$dev"
-		if [ -d "$MNT/rfs/msm/mpss" ]; then
+		if [ ! -e "$RW/shob.bin" ] && [ -d "$MNT/rfs/msm/mpss" ]; then
 			mkdir -p "$RW"
 			cp -a "$MNT/rfs/msm/mpss/." "$RW/"
 			log "installed persist rfs/msm/mpss"
-		else
+		elif [ ! -d "$MNT/rfs/msm/mpss" ]; then
 			log "WARNING: no rfs/msm/mpss on $dev"
+		fi
+		# shared -> /mnt/vendor/persist/rfs/shared, the same directory
+		# for every RFS root. One file on this device:
+		# server_info.txt = "TFTP_SERVER.1.0", 15 bytes, no newline.
+		if [ -d "$MNT/rfs/shared" ] && [ ! -e "$RW/rfs_shared/server_info.txt" ]; then
+			mkdir -p "$RW/rfs_shared"
+			cp -a "$MNT/rfs/shared/." "$RW/rfs_shared/"
+			log "installed persist rfs/shared"
+		fi
+		# hlos -> /mnt/vendor/persist/hlos_rfs/shared. Empty at the
+		# factory; the copy is for the general case.
+		if [ -d "$MNT/hlos_rfs/shared" ] && [ ! -d "$RW/rfs_hlos" ]; then
+			mkdir -p "$RW/rfs_hlos"
+			cp -a "$MNT/hlos_rfs/shared/." "$RW/rfs_hlos/"
+			log "installed persist hlos_rfs/shared"
+		fi
+		# The GNSS subsystem's own read/write root, RFS instance 6.
+		# Verified empty on this device's factory persist partition.
+		if [ -d "$MNT/rfs/apq/gnss" ] && [ ! -d "$RW/rfs_apq_gnss" ]; then
+			mkdir -p "$RW/rfs_apq_gnss"
+			cp -a "$MNT/rfs/apq/gnss/." "$RW/rfs_apq_gnss/"
+			log "installed persist rfs/apq/gnss ($(find "$RW/rfs_apq_gnss" -type f | wc -l) files)"
 		fi
 		unmount
 	else
@@ -114,5 +169,21 @@ fi
 # intermediate directories, so a write request for ota_firewall/ruleset would
 # fail with ENOENT forever.
 mkdir -p "$RW/ota_firewall" "$RW/datablock" "$RW/mot_rfs"
+
+# The other three entries of an RFS root. translate.c creates the top level of
+# each on demand, but not subdirectories, and the modem writes
+# /ramdumps/wlan_minidump and /hlos/qdma/... -- both one level down.
+mkdir -p "$RW/rfs_shared" "$RW/rfs_hlos" "$RW/rfs_hlos/qdma" \
+	"$RW/rfs_ramdumps" "$RW/rfs_apq_gnss" "$RW/rfs_apq_gnss/rfs_ramdumps"
+
+# On a device whose persist partition has no rfs/shared/server_info.txt, write
+# the one stock's tftp_server would have written. This is what rhodep's factory
+# persist holds, byte for byte and with no trailing newline; the binary calls it
+# "shared/server_info.txt" and asserts the contents are non-NULL. Also stops the
+# guard above from re-mounting persist on every boot.
+if [ ! -e "$RW/rfs_shared/server_info.txt" ]; then
+	printf 'TFTP_SERVER.1.0' > "$RW/rfs_shared/server_info.txt"
+	log "wrote a default rfs_shared/server_info.txt"
+fi
 
 exit 0

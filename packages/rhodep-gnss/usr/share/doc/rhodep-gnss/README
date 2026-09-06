@@ -717,6 +717,44 @@ geoclue is dbus-activated, so it picks up config changes on its next start:
 
     systemctl stop geoclue        # next client gets the new configuration
 
+Predicted orbits (gpsOneXTRA)
+-----------------------------
+
+Stock Android runs xtra-daemon (ENABLED in the stock izat.conf) to download
+Qualcomm's predicted-orbit almanac and inject it into the modem. This port had
+no equivalent, so the modem's almanac read the GPS epoch -- never loaded:
+
+    valid from 1980-01-06T00:00:00Z, valid for 0 hours
+
+rhodep-xtra is that missing daemon, run by rhodep-xtra.timer 3 minutes after
+boot and every 6 hours thereafter. It downloads ~40 kB.
+
+    rhodep-xtra status     read-only LOC state inventory; changes nothing
+    rhodep-xtra fetch      download the almanac only
+    rhodep-xtra inject     fetch if stale, then inject orbits + time + position
+    rhodep-xtra self-test  offline; 33 checks, touches no hardware
+
+XTRA is predicted ephemeris: about a week of computed satellite orbits, so the
+receiver need not demodulate ephemeris off the satellites at 50 bit/s before it
+can compute a fix. It shortens time-to-first-fix. It does not itself produce a
+fix, and on this phone the satellite engine is still the thing that resets the
+SoC -- see "There is no satellite fix to be had on this phone" above. This is
+here because it is a real missing piece of the port, and because it is needed
+before the reset can be tested against an engine that has everything stock
+gives it.
+
+It cannot start the measurement engine. The only QMI message that does is
+QMI_LOC_START (0x0022), which carries a Session ID and a Fix Recurrence.
+rhodep-xtra sends only assistance injection -- what A-GPS does before a fix --
+and never sends QMI_LOC_REGISTER_EVENTS. This is enforced by an allow-list
+asserted on every send, not merely intended; the self-test checks that start,
+stop, register_events and delete_assistance_data are all unsendable.
+
+Also the only way to see the SUPL server on this port: qmicli has no
+--loc-get-server, though libqmi defines the message. It reads
+supl.google.com:7275 here, which is Motorola's factory value still living in
+the modem's EFS.
+
 Attribution
 -----------
 

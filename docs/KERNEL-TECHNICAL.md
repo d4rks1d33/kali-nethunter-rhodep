@@ -669,7 +669,7 @@ Detalles largos de cada uno en los commit messages de los patches.
 ## 10. Datos móviles / cadena QRTR (ya funciona, para referencia)
 
 El WLAN vive DENTRO del módem (protection domain). Cadena de arranque:
-firmware DSP → `rmtfs -r -P -s` (da EFS al módem) → `pd-mapper` (con los 6 .jsn
+firmware DSP → `rmtfs -P -s` (da EFS al módem) → `pd-mapper` (con los 6 .jsn
 junto al firmware) → servicio QMI 69 (wlfw) → `ath10k_snoc`. Todo automatizado
 en el device package (units systemd, `readonly-firmware.mount`, tmpfiles).
 `rmtfs`/`pd-mapper`/`tqftpserv` los provee Alpine; nuestro paquete sólo agrega

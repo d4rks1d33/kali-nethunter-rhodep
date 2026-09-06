@@ -1,0 +1,22 @@
+[Unit]
+Description=rhodep: keep the modem's gpsOneXTRA almanac fresh
+Documentation=file:/usr/share/doc/rhodep-gnss/README
+
+[Timer]
+# An XTRA3 file declares itself valid for 168 h, and MEASURED here the modem
+# reports exactly that after an injection. But predicted orbits decay across
+# that window -- the whole point is that they are extrapolated, not
+# broadcast -- so the useful accuracy is in the first day or two. Stock
+# xtra-daemon refreshes far more often than weekly. Six-hourly costs ~40 kB.
+OnBootSec=3min
+OnUnitActiveSec=6h
+# Do not have every phone hit the CDN on the same tick.
+RandomizedDelaySec=20min
+# Catch up after the phone has been off. The almanac persists across a reboot
+# on this port (MEASURED: modemst1 is byte-identical across a power cycle and
+# the validity window survives), so this is about a phone that was off for
+# days, not about re-injecting something that was lost.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -849,6 +849,18 @@ scripts/
                            set fails -- deliberate in a reproducer, wrong anywhere
                            else. Verify its md5 before every run; a zeroed copy
                            looks exactly like a survival. docs/.../GNSS-SM6375.md
+  rhodep-gnss-bisect.py    the same session, but built to cut *inside* the GNSS
+                           measurement engine: constellation control, multiband
+                           config and the QMI_LOC_START powerMode TLV, none of
+                           which libqmi models and none of which qmicli exposes.
+                           Speaks QMI to node 0 port 108 directly over
+                           AF_QIPCRTR, like pdr-tool.py, because one socket is
+                           one LOC client for its whole lifetime. Reads every
+                           setting back from the modem and REFUSES to start the
+                           session if one did not apply -- which is not
+                           theoretical: SET_CONSTELLATION_CONTROL returns
+                           SUCCESS and changes nothing. `probe` dumps the engine
+                           configuration and starts nothing. docs/.../GNSS-SM6375.md
   ssc-probe.py             ask the sensor core for the SUID of one data type
   ssc-enum.py              which sensor data types the sensor core actually has
   ssc-stream.py            stream raw samples out of an SSC sensor (this is how

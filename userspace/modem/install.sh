@@ -74,14 +74,26 @@ cc -O2 -Wall -DHAVE_ZSTD -o /usr/local/bin/tqftpserv-rhodep \
 	-I"$here/tqftpserv" -lqrtr -lzstd
 install -d /etc/systemd/system/tqftpserv.service.d
 cat > /etc/systemd/system/tqftpserv.service.d/10-rhodep.conf <<'EOF'
-# Use the rhodep build of tqftpserv, which also resolves /readonly/vendor/fsg/
-# (the modem asks for mcfg_sw/mbn_sw.dig there; upstream rejects the path).
+# Use the rhodep build of tqftpserv, which
+#   - resolves /readonly/vendor/fsg/ (the modem asks for mcfg_sw/mbn_sw.dig
+#     there; upstream rejects the path),
+#   - serves /shared/, /hlos/ and /ramdumps/, the other three roots of a
+#     Qualcomm RFS namespace, all three of which this modem's firmware names
+#     literally and upstream answers "invalid path" to,
+#   - can publish QMI service 4096 on more than one RFS instance.
+#
+# -i 6 is stock's /vendor/rfs/apq/gnss, the positioning subsystem's own remote
+# file system root. Stock's tftp_server publishes instances 1..12; upstream
+# publishes only 1 (msm/mpss), and qrtr-ns matches instances exactly, so a
+# client looking up any other one finds no server and tqftpserv never sees the
+# request. Instance 6 costs one idle socket. See userspace/modem/README.md.
+#
 # -d keeps a record of every file the modem asks for, which is how the missing
 # modem_pr shared objects were found in the first place. It is a handful of
 # lines per boot.
 [Service]
 ExecStart=
-ExecStart=/usr/local/bin/tqftpserv-rhodep -d
+ExecStart=/usr/local/bin/tqftpserv-rhodep -d -i 6
 EOF
 
 # --- 2b. rmtfs must be read/write -------------------------------------------

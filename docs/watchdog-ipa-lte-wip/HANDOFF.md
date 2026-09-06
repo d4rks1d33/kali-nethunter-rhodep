@@ -172,6 +172,22 @@ valid for 0 hours`, then `standalone`: still dies. (The `-r` is also stale as
 documentation: the shipped unit's `ExecStart=` reset means rmtfs actually runs
 as `rmtfs -P -s`.)
 
+> **CLOSED 2026-09-06**, from both ends, see
+> `docs/interconnect-sm6375-wip/EFS-AND-XTRA.md`:
+>
+> * The EFS is **not** a RAM shadow on this device and never was. rmtfs holds
+>   `/dev/sde12` and `/dev/sde13` open `O_RDWR` (`/proc/<pid>/fdinfo` flags
+>   `0400002`), and modemst1/modemst2/fsc are byte-identical across a clean
+>   reboot *and* across two watchdog resets. So the modem was never reading
+>   back lost state.
+> * The opposite experiment has now also been run. The port previously had
+>   **no** XTRA path at all (no `xtra-daemon` equivalent), so the almanac had
+>   never been loaded; `rhodep-xtra` now fetches and injects it. With a valid
+>   168-hour almanac, injected time and an injected coarse position all
+>   present, `opmode=standalone`: **still dies.**
+>
+> Assistance data is ruled out in both directions — absent and present.
+
 **The GDSCs.** All twelve match: `holi-gdsc.dtsi` and mainline's
 `gcc-sm6375.c` + `dispcc` + `gpucc` register the same set, and none of them is
 a modem GDSC.

@@ -5,4 +5,20 @@
 #
 # The modem has not been observed requesting it (a cold boot only shows
 # /boot/modem_fs1 and /boot/modem_fs2 being opened), so this is preventive.
+#
+# VERIFIED 2026-09-06 on the live device: the symlink is created and resolves.
+#   /dev/disk/by-partlabel/fsg   -> ../../sdd13   (134217728 bytes)
+#   /dev/disk/by-partlabel/fsg_a -> ../../sdd13
+#   /dev/disk/by-partlabel/fsg_b -> ../../sdf13
+# and `udevadm info -n /dev/sdd13` lists by-partlabel/fsg among its DEVLINKS.
+# Confirmed by inspection of rmtfs's open fds that only modemst1 (sde12) and
+# modemst2 (sde13) are actually held open; fsc (sde14) and fsg are not.
+#
+# CAVEAT, deliberately not fixed here: this hardcodes the _a slot. This phone
+# boots slot _a (androidboot.slot_suffix=_a in /proc/cmdline) so the alias is
+# correct today, but on a _b boot it would point the modem at the other slot's
+# factory NV. udev cannot read the boot slot without a helper program, and
+# rmtfs already has the right mechanism for this -- `-S b` sets the partlabel
+# slot suffix (rmtfs.c, case 'S'). If this port ever boots _b, pass -S in the
+# drop-in rather than making this rule cleverer.
 ENV{PARTNAME}=="fsg_a", SYMLINK+="disk/by-partlabel/fsg"

@@ -24,11 +24,18 @@ install -m 0755 "$(dirname "$0")/rhodep-gnss-daemon" \
 	/usr/local/sbin/rhodep-gnss-daemon
 install -m 0755 "$(dirname "$0")/rhodep-cell-db" \
 	/usr/local/sbin/rhodep-cell-db
+# The XTRA fetch/inject path: the job stock Android gives to xtra-daemon.
+# Injection only -- it cannot start the measurement engine. See the file.
+install -m 0755 "$(dirname "$0")/rhodep-xtra" \
+	/usr/local/sbin/rhodep-xtra
 
 # Prove the generators and parsers before anything gets a chance to run them
 # for real.
 /usr/local/sbin/rhodep-gnss-daemon --self-test
 /usr/local/sbin/rhodep-cell-db self-test
+# Offline: proves the 1024-byte chunker and the ALLOWED_MESSAGES guard that
+# keeps QMI_LOC_START out of this tool. Opens no device.
+/usr/local/sbin/rhodep-xtra self-test
 
 install -D -m 0644 "$PKG/usr/lib/systemd/system/rhodep-gnss.service" \
 	/usr/lib/systemd/system/rhodep-gnss.service
@@ -44,6 +51,10 @@ install -D -m 0644 "$PKG/usr/lib/systemd/system/rhodep-cell-db.service" \
 	/usr/lib/systemd/system/rhodep-cell-db.service
 install -D -m 0644 "$PKG/usr/lib/systemd/system/rhodep-cell-db.timer" \
 	/usr/lib/systemd/system/rhodep-cell-db.timer
+install -D -m 0644 "$PKG/usr/lib/systemd/system/rhodep-xtra.service" \
+	/usr/lib/systemd/system/rhodep-xtra.service
+install -D -m 0644 "$PKG/usr/lib/systemd/system/rhodep-xtra.timer" \
+	/usr/lib/systemd/system/rhodep-xtra.timer
 # Not overwritten if it is already there: it is where the MCC list lives.
 [ -f /etc/default/rhodep-cell-db ] || \
 	install -D -m 0644 "$PKG/etc/default/rhodep-cell-db" \
@@ -78,6 +89,10 @@ if [ -x /usr/libexec/qmi-proxy ]; then
 	systemctl start rhodep-qmi-proxy.service || true
 fi
 systemctl enable --now rhodep-gnss.service
+# Safe to enable: this only ever injects assistance data, and injection is
+# what A-GPS does *before* a fix. It sends no QMI_LOC_START, so unlike
+# anything that touches the measurement engine it cannot trip the reset.
+systemctl enable --now rhodep-xtra.timer
 # rhodep-cell-db.timer is deliberately left disabled: a refresh streams over a
 # gigabyte. See /etc/default/rhodep-cell-db.
 if [ -x /usr/sbin/gpsd ]; then
@@ -89,6 +104,8 @@ systemctl stop geoclue.service 2>/dev/null || true
 sleep 3
 systemctl --no-pager --lines=20 status rhodep-gnss.service || true
 echo
+echo "  rhodep-xtra status                             # read-only LOC state"
+echo "  rhodep-xtra inject                             # refresh the almanac now"
 echo "  rhodep-gnss-daemon --locate-once               # one wifi lookup"
 echo "  rhodep-gnss-daemon --cells-once                # one cell-tower lookup"
 echo "  socat -u UNIX-CONNECT:/run/gnss-share.sock -   # the raw feed"

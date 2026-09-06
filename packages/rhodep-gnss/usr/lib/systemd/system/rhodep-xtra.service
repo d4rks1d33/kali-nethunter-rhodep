@@ -1,0 +1,63 @@
+[Unit]
+Description=rhodep: fetch and inject gpsOneXTRA predicted orbits into the modem
+Documentation=file:/usr/share/doc/rhodep-gnss/README
+# This is the job stock Android gives to xtra-daemon (ENABLED in the stock
+# izat.conf). Without it the modem's predicted-orbit database reads
+# 1980-01-06T00:00:00Z valid for 0 hours -- the GPS epoch, i.e. never loaded.
+#
+# It injects assistance ONLY. It sends no QMI_LOC_START and no
+# QMI_LOC_REGISTER_EVENTS, so it cannot start the measurement engine and
+# cannot trip the reset bug. See the header of /usr/local/sbin/rhodep-xtra,
+# which carries a hard ALLOWED_MESSAGES guard and asserts on anything else.
+#
+# qrtr-ns must have published the LOC service, and rmtfs must be up or the
+# modem cannot persist what we inject. network-online because it downloads
+# ~40 kB over HTTPS from path{1,2,3}.xtracloud.net.
+After=qrtr-ns.service rmtfs.service pd-mapper.service
+After=network-online.target time-sync.target
+Wants=qrtr-ns.service network-online.target
+# The coarse-position step shells out to rhodep-gnss-daemon --locate-once.
+# Not required: --no-position, or an explicit --latitude/--longitude, works
+# without it, and a failed lookup is logged and skipped rather than fatal.
+After=rhodep-gnss.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=no
+# `inject` reuses a cached almanac younger than 12 h, so the timer firing
+# after a reboot on the same day costs one QMI transfer and no download.
+ExecStart=/usr/local/sbin/rhodep-xtra inject
+# A dead mirror or a modem still coming up should not be a boot failure: the
+# timer will come round again, and the phone works without XTRA (it is a
+# time-to-first-fix optimisation, not a prerequisite for a fix).
+SuccessExitStatus=0
+Restart=no
+# 40 parts over QMI plus a wifi scan; generous, but not unbounded.
+TimeoutStartSec=5min
+Nice=10
+IOSchedulingClass=idle
+
+# Root for AF_QIPCRTR and the qmi-proxy socket. AF_INET/AF_INET6 for the
+# HTTPS fetch, AF_NETLINK for the wifi scan the position helper does.
+User=root
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/rhodep-gnss
+StateDirectory=rhodep-gnss
+ProtectHome=yes
+PrivateTmp=yes
+ProtectControlGroups=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+# We read the clock to inject it; we never set it.
+ProtectClock=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_QIPCRTR AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

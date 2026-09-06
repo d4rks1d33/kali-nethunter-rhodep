@@ -167,7 +167,10 @@ systemctl daemon-reload
    - montar `modem_a` en `/readonly/firmware` (ro)
    - symlink `.mbn -> .mdt` y los `.bNN` en el path que busca el kernel
    - arrancar remoteprocs (adsp, luego modem, luego cdsp) con firmware presente
-   - `rmtfs` con flags `-r -P -s` ; `ath10k-late` carga ath10k_snoc DESPUES de que
+   - `rmtfs` con flags `-P -s` (SIN `-r`: en rmtfs `-r` significa read-ONLY y
+     descarta las escrituras EFS a un shadow en RAM; ver
+     docs/interconnect-sm6375-wip/EFS-AND-XTRA.md) ; `ath10k-late` carga
+     ath10k_snoc DESPUES de que
      aparece QMI 69 (wlfw). ath10k_snoc va BLACKLISTED para no autocargar temprano.
 
 ================================================================================
@@ -209,7 +212,9 @@ readonly-firmware.mount, ath10k-late.service, ath10k-late.conf, rmtfs-rhodep.con
 Estructura del .deb:
 - `/usr/local/sbin/rhodep-fw-symlinks.sh` (symlinks .mbn->.mdt + arranca remoteprocs)
 - `/usr/lib/systemd/system/{readonly-firmware.mount,rhodep-modem-fw.service,ath10k-late.service}`
-- `/usr/lib/systemd/system/rmtfs.service.d/10-rhodep.conf` (ExecStart= ; =/usr/bin/rmtfs -r -P -s)
+- `/usr/lib/systemd/system/rmtfs.service.d/10-rhodep.conf` (ExecStart= ; =/usr/bin/rmtfs -P -s)
+  NOTA: el drop-in de `/etc/systemd/system/` que instala userspace/modem/install.sh
+  tiene el MISMO nombre de archivo y por lo tanto REEMPLAZA a este, no se fusiona.
 - `/usr/lib/modprobe.d/ath10k-late.conf` (blacklist ath10k_snoc)
 - `/usr/lib/tmpfiles.d/rhodep-modem.conf` (d /readwrite, /readwrite/datablock, /readonly/firmware)
 - symlinks en multi-user.target.wants/ para habilitar los 3 units

@@ -1,0 +1,209 @@
+--- a/translate.c
++++ b/translate.c
+@@ -33,17 +33,66 @@
+  * firmware directory, so <fw>/fsg/... serves the fsg partition contents.
+  */
+ #define READONLY_VENDOR_BASE		"/readonly/vendor/"
++/*
++ * rhodep: the remaining three roots of a Qualcomm RFS namespace. Every root
++ * under the stock /vendor/rfs/<x>/<y>/ has the same five entries, and upstream
++ * tqftpserv implements only two of them (readonly and readwrite):
++ *
++ *	hlos      -> /mnt/vendor/persist/hlos_rfs/shared     (shared by all roots)
++ *	shared    -> /mnt/vendor/persist/rfs/shared          (shared by all roots)
++ *	ramdumps  -> /data/vendor/tombstones/rfs/<subsys>    (per subsystem)
++ *	readonly/ -> the firmware and vendor partitions
++ *	readwrite -> /mnt/vendor/persist/rfs/<x>/<y>         (per subsystem)
++ *
++ * All three are named literally in this modem's own firmware -- `strings` on
++ * rhodep's modem.mbn yields "/hlos/", "/hlos/qdma/", "/shared/", "/ramdumps/",
++ * "/ramdumps/efs_report.txt", "/ramdumps/wlan_minidump" and
++ * "/ramdumps/wlan_minidump.count" -- so the modem can and does construct paths
++ * under them, and upstream answers "invalid path, rejecting" to all of them.
++ */
++#define SHARED_PATH	"/shared/"
++#define HLOS_PATH	"/hlos/"
++#define RAMDUMPS_PATH	"/ramdumps/"
+ 
+ #ifndef ANDROID
+ #define FIRMWARE_BASE	"/lib/firmware/"
+-#define TQFTPSERV_RW_DIR	"/var/lib/tqftpserv"
+ #else
+ #define FIRMWARE_BASE	"/vendor/firmware/"
+-#define TQFTPSERV_RW_DIR	"/data/vendor/tmp/tqftpserv"
+ #endif
+ 
++/* rhodep: moved to translate.h, tqftpserv.c needs it too. */
++#define TQFTPSERV_RW_DIR	TQFTPSERV_STATE_DIR
++
++/*
++ * rhodep: subdirectories of the state directory. Stock keeps `shared` and
++ * `hlos` outside the per-subsystem roots because all twelve roots symlink to
++ * the same two directories, so they are absolute here and not derived from the
++ * currently selected read/write root. `ramdumps` is per subsystem, so it hangs
++ * off whatever root is selected.
++ *
++ * The `rfs_` prefix keeps them clear of every name this modem is known to use
++ * under /readwrite/ (cal_rfs, datablock, mot_rfs, ota_firewall, *.bin, *.txt,
++ * mcfg.tmp) -- those either have no prefix or end in _rfs.
++ */
++#define SHARED_DIR	TQFTPSERV_RW_DIR "/rfs_shared"
++#define HLOS_DIR	TQFTPSERV_RW_DIR "/rfs_hlos"
++#define RAMDUMPS_SUBDIR	"rfs_ramdumps"
++
+ static int open_maybe_compressed(const char *path);
+ 
++/*
++ * rhodep: root that /readwrite/ and /ramdumps/ resolve against, switched per
++ * QMI service instance by translate_set_rw_root() before each request is
++ * dispatched. Defaults to the one root upstream has, so a build that never
++ * calls the setter behaves exactly as before.
++ */
++static const char *rw_root = TQFTPSERV_RW_DIR;
++
++void translate_set_rw_root(const char *root)
++{
++	rw_root = root ? root : TQFTPSERV_RW_DIR;
++}
++
+ static void read_fw_path_from_sysfs(char *outbuffer, size_t bufsize)
+ {
+ 	size_t pathsize;
+@@ -175,13 +224,18 @@ static int translate_readonly(const char *file)
+ }
+ 
+ /**
+- * translate_readwrite() - open "file" from the persistent readwrite directory
+- * @file:	relative path of the requested file, with /readwrite/ stripped
++ * translate_persistent() - open "file" from a persistent directory
++ * @dir:	absolute path of the directory the file is resolved against
++ * @file:	relative path of the requested file, with its prefix stripped
+  * @flags:	flags to be passed to open(2)
+  *
++ * rhodep: this is upstream's translate_readwrite(), with the directory made a
++ * parameter so the same code can serve /readwrite/, /shared/, /hlos/ and
++ * /ramdumps/, and so /readwrite/ can follow the per-instance root.
++ *
+  * Return: opened fd on success, -1 otherwise
+  */
+-static int translate_readwrite(const char *file, int flags)
++static int translate_persistent(const char *dir, const char *file, int flags)
+ {
+ 	int base;
+ 	int ret;
+@@ -194,26 +248,51 @@ static int translate_readwrite(const char *file, int flags)
+ 		return -1;
+ 	}
+ 
+-	ret = mkdir(TQFTPSERV_RW_DIR, 0700);
++	ret = mkdir(dir, 0700);
+ 	if (ret < 0 && errno != EEXIST) {
+-		warn("failed to create tqftpserv readwrite directory");
++		warn("failed to create %s", dir);
+ 		return -1;
+ 	}
+ 
+-	base = open(TQFTPSERV_RW_DIR, O_RDONLY | O_DIRECTORY);
++	base = open(dir, O_RDONLY | O_DIRECTORY);
+ 	if (base < 0) {
+-		warn("failed to open tqftpserv readwrite directory");
++		warn("failed to open %s", dir);
+ 		return -1;
+ 	}
+ 
+ 	fd = openat(base, file, flags, 0600);
+ 	close(base);
+ 	if (fd < 0)
+-		warn("failed to open %s", file);
++		warn("failed to open %s/%s", dir, file);
+ 
+ 	return fd;
+ }
+ 
++/**
++ * translate_ramdumps() - open "file" under the selected root's ramdumps dir
++ * @file:	relative path of the requested file, with /ramdumps/ stripped
++ * @flags:	flags to be passed to open(2)
++ *
++ * rhodep: stock gives each subsystem its own ramdump directory under
++ * /data/vendor/tombstones/rfs/. Here it is a subdirectory of the read/write
++ * root currently selected, which gives the same one-per-instance separation.
++ *
++ * Return: opened fd on success, -1 otherwise
++ */
++static int translate_ramdumps(const char *file, int flags)
++{
++	char dir[PATH_MAX];
++	int ret;
++
++	ret = snprintf(dir, sizeof(dir), "%s/%s", rw_root, RAMDUMPS_SUBDIR);
++	if (ret < 0 || (size_t)ret >= sizeof(dir)) {
++		errno = ENAMETOOLONG;
++		return -1;
++	}
++
++	return translate_persistent(dir, file, flags);
++}
++
+ /**
+  * translate_open() - open file after translating path
+  *
+@@ -223,6 +302,8 @@ static int translate_readwrite(const char *file, int flags)
+  * Strips /readonly/vendor/firmware/ and /readonly/vendor/firmware_mnt/image/
+  * and searches among remoteproc firmware.
+  * Replaces /readwrite/ with a persistent directory.
++ * rhodep: replaces /shared/, /hlos/ and /ramdumps/ with persistent directories
++ * too, mirroring the other three entries of a stock RFS root.
+  */
+ int translate_open(const char *path, int flags)
+ {
+@@ -231,13 +312,19 @@ int translate_open(const char *path, int flags)
+ 	else if (!strncmp(path, READONLY_MODEM_PATH, strlen(READONLY_MODEM_PATH)))
+ 		return translate_readonly(path + strlen(READONLY_FW_BASE));
+ 	else if (!strncmp(path, READWRITE_PATH, strlen(READWRITE_PATH)))
+-		return translate_readwrite(path + strlen(READWRITE_PATH), flags);
++		return translate_persistent(rw_root, path + strlen(READWRITE_PATH), flags);
+ 	else if (!strncmp(path, READONLY_VENDOR_MNT_PATH, strlen(READONLY_VENDOR_MNT_PATH)))
+ 		return translate_readonly(path + strlen(READONLY_VENDOR_MNT_PATH));
+ 	else if (!strncmp(path, READONLY_VENDOR_PATH, strlen(READONLY_VENDOR_PATH)))
+ 		return translate_readonly(path + strlen(READONLY_VENDOR_PATH));
+ 	else if (!strncmp(path, READONLY_VENDOR_BASE, strlen(READONLY_VENDOR_BASE)))
+ 		return translate_readonly(path + strlen(READONLY_VENDOR_BASE));
++	else if (!strncmp(path, SHARED_PATH, strlen(SHARED_PATH)))
++		return translate_persistent(SHARED_DIR, path + strlen(SHARED_PATH), flags);
++	else if (!strncmp(path, HLOS_PATH, strlen(HLOS_PATH)))
++		return translate_persistent(HLOS_DIR, path + strlen(HLOS_PATH), flags);
++	else if (!strncmp(path, RAMDUMPS_PATH, strlen(RAMDUMPS_PATH)))
++		return translate_ramdumps(path + strlen(RAMDUMPS_PATH), flags);
+ 
+ 	fprintf(stderr, "invalid path %s, rejecting\n", path);
+ 	errno = ENOENT;
+--- a/translate.h
++++ b/translate.h
+@@ -1,6 +1,26 @@
+ #ifndef __TRANSLATE_H__
+ #define __TRANSLATE_H__
+ 
++/*
++ * rhodep: the persistent state directory. tqftpserv.c derives the per-instance
++ * read/write roots from it, so it lives here rather than privately in
++ * translate.c.
++ */
++#ifndef ANDROID
++#define TQFTPSERV_STATE_DIR	"/var/lib/tqftpserv"
++#else
++#define TQFTPSERV_STATE_DIR	"/data/vendor/tmp/tqftpserv"
++#endif
++
+ int translate_open(const char *path, int flags);
+ 
++/*
++ * rhodep: select which read/write root the next translate_open() resolves
++ * /readwrite/ and /ramdumps/ against. Stock's tftp_server keeps one root per
++ * QMI service instance (see tqftpserv.c, rfs_instances[]); this is how the
++ * single-threaded server switches between them. Passing NULL restores the
++ * default root.
++ */
++void translate_set_rw_root(const char *root);
++
+ #endif

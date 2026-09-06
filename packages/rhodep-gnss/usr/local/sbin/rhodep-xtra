@@ -1,0 +1,742 @@
+#!/usr/bin/env python3
+"""Fetch Qualcomm gpsOneXTRA predicted orbits and inject them into the modem.
+
+WHY THIS EXISTS
+---------------
+Stock Android runs `xtra-daemon` (ENABLED in the stock izat.conf). Its entire
+job is to download the XTRA almanac over HTTPS and push it into the modem's
+positioning engine over QMI LOC. This port had no equivalent, so the engine
+came up every time with an empty predicted-orbit database:
+
+    $ qmicli -p -d qrtr://0 --loc-get-predicted-orbits-data-validity
+    Successfully retrieved validity info: 1980-01-06T00:00:00Z, valid for 0 hours
+
+1980-01-06 is the GPS epoch: that is the "never loaded" reading, not a stale
+one. This tool is the missing half.
+
+XTRA is *predicted* ephemeris: roughly a week of computed satellite orbits, so
+the receiver does not have to demodulate ephemeris off the satellites at 50
+bit/s before it can compute a fix. It is what turns a multi-minute cold start
+into a warm one. It does not, by itself, produce a fix.
+
+SAFETY -- READ THIS BEFORE ADDING ANYTHING
+------------------------------------------
+This tool must NEVER start the measurement engine. In QMI LOC the only thing
+that starts it is:
+
+    QMI_LOC_START (0x0022), which carries a Session ID and a Fix Recurrence.
+
+Everything this tool sends is assistance injection, which is exactly what
+A-GPS does *before* a fix and which carries no session and no recurrence:
+
+    0x0035  Inject Predicted Orbits Data   (Total Size, Total Parts,
+                                            Part Number, Part Data, Format)
+    0x0038  Inject UTC Time                (UTC Time, Uncertainty, Source)
+    0x0039  Inject Position                (Lat, Lon, Uncertainty, ...)
+
+and the read-only queries 0x0036 / 0x0037 / 0x0043 / 0x003B / 0x003F / 0x004B.
+
+We also deliberately do NOT send QMI_LOC_REGISTER_EVENTS (0x0021). We do not
+want position-report or SV-info indications; we have nothing to do with them
+and asking for them is how you end up accidentally holding the engine up.
+
+There is a hard guard below: ALLOWED_MESSAGES. If you add a call, add it there
+and think about whether it can start the engine.
+
+Chunking: the Part Data TLV is capped at 1024 bytes (max-size in libqmi's
+qmi-service-loc.json), so a ~40 kB XTRA file is ~40 parts. Parts are 1-based
+and must be sent in order; the modem acknowledges each one.
+
+qmicli cannot do this: libqmi 1.38 defines the message
+(QMI_MESSAGE_LOC_INJECT_PREDICTED_ORBITS_DATA) but qmicli exposes no
+--loc-inject-predicted-orbits-data flag. Hence gir1.2-qmi-1.0 and this script.
+
+    rhodep-xtra status      # read-only LOC inventory, changes nothing
+    rhodep-xtra fetch       # download the almanac only
+    rhodep-xtra inject      # fetch if stale, then inject orbits + time + position
+    rhodep-xtra self-test   # offline; proves the chunker, touches no hardware
+"""
+
+import argparse
+import json
+import math
+import os
+import ssl
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.request
+
+# ---------------------------------------------------------------- constants
+
+QMI_DEVICE = "qrtr://0"
+
+# The modem names these itself, in this order, via
+# QMI_LOC_GET_PREDICTED_ORBITS_DATA_SOURCE (0x0036). We hardcode the same list
+# as a fallback for the case where the query fails, but `fetch` prefers to ask.
+DEFAULT_SERVERS = (
+    "https://path1.xtracloud.net/xtra3grej.bin",
+    "https://path2.xtracloud.net/xtra3grej.bin",
+    "https://path3.xtracloud.net/xtra3grej.bin",
+)
+
+STATE_DIR = "/var/lib/rhodep-gnss"
+XTRA_FILE = os.path.join(STATE_DIR, "xtra.bin")
+META_FILE = os.path.join(STATE_DIR, "xtra.json")
+
+# libqmi's qmi-service-loc.json gives Part Data "max-size": "1024".
+PART_SIZE = 1024
+
+# XTRA3 files are advertised as valid for 168 h, but their accuracy decays over
+# that window, and stock xtra-daemon refreshes far more often than weekly.
+# Re-download if the copy on disk is older than this.
+MAX_AGE = 12 * 3600
+
+# A wifi trilateration fix is good to a few tens of metres. Injecting it as if
+# it were better than that would make the engine reject real measurements that
+# disagree; injecting it as worse costs nothing. Floor the reported radius.
+MIN_POSITION_UNCERTAINTY = 50.0
+
+# Injected time is only as good as the system clock. If NTP has run this is
+# milliseconds; if it has not, it can be anything. Advertise honestly.
+TIME_UNCERTAINTY_SYNCED_MS = 1000
+TIME_UNCERTAINTY_UNSYNCED_MS = 60 * 60 * 1000
+
+# The guard named in the docstring. Every LOC message this tool is allowed to
+# emit, by libqmi binding name. QMI_LOC_START has no binding here on purpose.
+ALLOWED_MESSAGES = frozenset((
+    "get_predicted_orbits_data_source",
+    "get_predicted_orbits_data_validity",
+    "get_server",
+    "get_operation_mode",
+    "get_nmea_types",
+    "get_engine_lock",
+    "inject_predicted_orbits_data",
+    "inject_xtra_data",
+    "inject_utc_time",
+    "inject_position",
+))
+
+# WHICH INJECTION MESSAGE THIS FIRMWARE ACTUALLY IMPLEMENTS
+# ---------------------------------------------------------
+# libqmi defines two, and they carry an identical part-wise payload:
+#
+#   0x0035 QMI_LOC_INJECT_PREDICTED_ORBITS_DATA  (+ a Format Type TLV)
+#   0x00A7 QMI_LOC_INJECT_XTRA_DATA              (no Format Type)
+#
+# On rhodep's modem (SM6375, LOC service v2) 0x0035 answers
+# 'NotSupported' (94) and 0x00A7 answers success. Measured 2026-09-06. So the
+# default is `auto`: probe with 0x0035, and on NotSupported restart the whole
+# transfer on 0x00A7. That keeps the tool honest on other firmware without
+# hardcoding this device's quirk as a universal truth.
+INJECT_ORBITS = "inject_predicted_orbits_data"
+INJECT_XTRA = "inject_xtra_data"
+
+
+def log(msg, *a):
+    sys.stderr.write((msg % a if a else msg) + "\n")
+    sys.stderr.flush()
+
+
+# ---------------------------------------------------------------- fetching
+
+def _opener():
+    # xtracloud.net presents a normal public CA chain. Stock gps.conf points
+    # XTRA_CA_PATH at /usr/lib/ssl-1.1/certs, which is Android's bundle; on
+    # Kali the system store is correct and we should use it rather than
+    # shipping our own. Default context = verified, hostname-checked.
+    ctx = ssl.create_default_context()
+    return urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx))
+
+
+def fetch(servers=None, timeout=30):
+    """Download the XTRA almanac. Returns (bytes, url). Raises on total failure."""
+    servers = list(servers or DEFAULT_SERVERS)
+    errors = []
+    for url in servers:
+        try:
+            log("fetching %s", url)
+            req = urllib.request.Request(url, headers={"User-Agent": "rhodep-xtra/1"})
+            with _opener().open(req, timeout=timeout) as r:
+                if r.status != 200:
+                    raise IOError("HTTP %s" % r.status)
+                data = r.read()
+            if len(data) < 1024:
+                raise IOError("implausibly short (%d bytes)" % len(data))
+            log("  got %d bytes", len(data))
+            return data, url
+        except Exception as e:      # noqa: BLE001 - try the next mirror
+            log("  failed: %s", e)
+            errors.append("%s: %s" % (url, e))
+    raise SystemExit("all XTRA servers failed:\n  " + "\n  ".join(errors))
+
+
+def store(data, url):
+    os.makedirs(STATE_DIR, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=STATE_DIR, prefix=".xtra-")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.replace(tmp, XTRA_FILE)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    meta = {"url": url, "size": len(data), "fetched": int(time.time())}
+    with open(META_FILE, "w") as f:
+        json.dump(meta, f, indent=1)
+        f.write("\n")
+    log("stored %s (%d bytes)", XTRA_FILE, len(data))
+    return meta
+
+
+def cached(max_age=MAX_AGE):
+    """Return the on-disk almanac if it is fresh enough, else None."""
+    try:
+        st = os.stat(XTRA_FILE)
+    except OSError:
+        return None
+    age = time.time() - st.st_mtime
+    if age > max_age:
+        log("cached almanac is %.1f h old, refetching", age / 3600.0)
+        return None
+    with open(XTRA_FILE, "rb") as f:
+        data = f.read()
+    log("using cached %s (%d bytes, %.1f h old)", XTRA_FILE, len(data), age / 3600.0)
+    return data
+
+
+# ---------------------------------------------------------------- chunking
+
+def chunks(data, size=PART_SIZE):
+    """Split into (part_number, bytes) with part_number 1-based.
+
+    The modem indexes parts from 1 and rejects a Part Number of 0 or one
+    greater than Total Parts, so this is not cosmetic.
+    """
+    total = int(math.ceil(len(data) / float(size)))
+    return total, [(i + 1, data[i * size:(i + 1) * size]) for i in range(total)]
+
+
+# ---------------------------------------------------------------- QMI
+
+class Loc(object):
+    """One LOC client on qrtr://0, driven by a GLib main loop.
+
+    Deliberately does not register for events. See the module docstring.
+    """
+
+    def __init__(self, timeout=15):
+        import gi
+        gi.require_version("Qmi", "1.0")
+        gi.require_version("Gio", "2.0")
+        from gi.repository import Qmi, Gio, GLib
+        self.Qmi, self.Gio, self.GLib = Qmi, Gio, GLib
+        self.timeout = timeout
+        self.dev = None
+        self.cli = None
+        self._loop = GLib.MainLoop()
+        self._result = None
+        self._error = None
+
+    # -- plumbing ---------------------------------------------------------
+    def _finish(self, value=None, error=None):
+        self._result, self._error = value, error
+        if self._loop.is_running():
+            self._loop.quit()
+
+    def _run(self):
+        gid = self.GLib.timeout_add_seconds(
+            self.timeout + 10, lambda: self._finish(error="main loop timeout"))
+        self._loop.run()
+        self.GLib.source_remove(gid)
+        if self._error:
+            raise RuntimeError(self._error)
+        return self._result
+
+    def open(self):
+        def on_new(_o, res, *a):
+            try:
+                self.dev = self.Qmi.Device.new_finish(res)
+            except Exception as e:
+                return self._finish(error="open %s: %s" % (QMI_DEVICE, e))
+            # EXPECT_INDICATIONS because every LOC reply is an indication.
+            # It does NOT subscribe to anything; QMI_LOC_REGISTER_EVENTS does,
+            # and we never send it.
+            self.dev.open(self.Qmi.DeviceOpenFlags.PROXY |
+                          self.Qmi.DeviceOpenFlags.EXPECT_INDICATIONS,
+                          self.timeout, None, on_open)
+
+        def on_open(dev, res, *a):
+            try:
+                dev.open_finish(res)
+            except Exception as e:
+                return self._finish(error="open_finish: %s" % e)
+            dev.allocate_client(self.Qmi.Service.LOC, self.Qmi.CID_NONE,
+                                self.timeout, None, on_client)
+
+        def on_client(dev, res, *a):
+            try:
+                self.cli = dev.allocate_client_finish(res)
+            except Exception as e:
+                return self._finish(error="allocate LOC client: %s" % e)
+            self._finish(True)
+
+        self.Qmi.Device.new(
+            self.Gio.File.new_for_commandline_arg(QMI_DEVICE), None, on_new, None)
+        self._run()
+        return self
+
+    def close(self):
+        if self.cli is not None and self.dev is not None:
+            try:
+                self.dev.release_client(
+                    self.cli, self.Qmi.DeviceReleaseClientFlags.RELEASE_CID,
+                    5, None, None)
+            except Exception:
+                pass
+        if self.dev is not None:
+            try:
+                self.dev.close_async(5, None, None, None)
+            except Exception:
+                pass
+
+    def __enter__(self):
+        return self.open()
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
+
+    # -- request/indication pairing --------------------------------------
+    def call(self, name, inp=None, signal=None):
+        """Send one LOC message and return (response, indication|None).
+
+        LOC is asynchronous: the response only carries a QMI Result, and the
+        payload arrives as a separate indication with the same message id. We
+        wait for whichever we were told to expect.
+        """
+        if name not in ALLOWED_MESSAGES:
+            raise AssertionError(
+                "refusing to send %r: not in ALLOWED_MESSAGES. If you are "
+                "adding a message, check it cannot start the engine." % name)
+        got = {"resp": None, "ind": None}
+        handler = [None]
+
+        def settle():
+            if got["resp"] is not None and (signal is None or got["ind"] is not None):
+                self._finish((got["resp"], got["ind"]))
+
+        def on_ind(_cli, ind):
+            got["ind"] = ind
+            settle()
+
+        def on_resp(cli, res, *a):
+            try:
+                out = getattr(cli, name + "_finish")(res)
+                out.get_result()
+            except Exception as e:
+                return self._finish(error="%s: %s" % (name, e))
+            got["resp"] = out
+            settle()
+
+        if signal:
+            handler[0] = self.cli.connect(signal, on_ind)
+        try:
+            # Uniform binding shape: messages with no input still take a
+            # leading `unused` gpointer, so None is correct for both cases.
+            #   get_operation_mode(unused=None, timeout, cancellable, callback)
+            #   get_server(input,               timeout, cancellable, callback)
+            getattr(self.cli, name)(inp, self.timeout, None, on_resp)
+            return self._run()
+        finally:
+            if handler[0] is not None:
+                self.cli.disconnect(handler[0])
+
+
+def tlv(obj, getter):
+    """Read one optional TLV, collapsing 'absent' and 'not in this libqmi'.
+
+    Same shape as the helper in rhodep-gnss-daemon: pygobject turns
+    (gboolean, out...) into a tuple, and a missing field raises.
+    """
+    fn = getattr(obj, getter, None)
+    if fn is None:
+        return None
+    try:
+        r = fn()
+    except Exception:
+        return None
+    if isinstance(r, tuple):
+        if not r or not r[0]:
+            return None
+        rest = r[1:]
+        if not rest:
+            return True
+        return rest[0] if len(rest) == 1 else rest
+    return None if r is False else r
+
+
+def tlv_raw(obj, getter):
+    """Read a TLV whose binding returns its values directly, with no leading
+    gboolean -- the `sequence`-format ones such as Validity Info (start,
+    duration) and Allowed Sizes (max_file, max_part). These raise when the
+    field is absent instead of returning False, so `tlv()` above would eat the
+    first value as if it were a found-flag.
+    """
+    fn = getattr(obj, getter, None)
+    if fn is None:
+        return None
+    try:
+        return fn()
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------- commands
+
+def cmd_status(args):
+    """Read-only. Sends nothing that can change engine state."""
+    with Loc() as loc:
+        print("== predicted orbits (XTRA) ==")
+        try:
+            _r, ind = loc.call("get_predicted_orbits_data_validity",
+                               signal="get-predicted-orbits-data-validity")
+            info = tlv_raw(ind, "get_validity_info")
+            if info is None:
+                print("  validity   : <no TLV>")
+            else:
+                start, duration = info
+                txt = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(start))
+                print("  valid from : %s (raw %d)" % (txt, start))
+                print("  valid for  : %d hours" % duration)
+                # 315964800 == 1980-01-06T00:00:00Z, the GPS epoch. The
+                # firmware reports it when nothing was ever injected.
+                if start <= 315964800 or duration == 0:
+                    print("  -> EMPTY: the almanac has never been loaded, or "
+                          "was deleted")
+                else:
+                    left = (start + duration * 3600) - time.time()
+                    print("  -> %.1f hours remaining" % (left / 3600.0))
+        except Exception as e:
+            print("  validity query failed: %s" % e)
+
+        try:
+            _r, ind = loc.call("get_predicted_orbits_data_source",
+                               signal="get-predicted-orbits-data-source")
+            sizes = tlv_raw(ind, "get_allowed_sizes")
+            if sizes:
+                print("  max file   : %d bytes, max part %d bytes"
+                      % (sizes[0], sizes[1]))
+            for u in (tlv(ind, "get_server_list") or []):
+                print("  server     : %s" % u)
+        except Exception as e:
+            print("  source query failed: %s" % e)
+
+        print("\n== engine ==")
+        Qm = loc.Qmi
+        for name, sig, getter, render in (
+                ("operation mode", "get-operation-mode", "get_operation_mode",
+                 Qm.loc_operation_mode_get_string),
+                ("NMEA types", "get-nmea-types", "get_nmea_types",
+                 Qm.loc_nmea_type_build_string_from_mask)):
+            try:
+                _r, ind = loc.call(getter, signal=sig)
+                v = tlv_raw(ind, getter)
+                print("  %-15s: %s (0x%x)" % (name, render(v), v))
+            except Exception as e:
+                print("  %-15s: failed: %s" % (name, e))
+
+        # See docs: libqmi 1.38 looks for the lock in TLV 0x10 (4 bytes) but
+        # this firmware answers in TLV 0x12 (8 bytes), so the binding reports
+        # nothing and qmicli prints "missing". The indication status is
+        # success; the engine is answering fine. Report both facts.
+        try:
+            _r, ind = loc.call("get_engine_lock", signal="get-engine-lock")
+            st = tlv(ind, "get_indication_status")
+            lk = tlv(ind, "get_lock_type")
+            print("  engine lock    : %s (indication status=%s)" %
+                  (lk if lk is not None
+                   else "<libqmi wants TLV 0x10; firmware sends 0x12>", st))
+        except Exception as e:
+            print("  engine lock    : failed: %s" % e)
+
+        print("\n== assistance servers ==")
+        Q = loc.Qmi
+        for label, st in (("UMTS SLP (SUPL)", Q.LocServerType.UMTS_SLP),
+                          ("CDMA PDE", Q.LocServerType.CDMA_PDE),
+                          ("CDMA MPC", Q.LocServerType.CDMA_MPC),
+                          ("Custom PDE", Q.LocServerType.CUSTOM_PDE)):
+            try:
+                i = Q.MessageLocGetServerInput()
+                i.set_server_type(st)
+                i.set_server_address_type(Q.LocServerAddressType.URL)
+                _r, ind = loc.call("get_server", i, signal="get-server")
+                url = tlv(ind, "get_url")
+                v4 = tlv(ind, "get_ipv4")
+                print("  %-16s: %s" % (label, url or v4 or "<unset>"))
+            except Exception as e:
+                print("  %-16s: failed: %s" % (label, e))
+    return 0
+
+
+def _coarse_position(args):
+    """(lat, lon, accuracy_m) from --latitude/--longitude or the gnss daemon."""
+    if args.latitude is not None and args.longitude is not None:
+        return args.latitude, args.longitude, args.accuracy
+    helper = "/usr/local/sbin/rhodep-gnss-daemon"
+    if not os.path.exists(helper):
+        return None
+    log("asking %s for a coarse position", os.path.basename(helper))
+    try:
+        out = subprocess.run([helper, "--locate-once"], capture_output=True,
+                             text=True, timeout=120).stdout
+    except Exception as e:
+        log("  failed: %s", e)
+        return None
+    vals = {}
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] in ("latitude", "longitude", "accuracy"):
+            try:
+                vals[parts[0]] = float(parts[1])
+            except ValueError:
+                pass
+    if "latitude" in vals and "longitude" in vals:
+        return vals["latitude"], vals["longitude"], vals.get("accuracy", 100.0)
+    log("  no position in output")
+    return None
+
+
+def _pick_inject_message(loc, data, total, first):
+    """Probe 0x0035, fall back to 0x00A7. Sending a single part of an
+    otherwise-unfinished transfer is harmless: the modem discards a partial
+    almanac, and neither message can start the engine."""
+    Q = loc.Qmi
+    i = Q.MessageLocInjectPredictedOrbitsDataInput()
+    i.set_total_size(len(data))
+    i.set_total_parts(total)
+    i.set_part_number(1)
+    i.set_part_data(first)
+    i.set_format_type(Q.LocPredictedOrbitsDataFormat.XTRA)
+    try:
+        loc.call(INJECT_ORBITS, i)
+        return INJECT_ORBITS
+    except Exception as e:
+        log("0x0035 unavailable (%s); falling back to 0x00A7", e)
+        return INJECT_XTRA
+
+
+def cmd_inject(args):
+    data = None if args.force_fetch else cached(args.max_age)
+    if data is None:
+        servers = None
+        if not args.no_ask_modem:
+            try:
+                with Loc() as loc:
+                    _r, ind = loc.call("get_predicted_orbits_data_source",
+                                       signal="get-predicted-orbits-data-source")
+                    servers = list(tlv(ind, "get_server_list") or []) or None
+                    if servers:
+                        log("modem names %d server(s)", len(servers))
+            except Exception as e:
+                log("could not ask the modem for servers (%s); using defaults", e)
+        data, url = fetch(servers)
+        store(data, url)
+
+    total, parts = chunks(data)
+    log("injecting %d bytes as %d part(s) of <=%d", len(data), total, PART_SIZE)
+
+    with Loc() as loc:
+        Q = loc.Qmi
+
+        # --- 1. the almanac ----------------------------------------------
+        which = {"xtra": INJECT_XTRA, "orbits": INJECT_ORBITS}.get(args.message)
+        if which is None:
+            which = _pick_inject_message(loc, data, total, parts[0][1])
+        log("using %s", "0x0035 InjectPredictedOrbitsData"
+            if which == INJECT_ORBITS else "0x00A7 InjectXtraData")
+
+        sent = 0
+        for number, blob in parts:
+            if which == INJECT_ORBITS:
+                i = Q.MessageLocInjectPredictedOrbitsDataInput()
+                i.set_format_type(Q.LocPredictedOrbitsDataFormat.XTRA)
+                sig = "inject-predicted-orbits-data"
+            else:
+                i = Q.MessageLocInjectXtraDataInput()
+                sig = "inject-xtra-data"
+            i.set_total_size(len(data))
+            i.set_total_parts(total)
+            i.set_part_number(number)
+            i.set_part_data(blob)
+            # Only the last part yields the summarising indication; waiting on
+            # every part would stall the transfer.
+            try:
+                _r, ind = loc.call(which, i,
+                                   signal=(sig if number == total else None))
+            except Exception as e:
+                raise SystemExit("part %d/%d failed: %s" % (number, total, e))
+            sent += len(blob)
+            if number == total or number % 10 == 0:
+                log("  part %d/%d (%d bytes)", number, total, sent)
+            if ind is not None:
+                st = tlv(ind, "get_indication_status")
+                log("  final indication: status=%s part=%s",
+                    st, tlv(ind, "get_part_number"))
+                if st not in (0, None):
+                    raise SystemExit("modem rejected the almanac (status %s)" % st)
+
+        # --- 2. UTC time (0x0038) ----------------------------------------
+        if not args.no_time:
+            synced = _clock_is_synced()
+            unc = (TIME_UNCERTAINTY_SYNCED_MS if synced
+                   else TIME_UNCERTAINTY_UNSYNCED_MS)
+            i = Q.MessageLocInjectUtcTimeInput()
+            i.set_utc_time(int(time.time() * 1000))
+            i.set_time_uncertainty(unc)
+            # NOT optional on this firmware. Omitting TLV 0x10 gets
+            # 'MalformedMessage' (1) back; qmicli always sends it, which is
+            # why `qmicli --loc-inject-time` works and a three-TLV-minus-one
+            # hand-rolled message does not.
+            i.set_time_source(Q.LocInjectedTimeSource.NTP if synced
+                              else Q.LocInjectedTimeSource.UNKNOWN)
+            try:
+                loc.call("inject_utc_time", i, signal="inject-utc-time")
+                log("injected time (%s, uncertainty %d ms)",
+                    "NTP-synced" if synced else "UNSYNCED system clock", unc)
+            except Exception as e:
+                log("time injection failed: %s", e)
+
+        # --- 3. coarse position (0x0039) ---------------------------------
+        if not args.no_position:
+            pos = _coarse_position(args)
+            if pos is None:
+                log("no coarse position available; skipping")
+            else:
+                lat, lon, acc = pos
+                acc = max(float(acc), MIN_POSITION_UNCERTAINTY)
+                i = Q.MessageLocInjectPositionInput()
+                i.set_latitude(float(lat))
+                i.set_longitude(float(lon))
+                i.set_horizontal_uncertainty_circular(acc)
+                i.set_horizontal_confidence(68)
+                i.set_horizontal_reliability(Q.LocReliability.MEDIUM)
+                i.set_utc_timestamp(int(time.time() * 1000))
+                try:
+                    loc.call("inject_position", i, signal="inject-position")
+                    log("injected position %.6f, %.6f (+/- %.0f m)", lat, lon, acc)
+                except Exception as e:
+                    log("position injection failed: %s", e)
+
+    log("done; verify with: rhodep-xtra status")
+    return 0
+
+
+def _clock_is_synced():
+    try:
+        out = subprocess.run(["timedatectl", "show", "-p", "NTPSynchronized",
+                              "--value"], capture_output=True, text=True,
+                             timeout=10).stdout.strip()
+        return out == "yes"
+    except Exception:
+        return False
+
+
+def cmd_fetch(args):
+    data, url = fetch()
+    store(data, url)
+    return 0
+
+
+def cmd_self_test(args):
+    """Offline. Proves the chunker. Opens no device and sends nothing."""
+    ok = True
+
+    def check(cond, what):
+        nonlocal ok
+        print(("  ok   " if cond else "  FAIL") + "  " + what)
+        ok = ok and bool(cond)
+
+    print("chunker:")
+    # The real thing: 40949 bytes is what path{1,2,3}.xtracloud.net served on
+    # 2026-09-06, and it is deliberately not a multiple of 1024.
+    for size, want_parts, want_last in ((40949, 40, 1013),
+                                        (1024, 1, 1024),
+                                        (1025, 2, 1),
+                                        (1, 1, 1)):
+        total, parts = chunks(b"\x5a" * size)
+        check(total == want_parts,
+              "%d bytes -> %d parts (want %d)" % (size, total, want_parts))
+        check(len(parts) == total, "  part list length matches total")
+        check(parts[0][0] == 1, "  first part number is 1 (not 0)")
+        check(parts[-1][0] == total, "  last part number is total")
+        check(len(parts[-1][1]) == want_last,
+              "  last part is %d bytes (want %d)" % (len(parts[-1][1]), want_last))
+        check(b"".join(b for _n, b in parts) == b"\x5a" * size,
+              "  parts reassemble to the original")
+        check(all(len(b) <= PART_SIZE for _n, b in parts),
+              "  no part exceeds the %d byte TLV cap" % PART_SIZE)
+
+    print("safety guard:")
+    for bad in ("start", "stop", "register_events", "delete_assistance_data"):
+        check(bad not in ALLOWED_MESSAGES, "%r is not sendable" % bad)
+    check("inject_predicted_orbits_data" in ALLOWED_MESSAGES,
+          "'inject_predicted_orbits_data' is sendable")
+
+    print("\n%s" % ("self-test passed" if ok else "SELF-TEST FAILED"))
+    return 0 if ok else 1
+
+
+# ---------------------------------------------------------------- cli
+
+def main(argv=None):
+    p = argparse.ArgumentParser(
+        prog="rhodep-xtra",
+        description="Fetch and inject gpsOneXTRA predicted orbits (the job "
+                    "stock Android's xtra-daemon does).",
+        epilog="This tool never starts the positioning engine: it sends no "
+               "QMI_LOC_START and no QMI_LOC_REGISTER_EVENTS.")
+    sub = p.add_subparsers(dest="cmd")
+
+    sub.add_parser("status", help="read-only LOC state inventory")
+    sub.add_parser("fetch", help="download the almanac, do not inject")
+    sub.add_parser("self-test", help="offline checks, touches no hardware")
+
+    i = sub.add_parser("inject", help="fetch if stale, then inject")
+    i.add_argument("--force-fetch", action="store_true",
+                   help="ignore the cached copy")
+    i.add_argument("--max-age", type=int, default=MAX_AGE, metavar="SEC",
+                   help="refetch if the cache is older (default %d)" % MAX_AGE)
+    i.add_argument("--no-ask-modem", action="store_true",
+                   help="do not query the modem for its server list")
+    i.add_argument("--message", choices=("auto", "xtra", "orbits"),
+                   default="auto",
+                   help="which QMI message to inject with: 'orbits' is "
+                        "0x0035, 'xtra' is 0x00A7, 'auto' (default) probes "
+                        "0x0035 and falls back. rhodep's modem needs 0x00A7.")
+    i.add_argument("--no-time", action="store_true",
+                   help="skip UTC time injection")
+    i.add_argument("--no-position", action="store_true",
+                   help="skip coarse position injection")
+    i.add_argument("--latitude", type=float, help="coarse latitude to inject")
+    i.add_argument("--longitude", type=float, help="coarse longitude to inject")
+    i.add_argument("--accuracy", type=float, default=100.0, metavar="M",
+                   help="accuracy of --latitude/--longitude (default 100)")
+
+    args = p.parse_args(argv)
+    if not args.cmd:
+        p.print_help()
+        return 2
+    return {"status": cmd_status, "fetch": cmd_fetch,
+            "inject": cmd_inject, "self-test": cmd_self_test}[args.cmd](args)
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        sys.exit(130)

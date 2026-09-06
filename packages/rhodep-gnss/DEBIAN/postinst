@@ -14,6 +14,11 @@ if [ -x /usr/libexec/qmi-proxy ]; then
     systemctl enable rhodep-qmi-proxy.service 2>/dev/null || true
 fi
 systemctl enable rhodep-gnss.service 2>/dev/null || true
+# Enabled, unlike rhodep-cell-db.timer: this downloads ~40 kB six-hourly, and
+# it is the job stock Android's xtra-daemon does. It injects assistance data
+# only -- it never sends QMI_LOC_START -- so it cannot start the measurement
+# engine and cannot trip the reset this package exists to route around.
+systemctl enable rhodep-xtra.timer 2>/dev/null || true
 
 # The D-Bus deny that stops anything enabling GNSS through ModemManager only
 # takes effect once dbus has re-read its configuration.

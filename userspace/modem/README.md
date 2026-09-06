@@ -39,8 +39,12 @@ That is what `rhodep-rfs-populate` does, for all three sources:
 | partition | what it provides | goes to |
 | --- | --- | --- |
 | `modem_a` | `image/modem_pr/so/*.mbn`, run-time Hexagon objects | `/lib/firmware/qcom/sm6375/motorola/rhodep/modem_pr/` |
+| `modem_a` | `image/strait/qdsp6m.qdb`, 5.8 MiB Hexagon symbol database | `.../rhodep/strait/` |
 | `fsg_a` | carrier (MCFG) configuration set + `mcfg_sw/mbn_sw.dig` | `.../rhodep/fsg/` |
 | `persist` | `rfs/msm/mpss/`: RF calibration (`cal_rfs`), Motorola datablock / SIM-lock records, `shob.bin`, `dhob.bin`, `mot_rfs/imei_sv` | `/var/lib/tqftpserv/` |
+| `persist` | `rfs/shared/server_info.txt`, `TFTP_SERVER.1.0` | `/var/lib/tqftpserv/rfs_shared/` |
+| `persist` | `hlos_rfs/shared/` (empty at the factory) | `/var/lib/tqftpserv/rfs_hlos/` |
+| `persist` | `rfs/apq/gnss/` (**empty at the factory**) | `/var/lib/tqftpserv/rfs_apq_gnss/` |
 
 The persist tree is **copied, not bind mounted**: the modem writes into it
 (`mcfg.tmp`, `ticf.bin`, `*_report.txt`) and the stock partition is left alone.
@@ -72,15 +76,136 @@ symlink into the `fsg` partition (AOSP target package
 `rfs_msm_mpss_readonly_vendor_fsg_symlink`, referenced from
 `sm6375-common/common.mk`).
 
-`tqftpserv/` holds upstream (BSD-3-Clause, commit b6bb92d) plus
-`0001-translate-serve-readonly-vendor-fsg.patch`, three lines that add a
+`tqftpserv/` holds upstream (BSD-3-Clause, commit b6bb92d) plus three patches.
+It is built as `/usr/local/bin/tqftpserv-rhodep` and selected with a systemd
+drop-in, so `/usr/bin/tqftpserv` still belongs to the held distro package.
+
+`0001-translate-serve-readonly-vendor-fsg.patch` — three lines that add a
 catch-all for the rest of `/readonly/vendor/`, resolved under the remoteproc
-firmware directory. It is built as `/usr/local/bin/tqftpserv-rhodep` and
-selected with a systemd drop-in, so `/usr/bin/tqftpserv` still belongs to the
-held distro package.
+firmware directory.
+
+`0002-translate-serve-shared-hlos-ramdumps.patch` — the other three roots of a
+Qualcomm RFS namespace. See "The whole RFS namespace" below.
+
+`0003-tqftpserv-publish-rfs-qmi-instances.patch` — publish QMI service 4096 on
+more than one instance. See the same section.
 
 `-d` is left on deliberately. It is a handful of lines per boot and it is the
 only visibility there is into what the modem wants.
+
+## The whole RFS namespace
+
+Read `/vendor/rfs/` off the stock vendor image and every root is the same five
+entries — this is `msm/mpss`, and `apq/gnss`, `msm/adsp`, `mdm/tn` and the other
+eight are identical bar the `readwrite` target and mpss's extra `fsg` symlink:
+
+	hlos      -> /mnt/vendor/persist/hlos_rfs/shared    (same dir for all roots)
+	shared    -> /mnt/vendor/persist/rfs/shared         (same dir for all roots)
+	ramdumps  -> /data/vendor/tombstones/rfs/modem      (per subsystem)
+	readonly/firmware        -> /vendor/firmware_mnt
+	readonly/vendor/firmware -> /vendor/firmware
+	readonly/vendor/fsg      -> /vendor/fsg             (msm/mpss only)
+	readwrite -> /mnt/vendor/persist/rfs/msm/mpss       (per subsystem)
+
+Upstream tqftpserv implements two of the five. All three of the others are named
+literally in **this modem's own firmware** — `strings` over the `modem` partition's
+`modem.b*`/`modem.mbn` yields, verbatim and exhaustively:
+
+	/hlos/   /hlos/qdma/
+	/ramdumps/   /ramdumps/efs_report.txt
+	/ramdumps/wlan_minidump   /ramdumps/wlan_minidump.count
+	/shared/
+	/readonly/firmware/image/modem_pr/mcfg/configs
+	/readonly/firmware/image/modem_pr/so/%s
+	/readonly/firmware/image/strait/qdsp6m.qdb
+	/readonly/firmware/image/testpd.mbn
+	/readonly/firmware/image/wlanmdsp.mbn
+	/readonly/vendor/firmware/{testpd,wlanmdsp}.mbn
+	/readonly/vendor/firmware_mnt/image/{testpd,wlanmdsp}.mbn
+	/readwrite{,/}   /readwrite/cal_rfs
+	/readwrite/datablock/{id,slid}   /readwrite/datablock_report.txt
+	/readwrite/{dhob,shob,ticf}.bin  /readwrite/{dhob,hob,fsg,simlock}_report.txt
+	/readwrite/mcfg.tmp   /readwrite/mot_rfs/imei_sv
+	/readwrite/ota_firewall/ruleset   /readwrite/server_check.txt
+
+`0002` adds `/shared/`, `/hlos/` and `/ramdumps/`, as directories under the
+state directory rather than as symlinks into `/mnt/vendor/persist`, which does
+not exist here:
+
+	/shared/    -> /var/lib/tqftpserv/rfs_shared      (global, as on stock)
+	/hlos/      -> /var/lib/tqftpserv/rfs_hlos        (global, as on stock)
+	/ramdumps/  -> <the instance's root>/rfs_ramdumps (per instance, as on stock)
+
+`strait/qdsp6m.qdb` — 5.8 MiB, `QDB` magic, the Hexagon symbol database;
+"strait" is SM6375's internal codename, cf. `nav_ConfigStrait` in the same
+firmware — is in the `modem` partition and was not being copied out of it, so
+`/readonly/firmware/image/strait/qdsp6m.qdb` was ENOENT. `rhodep-rfs-populate`
+now copies it. `testpd.mbn` is **not** on this device's `modem` partition at
+all, so stock answers ENOENT to it too; nothing to do there.
+
+### The twelve QMI service instances
+
+Stock does not run one file server per subsystem. `/vendor/bin/tftp_server` is a
+single process, started with no arguments from `vendor.qti.tftp.rc`, that
+registers QMI service 4096 **twelve times** and picks the root from the instance
+the request arrived on. The table is in its `.data` at vaddr `0x1a708`, twelve
+`{u32 instance, char *root}` pairs, and the registration loop at `0x17860` walks
+`1..12` and puts the instance straight into the QRTR `NEW_SERVER` packet:
+
+	 1 msm/mpss     2 msm/adsp     3 mdm/mpss     4 mdm/adsp
+	 5 mdm/tn       6 apq/gnss     7 msm/slpi     8 mdm/slpi
+	 9 msm/cdsp    10 mdm/cdsp    11 msm/wpss    12 mdm/wpss
+
+libqrtr encodes `qrtr_publish(fd, service, version, instance)` as
+`instance << 8 | version`, so upstream's `qrtr_publish(fd, 4096, 1, 0)` puts a
+**1** on the wire — which is exactly stock's `msm/mpss`. That is why the modem
+proper has always found it, and it confirms the numbering: the one instance this
+port publishes is the one the modem uses.
+
+Every other instance had nothing listening, and `qrtr-ns`'s `server_match()`
+(`ns.c:118`) turns a lookup with a non-zero instance into an exact match, so a
+client that looked one up got **no server at all**. tqftpserv never saw the
+request and never logged it — which is worth knowing before concluding from a
+silent log that nothing was asked for.
+
+`0003` makes the instance list a command line option. Instance 1 is always
+published and keeps `/var/lib/tqftpserv` as its read/write root, so the modem
+path is bit-for-bit what it was. The drop-in adds `-i 6`, `apq/gnss`, which gets
+its own root at `/var/lib/tqftpserv/rfs_apq_gnss`. Adding more is `-i 2,6,9`.
+
+	$ qrtr-lookup | grep 4096
+	   4096   1   0   1  16394  TFTP      <- msm/mpss
+	   4096   6   0   1  16395  TFTP      <- apq/gnss
+
+One socket per instance is required and not one socket published repeatedly:
+`qrtr-ns` keys its server map on the *port*, so a second `NEW_SERVER` from the
+same port replaces the first instead of adding to it.
+
+### What this does not fix, and the evidence for that
+
+The GNSS reset was the reason for looking. It is **not** an RFS problem:
+
+- `/mnt/vendor/persist/rfs/apq/gnss/` is **empty** on this phone's factory
+  `persist` partition — mode 0750, owner 2903:2903, mtime 2022-03-28, zero
+  files. Serving instance 6 perfectly serves nothing, because stock has nothing
+  there. `hlos_rfs/shared` is empty too.
+- The `apq/gnss` root is boilerplate. The same vendor image carries seven
+  `rfs/mdm/*` roots for an external modem this phone does not have.
+- The positioning engine's files are **EFS**, not TFTP. `gpsoffsets.bin`,
+  `GPSX1CorrFile`, `GPSX2CorrFile`, `GPSX3File`, `NAVICX3File`, `EphFile01..31`,
+  `IonoFile`, `UtcFile`, `SbasCannedFile`, `GeoAlmFile120..141` all sit in the
+  firmware's string table next to `/GNSS/ME/%s`, `/GNSS/PE/%s`, `/GNSS/CFG/`,
+  `/GNSS/TLE/nv_items.bin` and `/nv/item_files/gps/%s/%s`. Those are paths in
+  the modem's own filesystem, whose backing store is `modemst1`/`modemst2` and
+  whose server is **rmtfs**, block by block, with no file names on the wire.
+- None of those names exists as a file anywhere on the stock `persist`,
+  `vendor`, `modem` or `fsg` partitions. The only `xtra` hit in the whole vendor
+  image is `/vendor/bin/xtra-daemon` and its seccomp policy, i.e. the assistance
+  data downloader, which is an AP-side network client and not an RFS file.
+
+So `0002` and `0003` close a real gap between this port and stock, and the
+`apq/gnss` lead is closed negatively: stock exposes that root, we now expose it
+too, and it is empty on both.
 
 ## rmtfs must NOT have -r
 

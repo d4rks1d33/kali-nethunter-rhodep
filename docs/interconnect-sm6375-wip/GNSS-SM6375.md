@@ -17,6 +17,23 @@ reproducibly, with `ipa.ko` not loaded.**
 > because "GPS does not work on this port" stopped being true, while "a satellite
 > fix reboots the phone" stayed true, and the two are easy to conflate.
 
+> ## 2026-09-06: the engine was waiting for UTC time. Read the last section first.
+>
+> The `powerMode 3`/`5` sessions that this file calls survivable are survivable
+> **only because the engine has no time and will not start the receiver without
+> it**. One accepted `QMI_LOC_INJECT_UTC_TIME` — before the session, during it,
+> or in a different session twenty seconds earlier — turns `powerMode 3` into
+> the same ~100 ms watchdog reset as `powerMode 0/1/2`. Injecting a *position*
+> instead does not, and 78 time injections into a live `cellid` session do not.
+> Six resets and two controls, at
+> ["Answered: the engine was waiting for UTC time"](#answered-the-engine-was-waiting-for-utc-time-and-giving-it-to-it-is-what-fires-the-reset).
+>
+> Two things below are now wrong as written and are corrected there, not edited
+> out: "`powerMode 3` survives 300 s" is conditional on no time having been
+> injected on that boot, and the event registration mask turns out to be a
+> second, independent reset lever. Still **no fix, no measurement report, no
+> satellite ever observed**.
+
 > ## Narrowed: it is the measurement engine, and `cellid` positioning works
 >
 > One operation mode changes the outcome completely. With the mode set to
@@ -992,3 +1009,1043 @@ gives every CPU `cpu-idle-states = <&SLVR_PC &SLVR_RAIL_OFF>`.
 
 Unrelated to the reset, but it means the cores never enter a low power state,
 which costs battery continuously. It is its own piece of work.
+
+---
+
+# Narrowed again: the reset needs the engine in *continuous full-power* tracking
+
+**A `standalone` session survives indefinitely if `QMI_LOC_START` carries a
+duty-cycled `powerMode`. The same session, same boot, same client, without that
+TLV, watchdog-resets the SoC.**
+
+This is the first cut *inside* the measurement engine. Everything before it was
+all-or-nothing: `standalone` dies, `cellid` lives. The lever is one optional TLV
+on `QMI_LOC_START` that libqmi does not model and `qmicli` cannot send.
+
+	| powerMode (QMI_LOC_START TLV 0x1A) | meaning                             | outcome        |
+	| ---------------------------------- | ----------------------------------- | -------------- |
+	| absent (engine default)            | -                                   | watchdog reset |
+	| 1  IMPROVED_ACCURACY               | full power, **non-DPO**             | watchdog reset |
+	| 3  BACKGROUND_DEFINED_POWER        | duty-cycles to a power budget       | survives 60 s  |
+	| 5  BACKGROUND_KEEP_WARM            | <1 mA duty cycling                  | survives 15 s (x2) |
+
+The two survivals and the two resets are the same binary, the same session id,
+the same event mask, the same verified `operation mode = standalone (4)`.
+
+## The controlled pair, one boot, 55 seconds apart
+
+`/var/lib/systemd/pstore/console-ramoops-0`, kernel timestamps, `alive N ms`
+heartbeats stripped:
+
+	[  232.617015] BISECT-R4-standalone-powermode5-keepwarm-1788657231
+	[  236.790416] rhodep-gnss: SET_OPERATION_MODE: standalone (4) from this client
+	[  236.793407] rhodep-gnss:   SET_OPERATION_MODE: qmi_result=(0, 0) loc_status=SUCCESS(0)
+	[  236.801114] rhodep-gnss:   read back: operation mode = standalone (4)
+	[  240.836168] rhodep-gnss: config verified: opmode=standalone, events=min,engine
+	[  240.838370] rhodep-gnss: QMI_LOC_START  session=11  powerMode=5/1000ms
+	[  248.897007] rhodep-gnss: fix criteria read back after start: {... 'powerMode': (5, 0)}
+	[  263.934842] rhodep-gnss: SURVIVED 15 s; indications received: 3
+	[  268.968696] rhodep-gnss: session stopped
+
+	[  288.295719] BISECT-R5-CONTROL-standalone-nopowermode-1788657287
+	[  292.469194] rhodep-gnss: SET_OPERATION_MODE: standalone (4) from this client
+	[  292.475365] rhodep-gnss:   read back: operation mode = standalone (4)
+	[  296.509074] rhodep-gnss: config verified: opmode=standalone, events=min,engine
+	[  296.511577] rhodep-gnss: QMI_LOC_START  session=11
+	                                       <- console ends here, SoC gone
+
+	androidboot.bootreason=watchdog
+	androidboot.powerup_reason=0x00008000
+
+Note the read-back lines in **both**. The mode really was `standalone` in the
+survival; this is not the "a failed set falls through to standalone" trap in
+reverse. And note that the survival ran its `session stopped` and its post-run
+configuration dump — it is a session that completed, not a session that hung.
+
+`powerMode=1` was run on a later boot and ends the console identically:
+
+	[  183.852753] rhodep-gnss: QMI_LOC_START  session=11  powerMode=1/1000ms
+	                                       <- console ends here, SoC gone
+	androidboot.bootreason=watchdog   androidboot.powerup_reason=0x00008000
+
+That is the interesting one. `eQMI_LOC_POWER_MODE_IMPROVED_ACCURACY` is
+documented in the IDL as *"GNSS receiver operates in full power mode
+(non-DPO)"*. So **disabling** dynamic power optimisation does not save it —
+which kills the obvious reading of this result. What survives is not "DPO off",
+it is "the receiver allowed to duty-cycle". The reset wants the receiver
+continuously on.
+
+## What this does NOT prove
+
+The surviving runs produced **no NMEA, no satellite list and no
+`ENGINE_STATE=ON` indication**, over 60 s with `POSITION_REPORT |
+GNSS_SATELLITE_INFO | NMEA | ENGINE_STATE | FIX_SESSION_STATE | INJECT_*`
+registered and verified. So this evidence **cannot distinguish**:
+
+* the measurement engine comes up and runs safely when duty-cycled, from
+* the measurement engine is never brought up in modes 3 and 5 either, exactly
+  as in `cellid`, and this is the same old negative in new clothes.
+
+Two things argue weakly for the first reading and neither is conclusive:
+
+* the position report carries `session=0` (`eQMI_LOC_SESS_STATUS_SUCCESS`) in
+  `standalone` + powerMode 3/5, where `cellid` gives `session=2`
+  (`GENERAL_FAILURE`);
+* the 60 s run got `QMI_LOC_EVENT_INJECT_TIME_REQ_IND (0x0028)`, i.e. the engine
+  asked the AP for time — `cellid` never does.
+
+For mode 5 the absence of indications is expected and says nothing at all: the
+IDL states *"All QMI Indications are blocked in this mode to save power."* For
+mode 3 there is no such excuse and the silence is unexplained. **Anyone
+continuing this should settle it first**, because the whole value of the result
+depends on it. The cheapest instrument is the modem's own measurement report:
+register `QMI_LOC_EVENT_GNSS_MEASUREMENT_REPORT_IND (0x0086)`, which only a
+running correlator can produce.
+
+Second limitation: only `powerMode` was verified applied. `minInterval` was
+asked for 60000 and read back as 1000, so **no claim is made about fix
+recurrence, minimum interval or horizontal accuracy** — those were never
+demonstrated to take effect and were dropped from the bisection rather than
+reported as negatives.
+
+## Constellation control exists on this modem, and refuses to restrict
+
+The plan was to bisect by constellation and by band. That is not reachable here,
+and the way it fails is worth writing down because it fails *silently*.
+
+`qmicli --help-loc` exposes twenty actions and not one of them touches
+constellations, bands, signals, DPO or LNA. libqmi 1.38.0 is no better: its LOC
+model has eleven messages, `QMI_LOC_START` with three of its nine optional TLVs,
+and no binding for constellation control, SV blacklisting, multiband config or
+`powerMode`. There is no raw escape hatch either — `QmiMessage` is a
+`GByteArray` typedef and is absent from the introspection data, so
+`gi.repository.Qmi` has no `Message` attribute and a python-gi program cannot
+hand-build a PDU. Hence `scripts/rhodep-gnss-bisect.py` speaks QMI to node 0
+port 108 directly over `AF_QIPCRTR`, the way `pdr-tool.py` and `ssc-*.py`
+already do.
+
+Asked what it implements, the service under-reports itself.
+`QMI_LOC_GET_SUPPORTED_MSGS (0x001E)` returns a 22-byte bitmap, 141 message ids,
+stopping at `0x00AA`:
+
+	supported bitmap: 22 bytes (count field 22)
+	141 message ids supported
+	  0x001e QMI_LOC_GET_SUPPORTED_MSGS ... 0x00aa (last)
+
+`QMI_LOC_SET_CONSTELLATION_CONTROL` is `0x00B8`, `SET_BLACKLIST_SV` is `0x00B6`,
+`SET_MULTIBAND_CONFIG` is `0x00E0` — all above the cut. **The bitmap is wrong.**
+Every one of them answers:
+
+	0x00b7 GET_BLACKLIST_SV        RESP {0x02: 00000000}
+	                               IND  {0x01: 00000000, 0x10..0x15: 8 bytes each, all zero}
+	0x00bf GET_CONSTELLATION_CONTROL
+	                               IND  {0x01: 00000000, 0x10: gps=0, 0x11: glo=1,
+	                                     0x12: bds=101, 0x13: qzss=101,
+	                                     0x14: gal=1, 0x15: navic=100}
+	0x00e1 GET_MULTIBAND_CONFIG    IND  {0x01: 00000000, 0x10: 0000000000000000}
+
+Read that second one: **GPS `ENABLED_MANDATORY`, GLONASS and Galileo
+`ENABLED_INTERNALLY`, BDS and QZSS `DISABLED_INTERNALLY`, NavIC
+`DISABLED_NOT_SUPPORTED`.** And the third: `secondaryGnssConfig = 0`, i.e. **not
+one secondary band is enabled for any system**. The engine on this device is
+already L1/G1/E1 only — GPS L2, GPS L5, GAL E5a, BDS B2A are all off before
+anything is asked of it. That disposes of "one frequency band" and "NavIC"
+without spending a run on either.
+
+Writing is where it goes wrong. The encoding is right — 32-bit masks are
+rejected with QMI error `0x0001` (malformed), 64-bit masks are accepted — and
+*enabling* works:
+
+	A: enable QZSS   en=0x24 dis=0x1b u64 -> RESP (0,0)  IND status=SUCCESS
+	   read back: qzss 101 DISABLED_INTERNALLY -> 2 ENABLED_BY_CLIENT   <- took
+	C: enable BDS+GAL, disable GLO+NavIC     -> RESP (0,0)  IND status=SUCCESS
+	   read back: bds 101->2, gal 1->2                                  <- took
+	   read back: glo 1 ENABLED_INTERNALLY -> 1 ENABLED_INTERNALLY      <- ignored
+
+The modem reports `SUCCESS` at both the QMI layer and the LOC layer and leaves
+the constellation enabled. `SET_MULTIBAND_CONFIG` behaves the same way: asked to
+enable the GPS secondary band it answers `SUCCESS` and reads back `0`.
+
+So on this firmware, constellation and band configuration is **expansion-only**.
+A control point can switch things on; it cannot switch anything off. Turning
+GLONASS or Galileo off — the actual experiment — is not reachable.
+
+This is exactly the failure mode the repo already warned about for operation
+mode, one layer deeper, and it is worse: the operation-mode failure at least
+tells you if you read the value back. Here the *set* reports success. The first
+bisection run was **voided by the tool** on the read-back, not by inspection:
+
+	SET_CONSTELLATION_CONTROL: enable=0x20 disable=0x1f
+	  SET_CONSTELLATION_CONTROL: qmi_result=(0, 0) loc_status=SUCCESS(0)
+	  read back: gps=ENABLED_MANDATORY glo=ENABLED_INTERNALLY ... gal=ENABLED_INTERNALLY
+	VOID: constellation glo asked off, modem says ENABLED_INTERNALLY
+	VOID: the run proves nothing; fix the step and repeat it
+
+Had the tool trusted `SUCCESS`, that run would have started a full unrestricted
+`standalone` session, reset the SoC, and been written up as "GPS-L1-only still
+resets" — a wrong result with a plausible mechanism, which is the expensive kind.
+
+### The one route left, deliberately not taken
+
+`QMI_LOC_SET_BLACKLIST_SV (0x00B6)` would do it from the other side: blacklist
+every GLONASS and Galileo SV and the engine has nothing to search. It is
+implemented here — `GET_BLACKLIST_SV` answers with six 64-bit masks, all
+currently zero, and there is an explicit `*_clear_persist_blacklist_sv` undo.
+
+It was not run. Every field in that message is named `*_persist_*`: it writes
+the modem's EFS, which reaches the eMMC through `rmtfs`. Issuing an EFS write
+immediately before an operation whose *expected* outcome is a watchdog reset is
+not a good trade on a phone with no USB link, and this session's brief forbids
+writing partitions. Someone with recovery available should do it; it is the
+clean version of this experiment.
+
+`QMI_LOC_SET_PARAMETER (0x00D7)` has
+`eQMI_LOC_PARAMETER_TYPE_CONSTELLATION_DISABLE_CONFIG`, which is precisely the
+"disable a constellation on legacy service providers where the other API is not
+available" escape. It answers `GET_PARAMETER` with QMI error `0x0011`
+(missing mandatory argument), so it exists. It is also documented as *"to write
+to nonvolatile memory"*, so it was declined for the same reason.
+
+## What was not tested, and why
+
+The untested operation modes — `msa`, `msb`, `wwan`, `default` — were left
+alone. Once `powerMode` turned out to be a live lever that flips the outcome
+inside `standalone`, spending the remaining reset budget on four more
+whole-session modes was the worse buy: each would have produced one more
+reset with no read-back to distinguish "this mode is safe" from "this mode
+failed to apply". They remain open and are cheap for whoever picks this up
+(`rhodep-gnss-bisect.py 15 opmode=msa`, and the tool will void the run itself
+if the mode does not stick).
+
+No `ENGINE_STATE` indication has ever been observed on this device, in any mode,
+including the ones that reset. That is worth a moment: the event is registered
+and acknowledged, and the engine never reports itself on or off.
+
+## Reproducing
+
+	sudo systemctl stop rhodep-gnss.service     # it pins a LOC client in cellid
+	md5sum scripts/rhodep-gnss-bisect.py        # a zeroed copy looks like a survival
+	python3 -c "import ast; ast.parse(open('scripts/rhodep-gnss-bisect.py').read())"
+	sudo qmicli -p -d qrtr://0 --dms-set-operating-mode=online
+
+	sudo ./scripts/rhodep-gnss-bisect.py probe                                # reads only
+	sudo ./scripts/rhodep-gnss-bisect.py 15 opmode=standalone powermode=5,1000  # survives
+	sudo ./scripts/rhodep-gnss-bisect.py 15 opmode=standalone                   # RESETS
+
+Run the last two back to back on one boot. That pair is the result.
+
+A caveat on the record for this session: one reboot in the middle of it was
+`bootreason=reboot` / `powerup_reason=0x00004000`, a deliberate
+`systemd-reboot` issued by another user of the phone, not a watchdog and not
+caused by anything here. Both watchdog resets attributed above were confirmed
+with `0x00008000` and with the console ending mid-session.
+
+---
+
+# Settled: the correlator never runs. The `powerMode` survivals were idle sessions
+
+**`QMI_LOC_EVENT_GNSS_MEASUREMENT_REPORT` was registered and the receiver never
+emitted one — not in 300 s of a session that cycled 308 times, and not under a
+full 64-bit event mask. Reading (b) from the section above is the correct one.
+The previous result is weaker than it looked, and part of it was an artefact.**
+
+No position fix was obtained. This is not working satellite GPS.
+
+Two separate errors in the previous write-up are corrected below: the surviving
+`powerMode 3`/`5` sessions were **single-shot sessions that had already ended**
+eight seconds in, and the IDL's "mode 5 blocks all indications" excuse for their
+silence is **false on this firmware**.
+
+## First, a tool bug that would have voided everything: the LOC port moves
+
+`rhodep-gnss-bisect.py` had `LOC_NODE, LOC_PORT = 0, 108` hardcoded. QRTR hands
+out service ports as services register, so they are stable within a boot and not
+across boots. Measured, on consecutive boots of this phone:
+
+	boot A (hardware_reset)   16  2  0  0  107   Location service (~ PDS v2)
+	boot B (watchdog)         16  2  0  0  108   Location service (~ PDS v2)
+
+Every run in this session was preceded by `qrtr-lookup | awk '$1==16'`, and the
+port was 107 for the first three runs and 108 for the rest. A hardcoded 108
+would have sent the first runs into a dead port; `INFORM_CLIENT_REVISION` would
+have timed out and the tool would have reported
+
+	VOID: INFORM_CLIENT_REVISION: no response from the LOC service
+
+which is safe — it Voids rather than half-configuring — but it costs a run and
+reads like "the modem ignored us" rather than "we were talking to nobody". The
+tool now looks the service up at startup (`find_loc()`), logs what it resolved,
+and takes `port=N` to override. The banner line is the receipt:
+
+	LOC client bound to (1, 16415) (qrtr 0:107)
+
+## The correction: `recurrence` was never sent, and the default is single-shot
+
+Every run in the previous section, survivals and resets alike, omitted
+`QMI_LOC_START` TLV `0x10` (recurrence). The tool only appends it when the
+caller asks. What the default actually does is now visible, because the
+measurement-report run logged raw TLVs with kernel timestamps.
+
+Run 1 — `300 opmode=standalone powermode=3,1000 events=min,engine,inject,meas,svpoly`,
+i.e. the previously-reported "survives" configuration, given 300 s instead of 60 s:
+
+	[  455.022342] rhodep-gnss: QMI_LOC_START  session=11  powerMode=3/1000ms
+	[  463.097956] rhodep-gnss: POSTSTART-VERIFY: powerMode = (3, 1000)  APPLIED
+	[  463.100059] rhodep-gnss: FIXSESS state=STARTED  raw 0x01[4]=01000000
+	[  463.101126] rhodep-gnss: EVENT  INJECT_TIME_REQ #1 0x10[62]=e803000003127469...
+	[  463.102313] rhodep-gnss: POS    session=0(SUCCESS)
+	[  463.103453] rhodep-gnss: POS    #1 raw 0x01[4]=00000000 0x02[1]=0b
+	[  463.104463] rhodep-gnss: FIXSESS state=FINISHED  raw 0x01[4]=02000000
+	                        <- nothing whatsoever for the next 300 seconds
+	[  763.118727] rhodep-gnss: SURVIVED 300 s; indications received: 4
+	[  763.123032] rhodep-gnss: MEASUREMENT REPORTS: 0
+
+`FIX_SESSION_STATE` goes `STARTED` and then `FINISHED` inside the same
+millisecond-scale burst, 8 s after `START` (the 8 s is the tool's own
+`want_ind` timeout on a message that never sends an indication, not modem
+latency — the four indications were queued during it and replayed together).
+
+So the session was **over** before the listening window really began. The
+remaining 292 s were an idle engine. "Survives 60 s" in the previous section
+meant "the engine did one fix attempt, gave up, closed the session, and then sat
+there". That is not a receiver duty-cycling safely.
+
+Note also what the "weak evidence for (a)" actually is. The
+`POSITION_REPORT` cited as `session=0 (SUCCESS)` carries **two TLVs**: `0x01`
+the session status and `0x02` the session id `0x0b`. No latitude, no longitude,
+no uncertainty, no `svUsed`, no GPS week or TOW. It is an empty report that
+declares itself successful. It should not have been read as evidence that the
+engine was doing anything.
+
+## With `recurrence=periodic` the session really does cycle — and is still silent
+
+Run 3 — the same thing with recurrence made explicit:
+
+	300 opmode=standalone powermode=3,1000 recurrence=periodic \
+	    events=min,engine,inject,meas,svpoly
+
+	rhodep-gnss: QMI_LOC_START  session=11  recurrence=periodic  powerMode=3/1000ms
+	rhodep-gnss: POSTSTART-VERIFY: powerMode = (3, 1000)  APPLIED
+	rhodep-gnss: SURVIVED 300 s; indications received: 1541
+	rhodep-gnss:   indication POSITION_REPORT            x308
+	rhodep-gnss:   indication NMEA                       x308
+	rhodep-gnss:   indication INJECT_TIME_REQ            x308
+	rhodep-gnss:   indication FIX_SESSION_STATE          x617
+	rhodep-gnss: MEASUREMENT REPORTS: 0
+
+308 complete fix cycles at ~1 Hz over five minutes. Each cycle is identical:
+
+	FIXSESS state=STARTED  raw 0x01[4]=01000000
+	EVENT  INJECT_TIME_REQ #n 0x10[62]=e8030000031274696d652e78747261636c6f75642e6e6574..
+	POS    session=0(SUCCESS)
+	POS    #n raw 0x01[4]=00000000 0x02[1]=0b
+	NMEA   $PSTIS,*61
+	FIXSESS state=FINISHED  raw 0x01[4]=02000000
+
+**This is the run that settles it.** The session is unambiguously alive and
+repeating; the "the session had already ended" escape is gone. And in 308
+cycles:
+
+* `MEASUREMENT REPORTS: 0` — no correlator output, ever;
+* zero `GNSS_SV_INFO` indications — no satellite list, not even an empty one;
+* every `POSITION_REPORT` is the same empty two-TLV report;
+* the only NMEA ever emitted is `$PSTIS,*61`, a Qualcomm proprietary sentence
+  with an empty payload. No `GGA`, no `RMC`, no `GSV`, no `GSA`, despite
+  `rhodep-xtra status` reporting NMEA types `0x7fff` (gga, rmc, gsv, gsa, vtg,
+  pqxfi, pstis);
+* still no `ENGINE_STATE`, on any run, consistent with everything before.
+
+`FIX_SESSION_STATE` *does* arrive, 617 times. That matters: it is the other half
+of the same `engine` mask bit-pair (`0x080 | 0x100`) as `ENGINE_STATE`, so the
+registration path demonstrably works and the silence of the rest is the
+modem's, not the tool's.
+
+### The event-mask bit index is not the excuse either
+
+The obvious objection is that `meas = 0x01000000` is taken from an IDL that has
+already been caught being wrong about this service twice. Run 2 closes that.
+It is Run 3 with one thing changed — the event mask set to every bit:
+
+	REG_EVENTS mask 0xffffffffffffffff (0xffffffffffffffff)
+	  REG_EVENTS: qmi_result=(0, 0) loc_status=None
+
+Over 253 s of the same 1 Hz cycling, with **all 64 bits registered**, still zero
+measurement reports and zero SV info. Whatever bit `GNSS_MEASUREMENT_REPORT`
+really lives on, it was registered, and nothing came. The wide mask did surface
+three indication ids the decoder does not know, and they are recorded here
+verbatim because that is the whole point of the raw-TLV logging:
+
+	EVENT  0x002d #1  0x01[4]=00000000 0x10[2]=e803 0x11[1]=00     (at each fix start)
+	EVENT  0x002d #2  0x01[4]=02000000 0x10[2]=0000 0x11[1]=00     (at each fix end)
+	EVENT  0x00be #1  0x01[4]=01000000 0x10[18]=000000000000000000000000000000000000
+	EVENT  0x00cd #1  0x01[8]=0000000000000000 0x12[8]=0000000000000000
+
+By message-id ordering in the IDL (`0x2B` engine state, `0x2C` fix session
+state) `0x002d` should be `QMI_LOC_EVENT_WIFI_REQ` — the engine asking the AP
+for WiFi aiding once per fix cycle, `0x10 = 0x03e8 = 1000` ms, even in
+`standalone`. That identification is **inference from numbering only and is not
+confirmed**. `0x00be` and `0x00cd` are not identified at all; both carry only
+zeros.
+
+## Honest reading, and the strongest remaining lead
+
+The measurement engine is not demonstrated to run in `powerMode 3` or `5`. What
+is demonstrated is a fix state machine that starts, asks for time, produces an
+empty successful position report, and finishes, once per second, indefinitely,
+without ever reporting a satellite or a measurement. On the evidence available
+that is indistinguishable from `cellid` with better manners.
+
+The single most promising lead is in every one of those 308 cycles:
+
+	EVENT  INJECT_TIME_REQ 0x10[62]=e8030000 03 12 74696d652e78747261636c6f75642e6e6574..
+	                                 |        |  |  \_ "time.xtracloud.net" (18 bytes)
+	                                 |        |  \____ 0x12 = 18, the string length
+	                                 |        \_______ 0x03
+	                                 \________________ 0x000003e8 = 1000
+
+**The engine asks the AP for time on every single fix attempt and is never
+answered.** Nothing in this session ever replied to an `INJECT_TIME_REQ`. Run 2
+also produced one `INJECT_PREDICTED_ORBITS_REQ` carrying the
+`https://path1.xtracloud...` server list, despite XTRA having been injected and
+`rhodep-xtra status` reporting 165 h remaining at the start of the session.
+
+So there is a live alternative to "duty cycling stops the receiver coming up":
+**the engine may be blocked waiting on assistance it keeps asking for and never
+receives.** The previous section ruled out assistance "in both directions" on
+the basis of *injecting* it up front; it did not test *answering the engine's
+own request during the session*. That is the next experiment, it is cheap, and
+it does not need a reset: answer `QMI_LOC_EVENT_INJECT_TIME_REQ` with
+`QMI_LOC_INJECT_UTC_TIME (0x002E)` inside the `powerMode 3` periodic loop and
+see whether the cycle ever progresses past the empty report.
+
+## The `powerMode` enum, mapped
+
+All entries below are `opmode=standalone`, `recurrence=periodic`,
+`events=min,engine,inject,meas,svpoly`, `tBetween=1000` unless stated. Resets
+are confirmed by `androidboot.bootreason=watchdog` /
+`powerup_reason=0x00008000` **and** by the console ending mid-session.
+
+	| powerMode | IDL meaning                | START result | outcome                        | meas |
+	| --------- | -------------------------- | ------------ | ------------------------------ | ---- |
+	| absent    | engine default             | accepted     | watchdog reset, ~100 ms        | -    |
+	| 0         | (unset / not a valid enum) | accepted     | watchdog reset, ~100 ms        | -    |
+	| 1         | IMPROVED_ACCURACY, non-DPO | accepted     | watchdog reset, ~100 ms        | -    |
+	| 2         | NORMAL, DPO on             | accepted     | watchdog reset, ~100 ms        | -    |
+	| 3         | BACKGROUND_DEFINED_POWER   | accepted     | survives 300 s, 308 fix cycles | 0    |
+	| 4         | BACKGROUND_DEFINED_TIME    | QMI error 3  | not supported, run Voids       | -    |
+	| 5         | BACKGROUND_KEEP_WARM       | accepted     | survives 20 s, 29 fix cycles   | 0    |
+
+`powerMode=0` and `powerMode=2` are new resets from this session. Both end the
+console at exactly the same line, with nothing after it:
+
+	[  853.185170] rhodep-gnss: QMI_LOC_START  session=11  recurrence=periodic  powerMode=0/1000ms
+	[  266.791666] rhodep-gnss: QMI_LOC_START  session=11  recurrence=periodic  powerMode=2/1000ms
+
+`powerMode=2` is worth a moment. `eQMI_LOC_POWER_MODE_NORMAL` is the ordinary
+mode with dynamic power optimisation **enabled** — the mode an ordinary GPS
+application gets. It resets the SoC exactly like mode 1 with DPO explicitly
+off. Combined with mode 1 from the previous session, this kills the last
+version of the "DPO" reading: it is not DPO on, it is not DPO off. Every mode
+that is not one of the two *background* modes resets the phone.
+
+`powerMode=4` is simply absent from this firmware. `QMI_LOC_START` rejects it
+with QMI error 3 at `tBetween=1000` and again at `tBetween=10000`, so this is
+not a bad companion value. The tool Voids and no session is created, which
+costs nothing — three of this session's runs ended this way and none of them
+cost a reboot.
+
+### Mode 5 is not silent because the IDL says it is
+
+The previous section excused mode 5's lack of indications with the IDL line
+*"All QMI Indications are blocked in this mode to save power"*, and concluded
+that mode 5's silence "says nothing at all". That is wrong here. With
+`recurrence=periodic`, `powerMode=5` emits indications at exactly the same rate
+as mode 3:
+
+	QMI_LOC_START  session=11  recurrence=periodic  powerMode=5/1000ms
+	SURVIVED 20 s; indications received: 145
+	  indication POSITION_REPORT            x29
+	  indication NMEA                       x29
+	  indication INJECT_TIME_REQ            x29
+	  indication FIX_SESSION_STATE          x58
+	MEASUREMENT REPORTS: 0
+
+145 indications in 20 s, byte-identical in kind to mode 3. So indications are
+**not** blocked in mode 5 on this firmware, and mode 5's zero measurement
+reports carry exactly as much weight as mode 3's.
+
+## The duty-cycle knob cannot be walked — it is validated, then inert
+
+`QMI_LOC_START` TLV `0x1A` is two `uint32`: the mode and `tBetween`. The
+previous section nominated this as "the duty-cycle knob and the thing to walk
+when looking for the threshold". It is not. Walking it toward continuous
+operation, `powerMode=3`, `recurrence=periodic`:
+
+	| tBetween | START            | result                                      |
+	| -------- | ---------------- | ------------------------------------------- |
+	| 100      | qmi_result=(1,3) | rejected, VOID, no session created          |
+	| 500      | qmi_result=(1,3) | rejected, VOID, no session created          |
+	| 1000     | qmi_result=(0,0) | survives 300 s, 308 cycles, 0 measurements  |
+	| 2000     | qmi_result=(0,0) | survives 20 s, 29 cycles, 0 measurements    |
+	| 10000    | qmi_result=(0,0) | survives 20 s, 29 cycles, 0 measurements    |
+
+Two things fall out, and they point opposite ways.
+
+**Downward, the firmware refuses.** Anything below the 1000 ms `minInterval` is
+rejected outright with QMI error 3. `powerMode 3` cannot be pushed into the
+continuous region at all — the firmware will not let a client use this TLV to
+reach the dangerous configuration. So there is no threshold to bisect along this
+axis, and no number to report. That is a negative result but a clean one: the
+"convert the finding into a number" plan does not work through `powerMode`.
+
+**Upward, the value is inert.** `tBetween=2000` and `tBetween=10000` produced
+*identical* indication counts — 29 / 29 / 29 / 58, 145 total, in 20 s. A 10 s
+measurement spacing did not slow the 1 Hz cycle down at all. The value is
+stored, not honoured: it reads back through `GET_FIX_CRITERIA` TLV `0x18`, and
+it is also mirrored into the field this tool labels `positionReportTimeout`
+(TLV `0x16`), which read back `10000` after the `tBetween=10000` run and
+`255000` before any session. Stored, echoed, and with no observable effect —
+the same trap as `minInterval`, one TLV over.
+
+The tool now checks the second word as well as the first and says so rather than
+plotting a curve through a parameter that does nothing:
+
+	POSTSTART-UNVERIFIED: powerMode enum 5 applied but tBetween asked 1000,
+	  reads back 0 -- the duty-cycle knob did NOT take
+
+That line is from `powerMode=5`, which ignores `tBetween` entirely and zeroes
+it. Under the old check that run would have printed `APPLIED`.
+
+## An unexplained reset: the wide event mask, one controlled pair
+
+Run 2 and Run 3 are the same command with one difference, the event mask. Both
+`opmode=standalone powermode=3,1000 recurrence=periodic`, both 300 s, one boot
+apart:
+
+	Run 2  events=0xffffffffffffffff   START t=896.651   console ends t=1149.647
+	                                   -> watchdog, 0x00008000, after 253 s
+	Run 3  events=min,engine,inject,meas,svpoly (0x30001f7)
+	                                   -> SURVIVED 300 s, 1541 indications
+
+Run 2's console ends four seconds after the last routine cycle, immediately
+after a burst of the two unidentified indication types:
+
+	[ 1145.683150] rhodep-gnss: FIXSESS state=FINISHED
+	[ 1145.684823] rhodep-gnss: EVENT  0x002d #500 0x01[4]=02000000 0x10[2]=0000 0x11[1]=00
+	[ 1149.643508] rhodep-gnss: EVENT  0x00cd #1 0x01[8]=0000000000000000 0x12[8]=0000000000000000
+	[ 1149.644126] rhodep-gnss: EVENT  0x00cd #2 0x01[8]=0000000000000000 0x12[8]=0000000000000000
+	[ 1149.645663] rhodep-gnss: EVENT  0x00be #2 0x01[4]=01000000 0x10[18]=0000000000...
+	[ 1149.647583] rhodep-gnss: EVENT  0x00be #3 0x01[4]=01000000 0x10[18]=0000000000...
+	                                       <- console ends here, SoC gone
+
+**This is one pair, n=1 on each side, and it is not established.** It is
+recorded because it is a clean single-variable difference and because it is a
+trap for the next person: registering unknown event bits is not free, and a
+`powerMode 3` run that resets is not necessarily evidence about `powerMode 3`.
+It also means this reset has a second, slower flavour — 253 s rather than
+100 ms — which no previous run had seen. Anyone reproducing should run the pair
+again before believing it.
+
+## What is now ruled out, and what is not
+
+Ruled out by this session:
+
+* that `powerMode 3`/`5` demonstrate a safely duty-cycling receiver — they do
+  not; nothing tracks in either;
+* that the `GNSS_MEASUREMENT_REPORT` event bit index was the problem — a full
+  64-bit mask produced nothing either;
+* that mode 5's silence is explained by the IDL's indication-blocking note;
+* that DPO is the variable — mode 2 (DPO on) and mode 1 (DPO off) both reset;
+* that `tBetween` is a usable duty-cycle threshold parameter.
+
+**Not** ruled out, and still open:
+
+* whether answering `INJECT_TIME_REQ` in-session unblocks acquisition — the
+  strongest lead, and it needs no reset;
+* whether the receiver can track at all on this device under any configuration.
+  There is still **no positive control** for the measurement-report path: the
+  only configurations that plausibly run the correlator continuously are exactly
+  the ones that take the SoC down in ~100 ms, far too fast to emit anything. So
+  "no measurement report" cannot be fully separated from "measurement reports
+  never work here";
+* `msa`, `msb`, `wwan` and `default` operation modes, still never run.
+
+## Reproducing
+
+	sudo systemctl stop rhodep-gnss.service     # it pins a LOC client in cellid
+	md5sum scripts/rhodep-gnss-bisect.py        # bcb004cc33c0db50bed3c31505ac2fea, 35289 bytes
+	python3 -c "import ast; ast.parse(open('scripts/rhodep-gnss-bisect.py').read())"
+	qrtr-lookup | awk '$1==16'                  # the port moves between boots
+	sudo qmicli -p -d qrtr://0 --dms-set-operating-mode=online
+
+	# the result of this session, safe, 300 s, no reset:
+	sudo ./scripts/rhodep-gnss-bisect.py 300 opmode=standalone powermode=3,1000 \
+	     recurrence=periodic events=min,engine,inject,meas,svpoly
+
+	# the same without recurrence -- looks like a survival, is an idle engine:
+	sudo ./scripts/rhodep-gnss-bisect.py 300 opmode=standalone powermode=3,1000 \
+	     events=min,engine,inject,meas,svpoly
+
+	# RESETS THE PHONE:
+	sudo ./scripts/rhodep-gnss-bisect.py 20 opmode=standalone powermode=2,1000 \
+	     recurrence=periodic
+
+Session ledger, for boot-reason bookkeeping: three watchdog resets, all
+`0x00008000`, all with the console ending mid-session — `powerMode 3` with the
+64-bit event mask (253 s), `powerMode 0` (~100 ms), `powerMode 2` (~100 ms).
+Runs 3, 4 and the whole `tBetween` ladder ran on a single boot, confirmed by
+`uptime` continuity (13 min) across all of them. Three runs Voided for free with
+QMI error 3 and created no session. The phone was left with
+`rhodep-gnss.service` active, no failed units, wlan0 up, `qrtr-lookup` showing
+service 16, and `mmcli -L` listing the modem.
+
+---
+
+# Answered: the engine was waiting for UTC time, and giving it to it is what fires the reset
+
+**The `INJECT_TIME_REQ` lead is closed, and it closed in the opposite direction
+from the one it was opened in. Answering the engine's time request does not
+unblock acquisition. It removes an interlock. One `QMI_LOC_INJECT_UTC_TIME`
+accepted by the modem converts the *only* GNSS configuration that survives —
+`standalone`, `powerMode 3`, `recurrence=periodic` — into a watchdog reset
+within ~100 ms of `QMI_LOC_START`.**
+
+No fix was obtained. No measurement report, no satellite list, no NMEA beyond
+`$PSTIS,*61`. **This is still not working satellite GPS.**
+
+What it does supply is the missing explanation for the whole `powerMode` table
+above. `powerMode 3` and `5` never looked safe because they duty-cycle the
+receiver. They looked safe because **the correlator was never started at all**:
+the engine sits in a fix loop asking the AP for time once per second and will
+not proceed without it. Give it time — before the session, during the session,
+or minutes earlier in a different session — and `powerMode 3` behaves exactly
+like `powerMode 0`, `1` and `2`.
+
+The eight runs below were done in one sitting: six watchdog resets, two clean
+survivals used as controls, and one deliberate `systemctl reboot` recorded as a
+calibration point.
+
+## The controlled series
+
+Every row is `opmode=standalone`, `powermode=3,1000`, `recurrence=periodic`,
+`events=min,engine,inject,meas,svpoly` (mask `0x30001f7`) unless the row says
+otherwise. Every reset is confirmed by `androidboot.bootreason=watchdog` /
+`androidboot.powerup_reason=0x00008000` **and** by the console record ending
+mid-run. Every survival is confirmed by `/proc/uptime` continuity across the
+run **and** by the tool's own `SURVIVED` line.
+
+	| # | what changed                              | UTC time in the engine? | outcome                                   |
+	| - | ----------------------------------------- | ----------------------- | ----------------------------------------- |
+	| 1 | event mask widened to 0x3203fff           | no                      | RESET at QMI_LOC_START                    |
+	| 2 | answer INJECT_TIME_REQ in-session         | supplied in-session     | 5 fix cycles, then RESET ~1 s later       |
+	| 3 | repeat of 2                               | supplied in-session     | identical, RESET ~1 s later               |
+	| 4 | opmode=cellid, 78 time injections at 1 Hz | yes, 78 of them         | **SURVIVED 90 s**, uptime 198 -> 309      |
+	| 5 | nothing; same boot as run 4               | left over from run 4    | RESET at QMI_LOC_START                    |
+	| 6 | preinject=time before START, answer nothing | yes, one, pre-session | RESET at QMI_LOC_START                    |
+	| 7 | preinject=position before START           | **no**                  | **SURVIVED 300 s**, 309 fix cycles        |
+	| 8 | repeat of 6, on a clean boot              | yes, one, pre-session   | RESET at QMI_LOC_START                    |
+
+Runs 6/7 are the pair that carries the result. They are the same command with
+one word changed, `preinject=time` versus `preinject=position`, both injections
+confirmed accepted by the modem before `QMI_LOC_START` was sent, and they land
+on opposite sides of the reset.
+
+## Run 7, the survivor: position injected, time refused, 309 empty fix cycles
+
+	bisect run: 300 opmode=standalone powermode=3,1000 recurrence=periodic \
+	  events=min,engine,inject,meas,svpoly preinject=position lat=-32.9542220 lon=-60.6442330 acc=50
+	...
+	PREINJECT (no session running): position
+	RESPOND position: RESP ok   IND status=SUCCESS 0x01[4]=00000000
+	PREINJECT: all accepted, RESP and indication status checked
+	QMI_LOC_START  session=11  recurrence=periodic  powerMode=3/1000ms
+	POSTSTART-VERIFY: powerMode = (3, 1000)  APPLIED
+	...
+	SURVIVED 300 s; indications received: 1545
+	  indication POSITION_REPORT            x309
+	  indication NMEA                       x309
+	  indication INJECT_TIME_REQ            x309
+	  indication FIX_SESSION_STATE          x618
+	MEASUREMENT REPORTS: 0
+	SATELLITE INFO INDICATIONS: 0
+	REQUEST INVENTORY: 1 kind(s)
+	  request INJECT_TIME_REQ              x309
+	RESPONDER position  sent=1  RESP ok=1 err=0  IND ok=1 err=0
+
+`uptime` 188 s before, 517 s after: one boot, no reset. This reproduces the
+previously-documented 308-cycle run almost exactly (309 here) and confirms the
+baseline is still the baseline on the current firmware state — which matters,
+because run 5 had made that doubtful.
+
+Note what the engine does with the position: **nothing observable**. It was
+given a 22 m WiFi fix and it went on emitting empty `POSITION_REPORT`s and
+asking for time 309 more times. Coarse position is not the gate.
+
+## Run 6 and run 8, the resets: one time injection, no session, then start
+
+Run 8, verbatim from `/var/lib/systemd/pstore/console-ramoops-0`, clean boot,
+`bootreason=reboot` calibration immediately before it:
+
+	[   82.130817] rhodep-gnss: bisect run: 300 opmode=standalone powermode=3,1000 recurrence=periodic events=min,engine,inject,meas,svpoly preinject=time lat=-32.9542220 lon=-60.6442330 acc=50
+	[   86.203111] rhodep-gnss: REG_EVENTS mask 0x30001f7 (min,engine,inject,meas,svpoly)
+	[   90.232152] rhodep-gnss: config verified: opmode=standalone, events=min,engine,inject,meas,svpoly
+	[   90.232693] rhodep-gnss: PREINJECT (no session running): time
+	[   90.233070] rhodep-gnss: RESPOND time -> 0x0038 txn=9
+	[   90.233572] rhodep-gnss: RESPOND time: RESP ok (1 ms)
+	[   90.233954] rhodep-gnss: RESPOND time: IND status=SUCCESS 0x01[4]=00000000
+	[   98.265549] rhodep-gnss: RESPONDER time      sent=1  RESP ok=1 err=0  IND ok=1 err=0
+	[   98.266051] rhodep-gnss: PREINJECT: all accepted, RESP and indication status checked
+	[   98.266670] rhodep-gnss: QMI_LOC_START  session=11  recurrence=periodic  powerMode=3/1000ms
+	                                       <- console ends here, SoC gone
+
+	androidboot.bootreason=watchdog   androidboot.powerup_reason=0x00008000
+
+Run 6 is the same file with different timestamps. Both are `~100 ms` deaths of
+exactly the shape `powerMode 0/1/2` produce, in a `powerMode` that had run for
+300 s an hour earlier.
+
+The 8 s between the injection and `QMI_LOC_START` is the tool's own verification
+window, not modem latency: it waits for the RESP *and* the indication status
+before it will start a session, and Voids the run if either is missing. Nothing
+was assumed here — the modem said `SUCCESS` at both layers.
+
+## Runs 2 and 3: answering in-session, the same thing one second later
+
+These were the runs the brief actually asked for, and they are the same
+mechanism with the time arriving later. The session starts *without* time,
+runs its normal fix cycles, is answered, goes quiet, and dies.
+
+	[  206.017432] rhodep-gnss: FIXSESS state=STARTED  raw 0x01[4]=01000000
+	[  206.019234] rhodep-gnss: REQUEST INJECT_TIME_REQ #1 0x10[62]=e8030000031274696d652e78747261636c6f75642e6e65741274696d652e78747261636c6f75642e6e65741274696d652e78747261636c6f75642e6e6574  [u32=1000 strings=time.xtracloud.net,time.xtracloud.net,time.xtracloud.net]
+	[  206.021040] rhodep-gnss: RESPOND time -> 0x0038 txn=11
+	[  206.022332] rhodep-gnss: POS    session=0(SUCCESS)
+	[  206.024438] rhodep-gnss: NMEA   $PSTIS,*61
+	[  206.025309] rhodep-gnss: FIXSESS state=FINISHED  raw 0x01[4]=02000000
+	  ... four more identical cycles ...
+	[  206.056292] rhodep-gnss: RESPOND time: RESP ok (35 ms)
+	[  206.057791] rhodep-gnss: RESPOND time: IND status=SUCCESS 0x01[4]=00000000
+	[  206.058906] rhodep-gnss: RESPOND time: RESP ok (29 ms)
+	[  206.060277] rhodep-gnss: RESPOND time: IND status=SUCCESS 0x01[4]=00000000
+	[  206.061264] rhodep-gnss: RESPOND time: RESP ok (23 ms)
+	[  206.062498] rhodep-gnss: RESPOND time: IND status=SUCCESS 0x01[4]=00000000
+	[  206.218580] rhodep-gnss: alive 111 ms (indications so far: 45)
+	[  206.320299] rhodep-gnss: alive 214 ms (indications so far: 45)
+	  ... the 1 Hz cycle has stopped dead; the count does not move ...
+	[  207.009028] rhodep-gnss: alive 935 ms (indications so far: 46)
+	                                       <- console ends here, SoC gone
+
+Two things in that trace are worth reading slowly.
+
+* **The answer was accepted, fast.** 23-35 ms round trip, `RESP ok`, indication
+  status `SUCCESS`. This is not a rejected or malformed message.
+* **The fix loop stops the moment it is answered.** In every unanswered run the
+  cycle continues at 1 Hz for the full 300 s. Here it emits nothing for the
+  ~950 ms between the last acknowledgement and the death. The engine left the
+  "ask for time, report nothing, finish" loop it had been in and did something
+  else, once, and that was the end of the SoC.
+
+Run 2 is byte-identical in shape (`alive 936 ms (indications so far: 45)` as
+its last line). Both `bootreason=watchdog` / `0x00008000`.
+
+A caveat on these two specifically, which is why runs 6/8 exist: the five
+answers went out in an 8 ms burst, because the indications had been queued
+during the tool's `want_ind` wait on `QMI_LOC_START` and were all replayed at
+once. "Five time injections in eight milliseconds" is not the same experiment
+as "one time injection". Runs 6 and 8 send exactly one, with no session
+running, and get the same reset, so the burst was not the mechanism. The tool
+grew `respondafter=` to remove that artefact.
+
+## Run 4, the control that decides the reading: cellid takes 78 of them and lives
+
+The obvious alternative explanation is that `QMI_LOC_INJECT_UTC_TIME` into a
+*live LOC session* is fatal by itself, whatever the engine is doing. It is not.
+
+`cellid` runs the identical session state machine and never brings up the
+measurement engine. It also never asks for time — `REQUEST INVENTORY: 0 kind(s)`
+— so the injections were sent on a 1 Hz timer instead (`injectevery=1`), which
+is what that option exists for:
+
+	bisect run: 90 opmode=cellid powermode=3,1000 recurrence=periodic \
+	  events=min,engine,inject,meas,svpoly respond=time injectevery=1 respondafter=10 ...
+	...
+	RESPOND time: RESP ok (2 ms)
+	RESPOND time: IND status=SUCCESS 0x01[4]=00000000
+	...
+	SURVIVED 90 s; indications received: 48
+	  indication POSITION_REPORT            x12
+	  indication NMEA                       x12
+	  indication FIX_SESSION_STATE          x24
+	REQUEST INVENTORY: 0 kind(s)
+	RESPONDER time      sent=78  RESP ok=78 err=0  IND ok=78 err=0
+	after:  operation mode = cellid
+
+`uptime` 198 s before, 309 s after. **Seventy-eight accepted UTC time
+injections into a live session, at 1 Hz, and the phone did not so much as
+hiccup** — with `powerMode 3` and `recurrence=periodic` set identically to the
+runs that died. The only difference is the operation mode, i.e. whether the
+measurement engine is in the picture at all.
+
+So the reset needs both: the measurement engine, *and* time.
+
+## Run 5, which was an accident and is the best evidence in the set
+
+Run 5 was meant to be run 2 with the answers delayed 30 s. It reset at
+`QMI_LOC_START`, before answering anything, which made no sense until the
+ordering was checked. It had run on the same boot as run 4, twenty seconds
+after it, and run 4 had just fed the modem 78 UTC times:
+
+	[  304.633376] rhodep-gnss: RESPONDER time      sent=78  RESP ok=78 err=0  IND ok=78 err=0
+	[  309.665063] rhodep-gnss: session stopped
+	[  309.673552] rhodep-gnss: after:  operation mode = cellid
+	[  329.605889] rhodep-gnss: bisect run: 120 opmode=standalone powermode=3,1000 recurrence=periodic events=min,engine,inject,meas,svpoly respond=time respondafter=30 ...
+	[  333.684977] rhodep-gnss: REG_EVENTS mask 0x30001f7 (min,engine,inject,meas,svpoly)
+	[  337.716375] rhodep-gnss: config verified: opmode=standalone, events=min,engine,inject,meas,svpoly
+	[  337.719661] rhodep-gnss: QMI_LOC_START  session=11  recurrence=periodic  powerMode=3/1000ms
+	                                       <- console ends here, SoC gone
+
+This is the strongest form of the result because nothing in run 5 touched the
+engine at all. No injection, no answer, no in-session traffic; just the
+knowledge, held by the modem for twenty seconds across an operation-mode change
+and a session teardown, that it knows what time it is. That was sufficient.
+
+It also means **the arming is persistent across sessions within a boot**, and
+that any tool which injects time is arming the reset for whatever runs next.
+
+## An independent finding: the event registration mask is a reset lever of its own
+
+Run 1 was supposed to be the cheap inventory run and it reset the phone
+instead. It is a clean single-variable difference against the documented
+300 s survivor: the same command, the same `powerMode 3`, the same
+`recurrence=periodic`, **no time injected**, with the request-shaped event bits
+added to the mask.
+
+	[ 1152.877256] rhodep-gnss: bisect run: 120 opmode=standalone powermode=3,1000 recurrence=periodic events=min,engine,inject,req,meas,svpoly
+	[ 1156.955597] rhodep-gnss: REG_EVENTS mask 0x3203fff (min,engine,inject,req,meas,svpoly)
+	[ 1160.991061] rhodep-gnss:   REG_EVENTS: qmi_result=(0, 0) loc_status=None
+	[ 1160.992188] rhodep-gnss: config verified: opmode=standalone, events=min,engine,inject,req,meas,svpoly
+	[ 1160.995498] rhodep-gnss: QMI_LOC_START  session=11  recurrence=periodic  powerMode=3/1000ms
+	                                       <- console ends here, SoC gone
+
+`0x3203fff` is `0x30001f7` — the known-good mask — OR `0x00203e08`, the seven
+request-shaped bits: NI notify verify (`0x8`), wifi (`0x200`), sensor streaming
+ready (`0x400`), time sync (`0x800`), SPI streaming (`0x1000`), location server
+connection (`0x2000`), inject wifi AP data (`0x200000`). Bit indices are from
+the IDL and are **not** confirmed against this firmware.
+
+This makes the previously-`n=1` "wide event mask reset" observation `n=2`, with
+a far narrower mask and a far faster death — ~100 ms rather than 253 s. It is
+still not known *which* bit does it, and this run does not narrow it: seven
+bits went on at once. What is now established is that **registering event bits
+is a lever on the reset independently of `powerMode` and independently of
+assistance**, and that a run which changes the mask is not a controlled run.
+
+The practical consequence is unfortunate: the complete request inventory the
+brief asked for **cannot be taken on this device**, because taking it is itself
+a reset. Under the largest mask that survives, the inventory is:
+
+	REQUEST INVENTORY: 1 kind(s)
+	  request INJECT_TIME_REQ              x309
+
+One request type. Over 309 fix cycles, with `INJECT_POSITION_REQ` (`0x40`) and
+`INJECT_PREDICTED_ORBITS_REQ` (`0x20`) both registered, the engine asked for
+neither. Its payload never varies:
+
+	0x10[62]=e8030000 03 12 74696d652e78747261636c6f75642e6e6574 (x3)
+	         |         |  |  \_ "time.xtracloud.net", three times
+	         |         |  \____ 0x12 = 18, the string length
+	         \_________|_______ 0x000003e8 = 1000
+
+## What was built, and the receipts for it
+
+`scripts/rhodep-gnss-bisect.py` grew a responder that answers on the **same
+AF_QIPCRTR socket that owns the session**, inside the fix cycle that asked,
+with no blocking. New options: `respond=`, `preinject=`, `injectevery=`,
+`respondafter=`, `lat= lon= acc= possrc= timesrc= xtrafile=`, and `injecttest`.
+
+The three injection wire formats were **not taken from an IDL and not guessed**.
+libqmi 1.38.0 was made to print its own traffic on this device and the bytes
+were copied:
+
+	0x0038 INJECT_UTC_TIME    0x10 u32 time source, 0x02 u32 unc ms, 0x01 u64 ms
+	0x0039 INJECT_POSITION    0x1D u32 source, 0x1B u64 utc ms, 0x13 u8 confidence,
+	                          0x12 f32 hor unc, 0x11 f64 lon, 0x10 f64 lat
+	0x00A7 INJECT_XTRA_DATA   0x01 u32 total size, 0x02 u16 total parts,
+	                          0x03 u16 part number, 0x04 part data
+
+`qmicli --loc-inject-time --verbose` and `--loc-inject-position-*  --verbose`
+give the first two directly. The third has no qmicli binding, so it came from a
+throwaway python-gi program with `Qmi.utils_set_traces_enabled(True)` and
+`G_MESSAGES_DEBUG=all`. Two details that are easy to get wrong and would have
+produced silent failures:
+
+* `0x0038` TLV `0x10` (Time Source) is marked optional by libqmi and is
+  **mandatory on this firmware**, as another agent had already found. qmicli
+  always sends it, which is why `qmicli --loc-inject-time` works where a
+  hand-rolled two-TLV message does not.
+* `0x00A7` TLV `0x04` (Part Data) is a **length-prefixed array**: a `uint16`
+  count then the bytes, so a 1024-byte part is a 1026-byte TLV. Sending 1024
+  raw bytes is a different message.
+
+Enum values (`LocInjectedTimeSource`, `LocPositionSource`) were read out of the
+gir on the phone rather than assumed: `NTP = 2`, `WIFI = 3`.
+
+The tool then verifies rather than assumes, with `injecttest`, which sends one
+of each with **no session running**:
+
+	INJECTTEST: one of each, no session
+	RESPOND time -> 0x0038 txn=6
+	RESPOND position -> 0x0039 txn=7
+	RESPOND xtra: 40 parts, 40949 bytes sent
+	RESPOND time: RESP ok        IND status=SUCCESS 0x01[4]=00000000
+	RESPOND position: RESP ok    IND status=SUCCESS 0x01[4]=00000000
+	RESPOND xtra: RESP ok        IND status=SUCCESS 0x01[4]=00000000 0x10[2]=0100
+	RESPONDER position  sent=1   RESP ok=1  err=0  IND ok=1  err=0
+	RESPONDER time      sent=1   RESP ok=1  err=0  IND ok=1  err=0
+	RESPONDER xtra      sent=40  RESP ok=40 err=0  IND ok=40 err=0
+
+All 42 messages accepted at both layers, hand-rolled over raw QRTR. `preinject=`
+Voids the run unless every part comes back acknowledged, so a reset can never be
+attributed to assistance the engine did not actually receive.
+
+## What this does NOT prove
+
+* **It is not a fix and it is not GPS working.** Zero measurement reports, zero
+  satellite info, zero `GGA`/`RMC`/`GSV`/`GSA`, in every run, including all six
+  that reset. Nothing here observed a satellite.
+* **"The correlator starts" is an inference, not a measurement.** What is
+  measured is that supplying time changes `powerMode 3` from *survives 300 s
+  emitting empty fixes* to *dies in ~100 ms*, and that the death is
+  indistinguishable from `powerMode 0/1/2`. That the mechanism in between is
+  the correlator coming up is the natural reading, and it is unverified: the
+  configurations that would emit a measurement report are exactly the ones that
+  do not live long enough to emit one. The `no positive control` problem
+  recorded in the previous section is unchanged.
+* **Only time was varied.** The XTRA almanac was valid in the modem's EFS for
+  the whole session — `rhodep-xtra status` read `valid from 2026-09-05T23:00:00Z,
+  valid for 168 hours, 163.6 hours remaining` afterwards — so every run had
+  predicted orbits. This series shows time is sufficient to arm the reset and
+  that position is not; it does **not** show orbits are irrelevant, because
+  orbits were never absent.
+* **Which of the seven request event bits fires run 1's reset is unknown.**
+  Seven went on together.
+* **`n` is small.** Runs 6/8 are `n=2`, runs 2/3 are `n=2`, runs 4/5/7 are
+  `n=1` each. They agree, and they agree across three different ways of getting
+  time into the engine, which is the reason for stating the conclusion as
+  firmly as it is stated. Anyone who wants to lean on it should run 6/7 again
+  as a pair; that costs one reset and ninety seconds.
+
+## The network-assistance reading, checked
+
+The brief's alternative — that the engine is waiting on a *network* path rather
+than a local one — does not survive contact with the measurements, though the
+supporting facts are all true.
+
+	== assistance servers ==
+	  UMTS SLP (SUPL) : supl.google.com:7275
+	  CDMA PDE        : <unset>
+	...
+	registration: searching     packet service state: detached
+	network rejection operator id: 72234
+
+A SUPL server *is* configured, and the modem is indeed unregistered with an
+unprovisioned SIM, so any SUPL/network-initiated assistance genuinely cannot
+complete. But:
+
+* the engine never asked for a network path. `LOCATION_SERVER_CONNECTION_REQ`
+  was registered in run 1 (bit `0x2000`) and no such indication was ever seen —
+  though run 1 died at `QMI_LOC_START`, so that is a weak negative;
+* the one thing it does ask for, 309 times, is time, from `time.xtracloud.net`
+  — the XTRA-T time service, which stock's `xtra-daemon` fetches over ordinary
+  IP. WiFi is up and that path is available on this phone. It is not a
+  cellular-registration dependency;
+* and it was answered, from the AP, accepted, and the result was a reset.
+
+So the honest statement is: **stock would behave differently here, but not
+because it has a network we do not.** Stock answers the same request the same
+way over the same WiFi, from `xtra-daemon` and the location HAL, and its
+receiver then runs. The gap between stock and this port is not the assistance —
+we can now deliver the assistance — it is whatever happens in the ~100 ms
+*after* the engine has time and decides to bring the receiver up. That is where
+the remaining work is, and it is the same place all the eliminated hypotheses
+in this file were pointing.
+
+## An operational hazard this creates
+
+`rhodep-xtra.timer` is enabled and active on the shipped image, and
+`rhodep-xtra inject` sends `QMI_LOC_INJECT_UTC_TIME` every time it runs. By run
+5's result that **arms the reset for the rest of the boot**: after the timer has
+fired, even `powerMode 3` — the configuration this file has been calling the
+safe one — resets the SoC at `QMI_LOC_START`.
+
+This is not currently a live risk, for one reason: `rhodep-gnss.service` only
+ever runs `cellid`, and run 4 shows `cellid` is unaffected by any amount of
+injected time. But anybody experimenting with `standalone` must stop
+`rhodep-xtra.timer` first and check `systemctl show rhodep-xtra.service -p
+ExecMainStartTimestamp` is empty for this boot, or they will attribute a reset
+to whatever they were testing. Both of this session's `preinject` runs did
+exactly that check.
+
+## A tool-integrity incident, recorded because the brief warned about it
+
+After run 1's watchdog reset, the copy of `rhodep-gnss-bisect.py` on the phone
+had **the same byte count as the good file and a different md5**:
+
+	local: a8fcccb999eb17e82f757386182fc71b  56539 bytes
+	phone: 7b3384699c0939ed1447f815a896a552  56539 bytes
+	  and it still passed `python3 -c "import ast; ast.parse(...)"`
+
+Diffing it against the local original showed a *mixture* of the current and the
+previous revision — some 4 KB blocks new, some stale. It was not tampering: it
+is what an `scp` overwrite that was never `fsync`ed looks like after the page
+cache is lost to a watchdog reset. The file length came from the new write and
+some of the contents did not.
+
+The operational rule that follows is stronger than the one in this file: after
+**every** reset, re-copy the tool, `sync`, and compare the md5 against the host
+copy. A size check is not enough and a syntax check is not enough — both passed
+here.
+
+## Reproducing
+
+	sudo systemctl stop rhodep-gnss.service rhodep-xtra.timer
+	systemctl show rhodep-xtra.service -p ExecMainStartTimestamp   # must be empty
+	md5sum scripts/rhodep-gnss-bisect.py    # compare against the host copy, always
+	python3 -c "import ast; ast.parse(open('scripts/rhodep-gnss-bisect.py').read())"
+	qrtr-lookup | awk '$1==16'              # 107 and 108 both seen this session
+	sudo qmicli -p -d qrtr://0 --dms-set-operating-mode=online
+
+	# free, no session, proves the injections are accepted before anything
+	# depends on them:
+	sudo ./scripts/rhodep-gnss-bisect.py injecttest lat=-32.9542220 lon=-60.6442330
+
+	# SURVIVES 300 s, 309 empty fix cycles, 309 unanswered time requests:
+	sudo ./scripts/rhodep-gnss-bisect.py 300 opmode=standalone powermode=3,1000 \
+	     recurrence=periodic events=min,engine,inject,meas,svpoly \
+	     preinject=position lat=-32.9542220 lon=-60.6442330 acc=50
+
+	# RESETS THE PHONE at QMI_LOC_START -- one word different:
+	sudo ./scripts/rhodep-gnss-bisect.py 300 opmode=standalone powermode=3,1000 \
+	     recurrence=periodic events=min,engine,inject,meas,svpoly \
+	     preinject=time lat=-32.9542220 lon=-60.6442330 acc=50
+
+	# the control: 78 time injections into a live cellid session, survives:
+	sudo ./scripts/rhodep-gnss-bisect.py 90 opmode=cellid powermode=3,1000 \
+	     recurrence=periodic events=min,engine,inject,meas,svpoly \
+	     respond=time injectevery=1 respondafter=10 lat=-32.9542220 lon=-60.6442330
+
+Run the second and third back to back. **On a boot where no time has been
+injected** — that qualifier is now part of the reproducer, and was not part of
+any reproducer in this file before.
+
+Session ledger, for boot-reason bookkeeping: **six watchdog resets**, all
+`androidboot.bootreason=watchdog` / `androidboot.powerup_reason=0x00008000`,
+all with the console ending mid-run — runs 1, 2, 3, 5, 6 and 8. **Two
+survivals**, runs 4 and 7, each confirmed by `/proc/uptime` continuity across
+the run (198 -> 309 and 188 -> 517) as well as by the tool's `SURVIVED` line.
+**One deliberate `systemctl reboot`** between runs 7 and 8, which recorded
+`bootreason=reboot` / `powerup_reason=0x00004000`, calibrating the watchdog
+readings against a known-clean restart on this same image. Two `injecttest`
+runs created no session and cost nothing. The phone was left with
+`rhodep-gnss.service` and `rhodep-xtra.timer` active, `rhodep-qmi-proxy`
+running, no failed units, `wlan0` up at 192.168.1.53, `qrtr-lookup` showing
+service 16, and `mmcli -L` listing the modem.

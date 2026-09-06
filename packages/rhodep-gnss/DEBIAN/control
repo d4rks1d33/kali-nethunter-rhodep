@@ -1,5 +1,5 @@
 Package: rhodep-gnss
-Version: 4
+Version: 5
 Architecture: arm64
 Depends: python3, python3-gi
 Recommends: gpsd, gpsd-clients, geoclue-2.0, network-manager, gir1.2-qmi-1.0, libqmi-proxy
@@ -84,3 +84,17 @@ Description: WiFi, cell-tower and cell-id location as NMEA for Motorola rhodep
  rhodep-cell-db builds the offline database from the OpenCelliD or Mozilla
  Location Service dumps. Its systemd timer is shipped but NOT enabled: a
  refresh streams over a gigabyte.
+ .
+ rhodep-xtra is the gpsOneXTRA path this port was missing: the job stock
+ Android gives to xtra-daemon. It fetches Qualcomm's predicted-orbit almanac
+ from the three CDN endpoints the modem names itself and injects it over QMI
+ LOC, together with UTC time and a coarse position taken from the wifi source.
+ Without it the modem's almanac reads 1980-01-06T00:00:00Z valid for 0 hours,
+ the GPS epoch, meaning it has never been loaded. Its timer IS enabled: it is
+ 40 kB every six hours, and unlike anything that touches the measurement
+ engine it cannot trip the reset. Injection is what A-GPS does before a fix;
+ the only message that starts the engine is QMI_LOC_START, which this tool
+ refuses to send through an allow-list asserted on every QMI write.
+ .
+ `rhodep-xtra status` is also the port's only read-only inventory of stored LOC
+ state, including the SUPL server, which qmicli cannot show.

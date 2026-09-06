@@ -20,6 +20,10 @@ if [ "$1" = purge ]; then
     # The offline cell database is derived data that took a gigabyte of
     # download to make, so it survives a remove; purge means purge.
     rm -f /var/lib/rhodep-gnss/cells.sqlite /var/lib/rhodep-gnss/.cells-*.sqlite
+    # The cached XTRA almanac is a few tens of kB of downloaded data
+    # that expires in a week anyway.
+    rm -f /var/lib/rhodep-gnss/xtra.bin /var/lib/rhodep-gnss/xtra.json
+    rm -f /var/lib/rhodep-gnss/.xtra-*
     rmdir /var/lib/rhodep-gnss 2>/dev/null || true
 fi
 systemctl daemon-reload 2>/dev/null || true

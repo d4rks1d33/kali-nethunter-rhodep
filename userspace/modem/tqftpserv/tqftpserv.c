@@ -84,6 +84,64 @@ static bool tftp_debug;
 static struct list_head readers = LIST_INIT(readers);
 static struct list_head writers = LIST_INIT(writers);
 
+/*
+ * rhodep: the QMI service instances a Qualcomm RFS server publishes.
+ *
+ * Stock's /vendor/bin/tftp_server registers QMI service 4096 twelve times, once
+ * per remote file system root, and picks the root from the instance the request
+ * arrived on. The table below is read verbatim out of that binary's .data
+ * (rhodep's stock vendor image, table at vaddr 0x1a708, twelve {u32 instance,
+ * char *root} pairs; the registration loop at 0x17860 walks 1..12 and passes
+ * the instance straight into the QRTR NEW_SERVER packet).
+ *
+ * libqrtr encodes qrtr_publish(fd, service, version, instance) as
+ * "instance << 8 | version", so the wire instance stock uses for
+ * /vendor/rfs/msm/mpss -- 1 -- is what upstream tqftpserv already publishes as
+ * qrtr_publish(fd, 4096, 1, 0). That is why the modem proper finds it. Every
+ * other instance in this table has nothing listening on this port, and
+ * qrtr-ns's server_match() requires an exact instance match, so a client that
+ * looks one up gets no server at all -- and tqftpserv never sees, and never
+ * logs, the request.
+ *
+ * `name` is the stock root under /vendor/rfs/. It is used to name the state
+ * subdirectory, so /var/lib/tqftpserv/rfs_apq_gnss is visibly the same thing
+ * as stock's /mnt/vendor/persist/rfs/apq/gnss.
+ */
+struct rfs_instance {
+	unsigned int instance;
+	const char *name;
+};
+
+static const struct rfs_instance rfs_instances[] = {
+	{  1, "msm/mpss" },
+	{  2, "msm/adsp" },
+	{  3, "mdm/mpss" },
+	{  4, "mdm/adsp" },
+	{  5, "mdm/tn"   },
+	{  6, "apq/gnss" },
+	{  7, "msm/slpi" },
+	{  8, "mdm/slpi" },
+	{  9, "msm/cdsp" },
+	{ 10, "mdm/cdsp" },
+	{ 11, "msm/wpss" },
+	{ 12, "mdm/wpss" },
+};
+
+#define RFS_INSTANCE_COUNT (sizeof(rfs_instances) / sizeof(rfs_instances[0]))
+
+/* The instance upstream publishes, and stock's /vendor/rfs/msm/mpss. */
+#define RFS_MPSS_INSTANCE 1
+
+struct tftp_server {
+	int fd;
+	unsigned int instance;
+	/* NULL keeps translate.c's default root, which is the mpss one. */
+	char *rw_root;
+};
+
+static struct tftp_server servers[RFS_INSTANCE_COUNT];
+static size_t server_count;
+
 static void log_debug(const char *fmt, ...)
 {
 	va_list ap;
@@ -899,10 +957,147 @@ static void client_close_and_free(struct tftp_client *client)
 static void print_usage(void)
 {
 	extern const char *__progname;
+	size_t i;
 
-	fprintf(stderr, "Usage: %s [-d] [-h]\n", __progname);
+	fprintf(stderr, "Usage: %s [-d] [-i instance[,instance...]] [-h]\n", __progname);
 	fprintf(stderr, " -d\tPrint detailed debug information\n");
+	fprintf(stderr, " -i\tAlso publish QMI service 4096 on these RFS instances\n");
 	fprintf(stderr, " -h\tPrint this usage info\n");
+	fprintf(stderr, "\nRFS instances, as registered by the stock tftp_server:\n");
+	for (i = 0; i < RFS_INSTANCE_COUNT; i++)
+		fprintf(stderr, "  %2u  /vendor/rfs/%s%s\n",
+			rfs_instances[i].instance, rfs_instances[i].name,
+			rfs_instances[i].instance == RFS_MPSS_INSTANCE ?
+				"  (always published)" : "");
+}
+
+/**
+ * rfs_instance_name() - stock /vendor/rfs/ root for a QMI service instance
+ *
+ * Return: the root name, or NULL if the instance is not one stock uses.
+ */
+static const char *rfs_instance_name(unsigned int instance)
+{
+	size_t i;
+
+	for (i = 0; i < RFS_INSTANCE_COUNT; i++)
+		if (rfs_instances[i].instance == instance)
+			return rfs_instances[i].name;
+
+	return NULL;
+}
+
+/**
+ * server_add() - open a qrtr socket and publish service 4096 on @instance
+ *
+ * rhodep: one socket per instance is required, not one socket published
+ * repeatedly: qrtr-ns keys its server map on the port (ns.c, server_add() ->
+ * map_reput(&node->services, hash_u32(port), ...)), so a second NEW_SERVER
+ * from the same port replaces the first rather than adding to it.
+ *
+ * The read/write root is the default one for the mpss instance, so nothing
+ * about the working modem path changes, and a per-instance state directory for
+ * every other instance, mirroring stock's one-persist-directory-per-root.
+ *
+ * Return: 0 on success, -1 otherwise
+ */
+static int server_add(unsigned int instance)
+{
+	const char *name;
+	char *root = NULL;
+	char *p;
+	int ret;
+	int fd;
+
+	if (server_count == RFS_INSTANCE_COUNT) {
+		fprintf(stderr, "too many instances requested\n");
+		return -1;
+	}
+
+	name = rfs_instance_name(instance);
+	if (!name) {
+		fprintf(stderr, "instance %u is not an RFS instance, refusing\n",
+			instance);
+		return -1;
+	}
+
+	if (instance != RFS_MPSS_INSTANCE) {
+		ret = asprintf(&root, "%s/rfs_%s", TQFTPSERV_STATE_DIR, name);
+		if (ret < 0) {
+			fprintf(stderr, "failed to build state directory name\n");
+			return -1;
+		}
+		/*
+		 * "apq/gnss" -> "apq_gnss": one flat directory, not a
+		 * hierarchy, so translate_persistent()'s single mkdir() is
+		 * enough to create it.
+		 */
+		for (p = root + strlen(TQFTPSERV_STATE_DIR) + 1; *p; p++)
+			if (*p == '/')
+				*p = '_';
+	}
+
+	fd = qrtr_open(0);
+	if (fd < 0) {
+		fprintf(stderr, "failed to open qrtr socket for instance %u\n",
+			instance);
+		free(root);
+		return -1;
+	}
+
+	ret = qrtr_publish(fd, 4096, instance, 0);
+	if (ret < 0) {
+		fprintf(stderr, "failed to publish service 4096 instance %u\n",
+			instance);
+		close(fd);
+		free(root);
+		return -1;
+	}
+
+	servers[server_count].fd = fd;
+	servers[server_count].instance = instance;
+	servers[server_count].rw_root = root;
+	server_count++;
+
+	log_debug("publishing service 4096 instance %u for /vendor/rfs/%s (%s)\n",
+		  instance, name, root ? root : TQFTPSERV_STATE_DIR);
+
+	return 0;
+}
+
+/**
+ * server_add_list() - add every instance in a comma separated list
+ *
+ * Return: 0 on success, -1 otherwise
+ */
+static int server_add_list(const char *list)
+{
+	unsigned long instance;
+	const char *p = list;
+	char *end;
+
+	while (*p) {
+		errno = 0;
+		instance = strtoul(p, &end, 10);
+		if (end == p || errno || instance > 0xffff) {
+			fprintf(stderr, "invalid instance list '%s'\n", list);
+			return -1;
+		}
+
+		if (instance != RFS_MPSS_INSTANCE &&
+		    server_add((unsigned int)instance) < 0)
+			return -1;
+
+		p = end;
+		if (*p == ',')
+			p++;
+		else if (*p)  {
+			fprintf(stderr, "invalid instance list '%s'\n", list);
+			return -1;
+		}
+	}
+
+	return 0;
 }
 
 int main(int argc, char **argv)
@@ -915,16 +1110,21 @@ int main(int argc, char **argv)
 	ssize_t len;
 	char buf[4096];
 	fd_set rfds;
+	const char *extra_instances = NULL;
+	size_t i;
 	int nfds;
 	int opcode;
 	int opt;
 	int ret;
 	int fd;
 
-	while ((opt = getopt(argc, argv, "dh")) != -1) {
+	while ((opt = getopt(argc, argv, "dhi:")) != -1) {
 		switch (opt) {
 		case 'd':
 			tftp_debug = true;
+			break;
+		case 'i':
+			extra_instances = optarg;
 			break;
 		case 'h':
 			print_usage();
@@ -940,22 +1140,25 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	fd = qrtr_open(0);
-	if (fd < 0) {
-		fprintf(stderr, "failed to open qrtr socket\n");
+	/*
+	 * rhodep: instance 1 is stock's /vendor/rfs/msm/mpss and is what
+	 * upstream publishes, so it is unconditional and keeps the default
+	 * read/write root. Anything else is opt-in via -i.
+	 */
+	if (server_add(RFS_MPSS_INSTANCE) < 0)
 		exit(1);
-	}
 
-	ret = qrtr_publish(fd, 4096, 1, 0);
-	if (ret < 0) {
-		fprintf(stderr, "failed to publish service registry service\n");
+	if (extra_instances && server_add_list(extra_instances) < 0)
 		exit(1);
-	}
 
 	for (;;) {
 		FD_ZERO(&rfds);
-		FD_SET(fd, &rfds);
-		nfds = fd;
+		nfds = 0;
+
+		for (i = 0; i < server_count; i++) {
+			FD_SET(servers[i].fd, &rfds);
+			nfds = MAX(nfds, servers[i].fd);
+		}
 
 		list_for_each_entry(client, &writers, node) {
 			FD_SET(client->sock, &rfds);
@@ -993,7 +1196,22 @@ int main(int argc, char **argv)
 			}
 		}
 
-		if (FD_ISSET(fd, &rfds)) {
+		for (i = 0; i < server_count; i++) {
+			fd = servers[i].fd;
+
+			if (!FD_ISSET(fd, &rfds))
+				continue;
+
+			/*
+			 * rhodep: point translate.c at this instance's root
+			 * before the request is dispatched. The server is
+			 * single-threaded and translate_open() runs to
+			 * completion inside handle_rrq()/handle_wrq(), so the
+			 * root only has to be right for the duration of the
+			 * open; everything after that uses the already-open fd.
+			 */
+			translate_set_rw_root(servers[i].rw_root);
+
 			sl = sizeof(sq);
 			len = recvfrom(fd, buf, sizeof(buf), 0, (void *)&sq, &sl);
 			if (len < 0) {
@@ -1031,6 +1249,18 @@ int main(int argc, char **argv)
 				if (len < 2)
 					continue;
 
+				/*
+				 * rhodep: worth a line of its own. Everything
+				 * seen on this port so far has arrived on the
+				 * mpss instance; a request on any other one is
+				 * a client that had no server at all before.
+				 */
+				if (servers[i].instance != RFS_MPSS_INSTANCE)
+					log_debug("request on RFS instance %u (/vendor/rfs/%s) from %d:%d\n",
+						  servers[i].instance,
+						  rfs_instance_name(servers[i].instance),
+						  sq.sq_node, sq.sq_port);
+
 				opcode = buf[0] << 8 | buf[1];
 				switch (opcode) {
 				case OP_RRQ:
@@ -1053,7 +1283,10 @@ int main(int argc, char **argv)
 		}
 	}
 
-	close(fd);
+	for (i = 0; i < server_count; i++) {
+		close(servers[i].fd);
+		free(servers[i].rw_root);
+	}
 
 	return 0;
 }

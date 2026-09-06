@@ -381,10 +381,58 @@ Note that the `cell` source needs none of that: it reads the cell identities the
 modem decodes while searching, which is why it works on this phone and
 `qmi-cellid` does not.
 
+## Predicted orbits (gpsOneXTRA)
+
+Stock Android runs `xtra-daemon` (ENABLED in the stock `izat.conf`) whose whole
+job is to download Qualcomm's predicted-orbit almanac and push it into the
+modem. This port had no equivalent, so the engine's almanac read the GPS epoch
+— never loaded:
+
+	valid from 1980-01-06T00:00:00Z, valid for 0 hours
+
+`rhodep-xtra` is that missing daemon.
+
+	rhodep-xtra status     # read-only LOC state; changes nothing
+	rhodep-xtra fetch      # download the almanac only
+	rhodep-xtra inject     # fetch if stale, then inject orbits + time + position
+
+A `rhodep-xtra.timer` runs it 3 min after boot and every 6 h. The three CDN
+endpoints the modem names itself (`path{1,2,3}.xtracloud.net/xtra3grej.bin`)
+were alive and serving 40949 identical bytes when this was written.
+
+**It cannot start the measurement engine, and that is enforced rather than
+intended.** The only QMI message that starts the engine is `QMI_LOC_START`
+(0x0022), which carries a Session ID and a Fix Recurrence. Everything this tool
+sends is assistance injection — which is exactly what A-GPS does *before* a fix
+— and it never sends `QMI_LOC_REGISTER_EVENTS` either. Every send goes through
+one function that asserts against an `ALLOWED_MESSAGES` allow-list; `start`,
+`stop`, `register_events` and `delete_assistance_data` are not in it, and the
+self-test checks that they are not.
+
+Two firmware quirks are worth knowing, both measured here:
+
+  * `QMI_LOC_INJECT_PREDICTED_ORBITS_DATA` (0x0035), the documented message,
+    answers `NotSupported` (94) on this modem. `QMI_LOC_INJECT_XTRA_DATA`
+    (0x00A7) works. `--message auto` probes and falls back.
+  * `QMI_LOC_INJECT_UTC_TIME` (0x0038) requires the Time Source TLV 0x10 even
+    though libqmi marks it optional; without it you get `MalformedMessage`.
+    This is why `qmicli --loc-inject-time`, which always sends all three TLVs,
+    works.
+
+`qmicli` cannot do any of this — libqmi 1.38 defines the messages but qmicli
+exposes no `--loc-inject-predicted-orbits-data` flag, and no `--loc-get-server`
+either. `rhodep-xtra status` is therefore also the only way to see the SUPL
+server, which on this phone is still Motorola's factory value
+`supl.google.com:7275`, read back out of the modem's EFS.
+
+See `docs/interconnect-sm6375-wip/EFS-AND-XTRA.md` for the full investigation,
+including the proof that modem EFS writes persist across a reboot on this port.
+
 ## Self-tests
 
 	rhodep-gnss-daemon --self-test    # 112 checks
 	rhodep-cell-db     self-test      # 29 checks
+	rhodep-xtra        self-test      # 33 checks, incl. the message allow-list
 
 Neither touches hardware or the network. Between them they cover the NMEA
 generator and checksums, the `iw` and `qmicli` output parsers against real

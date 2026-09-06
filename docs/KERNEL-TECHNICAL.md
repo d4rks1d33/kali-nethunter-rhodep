@@ -55,7 +55,7 @@ comandos exactos para copiar/pegar y `.img` listos.
 | **Audio** (parlante, auricular, jack, micrófono) | FUNCIONA |
 | **Audio Bluetooth** (A2DP) | FUNCIONA (userspace/bluetooth) |
 | **Sensores** (acelerómetro, giróscopo, magnetómetro, proximidad, luz) | FUNCIONAN (rotación automática incluida) — `userspace/sensors/`, ver §7.2 |
-| **GPS** | el módem publica el servicio de ubicación y acepta sesión; nunca emitió NMEA, sin probar al aire libre (ver §7.4) |
+| **GPS / ubicación** | **hay ubicación, no hay satélites.** WiFi y celda funcionan hoy vía gpsd y geoclue (22 m / 250 m medidos, sin SIM). Un fix satelital (`standalone`) **reinicia el SoC en <100 ms** (ver §7.4 y `GPS-USERSPACE.md`) |
 | **NFC** | chip Samsung sec-nfc, sin driver mainline (ver §7.5) |
 | **Datos móviles** | FUNCIONAN (~24 Mbit/s) **pero el SoC se reinicia a los 3-10 min con el módem enganchado a LTE**; por eso ipa.ko se envía bloqueado del arranque (ver §7.6). Desde 2026-08-26 hay un reproductor de 4 s que no necesita SIM, y el A/B señala a IPA (§7.6) |
 | **Audio en llamada** | NO existe: mainline no tiene q6voice (MVM/CVS/CVP) |
@@ -304,22 +304,90 @@ puntero en `ff_periodic_effect.custom_data`), NO 32. El EVIOCSFF hay que
 armarlo con size 48 o da EFAULT (Bad address). El id es `__s16` (usar -1
 signed, no 0xFFFF).
 
-### 7.4 GPS — más cerca de lo que decía esta sección
+### 7.4 GPS — hay ubicación, pero no hay satélites
 
-El módem **ya publica el servicio de ubicación** por QRTR y `qmicli` lo habla
-sin necesidad del IPA ni de ModemManager:
+**Esta sección estaba equivocada en las dos mitades y se retracta.** Decía:
 
-	qrtr-lookup            ->  16  2  0  0  107  Location service (~ PDS v2)
-	qmicli --loc-start     ->  Successfully started location tracking
-	qmicli --loc-set-nmea-types=all
-	                       ->  gga, rmc, gsv, gsa, vtg, pqxfi, pstis
+> Lo que no se consiguió es que emita: ni NMEA ni información de satélites (...)
+> **La prueba que falta es al aire libre**, que es gratis (...) Si al aire libre
+> salen sentencias NMEA, GPS es cuestión de un puente a Geoclue y queda andando.
 
-O sea que la sesión GNSS arranca y acepta configuración. Lo que no se consiguió
-es que emita: ni NMEA ni información de satélites, ni con la radio apagada ni
-encendida, en unos 3 minutos de escucha. **La prueba que falta es al aire
-libre**, que es gratis: adentro y en arranque en frío sin almanaque, no emitir
-es esperable. Si al aire libre salen sentencias NMEA, GPS es cuestión de un
-puente a Geoclue y queda andando.
+Ninguna de las dos cosas resultó cierta:
+
+1. **Nunca fue un problema de estar bajo techo.** Pedir un fix satelital de
+   verdad —modo de operación `standalone`— **reinicia el SoC entero en menos de
+   100 ms**, de forma reproducible, sin panic, sin oops, con la consola cortada a
+   mitad de línea y `androidboot.bootreason=watchdog` /
+   `powerup_reason=0x00008000`. Lo que dispara el reset es que se levante el
+   *motor de medición* GNSS del módem, y nada más: no la sesión, no las
+   indicaciones, no QMI. En modo `cellid`, que corre la máquina de estados de la
+   sesión sin encender ese motor, la sesión vive indefinidamente. La bisección
+   completa está en
+   [`interconnect-sm6375-wip/GNSS-SM6375.md`](interconnect-sm6375-wip/GNSS-SM6375.md).
+
+   La razón por la que antes esto se veía como "silencio bajo techo" es que
+   `qmicli` **no puede** manejar una sesión GNSS: no acepta dos acciones LOC en
+   la misma invocación, y sin `qmi-proxy` el cliente QMI muere con el proceso,
+   así que toda prueba desde la shell termina o con una sesión sin oyente o con
+   un oyente sin sesión. Las dos son **silenciosas**, y eso se lee igual que un
+   GPS sin vista al cielo.
+
+2. **El puente a Geoclue ya existe, funciona, y no arregla lo de arriba.** El
+   paquete `rhodep-gnss` (versión 3, instalado y verificado) obtiene la posición
+   de fuentes que no necesitan el motor de medición y la publica como NMEA
+   común:
+
+   - `--source=wifi` — trilateración por puntos de acceso WiFi. No toca el
+     módem ni ningún servicio QMI.
+   - `--source=cell` — identidad de las celdas que el módem escucha, leída por
+     QMI **NAS** (`--nas-get-cell-location-info`), que es de sólo lectura y no
+     puede arrancar el motor.
+   - `--source=qmi-cellid` — el servicio LOC del módem fijado en modo `cellid`.
+     Necesita un módem **registrado**, así que hoy en este equipo no da nada.
+   - `--source=auto` — cadena: `qmi-cellid` si el módem está registrado, si no
+     `wifi`, si no `cell`.
+
+   Publica `$GPGGA`/`$GPRMC`/`$GPGSA`/`$GPGST` sintetizados y con checksum en un
+   socket UNIX `/run/gnss-share.sock` (modo 0660, grupo `geoclue`) y en
+   `tcp://127.0.0.1:2948` —el TCP existe porque **gpsd no sabe leer sockets
+   UNIX**—, y trae los drop-ins que enganchan gpsd (`DEVICES="tcp://127.0.0.1:2948"`,
+   `GPSD_OPTIONS="-n"`) y geoclue
+   (`/etc/geoclue/conf.d/20-rhodep-wifi.conf`).
+
+   Verificado en vivo, con el SIM **sin provisionar** y el módem en
+   `registration: searching` / `imsi-unknown-in-hlr`:
+
+	$ gpspipe -w | grep TPV
+	{"class":"TPV","mode":2,"lat":-32.954171667,"lon":-60.644348333,"eph":142.5}
+
+	$ cgps -s
+	2D FIX
+
+	geoclue informa la misma ubicación por D-Bus.
+
+   Medido: **22 m** por WiFi, **250 m** por celda.
+
+**Dato nuevo y útil, que no estaba anotado en ningún lado:** la identidad de las
+celdas se obtiene **sin registro de red**. Con el SIM sin provisionar y el módem
+en servicio limitado, `qmicli -p -d qrtr://0 --nas-get-cell-location-info`
+devuelve igual `Cell ID: '60858'`, `PLMN: '72234'`, `Location Area Code: '420'`.
+El módem acampa para servicio limitado y decodifica el BCCH sin adjuntarse; la
+identidad de celda es información **difundida**, no específica del abonado.
+ModemManager no lo muestra (`--location-get` vuelve vacío) porque MM sólo
+completa LAC/CI desde una celda servidora **registrada** — es política de MM, no
+una capacidad que falte. Es intermitente (~2 de cada 10 sondeos) porque el módem
+está en bucle de búsqueda.
+
+**Lo que sigue faltando** es exclusivamente el fix **satelital**: no hay
+velocidad, no hay rumbo, no hay precisión por debajo de 10 m, y no hay posición
+donde no haya ni WiFi relevado ni celda conocida. Eso está bloqueado por el
+reset del SoC, que es un bug de hardware/firmware del módem y no se arregla
+desde el espacio de usuario.
+
+Detalle completo del lado userspace —las tres compuertas de seguridad antes de
+`QMI_LOC_START`, la cadena de proveedores, la trampa de `considerIp`, y por qué
+la precisión no se puede convertir ingenuamente a HDOP— en
+[`GPS-USERSPACE.md`](GPS-USERSPACE.md).
 
 
 ### 7.5 NFC — DIFÍCIL (chip Samsung sin driver mainline)

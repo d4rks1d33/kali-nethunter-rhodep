@@ -479,10 +479,33 @@ uname 7.2.0-rc5 (kernel intacto), apt-mark showhold = los 5 custom, otg status
 ================================================================================
 ## 8. PENDIENTES / TODO
 ================================================================================
-- Datos moviles: mismo bloqueo que pmOS (falta driver interconnect SM6375, IPA
-  queda disabled). Ver README-rhodep-KERNEL.md §7.6.
+- Datos moviles: **el motivo anotado aca es viejo y se corrige.** No es que
+  falte el driver de interconnect: ese driver existe y anda (parches 0027/0028/
+  0046). Los datos moviles funcionan —~24 Mbit/s medidos, IP publica, IPv6— y lo
+  que falta es **estabilidad**: con `ipa.ko` cargado *y* el modem enganchado a
+  LTE, el SoC se reinicia por watchdog cada 3 a 10 minutos, en silencio. Por eso
+  el port envia `ipa.ko` fuera del arranque. Ver KERNEL-TECHNICAL.md §7.6 y
+  `docs/watchdog-ipa-lte-wip/HANDOFF.md`.
 - Empaquetar como imagen unica flasheable estilo NetHunter Pro oficial (correr
   debos image.yaml completo en un host con KVM/Docker, con los .deb de build/).
 - Monitor/inject WiFi interno: inviable (firmware WCN3990 raw 0). Usar USB.
-- Audio, sensores, GPS, NFC, camara: pendientes (README-rhodep-KERNEL.md §7).
+- Audio, sensores, GPS, NFC, camara: **esta linea quedo vieja y se corrige.**
+  Estado real (ver KERNEL-TECHNICAL.md §7 y el README raiz):
+  - **Audio: FUNCIONA.** Parlante, auricular, jack de 3.5 mm con deteccion de
+    conector y microfono (AMIC3), via PipeWire. Falta audio *en llamada*, que es
+    un driver que no existe en mainline (q6voice), no un bug.
+  - **Sensores: FUNCIONAN.** Acelerometro, giroscopo, magnetometro, proximidad y
+    luz ambiente por SSC/ADSP sobre FastRPC, con `iio-sensor-proxy`, asi que la
+    rotacion automatica de pantalla anda. No necesito ningun cambio de kernel.
+  - **NFC: lee tarjetas.** Samsung S3NRN4V con el `s3fwrn5` de mainline mas los
+    parches 0101-0105. La emulacion de tarjeta no anda (esa maquina de estados
+    vive en la libnfc-nci de Android).
+  - **GPS: hay ubicacion, no hay satelites.** El paquete `rhodep-gnss` da
+    posicion por WiFi y por celda como NMEA hacia gpsd y geoclue -- 22 m y 250 m
+    medidos, con el SIM sin provisionar. Lo que **no** hay es fix satelital:
+    pedirlo (`standalone`) reinicia el SoC en menos de 100 ms. Ver
+    `docs/GPS-USERSPACE.md` y `docs/interconnect-sm6375-wip/GNSS-SM6375.md`.
+  - **Camara: sigue pendiente.** Solo estan las alimentaciones (el driver del
+    PMIC FAN53870 anda y registra sus 7 LDOs); no hay camino de imagen todavia.
+  - **Huella: sigue pendiente**, HAL propietario de Focaltech.
 - Verificar/pulir arranque de otros perifericos en Kali (bateria UI, audio).

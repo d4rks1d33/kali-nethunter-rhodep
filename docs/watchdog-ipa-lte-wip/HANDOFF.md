@@ -247,6 +247,92 @@ but every `open()` then fails with `EINVAL`, which is
 `qcom_glink_create_local()` never getting an `OPEN_ACK`. The modem does not
 answer to any of those names.
 
+### Third round, 2026-09-05 — four more, and one deliberate refusal
+
+All on the GNSS reproducer, so all of them count here too. Full write-ups in
+`docs/interconnect-sm6375-wip/GNSS-SM6375.md`, "Four more hypotheses down".
+
+**memshare answered with a real 5 MiB buffer — and this time every gate passed.**
+Not another "answered 0" run. A module took 5 MiB of physically contiguous CMA
+at `0xfd300000` and called `qcom_scm_assign_mem()` to move it from
+`QCOM_SCM_VMID_HLOS` to `QCOM_SCM_VMID_MSS_MSA` with RW. **The SCM call returned
+0** and `srcvm` came back `0x8000` = `BIT(0xf)`, so this firmware does accept the
+transition. Ordering proved from `journalctl -b -o short-monotonic`: modem
+firmware 11.66 s, module assigned 12.95 s, daemon publishes 12.98 s, the modem's
+query 16.21 s. The daemon then answered `memshare: reporting size 5242880`, and
+**the modem sent `MEM_ALLOC_GENERIC (0x0022)` in the same millisecond and took
+the address** — decoding exactly as stock's client 3 (`num_bytes 0x500000`,
+`client_id 1`, `proc_id 0`, `alloc_contiguous 1`) — and never sent `MEM_FREE`.
+Device healthy for ~100 s with the region MSS_MSA-owned: no XPU fault, no SError.
+Then `opmode=standalone`, mode confirmed applied: **SoC reset within milliseconds
+of `session 11 started`, 0 of 40 seconds elapsed**, `bootreason=watchdog` /
+`powerup_reason=0x00008000` against `reboot` / `0x00004000` on the clean
+`systemctl reboot` immediately before it. Two boots.
+
+This also **supersedes the "memshare is silent during the session" dismissal**
+that GNSS-SM6375.md carried at line 98. That reasoning was a non sequitur —
+memshare is answered once at boot, so a modem that was told zero would not ask
+again either way — and the experiment it argued against had never actually been
+run against the positioning path. Only session 13c had run a non-zero offer, on
+LTE bring-up, at a point in this port's history when the radio had never come
+online. The conclusion survives; the argument did not.
+
+**`pmr735a_l1` held on.** The only proxy-enabled rail in the whole stock tree
+with no identifiable AP-side consumer (RPM resource `ldoe` id 1,
+`qcom,proxy-consumer-enable`, `qcom,init-voltage = <600000>`,
+`qcom,proxy-consumer-current = <62000>`); mainline declares it and never
+references it, so it sits `l1 0 0 0 unknown 576mV 0mA`.
+`kernel/diag-modules/rhodep_reghold.c` took it with
+`regulator_get_optional(NULL, "l1")` and held it at `l1 1 2 0 unknown 600mV /
+62mA`. **Reset unchanged**, same sub-100 ms latency, `bootreason=watchdog`.
+Caveat kept: `set_load` returned 0 and almost certainly sent nothing, because
+`regulator-allow-set-load` is absent, so the enable and the voltage were real
+and the *current* vote — and therefore the LDO's mode — probably was not. And
+stock asserts this rail at boot, not ~2300 s into uptime.
+
+**CE1 / HWKM / PKA RPM clocks — falsified by analysis, no boot spent.** Stock has
+a crypto subsystem mainline lacks (`qcedev@1b20000`, `qcrypto@1b20000`,
+`qseecom@c1800000`, `mcd`, `hwkm@4440000`, `qrng@4453000`), so nothing votes
+those six RPM clocks and they all read `enable_cnt 0`. It looked promising
+because the vendor NoC id map has `ICBID_MASTER_MSS_NAV = 27` and
+`ICBID_SLAVE_MSS_NAV_CE_MPU_CFG = 218`, and the modem firmware contains the
+string `NAV_CE_MPU_CFG`. But `clk_disable_unused()` returns *early* when
+`clk_ignore_unused` is set, so the v99 run already left every `clk_smd_rpm` clock
+holding its handoff vote (`INT_MAX` in both the active and the sleep set), these
+six included — and v99 still reset. The "only moved 3 clocks (249 → 246)" caveat
+recorded against v99 does **not** weaken this: that count came from the
+hardware-enable column, which is a constant `Y` for `clk_smd_rpm` clocks (no
+`.is_enabled` op) and can never show them changing. `rhodep_cehold.c` is written
+and verified to take all six 0 → 1 if this is ever reopened.
+
+**VDD_MX — already excluded, and the reason is now solid.** `rhodep_pdhold.c`
+pins rpmpd power domains rather than regulators, which was never checked against
+what stock does. On this SoC they are the same RPM request: rpmpd `SM6375_VDDMX`
+is `RPMPD_RWMX`, id 0, key `KEY_LEVEL`; stock's `pmr735a_s1_level` is
+`qcom,resource-name = "rwmx"`, id `<0x00>`, with `qcom,use-voltage-level` →
+`vlvl`. `pdhold` also sends `KEY_ENABLE`(`swen`)`=1` through `rpmpd_power_on()`
+and clamps to `RPM_SMD_LEVEL_TURBO_NO_CPR = 416` against stock's TURBO = 384, so
+it was a **strict superset**. Independently, the stock `qcom,mss@06000000` node
+has only `vdd_cx-supply` and no `vdd_mx-supply` — the vendor does not vote MX for
+the modem either, and mainline's `.proxy_pd_names = {"cx", NULL}` matches it
+exactly.
+
+Record this next to it, because it is the obvious-looking "fix": **adding
+`"mss"` to `sm6375_mpss_resource.proxy_pd_names` would be a regression.** Every
+device tree in the kernel that declares an `"mss"` power domain uses `&rpmhpd`,
+never `&rpmpd`; the string `"mss"` occurs nowhere in `rpmpd.c`; and
+`sm6375_rpmpds[]` has only CX, MX, GX and LPI. The attach would return
+`-ENODATA` and the modem would stop probing.
+
+**CX iPeak Limit Manager — weak, and deliberately not probed.** `cx_ipeak@3ed000`
+and `cxip-cdev@3ed000` are absent in mainline, but every consumer of the
+`cx_ipeak` phandle in the stock tree is camera (12 nodes, `qcom,cam-cx-ipeak`)
+plus one video codec (`qcom,vidc@5a00000`). There is no modem or GNSS client.
+It was then **not** probed on purpose: `0x3ed000` lies inside the same TCSR
+aperture as `0x3d3000`, where a plain `readl()` takes the SoC down in silence
+with the identical signature to this bug — a read there could not be
+distinguished from reproducing it.
+
 ### The two failure modes on this SoC are not the same, and that matters
 
 Worth stating before the eliminations, because it reframes them. This port has
@@ -396,6 +482,26 @@ Both are parked in `docs/qmi-hashed-tables-no-op/`.
 **Verify the instrument before trusting the measurement.** The deathwatch
 script sat at zero bytes on the device for two whole test runs, which were
 therefore untraced. Check the size or md5 after copying.
+
+**And a nastier version of the same trap, 2026-09-05.** The on-device copy of
+`rhodep-gnss-test.py` was found **replaced by 12 507 bytes of ASCII spaces** —
+the *same byte size* as the good copy, so a size check passes and `ls -l` looks
+right. A run against it starts nothing and the phone stays up, which is
+indistinguishable from the survival the reproducer exists to detect: a false
+negative that would have been written down as an elimination. Check `md5sum`
+against the repo copy, and `python3 -c "import ast; ast.parse(open(p).read())"`,
+before any run whose result you intend to believe.
+
+**Nothing could be `rmmod`ed on this image, and that was not a module bug.** The
+headers tree at `/lib/modules/7.2.0-rc5/build` had been configured differently
+from the running kernel, moving `struct module`'s `exit` and `refcnt` down by
+24 bytes, so `delete_module()` read `mod->exit` as NULL and returned `EBUSY`
+with `refcnt` 0 and `initstate` `live` — for every module, including a six-line
+hello-world. **Module reference counting on that image was also meaningless.**
+Any diagnostic-module measurement taken before 2026-09-05 that leaned on
+`rmmod` or on `enable_count` returning to baseline should be re-read with that
+in mind. Fixed; the whole story is in
+`kernel/diag-modules/README.md`.
 
 **The diagnostic can be the signal.** Reading `modem_gsi_state` takes a runtime
 PM reference, so sampling it four times a second wakes IPA four times a second:

@@ -175,3 +175,60 @@ no such node in the DTB the phone is running, and no patch in `kernel/patches/`
 adds one. Either v94 was built from a tree that was never committed, or the
 claim is wrong. The running DTB is the authority and it has no memshare
 reservation.
+
+### Update 2026-09-05: the correction has been made, and the region was tested anyway
+
+Three things closed here.
+
+**The README claim is retracted at the source.** The root `README.md` banner and
+`userspace/modem/README.md` both said an image reserves the memshare region;
+neither does. The flashed image is `kali-boot-rhodep-clean-20260903.img`
+(sha256 `64398775143f8f701af883ee6b3317c44dd7231a6dd57752f05d79d53d6c3141`,
+verified byte for byte against the live `boot_a`) and it has no such node. The
+reservation exists only as `kernel/patches/0120`, which has never been flashed.
+
+**The experiment was run without one.** `rhodep_memassign.ko alloc=1` takes
+5 MiB of CMA at run time and holds it for the module's lifetime, which makes the
+reservation unnecessary *for the test* — nothing else can be using pages the
+module owns. `qcom_scm_assign_mem()` HLOS → `QCOM_SCM_VMID_MSS_MSA` returned 0,
+the daemon offered `5242880`, and the modem sent `MEM_ALLOC_GENERIC` and took
+the address. The GNSS reset was unchanged. Details in
+[`GNSS-SM6375.md`](GNSS-SM6375.md) and
+[`kernel/diag-modules/README.md`](../../kernel/diag-modules/README.md).
+
+The dts reservation is still the right end state: CMA keeps a cacheable linear
+alias that `no-map` memory would not, and speculation through that alias cannot
+be fenced from a module.
+
+**And the vendor numbers are now first-hand.** Everything in the table above was
+checked against `blair.dtsi` as published on GitHub. The **stock DTB this board
+actually boots** has since been extracted from the untouched A/B slot `_b`
+(`vendor_boot_b`, a 323 677-byte FDT, merged with the four `dtbo_b` overlays),
+and it confirms the reservation map from the device's own firmware:
+
+	removed_region@c0000000   reg = <0x00 0xc0000000 0x00 0x7100000>   no-map
+
+— `0x7100000`, exactly as this document argued, from the shipped firmware rather
+than from a source tree that might not correspond to it. The full stock
+`reserved-memory` list matches this document's table item for item, and the
+memshare region is there as expected:
+
+	memshare_region {
+		compatible = "shared-dma-pool";
+		no-map;
+		alloc-ranges = <0x00 0x00 0x00 0xffffffff>;
+		alignment = <0x00 0x100000>;
+		size = <0x00 0x800000>;
+	};
+
+Note it is **dynamically placed** — no fixed `reg`, `alloc-ranges` spanning the
+whole 32-bit space, 1 MiB aligned. Patch 0120's fixed `0x8ab00000` is therefore a
+*choice this port makes*, not the vendor's address, which is worth knowing before
+anyone treats 0x8ab00000 as authoritative.
+
+The rhodep overlays touch nothing in `reserved-memory`, so the base DTB is
+authoritative for all of it on its own.
+
+**These artefacts are outside the repo and `/tmp` will not survive them.** They
+should be committed — suggested `docs/vendor-dt/` — while slot `_b` is still
+untouched and re-extraction is still possible.

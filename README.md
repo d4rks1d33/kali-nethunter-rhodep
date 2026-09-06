@@ -8,12 +8,24 @@ list; everything here is a from-scratch community port.
 > Built on top of a postmarketOS mainline kernel port. The kernel is shared with
 > the pmOS port; Kali only changes the kernel `.config` and the userspace.
 
-> **Current image: `kali-boot-v94-STABLE.img`.** Everything below that works,
-> works on it: speaker, earpiece, headphones with jack detection, and the
-> microphone. It is `v92-STABLE-audio` plus one device tree node reserving 8 MB
-> for the modem's memshare region, and nothing else: kernel, ramdisk and cmdline
-> are byte for byte identical to v92, so falling back is just reflashing the
-> older file.
+> **Current image: `kali-boot-rhodep-clean-20260903.img`**, in
+> `/opt/postmarket/out/`, sha256
+> `64398775143f8f701af883ee6b3317c44dd7231a6dd57752f05d79d53d6c3141` —
+> **verified byte for byte against the live `boot_a`**, so this is what the
+> phone is running, not what a note says it should be. Everything below that
+> works, works on it: speaker, earpiece, headphones with jack detection, and the
+> microphone.
+>
+> **Corrections, 2026-09-05.** This banner used to say `kali-boot-v94-STABLE.img`
+> and describe it as "`v92-STABLE-audio` plus one device tree node reserving
+> 8 MB for the modem's memshare region". **Both halves are wrong and are
+> retracted.** v94 is not the flashed image, and no image this port has ever
+> shipped reserves a memshare region — the running DTB has no such node and no
+> patch in `kernel/patches/` added one until `0120`, which has never been
+> flashed. `docs/interconnect-sm6375-wip/REMOVED-MEM-SM6375.md` flagged this and
+> it went unfixed here for too long; `userspace/modem/README.md` repeated it and
+> is corrected too. The 5 MiB memshare experiment of 2026-09-05 took its memory
+> from CMA at run time for exactly this reason.
 >
 > The image only carries the kernel, the device tree and the initramfs. Audio,
 > SSH over USB and the memshare responder live in the rootfs and are installed
@@ -48,11 +60,11 @@ list; everything here is a from-scratch community port.
 > touch a QMI modem with no net port.
 >
 > None of the modem work needs a new boot image — the IPA patches live in
-> `ipa.ko`, a module — so **`kali-boot-v94-STABLE.img` is still the image to
+> `ipa.ko`, a module — so **`kali-boot-rhodep-clean-20260903.img` is the image to
 > flash**. `kali-boot-v97-ipa-interconnect.img` exists for working on the reset:
 > it adds the interconnect provider nodes and the IPA's three NoC paths to the
-> device tree, boots identically to v94 because both drivers are held out, and
-> has `README-v97.txt` next to it.
+> device tree, boots identically because both drivers are held out, and has
+> `README-v97.txt` next to it.
 
 > **Bluetooth** was found with its service masked and a random controller
 > address; `userspace/bluetooth/install.sh` fixes both. See that directory.
@@ -135,6 +147,8 @@ USB Wi-Fi drivers, monitor+inject) ·
 [`userspace/apt/apply-holds.sh`](userspace/apt/apply-holds.sh) (apt holds +
 file protection) ·
 [`userspace/modem/README.md`](userspace/modem/README.md) ·
+[`userspace/gnss/README.md`](userspace/gnss/README.md) and
+[`docs/GPS-USERSPACE.md`](docs/GPS-USERSPACE.md) (location without satellites) ·
 [`docs/BUILD.md`](docs/BUILD.md) (end-to-end build checklist) ·
 [`extra-tools/README.md`](extra-tools/README.md)
 
@@ -209,6 +223,17 @@ file protection) ·
   that was missing. Contrary to what this repo said until now, that needed **no
   kernel change at all** — Qualcomm's own libadsprpc (`quic/fastrpc`, BSD-3)
   already speaks mainline's uapi.
+- **Location, through gpsd and geoclue — but not from satellites.** The
+  `rhodep-gnss` package gets a position out of WiFi access points and out of the
+  identities of the cells the modem can hear, and republishes it as ordinary
+  NMEA on `/run/gnss-share.sock` and `tcp://127.0.0.1:2948`, so gpsd, geoclue
+  and anything above them work unmodified. Verified live with an
+  **unprovisioned SIM in a modem that never registers**: `gpspipe -w` gives
+  `{"class":"TPV","mode":2,"lat":-32.954171667,"lon":-60.644348333,"eph":142.5}`,
+  `cgps -s` shows a 2D FIX, and geoclue reports the location over D-Bus.
+  Measured 22 m from WiFi and 250 m from a cell tower. **This is not a GPS**:
+  there is no satellite anywhere in it, and a satellite fix still reboots the
+  phone — see "What does not work" and [`docs/GPS-USERSPACE.md`](docs/GPS-USERSPACE.md).
 
 ## What does not work
 
@@ -218,7 +243,7 @@ file protection) ·
 | **In-call audio** | Calls connect but there is no sound. Not a modem problem: Qualcomm voice audio goes modem ↔ ADSP ↔ codec and mainline has no q6voice (MVM/CVS/CVP) at all. A new driver, not a bug. |
 | **Fingerprint** | Focaltech with a proprietary HAL (`fingerprint.focaltech.default.so`). No mainline driver. |
 | **NFC** | Samsung `sec-nfc` on i2c7. No mainline driver. |
-| **GPS** | **A satellite fix watchdog-resets the SoC in under a second**, reproducibly, with `ipa.ko` not loaded. It was never an indoors problem. Narrowed since: the trigger is the GNSS *measurement engine* coming up, so `standalone` mode kills the phone while **`cellid` positioning works** — a live session, fifty indications, position reports and NMEA, no reset (`scripts/rhodep-gnss-test.py 60 min opmode=cellid`). The same reproducer is now the fastest way to work on the LTE reset. [`GNSS-SM6375.md`](docs/interconnect-sm6375-wip/GNSS-SM6375.md) |
+| **GPS — the *satellite* fix only** | **Asking for a satellite fix watchdog-resets the SoC in under a second**, reproducibly, with `ipa.ko` not loaded. It was never an indoors problem. The trigger is the GNSS *measurement engine* coming up, so `standalone` kills the phone while `cellid` — which never starts that engine — runs a session indefinitely. **Location itself is not in this table any more**: WiFi and cell-tower positioning work today through gpsd and geoclue, 22 m and 250 m measured, with no SIM — see "What works" and [`GPS-USERSPACE.md`](docs/GPS-USERSPACE.md). What is missing is a *satellite* fix, and with it anything that needs one: a position with no network coverage at all, sub-10 m accuracy, speed and heading. The same reproducer is still the fastest way to work on the LTE reset. [`GNSS-SM6375.md`](docs/interconnect-sm6375-wip/GNSS-SM6375.md) |
 | **Camera** | **Does not capture** — no photos, no video, no viewfinder. Only groundwork is done: the FAN53870 camera PMIC driver is written and running (all 7 LDOs registered, voltages verified against the chip's registers), and the rest is feasible because the ISP pipeline (`csid530` + `tfe530` + `tpg101`) is the *same silicon* mainline already drives on qcm2290, the 52 `gcc_camss_*` clocks are in mainline, and the 50 MP main sensor (Samsung S5KJN1) has a mainline driver. Still needed before any image: a `camss` entry for SM6375, the CSIPHY/CSID/TFE nodes and the sensor node. [`CAMERA-SENSORS-FEASIBILITY.md`](docs/CAMERA-SENSORS-FEASIBILITY.md) |
 | **Monitor mode + injection on the internal WiFi** | **Capture + injection work; hopping-during-inject and full TP-Link-parity in progress.** Capture: `mon0` alongside the STA sees beacons/probe/auth/assoc/deauth from overheard networks (8–14 BSSIDs per 20 s), wlan0 stays online (patch 0117). Injection: STA-vdev offchannel via `NL80211_CMD_FRAME` (`nl80211-mgmt-tx.py`) + patch 0118 (`AUTH_AND_DEAUTH_RANDOM_TA` ext-feature) — verified OTA, 130 deauths at -23 dBm with spoofed AP-BSSID SA, real client dropped. Pwnagotchi runs on the internal radio (`extra-tools/pwnagotchi/`, radio selector in the NetHunter Pro app), but is stuck one channel per run — channel-hopping requires monitors-only phy0 and the deauth path requires wlan0 up, mutually exclusive. Firmware IS patchable (secure boot not enforced) and the RE session mapped the `_wlan_mgmt_tx_send` allow-list gate (file offset `0x53660`, opmodes `{0,1,2,6}`) — first patch attempt didn't yet reach OTA because monitor-vif TX takes the HTT-raw path in the driver, not the WMI path we patched. Two clean next steps identified. Tool: `sudo rhodep-inject-lab`. See item 13. |
 
@@ -391,24 +416,57 @@ it takes the ADSP and audio down with it until a reboot.
    Put next to the LTE reset needing a *real attach* rather than merely LTE
    selected, both look like the same thing: the modem switching on a hardware
    engine, while the Q6 running software is demonstrably fine. Read
-   `docs/watchdog-ipa-lte-wip/HANDOFF.md` first — the leading candidate is now
-* `docs/modem-diag-wip/HANDOFF.md` — getting the modem's DIAG protocol working: what is
-  established, the two patches that came out of it, and what to do next.
-   QDSS/CoreSight, which is 110 device tree nodes downstream and zero in
-   mainline.
+   `docs/watchdog-ipa-lte-wip/HANDOFF.md` first.
 
    Already bisected, on the device, one reboot per row: it is not the
    indications (an empty event mask still resets), not the optional start TLVs,
    not `QMI_LOC_START` as a message (`qmicli` sends it and survives, because it
-   frees the client and the session dies with it), and not the WWAN radio. **It
-   is the session being allowed to stay alive**, and nothing else. Dynamic debug
-   on qrtr/glink/q6v5/sysmon produces not one line before the console stops.
+   frees the client and the session dies with it), and not the WWAN radio.
+   Dynamic debug on qrtr/glink/q6v5/sysmon produces not one line before the
+   console stops. (This paragraph used to end "**it is the session being allowed
+   to stay alive**, and nothing else". That was superseded by the `cellid`
+   result above, which keeps a session alive indefinitely and survives.)
 
-   Also excluded, one reboot each: `removed_mem` being 32 MB short (fixed in
-   v98, still resets), clocks and power domains Linux switches off as unused
-   (`clk_ignore_unused pd_ignore_unused`, v99, still resets), memshare, a
-   missing VDD_MX vote, and any AP-side SMMU stream id. **Every CPU wedges at
-   once**, which points at a hung bus rather than one stuck core.
+   **Verify the reproducer before believing a survival.** The on-device copy of
+   `rhodep-gnss-test.py` was once found replaced by 12 507 bytes of ASCII
+   spaces — the *same byte size* as the good copy, so nothing looked wrong. A
+   run against it does nothing and the phone stays up, which is exactly what an
+   elimination looks like. `md5sum` it and `ast.parse` it first.
+
+   **What is buried, so nobody spends a boot on it twice.** `removed_mem` being
+   32 MB short (fixed in v98, still resets) · clocks and power domains Linux
+   switches off as unused (`clk_ignore_unused pd_ignore_unused`, v99) · the AP
+   being idle · stale GNSS assistance data · any AP-side SMMU stream id ·
+   binding the NoC provider by hand · the ADSP · and, as of 2026-09-05, four
+   more:
+
+   - **memshare given a real 5 MiB buffer.** Not "answered 0" this time: a
+     module allocated 5 MiB of CMA at `0xfd300000`,
+     `qcom_scm_assign_mem()` HLOS → `MSS_MSA` **returned 0**, the daemon
+     answered `memshare: reporting size 5242880`, and **the modem sent
+     `MEM_ALLOC_GENERIC` in the same millisecond and took the address**, never
+     freeing it. The device was healthy for ~100 s with the region
+     modem-owned. Then `standalone`: reset within milliseconds, 0 of 40 seconds
+     elapsed, two boots. The modem wanted the buffer, got it, and it changes
+     nothing.
+   - **`pmr735a_l1` held on**, the only proxy-enabled rail in the whole stock
+     tree with no identifiable AP-side consumer. Enabled at stock's 600 mV for
+     the whole run: reset unchanged. Caveat kept: the 62 mA *load* vote almost
+     certainly never reached RPM, so the LDO's operating mode is untested.
+   - **CE1 / HWKM / PKA RPM clocks** — falsified by reading code, no boot spent.
+     `clk_disable_unused()` returns early under `clk_ignore_unused`, so v99
+     already left every `clk_smd_rpm` clock holding its `INT_MAX` handoff vote,
+     these six included, and v99 reset.
+   - **VDD_MX** — confirmed already excluded, and now for a reason that holds
+     up: `rhodep_pdhold`'s MX pin is the *same RPM resource* stock's
+     `pmr735a_s1_level` uses (`rwmx`, id 0), at a higher level, plus an enable
+     stock does not send. And the recovered stock `mss` node has no
+     `vdd_mx-supply` at all. Do **not** "fix" this by adding `"mss"` to
+     `sm6375_mpss_resource.proxy_pd_names`: `rpmpd` has no such domain on any
+     SoC, the attach returns `-ENODATA`, and the modem stops probing.
+
+   **Every CPU wedges at once**, which points at a hung bus rather than one
+   stuck core.
 
    **The AP has been cleared, with evidence.** An instrumented kernel
    (`kali-boot-v100-instrumented.img`, with `HARDLOCKUP_DETECTOR_BUDDY` +
@@ -421,30 +479,61 @@ it takes the ADSP and audio down with it until a reboot.
 
    So this is a hardware-level reset of the whole SoC, started somewhere the AP
    cannot observe: the mpss, TrustZone, or a bus error escalated by hardware.
-   More AP-side instrumentation will not help; the next step needs modem-side
-   visibility (DIAG/QXDM or a modem ramdump).
+   More AP-side instrumentation will not help.
+
+   **What is actually left, re-ranked.** (a) **Modem-side visibility** —
+   DIAG/QXDM or a modem ramdump. Everything else is guesswork against a processor
+   nobody can see into, and the four hypotheses above are what that guesswork
+   produced in its most recent session: four negatives. (b) **QDSS/CoreSight as a subsystem**, which is 110
+   device tree nodes downstream and zero in mainline — note that its *RPM
+   clock* half is covered by the v99 argument above, so what is left is the
+   nodes, not the clock. (c) The `pmr735a_l1` **operating mode**, which needs
+   `regulator-allow-set-load` in the dts and therefore a flash;
+   `kernel/patches/0121` is written. (d) The seven `msm-imem` children mainline
+   does not declare — newly visible, completely untested, and with no evidence
+   tying them to anything.
    [`GNSS-SM6375.md`](docs/interconnect-sm6375-wip/GNSS-SM6375.md)
 
-2. **`removed_mem` is 32 MB short — tested, real, and not the cause.** Mainline
+2. **Commit the recovered stock device tree, before it evaporates.** The vendor
+   DTB this board actually boots has been extracted from the untouched A/B slot
+   `_b` (`vendor_boot_b`'s 323 677-byte FDT plus the four `dtbo_b` overlays,
+   merged with `fdtoverlay`), and the stock `/vendor` GNSS configuration out of
+   `super`. Every previous session in this repo argued against a GitHub tree or
+   a hand transcription instead. The files are in `/tmp/opencode/rhodep/` and
+   **`/tmp` will not survive**; re-extraction is only possible while slot `_b`
+   is still untouched, which stops being true the moment anyone flashes it.
+   This is cheap, zero-risk and the single highest-value missing artefact —
+   suggested home `docs/vendor-dt/`. See the end of
+   [`GNSS-SM6375.md`](docs/interconnect-sm6375-wip/GNSS-SM6375.md).
+3. **`removed_mem` is 32 MB short — tested, real, and not the cause.** Mainline
    takes the size from shima/yupik instead of blair, so Linux gets 32 MB the
    secure firmware owns. Confirmed and fixed in
    `kali-boot-v98-removed-mem.img`; the reset survived it. Keep patch 0049
    anyway and send it upstream, because handing out firmware memory is wrong on
-   its own terms and would waste somebody's session later.
+   its own terms and would waste somebody's session later. The recovered stock
+   DTB now confirms `0x7100000` **from the device's own firmware** rather than
+   from a vendor tree on GitHub.
    [`REMOVED-MEM-SM6375.md`](docs/interconnect-sm6375-wip/REMOVED-MEM-SM6375.md)
-3. **The IPA reset itself**, if items 1 and 2 come back negative. Read §5
+4. **The IPA reset itself**, if items 1 and 3 come back negative. Read §5
    session 15 of HANDOFF-SESSION4.md first: three hypotheses are already buried
    with evidence and should not be retried. The experiment to run is attaching
    to LTE with `ipa.ko` never loaded, which needs the attach APN set by hand
    over `qmicli`.
-4. Everything else in the table above is a project rather than a task.
+5. Everything else in the table above is a project rather than a task.
 
-> GPS used to be item 1 here, described as "five minutes, no risk". That was
+> **GPS used to be item 1 here, described as "five minutes, no risk".** That was
 > wrong, and how it was wrong is worth knowing before trusting any other "it
 > almost works" line in this file: `qmicli` cannot start a GNSS session and a
 > listener in the same QMI client, and when it fails it fails **quietly** —
 > no NMEA, no error. That reads exactly like a GPS with no sky view, which is
 > what everyone concluded. Doing it properly, from one client, resets the phone.
+>
+> **And "GPS" has since split in two.** The satellite fix is item 1 above and is
+> a hardware bug. *Location* is neither an open item nor a hard one: WiFi and
+> cell-tower positioning work today, into gpsd and geoclue, with no SIM — 22 m
+> and 250 m measured. That took no kernel work at all. See
+> [`docs/GPS-USERSPACE.md`](docs/GPS-USERSPACE.md), and do not read "the GNSS
+> reset is open" as "the phone does not know where it is".
 
 ## Screenshots
 
@@ -588,15 +677,30 @@ The README there covers, one section per directory:
    userspace libnfc-nci, which Linux mainline has no equivalent for. Still
   not done for want of a driver: fingerprint (proprietary Focaltech HAL) and the
   camera (only the PMIC is up; it does not capture yet — see below).
-- **GPS: a satellite fix reboots the phone, cell-id positioning does not.** The
-  location service answers every query, and a session in `cellid` mode runs
-  indefinitely and reports positions. Ask for `standalone` — an actual GNSS fix
-  — and the SoC watchdog-resets in under a second, `ipa.ko` or no `ipa.ko`.
-  The trigger is the GNSS measurement engine being brought up, and nothing
-  else: not the session, not the indications, not QMI. Same silent signature as
-  the mobile-data reset, and since it needs no SIM and no LTE it is both the
-  best lead on that bug and a ninety-second reproducer for it.
-  [`GNSS-SM6375.md`](docs/interconnect-sm6375-wip/GNSS-SM6375.md)
+- **Location works; a satellite fix reboots the phone.** These are two different
+  statements and this entry used to conflate them.
+
+  What works: `rhodep-gnss` publishes a position derived from WiFi access points
+  and from the cells the modem can hear, as ordinary NMEA, into gpsd and
+  geoclue. Measured **22 m** (WiFi) and **250 m** (cell tower) here, with an
+  unprovisioned SIM and a modem that never registers — cell *identity* is
+  broadcast and is decoded while the modem is still searching, so it needs no
+  attach. Applications that ask geoclue "where am I" get an answer.
+  [`docs/GPS-USERSPACE.md`](docs/GPS-USERSPACE.md)
+
+  What does not: the satellite path. The modem's location service answers every
+  query and a session in `cellid` mode runs indefinitely, but ask for
+  `standalone` — an actual GNSS fix — and the SoC watchdog-resets in under a
+  second, `ipa.ko` or no `ipa.ko`. The trigger is the GNSS measurement engine
+  being brought up, and nothing else: not the session, not the indications, not
+  QMI. Same silent signature as the mobile-data reset, and since it needs no SIM
+  and no LTE it is both the best lead on that bug and a ninety-second reproducer
+  for it. [`GNSS-SM6375.md`](docs/interconnect-sm6375-wip/GNSS-SM6375.md)
+
+  So: no speed, no heading, no sub-10 m accuracy, and nothing at all where there
+  is neither a surveyed WiFi neighbourhood nor a known cell. The shipped
+  configuration disables geoclue's `[modem-gps]` source deliberately — it would
+  ask ModemManager to start an unassisted GNSS session, which is the reset.
 - Single USB-C port + no mainline Type-C driver → charge vs OTG is not automatic
   (manual `otg on|off`, defaults to charging). See `packages/rhodep-usb-otg`.
 - **Docker can fail to start after an out-of-band kernel/module bump** with
@@ -638,6 +742,11 @@ packages/
   rhodep-gpu-vulkan/       .deb source: point the Vulkan loader at Mesa's Turnip
                            (freedreno) ICD so vulkaninfo/vkcube and zink see the
                            Adreno 619, and pin mesa-vulkan-drivers
+  rhodep-gnss/             .deb source: location without satellites -- WiFi and
+                           cell-tower positioning published as NMEA on
+                           /run/gnss-share.sock and tcp://127.0.0.1:2948, plus
+                           the gpsd and geoclue drop-ins that consume it, and
+                           rhodep-cell-db for the offline OpenCelliD/MLS extract
   firmware-motorola-rhodep/ .deb template (blobs NOT included, see its README)
 userspace/
   debug-tools/             the display and modem diagnostic tools, plus
@@ -679,6 +788,13 @@ userspace/
                       iio-sensor-proxy needs. Accelerometer, gyroscope,
                       magnetometer, proximity and light (build-fastrpc.sh,
                       install.sh)
+  gnss/               rhodep-gnss-daemon and rhodep-cell-db: a position from
+                      WiFi access points and from the cell identities the modem
+                      decodes while searching, republished as ordinary NMEA for
+                      gpsd and geoclue. It never opens the QMI LOC service
+                      unless the modem is registered, so the GNSS reset is out
+                      of reach rather than merely guarded against
+                      (install.sh; see docs/GPS-USERSPACE.md)
   keyboard/           the on-screen keyboard in apps that never ask for it:
                       rhodep-keyboard (forceActivate over DBus), the VS Code /
                       Electron Wayland flags, and the KWin patch + build-kwin.sh
@@ -721,10 +837,18 @@ scripts/
   mkbootv2b.py             build an Android boot.img v2 (flat Image + appended DTB)
   make-boot-from-apk.sh    build a boot.img reusing an initramfs from a base image
   build-support-debs.sh    build the three support .deb packages
-  build-kernel-headers.sh  build linux-headers-<KVER>.deb (for DKMS / rtl8188eus)
+  build-kernel-headers.sh  build linux-headers-<KVER>.deb (for DKMS / rtl8188eus).
+                           Rewritten 2026-09-05 with a compiler-provenance check,
+                           a byte-diff gate on the config and a struct-layout
+                           check -- a mis-configured headers tree is what made
+                           every module un-rmmod-able. kernel/diag-modules/README.md
   rhodep-gnss-test.py      drive a GNSS session from ONE QMI client, which qmicli
                            cannot do. WARNING: this reboots the phone; that is
-                           the finding. See docs/.../GNSS-SM6375.md
+                           the finding. It has only two of the three operation-mode
+                           safety gates and starts the session anyway if the mode
+                           set fails -- deliberate in a reproducer, wrong anywhere
+                           else. Verify its md5 before every run; a zeroed copy
+                           looks exactly like a survival. docs/.../GNSS-SM6375.md
   ssc-probe.py             ask the sensor core for the SUID of one data type
   ssc-enum.py              which sensor data types the sensor core actually has
   ssc-stream.py            stream raw samples out of an SSC sensor (this is how
@@ -1040,14 +1164,14 @@ clk core to reparent. The oops happens inside `__clk_register()`, which holds
 the global clk `prepare_lock`, so the real damage is that every
 `clk_prepare_enable()` afterwards blocks forever. See "Suspend" below.
 
-**The tree as it stands builds the v97 device tree, not v94.**
-`kali-boot-v94-STABLE.img`, the image to flash, predates 0028 and 0045, so its
-device tree has no interconnect provider nodes and no NoC paths on the IPA
-node. That difference is inert: both are only read by drivers that
-`rhodep-ipa-hold.conf` and `rhodep-icc-hold.conf` keep out of the boot. It
-matters for one thing only, and §5 of HANDOFF-SESSION4.md says why v94 is the
-recovery image: with no provider nodes there is no modalias, so `qnoc-sm6375`
-cannot be autoloaded whatever state it is in.
+**The tree as it stands builds the v97 device tree, not the flashed one.**
+`kali-boot-rhodep-clean-20260903.img`, the image to flash (and the one verified
+byte for byte against the live `boot_a`), predates 0028 and 0045, so its device
+tree has no interconnect provider nodes and no NoC paths on the IPA node. That
+difference is inert: both are only read by drivers that `rhodep-ipa-hold.conf`
+and `rhodep-icc-hold.conf` keep out of the boot. It matters for one thing only,
+and §5 of HANDOFF-SESSION4.md says why: with no provider nodes there is no
+modalias, so `qnoc-sm6375` cannot be autoloaded whatever state it is in.
 
 Patches 0044-0048 are corrections checked against the vendor tree and all of
 them are kept, but **none of them fixes the watchdog reset** — see §5 session 15
@@ -2467,6 +2591,45 @@ flicker entirely. Monitor mode is **USB-only** (wlan1); the internal WCN3990
   you want to userdata.
 - Back to pmOS → dd the pmOS disk image to userdata and flash the pmOS boot.img.
 
+**Boot images live in `/opt/postmarket/out/`.** (`HANDOFF-SESSION4.md` §6 says
+`/opt/postmarket/kali-nethunter/img/`. That directory does not exist and the
+reference is corrected there too.)
+
+## What recovery actually depends on, measured
+
+Worth knowing before flashing anything experimental, because two comfortable
+assumptions are false here.
+
+**There is no automatic fallback to slot B.** The bootloader is unlocked
+(`verifiedbootstate=orange`), but `boot_a` still shows `tries = 7` with
+`successful = 0` after many successful boots — **ABL is not counting down**. It
+is not doing A/B retry accounting on this device, so a bad image is not
+self-healing. Worse, a *device-tree-only* change produces a perfectly loadable
+image whose kernel can still hang after handoff, which is exactly the class of
+failure ABL cannot detect even in principle.
+
+**EDL is not a practical fallback either**: `download_mode=0`, and rhodep's
+signed firehose programmer is not public.
+
+**So every recovery path goes through fastboot over USB.** Plan accordingly: if
+you cannot reach fastboot, you have no route back.
+
+There is, however, a **software route into fastboot from a running system**, and
+it is worth verifying before risking anything. The device tree has a root-level
+`reboot-mode` node —
+
+	compatible = "nvmem-reboot-mode";
+	mode-bootloader = <2>;
+	nvmem-cells = <... the PMIC SDAM ...>;
+
+— and the driver is bound, so:
+
+	systemctl reboot bootloader
+
+works and lands in fastboot without touching the volume keys. Confirm that on a
+healthy system *first*; it is the cheapest possible pre-flight check that the
+recovery path exists.
+
 # How to continue the port (open work)
 
 Ordered by value. The single highest-value item is the watchdog reset, because
@@ -2500,8 +2663,14 @@ it is either not started or a research project.
 
    Two things worth recording so nobody re-derives them. **memshare was
    genuinely missing and is now implemented** — the modem really does ask the
-   application processor for memory during bring-up, `userspace/modem/` answers
-   it and v93 onwards reserves the region. And **the SIM was never the cause**,
+   application processor for memory during bring-up and `userspace/modem/`
+   answers it. (Earlier revisions of this file added "and v93 onwards reserves
+   the region". **That is wrong and is retracted**: no boot image this port has
+   ever shipped reserves a memshare region, and no patch in `kernel/patches/`
+   added one until `0120`, which is not in any flashed image. The 5 MiB
+   experiment of 2026-09-05 got its memory from CMA at run time precisely
+   because there is no reservation to use. See `REMOVED-MEM-SM6375.md`.) And
+   **the SIM was never the cause**,
    which is worth stating because a dead prepaid card is the natural suspect:
    the real fault was that the modem fetches its run-time images from the AP
    over TFTP and every request was answered "file not found". Also ruled out
@@ -2519,14 +2688,55 @@ it is either not started or a research project.
    hypothesis that follows — that neither reset is about the IPA, and both are
    mpss moving data against AP memory — would also explain why every IPA-side
    correction in 0044-0048 was individually right and none of them helped.
-   Evidence, the argument against it, and the four next steps are in
+   Evidence, the argument against it, and the next steps are in
    [`GNSS-SM6375.md`](docs/interconnect-sm6375-wip/GNSS-SM6375.md).
 
-2. **GPS itself**, once the reset is understood, is downstream of it: there is
-   nothing to test until a session can run without rebooting the phone. Note
-   for whoever gets there: the XTRA almanac on the device expired 2026-08-04,
-   and `qmicli` alone cannot drive a GNSS session at all — see the same
-   document for why every shell-only attempt fails silently.
+   **That reproducer has since eaten four more hypotheses** and produced none of
+   its own: memshare answered with a real 5 MiB buffer the modem asked for and
+   took (`qcom_scm_assign_mem()` HLOS → MSS_MSA returned 0), `pmr735a_l1` held
+   on, the CE1/HWKM/PKA RPM clocks (falsified by analysis, no boot spent), and
+   VDD_MX re-confirmed excluded against the recovered stock device tree. The
+   honest reading is that AP-side hypotheses are running out; the next real step
+   is modem-side visibility.
+
+2. **A satellite fix** is downstream of item 1: there is nothing to test until a
+   session can run in `standalone` without rebooting the phone. Notes for
+   whoever gets there: the XTRA almanac on the device expired 2026-08-04, and
+   `qmicli` alone cannot drive a GNSS session at all — see the same document for
+   why every shell-only attempt fails silently.
+
+   **Location itself came off this list.** It is not blocked on the reset and it
+   never needed to be: `rhodep-gnss` (installed, version 3) derives a position
+   from WiFi access points and from the identities of the cells the modem hears
+   while searching, and publishes it as ordinary NMEA on
+   `/run/gnss-share.sock` and `tcp://127.0.0.1:2948`, wired into gpsd and
+   geoclue. Verified live with an **unprovisioned SIM**:
+   `{"class":"TPV","mode":2,"lat":-32.954171667,"lon":-60.644348333,"eph":142.5}`
+   from `gpspipe -w`, `cgps -s` showing a 2D FIX, geoclue answering over D-Bus.
+   22 m from WiFi, 250 m from a cell tower.
+
+   Three things carried out of that work that would otherwise be re-derived:
+
+   - **Cell identity needs no registration.** With the SIM unprovisioned and the
+     modem reporting `registration: searching` /
+     `imsi-unknown-in-hlr` / `Status: 'limited'`, raw
+     `qmicli --nas-get-cell-location-info` still returns
+     `Cell ID: '60858' PLMN: '72234' Location Area Code: '420'`. The modem camps
+     for limited service and decodes the BCCH without attaching. ModemManager
+     shows nothing because MM only populates LAC/CI from a *registered* serving
+     cell — that is MM policy, not a missing capability. NAS reads are a
+     different QMI service from LOC and cannot start the measurement engine.
+   - **Do not naively map accuracy to HDOP.** geoclue 2.8.1 buckets HDOP
+     (≤1→0 m, ≤2→1 m, ≤5→3 m, ≤10→50 m, ≤20→100 m, >20→300 m), **saturates at
+     300 m**, and never reads `$GPGST`. The usual 5 m/DOP conversion over-claims
+     by about 7x, and no HDOP exists that means "1200 m".
+   - **Always send `"considerIp": false`.** Omit it and an Ichnaea service
+     returns HTTP 200, plausible coordinates, and `"fallback":"ipf"` — DB-IP
+     geolocation of the *querying host's* IP, ~25 km wrong here, and nothing
+     else in the reply marks it as a guess.
+
+   [`docs/GPS-USERSPACE.md`](docs/GPS-USERSPACE.md), `userspace/gnss/`,
+   `packages/rhodep-gnss/`.
 
 3. **In-call audio.** Calls connect and there is no sound, and this is *not*
    blocked on the modem: Qualcomm voice audio goes modem ↔ ADSP ↔ codec and

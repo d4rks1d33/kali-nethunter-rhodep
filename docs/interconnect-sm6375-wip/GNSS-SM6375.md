@@ -3,6 +3,20 @@
 **Result: starting a GNSS session watchdog-resets the SoC in under a second,
 reproducibly, with `ipa.ko` not loaded.**
 
+> **The phone reports a position now, and none of it comes from a satellite.**
+> This document is about the *satellite* path, which is still unusable. A
+> separate piece of work gets a location out of WiFi access points, the
+> identities of the cells the modem can hear, and the modem's own `cellid` LOC
+> mode, and republishes it as ordinary NMEA for gpsd and geoclue — measured 22 m
+> from WiFi and 250 m from a cell tower, live, with an unprovisioned SIM. It
+> deliberately never opens the QMI LOC service unless the modem is registered,
+> so the reset below is out of reach rather than merely guarded against.
+> [`docs/GPS-USERSPACE.md`](../GPS-USERSPACE.md).
+>
+> Nothing here is fixed by that. It is worth stating in the first paragraph
+> because "GPS does not work on this port" stopped being true, while "a satellite
+> fix reboots the phone" stayed true, and the two are easy to conflate.
+
 > ## Narrowed: it is the measurement engine, and `cellid` positioning works
 >
 > One operation mode changes the outcome completely. With the mode set to
@@ -67,12 +81,18 @@ reproducibly, with `ipa.ko` not loaded.**
 > | the modem wanting a file at engine start | `tqftpserv` + `rmtfs` journals bridged into `/dev/kmsg` (bridge verified live first) — **not one line** between the marker and the death |
 > | CX or MX corner starvation | both pinned at `RPM_SMD_LEVEL_TURBO_NO_CPR` with `kernel/diag-modules/rhodep_pdhold.c` for the whole run — still resets |
 > | binding the NoC provider (this file's "one untested cheap lead") | already true: `qnoc-sm6375` is built in since 0065 and `/sys/kernel/debug/interconnect/` is populated |
-> | a vendor `no-map` region mainline does not reserve | full re-derivation from `blair.dtsi`: the only one missing is `memshare_mem` (dynamic, 8 MB), and the daemon refuses the allocation so the modem never receives an address for it |
+> | a vendor `no-map` region mainline does not reserve | full re-derivation from `blair.dtsi`: the only one missing is `memshare_mem` (dynamic, 8 MB). **Since closed properly** — the modem was given a real 5 MiB buffer it took and kept, and the reset is unchanged; see "Four more hypotheses down" §1 |
 >
 > And one non-result that must not be read as an elimination: the QDSS clock was
 > voted explicitly and nothing changed, but `clk_smd_rpm_handoff()` already
 > votes every RPM clock at probe, so the test changed nothing and **QDSS is not
 > excluded**. See `kernel/diag-modules/README.md`.
+>
+> Four more went down on 2026-09-05 — memshare answered with a real buffer,
+> `pmr735a_l1` held on, the CE1/HWKM/PKA RPM clocks, and VDD_MX re-confirmed —
+> together with the recovery of the stock vendor device tree from the untouched
+> A/B slot. All of it is below, under "Four more hypotheses down" and "The stock
+> vendor device tree has been recovered from the phone itself".
 
 ## Live confirmation: memshare is silent, and the NoC binding does not help
 
@@ -95,9 +115,46 @@ reset. Across the whole standalone run the only memshare traffic is the one
 	6661.392 rhodep-gnss: session 11 started; listening 30 s
 	6661.392 rhodep-gnss: ------------------------------------  <- console ends, SoC gone
 
-This closes the memshare hypothesis with evidence rather than inference:
-reserving `memshare_mem` and starting the daemon with a non-zero offer would not
-change this, because the engine never asks memshare for anything. `offer=0` stays.
+> ### RETRACTED 2026-09-05 — the paragraph that used to stand here
+>
+> The three lines that followed the console tail above said:
+>
+> > This closes the memshare hypothesis with evidence rather than inference:
+> > reserving `memshare_mem` and starting the daemon with a non-zero offer would
+> > not change this, because the engine never asks memshare for anything.
+> > `offer=0` stays.
+>
+> **The conclusion turned out to be right and the reasoning was a non sequitur.**
+> It has since been tested properly — the modem was given a real 5 MiB buffer it
+> legally owns, took it, and the SoC reset at exactly the same point — so the
+> hypothesis really is dead. But it was not dead *for this reason*, and the
+> difference matters, because the same argument would have talked anyone out of
+> running the experiment that actually settled it.
+>
+> memshare is a **boot-time negotiation, answered once**. The trace above shows
+> that plainly: the modem's only `MEM_QUERY_SIZE` happened **at boot** — the
+> `6660.130` is when the journal bridge replayed it into `/dev/kmsg`, and the
+> `<- boot, 02:30` annotation is the time it was actually sent, long before the
+> session. A modem that was told `size 0` at boot has
+> already adapted to having no buffer; it would not ask again at engine start
+> whether it had one or not. So "no memshare traffic between `session 11
+> started` and the death" is exactly what a modem *holding* a 5 MiB buffer would
+> also produce. The observation cannot distinguish the two cases, and the
+> inference drawn from it — that offering a real buffer at boot would change
+> nothing later — does not follow from it at all.
+>
+> The one thing that would have made the argument sound is a control run in
+> which the offer was non-zero, and that had never been done against the
+> positioning path. The only prior non-zero memshare work is session 13c
+> (`kali-boot-v93-memshare.img`) in `HANDOFF-SESSION4.md`, which measured
+> `offline` / `DeviceNotReady` / `check-personalization-state` on the **LTE
+> bring-up** path — at that point in this port's history the radio had never come
+> online, so the GNSS reproducer could not have been run on it even in principle.
+>
+> The experiment was therefore legitimate, unrun, and cheap. What it found is in
+> "Four more hypotheses down" below. `offer=0` still stays, but now because the
+> buffer demonstrably makes no difference, not because the modem was assumed not
+> to want it.
 
 **Binding the NoC provider by hand does not help either.** `qnoc-sm6375` was
 loaded with `modprobe --ignore-install` (past the `rhodep-icc-hold.conf`
@@ -120,6 +177,336 @@ is wrong on both halves. It was never an indoors problem, and it is not free.
 
 Measured on `kali-boot-v94-STABLE.img`, kernel 7.2.0-rc5, radio online, `ipa.ko`
 blacklisted as shipped.
+
+## Four more hypotheses down, 2026-09-05
+
+Four candidates went into this session and none of them survived. Two cost a
+boot each and are eliminations with an instrument; one was falsified by reading
+code and cost nothing; one was already excluded and now has a reason that holds
+up. A fifth is recorded as deliberately *not* probed, with the reason.
+
+None of them changes the reset. It is still: `opmode=standalone`, session starts,
+the SoC is gone inside 100 ms, `bootreason=watchdog`,
+`powerup_reason=0x00008000`.
+
+### 1. memshare answered 5 MiB instead of 0 — negative, and every gate passed
+
+This is the run that supersedes the retraction above. The question was narrow:
+does answering the modem's one startup memshare query with a **real** buffer —
+the 5 MiB stock's `qcom,client_3` produces — change what happens when the
+measurement engine comes up?
+
+Method, with **no device tree change and no reflash**. A kernel module
+(`kernel/diag-modules/rhodep_memassign.c`, `alloc=1`) takes 5 MiB of physically
+contiguous CMA at `0xfd300000` and calls `qcom_scm_assign_mem()` to move it from
+`QCOM_SCM_VMID_HLOS` to `QCOM_SCM_VMID_MSS_MSA` with RW, then publishes the
+region through sysfs; `userspace/modem/memshare-daemon.c` was taught to take the
+address from there instead of a compiled-in constant.
+
+**The SCM call returned 0**, and `srcvm` came back `0x8000` = `BIT(0xf)` =
+MSS_MSA. That is worth recording on its own: this firmware *does* accept the
+HLOS → MSS_MSA transition for an ordinary CMA range, which was not obvious
+beforehand and is the thing a mainline memshare driver would have to do.
+
+Ordering, from `journalctl -b -o short-monotonic`, because the assignment has to
+be in place before the modem is ever told the address:
+
+	11.66 s   modem firmware loaded
+	12.95 s   rhodep_memassign: region assigned to MSS_MSA
+	12.98 s   memshare daemon publishes the address
+	16.21 s   the modem's MEM_QUERY_SIZE arrives      <- 3.2 s later
+
+Result:
+
+	memshare: reporting size 5242880
+
+and **the modem sent `MEM_ALLOC_GENERIC (0x0022)` in the same millisecond and
+took the address.** It decodes exactly as stock's client 3 — `num_bytes
+0x500000`, `client_id 1`, `proc_id 0`, `alloc_contiguous 1` — and it never sent
+`MEM_FREE`. The device then ran healthy for about 100 s with the region
+MSS_MSA-owned: no XPU fault, no SError, no new errors of any kind.
+
+Then `opmode=standalone`, with the mode confirmed applied (`operation mode set
+to standalone` present in the console record, which is the check that stops a
+failed set from looking like a survival): **the SoC reset within milliseconds of
+`session 11 started`. Zero of the 40 seconds ran.** Next boot,
+`androidboot.bootreason=watchdog` / `powerup_reason=0x00008000`, calibrated
+against the clean `systemctl reboot` immediately before it, which recorded
+`reboot` / `0x00004000`. Reproduced across two boots.
+
+So the modem genuinely wanted the buffer, genuinely received it, was in a
+position to use it, and the reset is unchanged and just as fast. That is a
+strong elimination rather than a weak one: unlike the `offer=0` runs there is no
+argument left that the modem was merely working around a refusal.
+
+The full gate-by-gate table, the console tail and the residual caveat about the
+CMA cacheable alias are in
+[`kernel/diag-modules/README.md`](../../kernel/diag-modules/README.md),
+"The 5 MiB memshare run".
+
+Three sub-findings from building it, each of which would otherwise cost somebody
+a session:
+
+* `CONFIG_ARCH_FORCE_MAX_ORDER=10` caps `alloc_pages()` at 4 MiB on this kernel,
+  so there is no "round 5 MiB up to 8 MiB" option. CMA via `dma_alloc_pages()`
+  is required.
+* **CMA memory keeps a cacheable linear alias after the SCM call**, which
+  `no-map` memory would not. The allocator's own zeroing goes through that
+  alias, so dirty lines for the buffer exist at the moment of handover and their
+  write-back would itself be a violation; the range has to be cleaned to the
+  point of coherency before the assignment. Speculation through the alias could
+  *not* be fenced — `set_memory_valid()` and `set_direct_map_invalid_noflush()`
+  are not exported — so that is the residual risk of doing this without a dts
+  reservation. Not observed to bite.
+* **Do not `rmmod` it while the modem holds the buffer.** The reverse SCM call
+  does not return, that CPU stops answering IPIs, and the next unrelated
+  `smp_call_function()` user stalls forever. Correct teardown is to remove the
+  modprobe.d/drop-in configuration and reboot.
+
+### 2. `pmr735a_l1` held on — negative
+
+The one rail the stock tree keeps on and this port does not. Stock enables it at
+boot through RPM resource `ldoe` id 1, with `qcom,proxy-consumer-enable`,
+`qcom,init-voltage = <600000>` and `qcom,proxy-consumer-current = <62000>`.
+Mainline declares the same LDO and references it from nowhere, so on this port
+it reads:
+
+	l1   0  0  0  unknown  576mV   0mA        <- off, at its floor, no users
+
+It earned a boot because it is **the only proxy-enabled rail in the whole stock
+tree with no identifiable AP-side consumer** — which is the shape of a rail that
+exists for a subsystem the AP does not model, and the mpss is the obvious
+candidate.
+
+`kernel/diag-modules/rhodep_reghold.c` takes it with
+`regulator_get_optional(NULL, "l1")`. That works with no consumer node at all
+because `regulator_dev_lookup()` falls back to `regulator_lookup_by_name()`,
+which matches `desc->name` over the regulator class; plain `regulator_get()`
+would have handed back the dummy regulator with a `dev_warn` and looked exactly
+like success. Held:
+
+	l1   1  2  0  unknown  600mV        <- enabled, at stock's voltage
+	   l1  1              62mA          <- the consumer row
+
+**The reset is unchanged**: same sub-100 ms latency from `session 11 started`,
+`bootreason=watchdog`.
+
+Two caveats, because this elimination is not as complete as it looks:
+
+* **The current vote almost certainly never left the AP.** `set_load()` returned
+  0 and the 62 mA shows in the consumer row, but `drms_uA_update()` bails out
+  unless `REGULATOR_CHANGE_DRMS` is in `valid_ops_mask`, and
+  `of_get_regulation_constraints()` sets that only for
+  `regulator-allow-set-load`, which this dts does not have. So **enable and
+  voltage were real; the load — and therefore the LDO's HPM/LPM mode — probably
+  was not.** If the rail's *mode* is what the modem needs, this run did not test
+  it. `kernel/patches/0121` is the dts version that would.
+* **Stock asserts this rail at boot, not ~2300 s in.** The module was loaded on
+  a running system, so the rail was off for the whole earlier part of the boot.
+  If anything latched during modem bring-up while it was off, holding it later
+  cannot undo that.
+
+### 3. CE1 / HWKM / PKA RPM clocks — falsified by analysis, no boot spent
+
+Stock has a whole crypto subsystem mainline sm6375 lacks: `qcedev@1b20000`,
+`qcrypto@1b20000`, `qseecom@c1800000`, `mcd`, `hwkm@4440000` and `qrng@4453000`.
+Nothing on this port claims their RPM clocks, so `ce1_clk`, `ce1_a_clk`,
+`hwkm_clk`, `hwkm_a_clk`, `pka_clk` and `pka_a_clk` all read `enable_cnt 0`.
+
+It looked like a good lead for a specific reason. The vendor NoC id map has
+
+	ICBID_MASTER_MSS_NAV            27
+	ICBID_SLAVE_MSS_NAV_CE_MPU_CFG  218
+
+and the string `NAV_CE_MPU_CFG` appears in the modem firmware itself. A
+positioning engine reaching a crypto MPU whose clock nobody voted is exactly the
+class of "bus access into something unclocked" this whole file keeps circling.
+
+**It is nevertheless already covered by v99, and running it would re-test that.**
+`clk_disable_unused()` returns *early* when `clk_ignore_unused` is set — before
+it reaches `clk_unprepare_unused_subtree()` — so the v99 boot left **every**
+`clk_smd_rpm` clock still holding the `INT_MAX` handoff vote
+`clk_smd_rpm_handoff()` writes into both the active and the sleep set at probe.
+These six included. v99 still reset.
+
+The obvious objection is the caveat recorded against v99 in the table below —
+"this only moved 3 clocks (249 → 246 off), so it is weaker evidence than it
+looks". **That caveat does not apply here.** The 249/246 count was read off the
+hardware-enable column, and for `clk_smd_rpm` clocks that column is a constant
+`Y`: the driver has no `.is_enabled` op, so `clk_core_is_enabled()` returns true
+by default. It could never have shown these six changing state in either
+direction. The count measured a different population of clocks entirely.
+
+`kernel/diag-modules/rhodep_cehold.c` was written anyway and is verified to move
+all six from `enable_cnt 0` to `1` and back, so the instrument exists if a
+future finding makes it worth a boot. It has not been spent.
+
+### 4. VDD_MX — already excluded, and now for a reason that holds up
+
+`rhodep_pdhold.c` pins **rpmpd power domains**, not regulators, and the earlier
+"CX and MX pinned at `TURBO_NO_CPR`, still resets" result was recorded without
+checking that those two things reach the same place. On this SoC they do:
+
+* rpmpd `SM6375_VDDMX` is `RPMPD_RWMX`, id 0, key `KEY_LEVEL`.
+* Stock's `pmr735a_s1_level` is `qcom,resource-name = "rwmx"`, id `<0x00>`, with
+  `qcom,use-voltage-level` — i.e. `vlvl`.
+
+Same RPM resource, same id, same key. `pdhold` additionally sends
+`KEY_ENABLE`(`swen`)`=1` through `rpmpd_power_on()`, and clamps to
+`RPM_SMD_LEVEL_TURBO_NO_CPR = 416` against stock's TURBO = **384**. So the test
+was a **strict superset** of what stock asks for, not an approximation of it.
+
+Independently: the stock `qcom,mss@06000000` node has only `vdd_cx-supply` and
+**no `vdd_mx-supply`**. The vendor does not vote MX for the modem either, and
+mainline's `.proxy_pd_names = { "cx", NULL }` matches the vendor exactly. There
+is nothing here to fix.
+
+**And one thing that must not be tried.** Adding `"mss"` to
+`sm6375_mpss_resource.proxy_pd_names` — an obvious-looking "the modem should
+have its own domain" change — would be a **regression, not a fix**. Every device
+tree in the kernel that declares an `"mss"` power domain uses `&rpmhpd`, never
+`&rpmpd`; the string `"mss"` does not occur anywhere in `rpmpd.c`; and
+`sm6375_rpmpds[]` contains only CX, MX, GX and LPI. The attach would return
+`-ENODATA` and the modem would stop probing altogether.
+
+### 5. CX iPeak Limit Manager — weak, and deliberately not probed
+
+`cx_ipeak@3ed000` and `cxip-cdev@3ed000` exist in stock and are absent in
+mainline, which put them on the list. They came off it on their own evidence:
+**every** consumer of the `cx_ipeak` phandle in the stock tree is a camera node
+(12 of them, `qcom,cam-cx-ipeak`) plus one video codec (`qcom,vidc@5a00000`).
+There is no modem client and no GNSS client.
+
+It was then **deliberately not probed**, and the reason is worth stating because
+it is a general rule for this device: `0x3ed000` sits inside the same TCSR
+aperture as `0x3d3000`, and a plain `readl()` at `0x3d3000` takes the SoC down
+in silence with the *identical* signature to the bug under investigation. A read
+there could not be distinguished from reproducing it, so the experiment would
+have produced an uninterpretable result at the cost of a boot.
+
+## The stock vendor device tree has been recovered from the phone itself
+
+Every previous session in this directory argued against `blair.dtsi` as read on
+GitHub, or against hand transcriptions of it. That is no longer necessary: the
+**stock device tree the bootloader actually gives this board** has been
+extracted from the device.
+
+It came out of the **unused A/B slot**. pmOS runs from `_a` and has overwritten
+it — `dtbo_a` is all zeros — but nothing this port ever did touched `_b`:
+
+* `dtbo_b` is an Android DTBO table (magic `0xd7b7ab1e`), 4 entries, every one
+  `model = "rhodep"`, `compatible = "qcom,blair-rhodep", "qcom,blair-moto",
+  "qcom,blair"`.
+* `vendor_boot_b` is a boot header v3 carrying a **323 677-byte FDT**,
+  `model = "Qualcomm Technologies, Inc. Blair"` — the base DTB.
+
+Merged with `fdtoverlay` into a single 21 894-line source. **The rhodep overlays
+touch nothing in `reserved-memory`, `qcom,memshare`, `qcom,msm-imem` or the
+`mss` node**, so for all of those the base DTB is authoritative on its own and
+the overlay merge is not load-bearing.
+
+The stock `/vendor` partition was recovered the same way, out of `super` (LP
+metadata slot 0, `vendor_a` at offset 3 476 029 440, size 632 545 280, mounted
+read-only through a loop device).
+
+### What it says that is relevant here
+
+**There is no GNSS or NAV device node in the application-processor device tree
+at all — on either side.** Not in the base DTB, not in any of the four overlays.
+The measurement engine, the `nav_cc` clock controller, `NAV_CE_MPU_CFG` and the
+eLNA control lines (`gnss_l1_elna_ctrl`, `gnss_l2_5_elna_ctrl`) are all inside
+the MPSS. Stock Android runs GNSS on this board with a GCC driver that has **zero
+NAV clocks**. So "mainline is missing an AP-side NAV clock" cannot be the cause
+of the reset: stock does not have one either.
+
+`qcom,rmtfs_sharedmem@0` carries `qcom,vm-nav-path`, and mainline already
+translates that correctly to `qcom,vmid = <0x0f 0x2b>` — `QCOM_SCM_VMID_MSS_MSA`
+and `QCOM_SCM_VMID_NAV` — confirmed live on the device. **The NAV VMID is not a
+gap.** That closes a question this document has been carrying implicitly.
+
+`qcom,mss@06000000` in full, since several arguments above depend on it:
+
+	compatible = "qcom,pil-tz-generic";
+	clocks = <...>;  clock-names = "xo";      <- one clock, and it is XO
+	vdd_cx-supply = <...>;                    <- and no vdd_mx-supply
+	qcom,vdd_cx-uV-uA = <0x180 0x186a0>;
+	qcom,proxy-timeout-ms = <0x2710>;
+	qcom,pas-id = <4>;
+	qcom,ssctl-instance-id = <0x12>;
+	qcom,smem-id = <0x1a5>;
+
+and the memshare node, which is what §1 above was built to answer:
+
+	qcom,memshare {
+		qcom,client_1 { qcom,peripheral-size = <0x00>; qcom,client-id = <0x00>;
+		                qcom,allocate-boot-time; label = "modem"; };
+		qcom,client_2 { qcom,peripheral-size = <0x00>; qcom,client-id = <0x02>; };
+		qcom,client_3 { qcom,peripheral-size = <0x500000>;  qcom,client-id = <0x01>;
+		                memory-region = <&memshare_region>;
+		                qcom,allocate-on-request; label = "modem"; };
+	};
+
+	memshare_region {
+		compatible = "shared-dma-pool";
+		no-map;
+		alloc-ranges = <0x00 0x00 0x00 0xffffffff>;
+		alignment = <0x00 0x100000>;
+		size = <0x00 0x800000>;
+	};
+
+— 8 MiB, `no-map`, 1 MiB aligned, **dynamically placed** (no fixed `reg`,
+`alloc-ranges` covering the whole 32-bit space), of which client 3 advertises
+5 MiB. That is exactly the answer the run in §1 gave the modem.
+
+The `reserved-memory` list also confirms `removed_region@c0000000` at
+`0x7100000` **from the device's own firmware**, not from a GitHub tree — see
+[`REMOVED-MEM-SM6375.md`](REMOVED-MEM-SM6375.md).
+
+`qcom,msm-imem@c125000` is present with **eight** children:
+`mem_dump_table@10`, `dload_type@1c`, `diag_dload@c8`, `restart_reason@65c`,
+`boot_stats@6b0`, `kaslr_offset@6d0`, `pil@6dc` (`pil-disable-timeout`) and
+`pil@94c`. Mainline has the same aperture as `sram@c125000`
+(`compatible = "qcom,sm6375-imem", "syscon", "simple-mfd"`) but declares
+**one** child, `pil-reloc@94c` — stock's `pil@94c`. The other seven are absent,
+`mem_dump_table@10` among them.
+
+Whether any of that matters is **not established**. Nothing in this session
+tested it, and there is no evidence tying imem to the reset; it is recorded
+because it is a concrete, checkable difference that was previously invisible.
+
+### The stock GNSS configuration, for the record
+
+From the recovered `/vendor`. None of it implies an AP-side hardware resource,
+which is the reason it is recorded rather than acted on:
+
+| file | what it says |
+| --- | --- |
+| `gps.conf` | `NMEA_PROVIDER=0` — NMEA is generated **by the modem**, not the AP. `CAPABILITIES=0x17`, `LPP_PROFILE = 2`, `MODEM_TYPE = 1`, `NTP_SERVER=time.xtracloud.net`, `XTRA_CA_PATH=/usr/lib/ssl-1.1/certs`, and every `RF_LOSS_*` is `0`. |
+| `izat.conf` | `lowi-server` and `xtra-daemon` `PROCESS_STATE=ENABLED`; `slim_daemon` `DISABLED`; `SAP=MODEM_DEFAULT`. |
+| `sap.conf` | `SENSOR_CONTROL_MODE=2` — **sensors are not used by GNSS** on this board. Consistent with the ADSP already having been eliminated on the reproducer. |
+| `gnss_antenna_info.conf` | present but **unpopulated**: the values are Qualcomm's template examples (`PC_OFFSET_0 = 1.2 0.1 3.4 0.2 5.6 0.3`, `... = 11.22 33.44 55.66 77.88`), not a survey of this antenna. |
+
+There is also a `/vendor/rfs/apq/gnss/` remote-filesystem root with no equivalent
+on this port. Whether the modem ever reaches for anything under it is untested —
+`tqftpserv -d` across a whole boot showed the modem asking for nothing during a
+GNSS session, so it probably does not, but that is inference.
+
+### These artefacts should be committed
+
+They currently live outside the repo, in `/tmp/opencode/rhodep/`
+(`base_0.dts`, `dtbo_b_0..3.dts`, `merged.dts`, `live-mainline.dts`,
+`vendor-gnss/etc/*.conf`), **and `/tmp` will not survive**.
+
+Recovering them again means unpacking `vendor_boot_b` and mounting `vendor_a`
+out of `super` on a device that still has an untouched `_b` slot — which is true
+today and stops being true the moment anyone flashes the other slot. This is the
+single highest-value missing artefact in the repository: every "the vendor does
+X" claim in this directory could be checked against it in seconds instead of
+being re-derived.
+
+**Recommendation: commit them under `docs/vendor-dt/`**, with the extraction
+method written next to them, and with the provenance (slot `_b`, dates, sizes)
+recorded so a later reader knows which firmware they describe.
 
 ## What actually happens
 
@@ -221,11 +608,16 @@ would not do that; a hung interconnect would.
 | `QMI_LOC_START` as a message | `qmicli` sends it and survives |
 | the WWAN radio / cellular RF | resets with the modem in `low-power` |
 | `removed_mem` being 32 MB short | fixed and confirmed in v98; still resets |
-| clocks Linux switched off as unused | `clk_ignore_unused pd_ignore_unused` (v99); still resets. Caveat: this only moved 3 clocks (249 -> 246 off), because the bootloader had already left most of them off, so it is weaker evidence than it looks |
+| clocks Linux switched off as unused | `clk_ignore_unused pd_ignore_unused` (v99); still resets. Caveat as written: "this only moved 3 clocks (249 -> 246 off) … weaker evidence than it looks". **That caveat is narrower than it reads** — the 249/246 count came from the hardware-enable column, which is a constant `Y` for `clk_smd_rpm` clocks and cannot show them changing at all. For every RPM clock, v99 is strong evidence: `clk_disable_unused()` returns early under `clk_ignore_unused`, so all of them kept the `INT_MAX` handoff vote in both the active and the sleep set |
 | power domains left unpowered | `pd_ignore_unused`, same run |
 | memshare handing out live RAM | the daemon runs with `offer=0`, answers `MEM_QUERY_SIZE` with 0 and refuses `MEM_ALLOC`; no allocation in any boot's journal |
-| a missing VDD_MX vote for the mpss | the vendor declares only `vdd_cx` for `pil_modem` too |
+| **memshare being answered with a real buffer** | 2026-09-05. 5 MiB of CMA at `0xfd300000`, `qcom_scm_assign_mem()` HLOS -> MSS_MSA **returned 0**, `memshare: reporting size 5242880`, and the modem sent `MEM_ALLOC_GENERIC (0x0022)` and took the address. Still resets, same millisecond-scale latency, two boots. See "Four more hypotheses down" §1 |
+| **`pmr735a_l1`, the rail stock holds and mainline does not** | held on at 600 mV with `rhodep_reghold.c` (`0,0 -> 1,2`, `62mA` in the consumer row) for the whole run; still resets. Caveat: `set_load` almost certainly never reached RPM, so the LDO's *mode* is not tested — §2 |
+| **CE1 / HWKM / PKA RPM clocks** | not spent. `clk_ignore_unused` on v99 already left all six holding their `INT_MAX` handoff vote, and v99 reset. `rhodep_cehold.c` exists and is verified to move them 0 -> 1 if this is ever worth re-opening — §3 |
+| a missing VDD_MX vote for the mpss | the vendor declares only `vdd_cx` for `pil_modem` too — now confirmed against the **recovered stock DTB**: `qcom,mss@06000000` has `vdd_cx-supply` and no `vdd_mx-supply`. And `rhodep_pdhold`'s MX pin is a strict superset of stock's request (same RPM resource `rwmx` id 0, level 416 against stock's 384, plus `swen=1`) — §4 |
 | an AP-side SMMU stream id | the mpss is not behind `apps_smmu`; it uses its `no-map` carveout directly |
+| a missing AP-side NAV clock | the recovered stock device tree has **no GNSS/NAV node at all**, on either side, and stock's GCC driver has zero NAV clocks. There is nothing for mainline to be missing |
+| the NAV VMID on the rmtfs region | mainline already emits `qcom,vmid = <MSS_MSA NAV>`, which is the vendor's `qcom,vm-nav-path`; confirmed live |
 
 ### Instrumented kernel: the AP is innocent, proven
 
@@ -296,12 +688,14 @@ left off because it panics, which is exactly what is wanted here. With
 `FUNCTION_TRACER` + `PSTORE_FTRACE`, ramoops keeps the last function calls per
 CPU across the reset, which would say what the AP was doing when it stopped.
 
-The cheaper experiment first, since the image already exists:
-**boot `kali-boot-v97-ipa-interconnect.img`, `modprobe qnoc-sm6375`, then run the
-reproducer.** Session 15 showed the interconnect driver working on v97 and it did
-not fix the LTE reset, but GNSS has never been tried with the NoC provider bound.
-Given that the failure looks like a hung bus, that is the one untested cheap
-lead left.
+*(Both of these have since been done — `kali-boot-v100-instrumented.img` above is
+the result, and it is what cleared the AP.)*
+
+**The "cheaper experiment first" this section used to recommend is spent.** It
+said: boot `kali-boot-v97-ipa-interconnect.img`, `modprobe qnoc-sm6375`, then run
+the reproducer, "the one untested cheap lead left". It was run, from both
+directions — the provider built in since 0065, and the module bound by hand — and
+the reproducer still resets. See the top of this file.
 
 ## Ruled out: the removed_mem reservation
 
@@ -399,21 +793,48 @@ magnitude.
 
 ## What to do next
 
-1. **Get a log out of the modem side.** The reset is silent on the AP, so the
-   AP is probably not where it happens. `/var/lib/tqftpserv/` already collects
-   modem-authored reports (`datablock_report.txt`, `simlock_report.txt`,
-   `hob_report.txt`); check whether a GNSS one appears, and whether the modem
-   asks for any file over TFTP in the moment before the reset — run
-   `tqftpserv -d` and start a session.
-2. **Bisect the QMI_LOC start itself.** `QMI_LOC_START` takes optional TLVs
-   (fix recurrence, minimum interval, accuracy). The script sets three of them
-   defensively; try a start with the session id only.
-3. **Check whether it is the indications at all.** Register events, then start,
-   and immediately `--loc-stop` from the same client before any indication can
-   be delivered. If it still resets, delivery is not the trigger.
-4. **Compare against the IPA reset with the same instrumentation.** Both now
-   have a ramoops console and `/dev/kmsg` markers; the question worth answering
-   is whether the last thing on the console is the same in both.
+**Three of the four steps this section used to list are done.** Kept, struck
+through, so nobody repeats them:
+
+1. ~~Get a log out of the modem side by watching TFTP~~ — done. `tqftpserv` and
+   `rmtfs` journals were bridged into `/dev/kmsg` with the bridge verified live
+   first, and there is **not one line** between the marker and the death. The
+   modem asks the AP for nothing. (The *other* half of step 1 — real modem-side
+   logging, DIAG/QXDM or a ramdump — is not done and is now the whole remaining
+   plan; see below.)
+2. ~~Bisect the `QMI_LOC_START` optional TLVs~~ — done. A `bare` start carrying
+   nothing but the session id resets. See the bisection table above.
+3. ~~Check whether it is the indications~~ — done. An empty event mask resets,
+   and skipping `register_events` entirely resets. No indication was ever
+   delivered in any run.
+4. **Compare against the IPA reset with the same instrumentation.** Still open,
+   and partly answered: `HANDOFF.md` reports the two deaths as indistinguishable
+   at the PMIC and at the bootloader's bitmask. What has not been done is a
+   side-by-side of the ftrace records.
+
+**What is left, in the order it is worth doing.**
+
+1. **Modem-side visibility.** DIAG/QXDM or a modem ramdump. The AP has been
+   cleared with evidence and four more AP-side hypotheses died in one session on
+   2026-09-05 (see "Four more hypotheses down"); continuing to guess at a
+   processor nobody can see into has a poor recent record.
+   `docs/modem-diag-wip/` has the state of the DIAG work, including why the
+   channel will not open on this firmware.
+2. **QDSS/CoreSight as a subsystem** — 110 device tree nodes downstream, zero in
+   mainline. Note what is *not* left of this: its RPM clock half is covered by
+   the `clk_ignore_unused` argument in §3 above, so the open question is the
+   nodes, not the clock.
+3. **The `pmr735a_l1` operating mode.** §2 held the rail on but almost certainly
+   never delivered the 62 mA load vote, so the LDO's HPM/LPM mode is untested.
+   That needs `regulator-allow-set-load` in the dts and therefore a flash;
+   `kernel/patches/0121` is written.
+4. **The seven `msm-imem` children mainline does not declare**, newly visible
+   from the recovered stock DTB. Completely untested, no evidence tying them to
+   anything, listed last for that reason.
+
+And before any of it: **commit the recovered stock device tree** (see above).
+It is free, it is at risk, and every item on this list is easier to argue about
+with it in the repository.
 
 ## Reproducing
 
@@ -428,6 +849,43 @@ magnitude.
 Put the radio back when finished, so the phone is not holding it up for nothing:
 
 	sudo qmicli -d qrtr://0 --dms-set-operating-mode=low-power
+
+### Verify the script before every run — a survival can be a lie
+
+On 2026-09-05 the on-device copy at `/home/kali/rhodep-gnss-test.py` was found
+**replaced by 12 507 bytes of ASCII spaces**. That is the same byte count as the
+good copy, so `ls -l` looked correct and nothing about it drew attention. How it
+happened is not known; what matters is that a run against it starts nothing,
+prints nothing useful, and the phone stays up — which is indistinguishable from
+the survival this reproducer exists to detect.
+
+Two commands, before any run whose result you intend to believe:
+
+	md5sum ~/rhodep-gnss-test.py            # against the repo copy
+	python3 -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" \
+		~/rhodep-gnss-test.py
+
+The same rule applies to `opmode=`: always confirm `operation mode set to ...`
+in the console record. A set that fails falls through to `standalone`, and the
+script starts the session anyway (see below), so *both* directions of this
+experiment can lie if nobody checks.
+
+### The reference script has only two of the three safety gates
+
+`scripts/rhodep-gnss-test.py` sets the operation mode and then, on failure:
+
+	log("set_operation_mode(%s) failed: %s -- starting anyway" % (OPMODE, e))
+
+It checks the request ack, and it does **not** wait for the
+set-operation-mode *indication*, which is where LOC reports the real outcome. So
+a mode that is acked but never applied leaves the engine in `standalone` and the
+script starts a session on it — which is precisely the path that reboots the
+phone. That is acceptable in a bisection tool whose job is to cause the reset,
+and it is not acceptable anywhere else.
+
+`userspace/gnss/rhodep-gnss-daemon` has all three gates (ack, indication,
+`get_operation_mode` readback) and refuses to send `QMI_LOC_START` if any of them
+fails. See [`../GPS-USERSPACE.md`](../GPS-USERSPACE.md).
 
 ## The instrumented kernel
 

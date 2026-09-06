@@ -1344,10 +1344,16 @@ This replaces HANDOFF-SESSION3 §5, which is stale.
 | project repo (commit here) | `/opt/postmarket/nethunter-rhodep-repo`, remote `github.com/d4rks1d33/kali-nethunter-rhodep` |
 | aport mirror inside the repo | `postmarketos/` (keep in sync when committing) |
 | these notes | `/opt/postmarket/_common/interconnect-sm6375-wip/`, mirrored in the repo under `docs/` |
-| boot images | `/opt/postmarket/kali-nethunter/img/` |
-| support .deb packages | `/opt/postmarket/kali-nethunter/img/` and `packages/` in the repo |
+| boot images | `/opt/postmarket/out/` |
+| support .deb packages | `/opt/postmarket/out/` and `packages/` in the repo |
 | **ramdisk and cmdline needed to build any boot image** | `/opt/postmarket/_common/boot-artifacts/` |
 | backups | `/opt/postmarket/_common/backups-historicos/` |
+
+**Corrected 2026-09-05.** The two `img` rows said
+`/opt/postmarket/kali-nethunter/img/`. **That directory does not exist**, and
+following it wastes a few minutes at exactly the moment somebody is trying to
+flash a recovery image. Boot images and the support `.deb`s are in
+`/opt/postmarket/out/`.
 
 ### Volatile locations (in /tmp, WILL be lost, all recreatable)
 
@@ -1425,7 +1431,7 @@ the build fails with "computed checksums did NOT match".
 	    boot/vmlinuz boot/dtbs/qcom/sm6375-motorola-rhodep.dtb \
 	    /opt/postmarket/_common/boot-artifacts/v47_ramdisk \
 	    "$(cat /opt/postmarket/_common/boot-artifacts/v47_cmdline.txt)" \
-	    /opt/postmarket/kali-nethunter/img/kali-boot-vNN.img
+	    /opt/postmarket/out/kali-boot-vNN.img
 
 The Motorola bootloader needs the **flat `Image`** (starts with `MZ`, which is
 why CONFIG_EFI_ZBOOT is off) with the **DTB appended**, which is what

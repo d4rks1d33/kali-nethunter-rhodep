@@ -1,0 +1,14 @@
+#!/bin/sh
+set -e
+if [ "$1" = remove ] || [ "$1" = deconfigure ]; then
+    systemctl stop rhodep-gnss.service 2>/dev/null || true
+    systemctl disable rhodep-gnss.service 2>/dev/null || true
+    systemctl disable --now rhodep-cell-db.timer 2>/dev/null || true
+    # Left running on purpose: ModemManager is very likely a client of it by
+    # now, and stopping it would drop the modem's transport and force a
+    # re-enumeration -- the thing this package added it to avoid. It is a
+    # 200 KiB idle process; the postrm disables it so it does not come back
+    # after the next boot.
+    systemctl disable rhodep-qmi-proxy.service 2>/dev/null || true
+fi
+exit 0

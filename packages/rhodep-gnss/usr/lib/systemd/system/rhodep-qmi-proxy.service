@@ -1,0 +1,79 @@
+[Unit]
+Description=rhodep: shared qmi-proxy for ModemManager and rhodep-gnss
+Documentation=file:/usr/share/doc/rhodep-gnss/README
+# Nothing here opens a QMI device; qmi-proxy only listens on its abstract
+# UNIX socket and opens devices on behalf of clients. So this has no real
+# dependency on qrtr-ns beyond wanting to exist before anybody looks for it.
+Before=ModemManager.service rhodep-gnss.service
+ConditionPathExists=/usr/libexec/qmi-proxy
+
+[Service]
+# WHY THIS UNIT EXISTS.
+#
+# libqmi clients that open a device with QMI_DEVICE_OPEN_FLAGS_PROXY connect to
+# the abstract socket "qmi-proxy", and the first one to find it missing forks
+# /usr/libexec/qmi-proxy itself. Everyone else then shares that instance --
+# including ModemManager.
+#
+# MEASURED on this phone, 2026-09-05: rhodep-gnss.service won that race at
+# boot, so qmi-proxy ended up inside /system.slice/rhodep-gnss.service. The
+# default KillMode=control-group then meant that `systemctl restart
+# rhodep-gnss` killed ModemManager's transport with it:
+#
+#   19:33:08 ModemManager[2367]: <wrn> Cannot read from istream: connection broken
+#   19:33:08 ModemManager[2367]: <msg> [modem0] port 'qrtr0' no longer
+#                                       controllable, reprobing
+#   19:33:26 ModemManager[2367]: <wrn> [modem1] couldn't load SUPL server: ...
+#   19:33:36 ModemManager[2367]: <wrn> [modem1] couldn't load supported
+#                                       assistance data types: ...
+#
+# So every restart of the location daemon re-enumerated the modem, and a modem
+# re-enumeration makes ModemManager re-probe the QMI LOC service for SUPL and
+# predicted-orbit (XTRA) assistance data. That is precisely the sequence that
+# precedes an unexplained SoC reset on this hardware, and it was being caused
+# by this package's own service management.
+#
+# Owning the proxy from a unit of its own fixes it at the root: neither
+# ModemManager nor rhodep-gnss forks one, so neither can take the other's
+# transport down when it stops. rhodep-gnss.service additionally carries
+# KillMode=process, in case this unit is ever masked and the daemon has to
+# fall back to forking its own.
+Type=exec
+ExecStart=/usr/libexec/qmi-proxy --no-exit
+# "Somebody else already owns the proxy socket" is a success, not a failure.
+#
+#     $ /usr/libexec/qmi-proxy --no-exit
+#     error: Error binding to address (GUnixSocketAddress): Address already in use
+#     exit=1
+#
+# which is exactly what happens when this unit is installed onto a running
+# system where ModemManager or rhodep-gnss forked a proxy first. There is
+# nothing to do in that case and nothing wrong: the socket is being served.
+# Treating it as a failure produced a restart loop that ended in
+# start-limit-hit and a red unit, which is noise that hides real problems.
+# From the next boot this unit gets there first (Before= above) and stays up.
+#
+# The cost of accepting exit 1 is that a genuine bind failure for some other
+# reason also looks like success. The consequence of that is only that
+# whichever daemon needs a proxy forks its own, which is the pre-existing
+# behaviour, and rhodep-gnss.service's KillMode=process keeps that safe.
+SuccessExitStatus=1
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectControlGroups=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_QIPCRTR AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

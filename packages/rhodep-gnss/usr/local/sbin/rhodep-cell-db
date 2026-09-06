@@ -1,0 +1,692 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+"""
+rhodep-cell-db - build and query the offline cell-tower database.
+
+rhodep-gnss-daemon's `cell` source turns the identity of the cell the modem is
+camped on into a position. It can ask a network service to do that, but the
+best answer is a local one: no API key, no round trip, no third party learning
+where the phone is, and it keeps working with the WAN down. This builds that
+local answer out of the OpenCelliD data dump.
+
+Where the data comes from
+-------------------------
+
+OpenCelliD's own downloads (https://opencellid.org/downloads.php) are gated
+behind an API access token. Registration is free but it is a web form asking
+for a name and an e-mail address and it is behind reCAPTCHA, so a token cannot
+be obtained non-interactively and this script does not ship one. If you have
+one, pass --token and the official per-MCC export is used.
+
+Without a token the default source is the Internet Archive's mirror of the
+2024-05-19 OpenCelliD full export, which is published under CC-BY-SA 4.0, the
+same licence as the original:
+
+    https://archive.org/download/cell_towers.csv/cell_towers.csv.gz
+
+It is 1.1 GB compressed, so it is streamed and filtered on the fly: only the
+rows for the MCCs asked for are ever held, and nothing is written to disk
+except the finished database. Expect ~4 minutes on a 5 MB/s link.
+
+--source mls uses the Internet Archive's copy of the final Mozilla Location
+Service cell export instead (2024-03-27, public domain). Same CSV format.
+Different survey, so it is worth trying when OpenCelliD does not have a cell:
+they were independent collections.
+
+The freshness caveat, which is not academic
+-------------------------------------------
+
+MEASURED on this phone, 2026-09-05, Rosario/AR: the modem camps on GSM
+722-34 LAC 420 CID 60858. That identity is in neither dump. The 2024 OpenCelliD
+export has 4572 cells within 3 km of this flat -- the area is very well
+surveyed -- but under LAC 400, with cell ids 60213/40213/40012/..., not LAC
+420/421. Telecom Argentina appears to have renumbered its GERAN location areas
+since. A stale dump does not degrade gracefully into a worse fix; it simply
+does not contain the key you are looking for.
+
+That is why this is one provider in a chain and not the only one, and why the
+daemon refuses to fall back to an LAC centroid: guessing the middle of a
+location area is the `lacf` answer, tens of kilometres wide, and publishing it
+as a GPS fix would be undetectable downstream.
+
+Usage
+-----
+  rhodep-cell-db build [--mcc 722]... [--output PATH] [--source ocid|mls|URL|FILE]
+  rhodep-cell-db lookup --mcc 722 --mnc 34 --lac 420 --cid 60858 [--radio gsm]
+  rhodep-cell-db info [--db PATH]
+  rhodep-cell-db self-test
+"""
+
+import argparse
+import csv
+import io
+import math
+import os
+import sqlite3
+import sys
+import tempfile
+import threading
+import time
+import urllib.request
+import zlib
+
+VERSION = "1.0"
+
+DEFAULT_DB = "/var/lib/rhodep-gnss/cells.sqlite"
+
+# The Internet Archive mirrors of the two open cell dumps. Neither needs a key.
+SOURCES = {
+    # OpenCelliD full export, 2024-05-19, CC-BY-SA 4.0.
+    "ocid": ("https://archive.org/download/cell_towers.csv/cell_towers.csv.gz",
+             "OpenCelliD full export 2024-05-19 (CC-BY-SA 4.0)"),
+    # Mozilla Location Service final full cell export, 2024-03-27, CC0.
+    "mls": ("https://archive.org/download/MLS_Full_Cell_Export_Final/"
+            "MLS-full-cell-export-final.csv.gz",
+            "Mozilla Location Service final cell export 2024-03-27 "
+            "(public domain)"),
+}
+# The official, token-gated endpoint. type=mcc gives one country at a time,
+# which is a hundredth of the bandwidth of the full dump.
+OCID_OFFICIAL = ("https://opencellid.org/ocid/downloads"
+                 "?token=%s&type=mcc&file=%d.csv.gz")
+
+USER_AGENT = "rhodep-cell-db/%s (+nethunter-rhodep)" % VERSION
+
+# OpenCelliD/MLS CSV header, in order.
+COLUMNS = ("radio", "mcc", "net", "area", "cell", "unit", "lon", "lat",
+           "range", "samples", "changeable", "created", "updated",
+           "averageSignal")
+
+# A dump row whose `range` is smaller than this is not believable for a cell
+# tower; the field is an estimated coverage radius derived from where the
+# samples were taken, and a handful of samples in one spot can make it tiny.
+MIN_RANGE = 250.0
+# ...and one this large is a location area, not a cell.
+MAX_RANGE = 20000.0
+
+SCHEMA = """
+PRAGMA journal_mode = OFF;
+PRAGMA synchronous = OFF;
+CREATE TABLE IF NOT EXISTS cells (
+    radio   INTEGER NOT NULL,   -- see RADIO_CODES
+    mcc     INTEGER NOT NULL,
+    mnc     INTEGER NOT NULL,
+    lac     INTEGER NOT NULL,
+    cid     INTEGER NOT NULL,
+    lat     REAL    NOT NULL,
+    lon     REAL    NOT NULL,
+    range   INTEGER NOT NULL,
+    samples INTEGER NOT NULL,
+    updated INTEGER NOT NULL,
+    PRIMARY KEY (mcc, mnc, lac, cid, radio)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+"""
+
+# Stored as a small int rather than a string: 312k rows of "UMTS" is 1.5 MB of
+# nothing, and this is a file that has to fit on a phone.
+RADIO_CODES = {"gsm": 1, "cdma": 2, "umts": 3, "lte": 4, "nr": 5}
+RADIO_NAMES = {v: k for k, v in RADIO_CODES.items()}
+# The dumps say UMTS; Ichnaea's geolocate API and therefore the daemon say
+# wcdma. Same radio, and a lookup must not miss because of the spelling.
+RADIO_ALIASES = {"wcdma": "umts", "utran": "umts", "geran": "gsm",
+                 "eutran": "lte", "5gnr": "nr", "nr5g": "nr"}
+
+
+def radio_code(name):
+    n = str(name).strip().lower()
+    n = RADIO_ALIASES.get(n, n)
+    return RADIO_CODES.get(n, 0)
+
+
+def radio_name(code):
+    return RADIO_NAMES.get(code, "?")
+
+
+# ------------------------------------------------------------------- building
+
+def open_source(spec, mcc_list, token=None, log=sys.stderr):
+    """Return a text line iterator over the CSV, decompressing as we go.
+
+    Streaming matters: the full dump is 1.1 GB compressed and roughly 3 GB
+    open, and this runs on a phone with a few gigabytes of storage. Nothing is
+    ever spooled to disk.
+    """
+    if token:
+        if len(mcc_list) != 1:
+            raise SystemExit("--token downloads one MCC at a time; "
+                             "give exactly one --mcc")
+        url = OCID_OFFICIAL % (token, mcc_list[0])
+        desc = "OpenCelliD official export for MCC %d" % mcc_list[0]
+    elif spec in SOURCES:
+        url, desc = SOURCES[spec]
+    elif spec.startswith(("http://", "https://")):
+        url, desc = spec, spec
+    else:
+        url, desc = None, spec
+
+    if url is None:
+        print("source: %s" % desc, file=log)
+        fh = open(spec, "rb")
+        raw = iter(lambda: fh.read(1 << 20), b"")
+    else:
+        print("source: %s" % desc, file=log)
+        print("  %s" % url, file=log)
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        resp = urllib.request.urlopen(req, timeout=60)
+        ctype = resp.headers.get("Content-Type", "")
+        if "json" in ctype or "html" in ctype:
+            body = resp.read(400).decode("utf-8", "replace")
+            raise SystemExit("that URL returned %s, not a gzip stream: %s"
+                             % (ctype, body.strip()[:300]))
+        raw = iter(lambda: resp.read(1 << 20), b"")
+
+    gz = str(url or spec).endswith(".gz")
+    return _lines(raw, gz, log)
+
+
+def _lines(chunks, gzipped, log):
+    dec = zlib.decompressobj(zlib.MAX_WBITS | 16) if gzipped else None
+    tail = b""
+    got = 0
+    t0 = time.time()
+    for chunk in chunks:
+        got += len(chunk)
+        data = dec.decompress(chunk) if dec else chunk
+        if not data:
+            continue
+        data = tail + data
+        tail = b""
+        if data[-1:] != b"\n":
+            nl = data.rfind(b"\n")
+            if nl < 0:
+                tail = data
+                continue
+            tail, data = data[nl + 1:], data[:nl + 1]
+        for line in data.split(b"\n"):
+            if line:
+                yield line.decode("utf-8", "replace")
+        if got and (got >> 24) != ((got - len(chunk)) >> 24):   # each 16 MiB
+            print("  %6.0f MiB in %4.0fs" % (got / 1048576.0, time.time() - t0),
+                  file=log, flush=True)
+    if tail:
+        yield tail.decode("utf-8", "replace")
+
+
+def _ingest(con, source, want, token, log, first):
+    """Stream one dump into an open database. Returns (scanned, kept, bad).
+
+    `first` decides the conflict policy. The first source named wins every
+    identity it has; later ones only fill gaps. That is what makes
+    `--source ocid,mls` meaningful rather than a coin toss -- OpenCelliD is
+    still maintained and the Mozilla export is frozen at its 2024 shutdown, so
+    where the two disagree about a cell, OpenCelliD's row is the one to keep.
+    """
+    verb = "INSERT OR REPLACE" if first else "INSERT OR IGNORE"
+    seen = kept = bad = 0
+    buf = []
+    it = open_source(source, sorted(want), token=token, log=log)
+    reader = csv.reader(it)
+    header = next(reader, None)
+    if header and header[0].strip().lower() != "radio":
+        raise SystemExit("unexpected CSV header %r" % (header,))
+    for row in reader:
+        seen += 1
+        if len(row) < 10:
+            continue
+        try:
+            mcc = int(row[1])
+        except ValueError:
+            continue
+        if mcc not in want:
+            continue
+        try:
+            rec = (radio_code(row[0]), mcc, int(row[2]), int(row[3]),
+                   int(row[4]), float(row[7]), float(row[6]),
+                   int(round(min(MAX_RANGE,
+                                 max(MIN_RANGE, float(row[8] or 0))))),
+                   int(row[9] or 0), int(row[12] or 0))
+        except (ValueError, IndexError):
+            bad += 1
+            continue
+        if not (-90.0 <= rec[5] <= 90.0) or not (-180.0 <= rec[6] <= 180.0):
+            bad += 1
+            continue
+        buf.append(rec)
+        kept += 1
+        if len(buf) >= 20000:
+            con.executemany(verb + " INTO cells VALUES (?,?,?,?,?,?,?,?,?,?)",
+                            buf)
+            buf = []
+    if buf:
+        con.executemany(verb + " INTO cells VALUES (?,?,?,?,?,?,?,?,?,?)", buf)
+    return seen, kept, bad
+
+
+def build(db_path, mcc_list, source="ocid", token=None, log=sys.stderr):
+    """Build the database from one or more comma-separated sources."""
+    want = set(int(m) for m in mcc_list)
+    sources = [s.strip() for s in str(source).split(",") if s.strip()]
+    if not sources:
+        raise SystemExit("--source is empty")
+    d = os.path.dirname(db_path)
+    if d and not os.path.isdir(d):
+        os.makedirs(d, 0o755)
+
+    # Build into a sibling temp file and rename: a half-written database that
+    # replaced a good one would take the offline provider out until the next
+    # refresh, and this is meant to be run unattended from a timer.
+    fd, tmp = tempfile.mkstemp(dir=d or ".", prefix=".cells-", suffix=".sqlite")
+    os.close(fd)
+    con = sqlite3.connect(tmp)
+    con.executescript(SCHEMA)
+
+    t0 = time.time()
+    descs, credits = [], []
+    total_seen = total_bad = 0
+    try:
+        for i, src in enumerate(sources):
+            before = con.execute("SELECT COUNT(*) FROM cells").fetchone()[0]
+            seen, kept, bad = _ingest(con, src, want, token, log, i == 0)
+            after = con.execute("SELECT COUNT(*) FROM cells").fetchone()[0]
+            total_seen += seen
+            total_bad += bad
+            print("%s: scanned %d rows, %d for these MCCs, %d new, %d malformed"
+                  % (src, seen, kept, after - before, bad), file=log)
+            if token:
+                descs.append("OpenCelliD official export (token)")
+            else:
+                descs.append(SOURCES.get(src, (None, src))[1])
+            if src == "mls":
+                credits.append("Cell tower data from the Mozilla Location "
+                               "Service, public domain")
+            else:
+                # Everything else here is OpenCelliD, whether it came from the
+                # mirror, the official token endpoint, or a local file someone
+                # extracted from one of those. CC-BY-SA 4.0 requires the credit
+                # be visible, which is why `rhodep-cell-db info` prints it and
+                # the daemon logs it at startup.
+                credits.append("Cell tower data (c) OpenCelliD contributors, "
+                               "CC-BY-SA 4.0, https://opencellid.org/")
+    except BaseException:
+        con.close()
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+    rows = con.execute("SELECT COUNT(*) FROM cells").fetchone()[0]
+    con.executemany("INSERT OR REPLACE INTO meta VALUES (?,?)", [
+        ("source", " + ".join(descs)),
+        ("mcc", ",".join(str(m) for m in sorted(want))),
+        ("built", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())),
+        ("rows", str(rows)),
+        ("builder", "rhodep-cell-db " + VERSION),
+        ("attribution", " | ".join(sorted(set(credits)))),
+    ])
+    con.commit()
+    con.execute("VACUUM")
+    con.commit()
+    con.close()
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, db_path)
+    size = os.path.getsize(db_path)
+    print("scanned %d rows, kept %d distinct cells, skipped %d malformed, %.0fs"
+          % (total_seen, rows, total_bad, time.time() - t0), file=log)
+    print("wrote %s (%.1f MiB)" % (db_path, size / 1048576.0), file=log)
+    return rows
+
+
+# -------------------------------------------------------------------- lookups
+
+def haversine(lat1, lon1, lat2, lon2):
+    r = 6371008.8
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = p2 - p1
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+class CellDb(object):
+    """Read-only lookups against the built database.
+
+    Deliberately exact-match only. There is no "nearest cell in this LAC"
+    mode and there will not be one: the centroid of a location area is the
+    `lacf` answer that the daemon refuses from the network providers, and it
+    would be no more honest for coming out of a local file.
+    """
+
+    def __init__(self, path=DEFAULT_DB):
+        self.path = path
+        self.con = None
+        # check_same_thread=False plus an explicit lock, because the daemon
+        # runs each provider query on a fresh worker thread. MEASURED in a
+        # 22-minute soak, 2026-09-05:
+        #
+        #   cell geolocation failed: ProgrammingError: SQLite objects created
+        #   in a thread can only be used in that same thread.
+        #
+        # sqlite3's default same-thread check compares thread *idents*, which
+        # CPython recycles, so this failed intermittently rather than always --
+        # and because ProgrammingError is not a GeolocateError, it escaped
+        # CellSource.locate()'s provider chain and took the network providers
+        # down with it, turning a cheap local miss into no fix at all.
+        #
+        # The connection is read-only (mode=ro) and every use goes through
+        # self.lock, so serialising here is both necessary and sufficient;
+        # sharing one connection is much cheaper than reopening the file for
+        # every lookup.
+        self.lock = threading.RLock()
+
+    def open(self):
+        with self.lock:
+            if self.con is None:
+                if not os.path.exists(self.path):
+                    raise IOError("no cell database at %s" % self.path)
+                self.con = sqlite3.connect("file:%s?mode=ro" % self.path,
+                                           uri=True, check_same_thread=False)
+            return self.con
+
+    def close(self):
+        with self.lock:
+            if self.con is not None:
+                self.con.close()
+                self.con = None
+
+    def meta(self):
+        try:
+            with self.lock:
+                return dict(self.open().execute("SELECT key, value FROM meta"))
+        except Exception:
+            return {}
+
+    def count(self):
+        """Rows, or 0 if the file exists but has no usable table.
+
+        A missing file is not 0, it is an error, and it propagates: "0 cells"
+        and "you never built this" are different situations and the caller has
+        to be able to tell them apart.
+        """
+        with self.lock:
+            con = self.open()
+            try:
+                return con.execute("SELECT COUNT(*) FROM cells").fetchone()[0]
+            except sqlite3.Error:
+                return 0
+
+    def lookup(self, mcc, mnc, lac, cid, radio=None):
+        """One cell -> (lat, lon, range, samples) or None.
+
+        The radio type is used when it is known and matches, but a hit on the
+        same (mcc, mnc, lac, cid) under a different radio is still an exact
+        cell identity, not a guess, so it counts. GSM and UMTS cells of one
+        operator do share location area codes.
+        """
+        with self.lock:
+            con = self.open()
+            code = radio_code(radio) if radio else 0
+            if code:
+                r = con.execute(
+                    "SELECT lat, lon, range, samples FROM cells WHERE "
+                    "mcc=? AND mnc=? AND lac=? AND cid=? AND radio=?",
+                    (mcc, mnc, lac, cid, code)).fetchone()
+                if r:
+                    return r
+            # Highest sample count wins: the best-surveyed of the candidates.
+            return con.execute(
+                "SELECT lat, lon, range, samples FROM cells WHERE "
+                "mcc=? AND mnc=? AND lac=? AND cid=? "
+                "ORDER BY samples DESC LIMIT 1",
+                (mcc, mnc, lac, cid)).fetchone()
+
+    def locate(self, cells):
+        """Several observed cells -> (lat, lon, accuracy, n_matched).
+
+        Weighted by 1/range^2, which is inverse-variance weighting: a cell the
+        dump is confident about pulls harder than one it is not.
+
+        The accuracy is deliberately pessimistic. It is the largest, over every
+        contributing cell, of (distance from the answer to that cell) plus that
+        cell's own coverage radius -- i.e. a circle that contains every cell's
+        entire claimed coverage area. Averaging the radii instead would produce
+        a smaller number that no measurement supports, and the whole point of
+        this daemon's accuracy handling is that nothing downstream can check
+        our arithmetic, so it has to round the wrong way on purpose.
+        """
+        hits = []
+        for c in cells:
+            r = self.lookup(c.mcc, c.mnc, c.lac, c.cid, c.radio)
+            if r:
+                hits.append((r[0], r[1], float(r[2]), r[3]))
+        if not hits:
+            return None
+        wsum = sum(1.0 / (h[2] ** 2) for h in hits)
+        lat = sum(h[0] / (h[2] ** 2) for h in hits) / wsum
+        lon = sum(h[1] / (h[2] ** 2) for h in hits) / wsum
+        acc = max(haversine(lat, lon, h[0], h[1]) + h[2] for h in hits)
+        return lat, lon, acc, len(hits)
+
+
+# ----------------------------------------------------------------------- main
+
+def mcc_list(text):
+    """--mcc 722 / --mcc 722,730 -> [722] / [722, 730].
+
+    Comma lists exist so the systemd unit can pass MCC= straight through from
+    /etc/default/rhodep-cell-db without a shell to split it.
+    """
+    out = []
+    for part in str(text).replace(" ", ",").split(","):
+        if not part:
+            continue
+        if not part.isdigit() or not 1 <= int(part) <= 999:
+            raise argparse.ArgumentTypeError(
+                "%r is not a mobile country code (1-999); set MCC= in "
+                "/etc/default/rhodep-cell-db" % part)
+        out.append(int(part))
+    if not out:
+        raise argparse.ArgumentTypeError(
+            "no mobile country code given; set MCC= in "
+            "/etc/default/rhodep-cell-db")
+    return out
+
+
+class _C(object):
+    """The two fields CellDb.locate() wants, for callers without a CellTower."""
+
+    def __init__(self, mcc, mnc, lac, cid, radio=None):
+        self.mcc, self.mnc, self.lac, self.cid, self.radio = \
+            mcc, mnc, lac, cid, radio
+
+
+def self_test():
+    ok = [True]
+
+    def check(label, cond):
+        print("%-34s %s" % (label, "ok" if cond else "FAIL"))
+        ok[0] = ok[0] and bool(cond)
+
+    check("radio codes round-trip",
+          all(radio_name(radio_code(n)) == n for n in RADIO_CODES))
+    check("unknown radio is 0", radio_code("wibble") == 0)
+    check("wcdma is umts", radio_code("wcdma") == radio_code("UMTS") == 3)
+    check("radio names case-insensitive", radio_code("LTE") == 4)
+    check("mcc list splits", mcc_list("722,730 208") == [722, 730, 208])
+    check("mcc list single", mcc_list("722") == [722])
+    for bad in ("", "abc", "0", "1000", "72a"):
+        try:
+            mcc_list(bad)
+            check("mcc list rejects %r" % bad, False)
+        except argparse.ArgumentTypeError:
+            check("mcc list rejects %r" % bad, True)
+    # Rosario city hall to the obelisk in Buenos Aires, ~278 km great circle.
+    d = haversine(-32.9468, -60.6393, -34.6037, -58.3816)
+    check("haversine ~ 278 km", 275000 < d < 282000)
+    check("haversine identity", haversine(1.0, 2.0, 1.0, 2.0) == 0.0)
+
+    path = tempfile.mktemp(suffix=".sqlite")
+    csvp = tempfile.mktemp(suffix=".csv")
+    with open(csvp, "w") as f:
+        f.write(",".join(COLUMNS) + "\n")
+        f.write("GSM,722,34,420,60858,0,-60.6440,-32.9540,1000,50,1,1,1700000000,0\n")
+        f.write("GSM,722,34,420,60859,0,-60.6460,-32.9560,1000,50,1,1,1700000000,0\n")
+        f.write("UMTS,722,34,487,3059382,0,-60.6441,-32.9547,1200,5,1,1,1700000000,0\n")
+        f.write("GSM,730,1,1,1,0,-70.0,-33.0,1000,5,1,1,1700000000,0\n")
+        f.write("GSM,722,34,420,99999,0,999.0,0.0,1000,5,1,1,1700000000,0\n")
+    try:
+        n = build(path, [722], source=csvp, log=open(os.devnull, "w"))
+        check("built, other MCC excluded", n == 3)
+        db = CellDb(path)
+        check("row count", db.count() == 3)
+        r = db.lookup(722, 34, 420, 60858, "gsm")
+        check("exact hit", r is not None and abs(r[0] + 32.9540) < 1e-9)
+        check("miss returns None", db.lookup(722, 34, 420, 12345, "gsm") is None)
+        check("bad lat/lon dropped", db.lookup(722, 34, 420, 99999) is None)
+        r = db.lookup(722, 34, 487, 3059382, "gsm")
+        check("radio-agnostic exact id hit", r is not None)
+        loc = db.locate([_C(722, 34, 420, 60858, "gsm")])
+        check("single cell = its range",
+              loc is not None and abs(loc[2] - 1000.0) < 1.0)
+        loc = db.locate([_C(722, 34, 420, 60858, "gsm"),
+                         _C(722, 34, 420, 60859, "gsm")])
+        # Midway between the two, so each is ~150 m off; 1000 + 150.
+        check("two cells: centroid", loc is not None and
+              abs(loc[0] + 32.9550) < 1e-4 and abs(loc[1] + 60.6450) < 1e-4)
+        check("two cells: accuracy covers both",
+              loc is not None and 1100.0 < loc[2] < 1250.0)
+        check("accuracy never below worst range",
+              loc is not None and loc[2] >= 1000.0)
+        check("no LAC-centroid fallback",
+              db.locate([_C(722, 34, 420, 4242, "gsm")]) is None)
+        check("meta recorded", db.meta().get("mcc") == "722")
+        db.close()
+        # A database that was never built has to be an error, not "0 cells":
+        # `info` printing a size for a file that is not there was a traceback.
+        missing = CellDb(path + ".nope")
+        try:
+            missing.count()
+            check("missing db raises", False)
+        except IOError:
+            check("missing db raises", True)
+        check("missing db meta is empty", missing.meta() == {})
+        # main() prints its complaint to stderr; swallow it so the test output
+        # stays a column of ok/FAIL.
+        real_stderr, sys.stderr = sys.stderr, open(os.devnull, "w")
+        try:
+            check("main() reports a missing db cleanly",
+                  main(["info", "--db", path + ".nope"]) == 2)
+            check("lookup reports a missing db cleanly",
+                  main(["lookup", "--db", path + ".nope", "--mcc", "722",
+                        "--mnc", "34", "--lac", "420", "--cid", "1"]) == 2)
+        finally:
+            sys.stderr.close()
+            sys.stderr = real_stderr
+    finally:
+        for p in (path, csvp):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+    return 0 if ok[0] else 1
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(
+        prog="rhodep-cell-db",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Build and query the offline OpenCelliD cell database.",
+        epilog="Data (c) OpenCelliD contributors, CC-BY-SA 4.0, "
+               "https://opencellid.org/")
+    p.add_argument("-V", "--version", action="version",
+                   version="rhodep-cell-db " + VERSION)
+    sub = p.add_subparsers(dest="cmd")
+
+    b = sub.add_parser("build", help="download a dump and index one or more MCCs")
+    b.add_argument("--mcc", type=mcc_list, action="append", default=None,
+                   metavar="N[,N...]",
+                   help="mobile country code to keep; repeatable and/or "
+                        "comma-separated (default: 722). Each extra country "
+                        "costs disk but nothing at query time.")
+    b.add_argument("--output", "--db", dest="db", default=DEFAULT_DB,
+                   help="database to write (default: %s)" % DEFAULT_DB)
+    b.add_argument("--source", default="ocid",
+                   help="'ocid' (Internet Archive mirror of the OpenCelliD "
+                        "full export, default), 'mls' (the final Mozilla "
+                        "Location Service export), a URL, or a local "
+                        ".csv/.csv.gz. Comma-separate to merge several; the "
+                        "first one named wins where they disagree. "
+                        "'ocid,mls' gives the widest coverage.")
+    b.add_argument("--token", default=None,
+                   help="OpenCelliD API access token, if you have one; uses "
+                        "the official per-MCC export instead of the mirror")
+
+    l = sub.add_parser("lookup", help="resolve one cell")
+    l.add_argument("--db", default=DEFAULT_DB)
+    l.add_argument("--mcc", type=int, required=True)
+    l.add_argument("--mnc", type=int, required=True)
+    l.add_argument("--lac", type=int, required=True)
+    l.add_argument("--cid", type=int, required=True)
+    l.add_argument("--radio", default=None)
+
+    i = sub.add_parser("info", help="what is in the database")
+    i.add_argument("--db", default=DEFAULT_DB)
+
+    sub.add_parser("self-test", help="check the builder and the lookups")
+
+    args = p.parse_args(argv if argv is not None else sys.argv[1:])
+    if args.cmd == "build":
+        mccs = sorted(set(m for group in (args.mcc or [[722]]) for m in group))
+        build(args.db, mccs, source=args.source, token=args.token)
+        db = CellDb(args.db)
+        print("%d cells indexed" % db.count())
+        return 0
+    if args.cmd == "lookup":
+        db = CellDb(args.db)
+        try:
+            r = db.lookup(args.mcc, args.mnc, args.lac, args.cid, args.radio)
+        except (IOError, OSError, sqlite3.Error) as e:
+            print("%s\nBuild one with: rhodep-cell-db build --mcc %d"
+                  % (e, args.mcc), file=sys.stderr)
+            return 2
+        if not r:
+            print("not in the database: %d-%d LAC %d CID %d"
+                  % (args.mcc, args.mnc, args.lac, args.cid))
+            return 1
+        print("latitude   %.7f" % r[0])
+        print("longitude  %.7f" % r[1])
+        print("range      %d m" % r[2])
+        print("samples    %d" % r[3])
+        print("https://www.openstreetmap.org/?mlat=%.6f&mlon=%.6f#map=16/%.6f/%.6f"
+              % (r[0], r[1], r[0], r[1]))
+        return 0
+    if args.cmd == "info":
+        db = CellDb(args.db)
+        try:
+            n = db.count()
+        except (IOError, OSError, sqlite3.Error) as e:
+            print("%s\nBuild one with: rhodep-cell-db build --mcc 722"
+                  % e, file=sys.stderr)
+            return 2
+        print("database   %s (%.1f MiB)"
+              % (db.path, os.path.getsize(db.path) / 1048576.0))
+        print("cells      %d" % n)
+        for k, v in sorted(db.meta().items()):
+            print("%-10s %s" % (k, v))
+        try:
+            for code, cnt in db.open().execute(
+                    "SELECT radio, COUNT(*) FROM cells GROUP BY radio "
+                    "ORDER BY 2 DESC"):
+                print("  %-6s %d" % (radio_name(code), cnt))
+        except Exception:
+            pass
+        return 0
+    if args.cmd == "self-test":
+        return self_test()
+    p.print_help()
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

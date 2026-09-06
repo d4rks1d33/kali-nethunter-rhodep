@@ -1,0 +1,32 @@
+#!/bin/sh
+set -e
+GPSD_DEFAULT=/etc/default/gpsd
+
+if [ -x /usr/bin/dpkg-maintscript-helper ] \
+   && dpkg-maintscript-helper supports rm_conffile 2>/dev/null; then
+    dpkg-maintscript-helper rm_conffile \
+        /etc/geoclue/conf.d/10-rhodep-gnss.conf 2~ rhodep-gnss -- "$@"
+fi
+
+if [ "$1" = purge ] || [ "$1" = remove ]; then
+    # Put gpsd's own conffile back the way the postinst found it, otherwise
+    # gpsd is left pointing at a TCP port nothing listens on.
+    if [ -f "$GPSD_DEFAULT.rhodep-gnss.bak" ]; then
+        mv -f "$GPSD_DEFAULT.rhodep-gnss.bak" "$GPSD_DEFAULT"
+    fi
+fi
+
+if [ "$1" = purge ]; then
+    # The offline cell database is derived data that took a gigabyte of
+    # download to make, so it survives a remove; purge means purge.
+    rm -f /var/lib/rhodep-gnss/cells.sqlite /var/lib/rhodep-gnss/.cells-*.sqlite
+    rmdir /var/lib/rhodep-gnss 2>/dev/null || true
+fi
+systemctl daemon-reload 2>/dev/null || true
+if [ "$1" = remove ] || [ "$1" = purge ]; then
+    # The ModemManager Location deny went away with the package; tell dbus.
+    systemctl reload dbus.service 2>/dev/null || \
+        systemctl reload dbus-broker.service 2>/dev/null || true
+    systemctl try-restart gpsd.service 2>/dev/null || true
+fi
+exit 0

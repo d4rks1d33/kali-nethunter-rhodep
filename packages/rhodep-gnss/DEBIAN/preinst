@@ -1,0 +1,14 @@
+#!/bin/sh
+set -e
+
+# 10-rhodep-gnss.conf was a conffile in version 1 and is gone in version 2 --
+# everything it said is now in 20-rhodep-wifi.conf, alongside the wifi source
+# configuration. Leaving it behind would work (the two agree) but it would be
+# two files saying the same thing, and only one of them maintained.
+if [ -x /usr/bin/dpkg-maintscript-helper ] \
+   && dpkg-maintscript-helper supports rm_conffile 2>/dev/null; then
+    dpkg-maintscript-helper rm_conffile \
+        /etc/geoclue/conf.d/10-rhodep-gnss.conf 2~ rhodep-gnss -- "$@"
+fi
+
+exit 0

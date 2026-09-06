@@ -1,0 +1,20 @@
+[Unit]
+Description=rhodep: monthly refresh of the offline cell-tower database
+Documentation=file:/usr/share/doc/rhodep-gnss/README
+
+[Timer]
+# Monthly is as often as is worth it. The Internet Archive mirrors this
+# package defaults to are static snapshots from 2024 and will never change, so
+# for those a refresh is pure waste and you may as well run the build once by
+# hand. It becomes worth having once TOKEN= is set in
+# /etc/default/rhodep-cell-db and the official, current OpenCelliD export is
+# being fetched instead.
+OnCalendar=monthly
+# Do not have every phone in the world hit the mirror at 00:00 on the 1st.
+RandomizedDelaySec=6h
+# Catch up after the phone has been off, but not the instant it boots.
+Persistent=true
+OnBootSec=30min
+
+[Install]
+WantedBy=timers.target

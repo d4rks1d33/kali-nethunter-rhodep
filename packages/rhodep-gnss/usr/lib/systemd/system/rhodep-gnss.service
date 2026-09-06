@@ -1,0 +1,72 @@
+[Unit]
+Description=rhodep: publish WiFi/cell-id location as NMEA (gpsd/geoclue bridge)
+Documentation=file:/usr/share/doc/rhodep-gnss/README
+# qrtr-ns has to have published the LOC service before there is anything to
+# talk to, and ModemManager has to have taken the modem out of low power --
+# and in --source=auto, ModemManager is also who we ask whether the modem is
+# registered at all. NetworkManager is what the wifi source scans through.
+After=qrtr-ns.service rmtfs.service pd-mapper.service ModemManager.service
+After=NetworkManager.service network.target
+After=rhodep-qmi-proxy.service
+Wants=qrtr-ns.service rhodep-qmi-proxy.service
+Before=gpsd.service
+# A crash loop should stop; an operator restarting the service should not be
+# punished for it. StartLimitBurst=5 did both: it counts *every* start,
+# successful ones and `systemctl restart` included, so MEASURED here five
+# ordinary restarts in a row left the unit refusing to start for five minutes
+# with /run/gnss-share.sock gone and geoclue and gpsd with no source. The
+# deliberate-refusal case it was aimed at is now handled precisely, by
+# RestartPreventExitStatus below, so this only has to catch a real loop: at
+# RestartSec=10 that is twenty starts in a little over three minutes.
+StartLimitIntervalSec=300
+StartLimitBurst=20
+
+[Service]
+Type=exec
+# --source=auto: qmi-cellid while the modem is registered, wifi otherwise.
+# With no SIM, or a SIM the network rejects, this never opens the QMI device.
+ExecStart=/usr/local/sbin/rhodep-gnss-daemon --source auto \
+          --socket /run/gnss-share.sock --tcp 2948
+Restart=on-failure
+# Exit 3 is "I could not confirm operation mode 'cellid', so I started no GNSS
+# session". That is a decision, not a fault: the modem will answer the same way
+# next time, and retrying only asks it again. Stay down, visibly failed, and
+# let a human look. Every other non-zero exit is treated as transient.
+RestartPreventExitStatus=3
+RestartSec=10
+TimeoutStopSec=15
+KillSignal=SIGTERM
+# Kill the daemon, not everything in the cgroup.
+#
+# libqmi forks /usr/libexec/qmi-proxy on demand and every QMI client on the
+# system then shares that one instance -- ModemManager included. Whichever
+# unit forked it owns it, and with the default KillMode=control-group,
+# stopping that unit kills the proxy and therefore kills ModemManager's
+# transport: MEASURED here as "port 'qrtr0' no longer controllable, reprobing"
+# on every `systemctl restart rhodep-gnss`, followed by ModemManager
+# re-probing the QMI LOC service for SUPL and XTRA assistance data on the
+# freshly re-enumerated modem. rhodep-qmi-proxy.service normally means no
+# proxy is ever forked from here; this is what keeps the damage contained if
+# it is not running. The daemon has no other child processes.
+KillMode=process
+
+# Needs root for AF_QIPCRTR and the qmi-proxy socket, and for `iw scan` when
+# the wifi source has to fall back to it; everything else is taken away.
+# AF_INET/AF_INET6 are for the HTTPS geolocation queries, AF_NETLINK for
+# nl80211 scanning.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectControlGroups=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_QIPCRTR AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

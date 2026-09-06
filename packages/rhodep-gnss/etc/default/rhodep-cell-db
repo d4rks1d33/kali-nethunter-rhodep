@@ -1,0 +1,43 @@
+# Offline cell-tower database for rhodep-gnss-daemon's `cell` source.
+#
+# Read by rhodep-cell-db.service, which is driven by rhodep-cell-db.timer.
+# NEITHER IS ENABLED BY DEFAULT, on purpose: a refresh streams the full
+# OpenCelliD dump, which is 1.1 GB, and a package should not decide on your
+# behalf to pull that over what may be a metered link. Turn it on with
+#
+#     systemctl enable --now rhodep-cell-db.timer
+#
+# or just build the database once, by hand:
+#
+#     rhodep-cell-db build --mcc 722 --source ocid,mls
+#
+# Neither is required. Without a database the cell source simply starts at the
+# network providers instead, which is where it would end up anyway for any cell
+# the dumps do not have.
+
+# Mobile country codes to index, comma-separated. 722 is Argentina.
+# Each extra country costs disk and download time but nothing at query time.
+# See https://en.wikipedia.org/wiki/Mobile_country_code
+MCC="722"
+
+# Which dumps to merge, in order of preference; the first one named wins where
+# they disagree about a cell.
+#   ocid  Internet Archive mirror of the OpenCelliD full export, 2024-05-19,
+#         CC-BY-SA 4.0. 1.1 GB compressed.
+#   mls   Internet Archive copy of the final Mozilla Location Service cell
+#         export, 2024-03-27, public domain. 1.6 GB compressed. Frozen for
+#         good -- MLS shut down in 2024 -- but it was an independent survey,
+#         so it has cells OpenCelliD does not. MEASURED for MCC 722: ocid
+#         alone gives 312k cells, ocid+mls gives 653k.
+# You can also give a URL or a local .csv/.csv.gz here.
+SOURCE="ocid,mls"
+
+# Where to write it. The daemon's --cell-db default is this same path.
+DB="/var/lib/rhodep-gnss/cells.sqlite"
+
+# If you have an OpenCelliD API access token, put it here and the official
+# per-MCC export is downloaded instead of the mirror: far smaller, and current
+# rather than two years old. Tokens are free but registration is a web form
+# with a reCAPTCHA, so there is no way to obtain one from a script and this
+# package does not ship one. https://opencellid.org/
+#TOKEN=""

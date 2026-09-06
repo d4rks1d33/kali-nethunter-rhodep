@@ -1,0 +1,43 @@
+[Unit]
+Description=rhodep: rebuild the offline OpenCelliD cell-tower database
+Documentation=file:/usr/share/doc/rhodep-gnss/README
+# Streams a 1.1 GB dump, so it wants a link that is actually up rather than
+# merely configured.
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/default/rhodep-cell-db
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/default/rhodep-cell-db
+# $MCC and $SOURCE are comma-separated single tokens; rhodep-cell-db splits
+# them itself so that no shell is needed here.
+ExecStart=/usr/local/sbin/rhodep-cell-db build --mcc $MCC --source $SOURCE --output $DB
+# This is background housekeeping competing with a phone someone is using.
+Nice=15
+IOSchedulingClass=idle
+CPUSchedulingPolicy=idle
+# Half an hour on a slow link is normal; four is not.
+TimeoutStartSec=4h
+
+# It downloads a file and writes one directory. Nothing else.
+DynamicUser=no
+User=root
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/rhodep-gnss
+StateDirectory=rhodep-gnss
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectControlGroups=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectClock=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

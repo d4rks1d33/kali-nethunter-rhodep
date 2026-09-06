@@ -1,0 +1,75 @@
+#!/bin/sh
+set -e
+
+if [ -x /usr/bin/dpkg-maintscript-helper ] \
+   && dpkg-maintscript-helper supports rm_conffile 2>/dev/null; then
+    dpkg-maintscript-helper rm_conffile \
+        /etc/geoclue/conf.d/10-rhodep-gnss.conf 2~ rhodep-gnss -- "$@"
+fi
+
+systemctl daemon-reload 2>/dev/null || true
+# The shared qmi-proxy has to be up before anything that would otherwise fork
+# its own; see the long comment in rhodep-qmi-proxy.service.
+if [ -x /usr/libexec/qmi-proxy ]; then
+    systemctl enable rhodep-qmi-proxy.service 2>/dev/null || true
+fi
+systemctl enable rhodep-gnss.service 2>/dev/null || true
+
+# The D-Bus deny that stops anything enabling GNSS through ModemManager only
+# takes effect once dbus has re-read its configuration.
+systemctl reload dbus.service 2>/dev/null || \
+    systemctl reload dbus-broker.service 2>/dev/null || true
+
+# rhodep-cell-db.timer is deliberately NOT enabled here. Refreshing the offline
+# cell database streams the full OpenCelliD dump, which is 1.1 GB, and a
+# package has no business deciding to do that on somebody's phone. The daemon
+# works without it -- the offline provider is an optimisation, not a
+# requirement. See /etc/default/rhodep-cell-db.
+mkdir -p /var/lib/rhodep-gnss 2>/dev/null || true
+
+# Point gpsd at the daemon's TCP feed.
+#
+# The authoritative setting is the drop-in in
+# /usr/lib/systemd/system/gpsd.service.d/10-rhodep-gnss.conf, which is merged
+# after gpsd.service's own EnvironmentFile= and therefore wins. /etc/default/gpsd
+# is gpsd's conffile, not ours, so it is only touched while it is still at the
+# pristine Debian default of DEVICES="" - which is how this port ships it, and
+# which means nobody has configured a real receiver we would be stamping on. A
+# copy is kept as gpsd.rhodep-gnss.bak and put back on purge.
+GPSD_DEFAULT=/etc/default/gpsd
+if [ -f "$GPSD_DEFAULT" ] && grep -q '^DEVICES=""$' "$GPSD_DEFAULT" \
+   && ! grep -q '127.0.0.1:2948' "$GPSD_DEFAULT"; then
+    cp -a "$GPSD_DEFAULT" "$GPSD_DEFAULT.rhodep-gnss.bak"
+    sed -i \
+        -e 's|^DEVICES=""$|DEVICES="tcp://127.0.0.1:2948"|' \
+        -e 's|^GPSD_OPTIONS=""$|GPSD_OPTIONS="-n"|' \
+        "$GPSD_DEFAULT"
+    echo "rhodep-gnss: pointed $GPSD_DEFAULT at tcp://127.0.0.1:2948" >&2
+fi
+
+# gpsd only needs to be running for gpspipe/cgps/xgps; geoclue reads the UNIX
+# socket directly and does not.
+if [ -x /usr/sbin/gpsd ]; then
+    systemctl enable gpsd.socket gpsd.service 2>/dev/null || true
+fi
+
+if [ "$1" = configure ]; then
+    if [ -x /usr/libexec/qmi-proxy ]; then
+        # start, not restart: restarting a proxy that ModemManager is already
+        # talking to would cause exactly the modem re-enumeration this unit
+        # exists to prevent. If one is already running from somebody else's
+        # cgroup it keeps the socket, qmi-proxy exits 1, SuccessExitStatus=1
+        # makes that a clean no-op, and this unit takes over at the next boot.
+        systemctl reset-failed rhodep-qmi-proxy.service 2>/dev/null || true
+        systemctl start rhodep-qmi-proxy.service 2>/dev/null || true
+    fi
+    systemctl restart rhodep-gnss.service 2>/dev/null || true
+    if [ -x /usr/sbin/gpsd ]; then
+        systemctl restart gpsd.service 2>/dev/null || true
+    fi
+    # geoclue is dbus-activated; killing it makes the next client pick up the
+    # new conf.d drop-in.
+    systemctl stop geoclue.service 2>/dev/null || true
+fi
+
+exit 0

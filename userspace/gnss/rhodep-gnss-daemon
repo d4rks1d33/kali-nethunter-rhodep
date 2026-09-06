@@ -1,0 +1,3808 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+"""
+rhodep-gnss-daemon - publish the modem's cell-id location as standard NMEA.
+
+Motorola rhodep (SM6375). The QMI LOC service on qrtr://0 is alive and a
+location session runs happily -- but ONLY in operation mode 'cellid'. Starting a
+session in standalone/default/msa/msb power-cycles the SoC inside 100 ms,
+reproducibly. See docs/interconnect-sm6375-wip/GNSS-SM6375.md and
+scripts/rhodep-gnss-test.py for how that was bisected.
+
+So this daemon:
+
+  * opens qrtr://0, allocates ONE QmiClientLoc (all of the below has to happen
+    from the same client: the session belongs to the client that created it),
+  * registers for position-report / nmea / gnss-sv-info / engine-state,
+  * sets operation mode to cellid AND WAITS FOR THE set-operation-mode
+    INDICATION TO CONFIRM IT, then reads the mode back with get-operation-mode
+    and refuses to go any further unless the modem itself says CELLID,
+  * only then starts the session,
+  * turns each QMI position report into real $GPGGA/$GPRMC/$GPGSA sentences at
+    1 Hz (the modem's own NMEA in cellid mode is just $PSTIS, which is useless
+    to gpsd/geoclue), and fans them out to a UNIX socket and optionally a TCP
+    port.
+
+The mode check is the whole safety story. A set_operation_mode that is merely
+"accepted" is not enough: the LOC service acks the request and reports the real
+outcome in an indication, and a mode that never got applied leaves the engine in
+standalone -- which reboots the phone. Hence: ack + indication + readback, three
+gates, and no session if any of them is not CELLID.
+
+  --i-know-this-reboots-the-phone  is the only way to select another mode. It
+    exists so a future kernel fix can be tested without editing this file. Do not
+    use it on hardware you want to stay up.
+
+Location sources (--source)
+---------------------------
+
+  qmi-cellid  the above: a QMI LOC session pinned to cellid. Needs a modem that
+              has a serving cell it can resolve itself, which in practice needs
+              a provisioned SIM. This is the only source that opens the QMI LOC
+              service.
+  wifi        no modem at all. Scans the WiFi neighbourhood and asks an
+              Ichnaea-compatible geolocation service (BeaconDB, Positon, ...)
+              where those BSSIDs are. Touches nothing on the modem side, so it
+              cannot trip the GNSS reset bug even in principle.
+  cell        reads the identity of the GERAN/UMTS/LTE cells the modem can hear
+              -- QMI NAS get-cell-location-info, a read -- and resolves those
+              identities to a position, first against a local OpenCelliD
+              extract and then against the same geolocation services. This
+              works with an unprovisioned SIM and a modem that never registers,
+              because a modem still measures and decodes the broadcast identity
+              of the cells around it while it is searching. It does not open the
+              QMI LOC service and does not start a location session.
+  auto        (default) qmi-cellid when the modem is actually registered on a
+              network; otherwise wifi and cell together, preferring wifi.
+              Registration is read from ModemManager over D-Bus, which is a
+              plain property read; the LOC service is not opened unless that
+              check passes.
+
+Why NAS reads are safe and LOC is not. The thing that power-cycles this SoC is
+the GNSS measurement engine being started, which happens when QMI_LOC_START is
+sent in an operation mode that involves the satellite receiver. QMI NAS is the
+network-access service: get-cell-location-info and get-serving-system report
+what the radio has already measured while looking for a network. They start
+nothing, and they have been run on this phone hundreds of times without an
+uptime reset. This daemon therefore allocates a NAS client for --source=cell
+and for --source=auto, and allocates a LOC client only on the qmi-cellid path.
+The service ids are not interchangeable anywhere in this file; see CellReader.
+
+Why the WiFi and cell sources talk to the geolocation service themselves rather
+than asking geoclue: geoclue is configured on this phone to take its position
+from *this daemon's* NMEA socket (network-nmea source). Sourcing our position
+back out of geoclue would be a loop. So the daemon does its own scan-and-query
+and geoclue stays a pure consumer.
+
+Usage:
+  rhodep-gnss-daemon [--source auto|wifi|cell|qmi-cellid] [--socket PATH]
+                     [--tcp PORT] [--rate HZ] [-v]
+
+Requires: python3-gi. --source=qmi-cellid/cell/auto additionally want
+gir1.2-qmi-1.0 (or, failing that, the qmicli binary from libqmi-utils);
+--source=wifi wants either NetworkManager (preferred, scans without root and
+without forcing the radio off-channel) or iw. The offline cell database is
+built by rhodep-cell-db and is optional.
+Modem must be out of low power for the QMI paths:
+  qmicli -d qrtr://0 --dms-set-operating-mode=online
+"""
+
+import argparse
+import errno
+import grp
+import json
+import math
+import os
+import re
+import signal
+import socket
+import stat
+import subprocess
+import sys
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+import gi
+
+from gi.repository import Gio, GLib  # noqa: E402
+
+try:
+    gi.require_version("Qmi", "1.0")
+    from gi.repository import Qmi  # noqa: E402
+except (ValueError, ImportError):  # pragma: no cover - wifi-only installs
+    Qmi = None
+
+# GLib.unix_fd_add_full/unix_signal_add moved to their own introspection
+# namespace in pygobject 3.52 and warn loudly on every call otherwise, which
+# would drown the journal. Prefer the new home, fall back to the old one.
+try:
+    gi.require_version("GLibUnix", "2.0")
+    from gi.repository import GLibUnix  # noqa: E402
+    unix_fd_add_full = GLibUnix.fd_add_full
+    unix_signal_add = GLibUnix.signal_add
+except (ValueError, ImportError, AttributeError):  # older/partial pygobject
+    unix_fd_add_full = GLib.unix_fd_add_full
+    unix_signal_add = GLib.unix_signal_add
+
+VERSION = "1.2"
+
+SAFE_MODE = "cellid"
+DEFAULT_SOCKET = "/run/gnss-share.sock"
+
+# Exit status for "the operation mode could not be confirmed, so no session was
+# started". Distinct from 1 on purpose: it is a deliberate refusal and not a
+# transient fault, so restarting into it just asks the modem the same question
+# again. rhodep-gnss.service carries RestartPreventExitStatus=3, which is a
+# better way to express that than the StartLimitBurst it replaced -- a start
+# limit counts every start, including successful ones and the operator's own
+# `systemctl restart`, and MEASURED here it locked the daemon out (and took
+# /run/gnss-share.sock with it) after five ordinary restarts in a row.
+EXIT_REFUSED = 3
+
+# --------------------------------------------------------------------- sources
+SOURCE_QMI = "qmi-cellid"
+SOURCE_WIFI = "wifi"
+SOURCE_CELL = "cell"
+SOURCE_AUTO = "auto"
+SOURCES = (SOURCE_AUTO, SOURCE_WIFI, SOURCE_CELL, SOURCE_QMI)
+
+# Ichnaea-compatible geolocation services, tried in order until one returns a
+# position. BeaconDB first: public domain, opt-in collection, no key, and it is
+# what geoclue 2.8 compiles in as its own default. Positon second, because
+# BeaconDB is young and has no WiFi coverage in large parts of the world --
+# including, as measured on this phone, Rosario/AR, where BeaconDB answers 404
+# for every BSSID in range and Positon fixes the same scan to ~23 m.
+#
+# The Positon key is the one Kali's own /etc/geoclue/geoclue.conf ships in its
+# commented-out example. Positon ask that only non-commercial distributions
+# enable it by default and name Debian explicitly as qualifying.
+DEFAULT_GEOLOCATE_URLS = (
+    "https://api.beacondb.net/v1/geolocate",
+    "https://api.positon.xyz/v1/geolocate"
+    "?key=56aba903-ae67-4f26-919b-15288b44bda9",
+)
+USER_AGENT = "rhodep-gnss-daemon/%s (+nethunter-rhodep)" % VERSION
+# Ichnaea says two APs minimum; with one you are really just asking the service
+# to geolocate your ISP.
+MIN_APS = 2
+# One cell is different: a cell identity is globally unique and a database hit
+# on it is an exact match against a surveyed tower, not an inference from a
+# crowd of weak observations. Ichnaea itself answers single-cell queries. What
+# a single cell does not give you is *precision* -- the answer is the tower,
+# not you -- and that is expressed in the accuracy radius, not by refusing.
+MIN_CELLS = 1
+# Where the offline OpenCelliD extract lives. Built by rhodep-cell-db.
+DEFAULT_CELL_DB = "/var/lib/rhodep-gnss/cells.sqlite"
+# QMI reports "no timing advance" as an all-ones u32.
+QMI_UNAVAILABLE_U32 = 0xFFFFFFFF
+# Nothing good comes of feeding a service a BSSID list from ten minutes ago.
+AP_MAX_AGE = 300.0
+# A geolocation result this coarse is a city, not a position. Anything at or
+# above this is refused outright rather than published as a GPS fix.
+MAX_ACCURACY = 5000.0
+# Ichnaea's marker for "I gave up and geolocated your IP address" (ipf) or
+# "...your cell's location area" (lacf). Never a real fix; see --allow-fallback.
+FALLBACK_KINDS = ("ipf", "lacf")
+# How consumers turn an HDOP into an accuracy in metres, measured against
+# geoclue 2.8.1 on this phone by feeding it synthetic GGA at fixed HDOP:
+#
+#     HDOP  <= 1   ->    0 m      "ideal"
+#           <= 2   ->    1 m      "excellent"
+#           <= 5   ->    3 m      "good"
+#           <= 10  ->   50 m      "moderate"
+#           <= 20  ->  100 m      "fair"
+#            > 20  ->  300 m      "poor"
+#
+# which is the textbook DOP quality rating scale. It matters because HDOP is
+# the only quality figure GGA can carry, and a WiFi fix has no satellite
+# geometry, so whatever we put there is a fabrication either way. The question
+# is only which fabrication is honest.
+#
+# Scaling accuracy by some metres-per-DOP constant is the obvious choice and it
+# is the wrong one: a 22 m WiFi fix at the conventional 5 m/DOP gives HDOP 4.4,
+# which lands in the "good" band and makes geoclue report 3 m. Claiming 3 m for
+# a 22 m fix is a seven-fold overstatement that nothing downstream can catch.
+#
+# So instead: pick the lowest band whose representative accuracy is still at
+# least as large as the accuracy we were actually given, and emit an HDOP from
+# inside it. Consumers that bucket HDOP then round our error *up*, never down.
+# Consumers that read $GPGST -- gpsd does -- get the exact metres regardless.
+DOP_BANDS = (
+    # (upper HDOP of the band, accuracy such a band implies, HDOP to emit)
+    (1.0, 0.0, 1.0),
+    (2.0, 1.0, 1.5),
+    (5.0, 3.0, 3.5),
+    (10.0, 50.0, 7.5),
+    (20.0, 100.0, 15.0),
+    (float("inf"), 300.0, 25.0),
+)
+
+
+def dop_for_accuracy(accuracy):
+    """HDOP to advertise for a fix known to be `accuracy` metres.
+
+    Never one that would let a consumer infer a smaller error than the truth.
+    """
+    for _upper, implied, emit in DOP_BANDS:
+        if implied >= accuracy:
+            return emit
+    return DOP_BANDS[-1][2]
+
+
+# The coarsest error the HDOP channel can express at all: geoclue's mapping
+# saturates, so every fix worse than this reads as exactly this to geoclue.
+#
+#     gclue_location_get_accuracy_from_hdop(): ... return 300;
+#
+# That saturation is the honesty problem with cell-tower positioning. A WiFi
+# fix here is 20-30 m and lands in a band comfortably. A cell-tower fix is
+# typically 250-3000 m, and everything from 301 m upwards would be published to
+# geoclue as "300 m" -- a claim the daemon knows to be false at the moment it
+# makes it, and one no consumer can check, because HDOP is not an error
+# estimate and there is no other field in $GPGGA that is.
+#
+# $GPGST does carry real metres and gpsd does read it, so gpsd clients are told
+# the truth regardless. geoclue 2.8.1 does not: `strings /usr/libexec/geoclue`
+# on this phone contains "$GPGGA" and nothing else, and gclue-nmea-source.c
+# only ever parses GGA. So there is no encoding that reaches geoclue with a
+# number above 300.
+#
+# Given that, the choice is between publishing a fix geoclue will
+# under-estimate and publishing no fix. This daemon publishes no fix, by
+# default, and says why in the log. --max-nmea-accuracy relaxes it for anyone
+# who would rather have a coarse position than none; the GST metres stay honest
+# either way.
+HDOP_CEILING_ACCURACY = DOP_BANDS[-1][1]
+
+
+def hdop_reported_accuracy(accuracy):
+    """What a consumer bucketing our HDOP will conclude the accuracy is."""
+    emit = dop_for_accuracy(accuracy)
+    for _upper, implied, e in DOP_BANDS:
+        if e == emit:
+            return implied
+    return DOP_BANDS[-1][1]
+
+
+DEFAULT_SESSION_ID = 11
+# Groups to hand the socket to, best first. geoclue's network-nmea source runs
+# as the geoclue user; gps is the conventional one for gpsd.
+SOCKET_GROUPS = ("geoclue", "gps")
+# Per-client output backlog. NMEA at 1 Hz is ~200 bytes/s, so 64 KiB is minutes
+# of slack; a client that falls further behind than this is not coming back.
+CLIENT_BACKLOG_MAX = 65536
+
+KNOTS_PER_MS = 1.9438444924406046
+
+
+# --------------------------------------------------------------------- logging
+
+class Log(object):
+    """stderr logging, with journald priority prefixes when under systemd."""
+
+    PREFIX = {"err": "<3>", "warn": "<4>", "info": "<6>", "debug": "<7>"}
+
+    def __init__(self):
+        self.verbose = False
+        self.kmsg = False
+        self.journal = bool(os.environ.get("JOURNAL_STREAM"))
+
+    def _emit(self, level, msg):
+        if self.journal:
+            line = "%s%s\n" % (self.PREFIX[level], msg)
+        else:
+            line = "%s [%s] %s\n" % (time.strftime("%H:%M:%S"), level, msg)
+        try:
+            sys.stderr.write(line)
+            sys.stderr.flush()
+        except Exception:
+            pass
+        if self.kmsg:
+            try:
+                with open("/dev/kmsg", "w") as k:
+                    k.write("rhodep-gnss: %s\n" % msg)
+            except Exception:
+                self.kmsg = False
+
+    def error(self, m, *a):
+        self._emit("err", m % a if a else m)
+
+    def warn(self, m, *a):
+        self._emit("warn", m % a if a else m)
+
+    def info(self, m, *a):
+        self._emit("info", m % a if a else m)
+
+    def debug(self, m, *a):
+        if self.verbose:
+            self._emit("debug", m % a if a else m)
+
+
+log = Log()
+
+
+# ------------------------------------------------------------------ QMI helpers
+
+def tlv(output, getter):
+    """Read one optional TLV out of a libqmi indication/response object.
+
+    Every qmi_indication_*_get_* binding returns gboolean plus out parameters,
+    which pygobject turns into (found, value...). Absent TLVs are the normal
+    case here -- a cell-id fix carries maybe six of the thirty in a position
+    report -- so this collapses "not present" and "not in this libqmi" to None.
+    """
+    fn = getattr(output, getter, None)
+    if fn is None:
+        return None
+    try:
+        r = fn()
+    except Exception:
+        return None
+    if isinstance(r, tuple):
+        if not r or not r[0]:
+            return None
+        rest = r[1:]
+        if not rest:
+            return True
+        return rest[0] if len(rest) == 1 else rest
+    if r is False:
+        return None
+    return r
+
+
+def enum_name(value):
+    try:
+        return value.value_nick
+    except Exception:
+        return str(value)
+
+
+# ------------------------------------------------------------------ NMEA output
+
+def nmea_checksum(body):
+    c = 0
+    for ch in body:
+        c ^= ord(ch)
+    return "%02X" % c
+
+
+def sentence(body):
+    """Wrap a comma body (no '$', no '*') into a full NMEA sentence + CRLF."""
+    return "$%s*%s\r\n" % (body, nmea_checksum(body))
+
+
+def _degrees_minutes(value, places=4):
+    """Split into (degrees, minutes) with the minutes already rounded.
+
+    NMEA writes minutes with a fixed number of decimals, and "%07.4f" rounds
+    at format time -- so a position 0.00001' short of a whole degree comes out
+    as 60.0000 minutes and the sentence reads 5260.0000, which is not a
+    latitude. Round first, then carry, so the two fields cannot disagree.
+    """
+    deg = int(value)
+    minutes = round((value - deg) * 60.0, places)
+    if minutes >= 60.0:
+        deg += 1
+        minutes -= 60.0
+    return deg, minutes
+
+
+def fmt_lat(lat):
+    if lat is None:
+        return ",", ""
+    hemi = "N" if lat >= 0 else "S"
+    deg, minutes = _degrees_minutes(abs(lat))
+    return "%02d%07.4f,%s" % (deg, minutes, hemi), hemi
+
+
+def fmt_lon(lon):
+    if lon is None:
+        return ",", ""
+    hemi = "E" if lon >= 0 else "W"
+    deg, minutes = _degrees_minutes(abs(lon))
+    return "%03d%07.4f,%s" % (deg, minutes, hemi), hemi
+
+
+class Fix(object):
+    """Everything worth keeping out of one QMI position report."""
+
+    __slots__ = ("lat", "lon", "alt_msl", "alt_ell", "speed", "heading",
+                 "pdop", "hdop", "vdop", "nsat", "utc", "status", "when",
+                 "alt_assumed", "accuracy", "source", "provider")
+
+    def __init__(self):
+        self.lat = self.lon = None
+        self.alt_msl = self.alt_ell = None
+        self.speed = self.heading = None
+        self.pdop = self.hdop = self.vdop = None
+        self.nsat = 0
+        self.utc = None          # seconds since epoch, UTC
+        self.status = None       # QmiLocSessionStatus
+        self.alt_assumed = None
+        self.when = 0.0          # monotonic time the report arrived
+        self.accuracy = None     # 1-sigma horizontal radius in metres, if known
+        self.source = None       # SOURCE_QMI / SOURCE_WIFI
+        self.provider = None     # which geolocation service answered
+
+    @property
+    def valid(self):
+        return self.lat is not None and self.lon is not None
+
+    @classmethod
+    def from_geolocation(cls, lat, lon, accuracy, provider, alt=None,
+                         source=SOURCE_WIFI):
+        """Build a Fix from a geolocation answer (network service or local db).
+
+        There are no satellites and no velocity behind this, so nsat stays 0
+        and speed/heading stay absent; the only quality figure we have is the
+        accuracy radius, which becomes both the GST error estimate (metres,
+        exact) and an approximate HDOP (for parsers that only look at GGA).
+        """
+        f = cls()
+        f.when = time.monotonic()
+        f.lat = lat
+        f.lon = lon
+        f.alt_msl = alt
+        f.accuracy = accuracy
+        f.provider = provider
+        f.source = source
+        f.utc = time.time()
+        if accuracy:
+            dop = dop_for_accuracy(float(accuracy))
+            f.hdop = dop
+            f.pdop = dop
+        return f
+
+    @classmethod
+    def from_indication(cls, out):
+        f = cls()
+        f.when = time.monotonic()
+        f.source = SOURCE_QMI
+        f.lat = tlv(out, "get_latitude")
+        f.lon = tlv(out, "get_longitude")
+        f.alt_msl = tlv(out, "get_altitude_from_sealevel")
+        f.alt_ell = tlv(out, "get_altitude_from_ellipsoid")
+        f.speed = tlv(out, "get_horizontal_speed")
+        f.heading = tlv(out, "get_heading")
+        f.alt_assumed = tlv(out, "get_altitude_assumed")
+        dop = tlv(out, "get_dop")
+        if isinstance(dop, tuple) and len(dop) == 3:
+            f.pdop, f.hdop, f.vdop = dop
+        sats = tlv(out, "get_satellites_used")
+        if sats is not None:
+            try:
+                f.nsat = len(sats)
+            except TypeError:
+                f.nsat = 0
+        ts = tlv(out, "get_utc_timestamp")
+        if ts:
+            # QMI hands this over in milliseconds since the Unix epoch.
+            f.utc = ts / 1000.0
+        f.status = tlv(out, "get_session_status")
+        return f
+
+    def describe(self):
+        bits = []
+        if self.valid:
+            bits.append("%.6f,%.6f" % (self.lat, self.lon))
+        else:
+            bits.append("no-position")
+        if self.alt_msl is not None:
+            bits.append("alt=%.1fm" % self.alt_msl)
+        if self.accuracy is not None:
+            bits.append("acc=%.0fm" % self.accuracy)
+        if self.hdop is not None:
+            bits.append("hdop=%.1f" % self.hdop)
+        if self.nsat:
+            bits.append("sats=%d" % self.nsat)
+        if self.status is not None:
+            bits.append("status=%s" % enum_name(self.status))
+        if self.provider:
+            bits.append("via=%s" % self.provider)
+        return " ".join(bits)
+
+
+class NmeaSynth(object):
+    """Turn the newest Fix into GGA/RMC/GSA once per tick.
+
+    In cellid mode the modem emits only $PSTIS, so gpsd sees a device that
+    never says anything it understands and gives up. These three sentences are
+    the minimum that makes gpsd report a TPV and geoclue's network-nmea source
+    produce a location.
+    """
+
+    def __init__(self, talker="GP", stale=30.0):
+        self.talker = talker
+        self.stale = stale
+        self.fix = None
+
+    def update(self, fix):
+        self.fix = fix
+
+    # A fix older than this is re-timestamped with the current time rather
+    # than its acquisition time. One second of NMEA at 1 Hz, plus slack.
+    FRESH = 2.0
+
+    def _time_fields(self, fix):
+        """UTC for the sentence: when it is being sent, not when it was got.
+
+        The QMI source reports every second, so its own UTC stamp is already
+        "now" and is used as-is -- it is the modem's clock and more precise
+        than ours. The wifi source only produces a position every
+        --wifi-interval, and re-broadcasting it at 1 Hz with its original
+        timestamp freezes the clock in the stream. That is not a cosmetic
+        problem: gpsd uses the timestamp to detect cycle boundaries, and a
+        stream whose time never advances gets treated as one endlessly
+        repeated epoch, so the fix stops propagating to clients.
+
+        Stamping a position with the current time says "this is where you are
+        now", which is the claim a WiFi fix is actually making; how old the
+        underlying observation may be is bounded by --wifi-stale.
+        """
+        t = None
+        if fix is not None and fix.utc and \
+                (time.monotonic() - fix.when) <= self.FRESH:
+            t = fix.utc
+        if t is None:
+            t = time.time()
+        # Round to the two decimals the sentence carries BEFORE splitting into
+        # fields. Formatting "%05.2f" of 59.999 gives "60.00", i.e. a time of
+        # 123460.00, which is not a time; gpsd rejects the sentence. At 1 Hz
+        # that happens roughly once every three hours, which is often enough
+        # to matter and rare enough to never be noticed.
+        t = math.floor(t * 100.0 + 0.5) / 100.0
+        gm = time.gmtime(t)
+        frac = t - math.floor(t)
+        hhmmss = "%02d%02d%05.2f" % (gm.tm_hour, gm.tm_min, gm.tm_sec + frac)
+        ddmmyy = "%02d%02d%02d" % (gm.tm_mday, gm.tm_mon, gm.tm_year % 100)
+        return hhmmss, ddmmyy
+
+    def sentences(self):
+        fix = self.fix
+        if fix is not None and self.stale > 0 and \
+                (time.monotonic() - fix.when) > self.stale:
+            fix = None
+        have = fix is not None and fix.valid
+        hhmmss, ddmmyy = self._time_fields(fix)
+        t = self.talker
+
+        if have:
+            latf, _ = fmt_lat(fix.lat)
+            lonf, _ = fmt_lon(fix.lon)
+        else:
+            latf, lonf = ",", ","
+
+        # --- GGA ------------------------------------------------------------
+        # Quality 1 = "GPS fix". NMEA 0183 has no code for a network/cell-id
+        # fix, and gpsd treats 0 as no fix at all, so 1 it is; the honest
+        # accuracy signal is the HDOP field and the satellite count of 0.
+        quality = 1 if have else 0
+        hdop = "%.1f" % fix.hdop if (have and fix.hdop is not None) else ""
+        if have and fix.alt_msl is not None:
+            alt = "%.1f" % fix.alt_msl
+            sep = ""
+            if fix.alt_ell is not None:
+                sep = "%.1f" % (fix.alt_ell - fix.alt_msl)
+        elif have and fix.alt_ell is not None:
+            alt = "%.1f" % fix.alt_ell
+            sep = ""
+        else:
+            alt = ""
+            sep = ""
+        nsat = fix.nsat if have else 0
+        gga = "%sGGA,%s,%s,%s,%d,%02d,%s,%s,%s,%s,%s,," % (
+            t, hhmmss, latf, lonf, quality, nsat, hdop,
+            alt, "M" if alt else "", sep, "M" if sep else "")
+
+        # --- RMC ------------------------------------------------------------
+        status = "A" if have else "V"
+        if have and fix.speed is not None:
+            spd = "%.2f" % (fix.speed * KNOTS_PER_MS)
+        else:
+            spd = ""
+        if have and fix.heading is not None:
+            crs = "%.1f" % fix.heading
+        else:
+            crs = ""
+        mode = "A" if have else "N"
+        rmc = "%sRMC,%s,%s,%s,%s,%s,%s,%s,,,%s" % (
+            t, hhmmss, status, latf, lonf, spd, crs, ddmmyy, mode)
+
+        # --- GSA ------------------------------------------------------------
+        # 2D: a cell-id fix has no usable vertical component. The twelve empty
+        # PRN slots are mandatory, so build the field list rather than counting
+        # commas by eye.
+        fixmode = "2" if have else "1"
+        pdop = "%.1f" % fix.pdop if (have and fix.pdop is not None) else ""
+        vdop = "%.1f" % fix.vdop if (have and fix.vdop is not None) else ""
+        gsa = ",".join(["%sGSA" % t, "A", fixmode] + [""] * 12 +
+                       [pdop, hdop, vdop])
+
+        out = [sentence(gga), sentence(rmc), sentence(gsa)]
+
+        # --- GST ------------------------------------------------------------
+        # HDOP is a geometry number, not an error. A geolocation service hands
+        # us a real accuracy radius in metres, and GST is the only NMEA
+        # sentence that can carry it; gpsd turns it straight into eph/epx/epy,
+        # so `gpspipe -w` reports honest error bars instead of a guess.
+        # The radius is a circle, so semi-major == semi-minor and the
+        # orientation is meaningless (0). lat/lon error are the 1-sigma
+        # components of that circle.
+        if have and fix.accuracy:
+            r = float(fix.accuracy)
+            comp = r / math.sqrt(2.0)
+            gst = "%sGST,%s,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f" % (
+                t, hhmmss, r, r, r, 0.0, comp, comp, r)
+            out.append(sentence(gst))
+
+        return out
+
+
+# ---------------------------------------------------------------- socket fanout
+
+class Peer(object):
+    def __init__(self, sock, name):
+        self.sock = sock
+        self.name = name
+        self.buf = bytearray()
+        self.watch = 0
+        self.sock.setblocking(False)
+
+    def fileno(self):
+        return self.sock.fileno()
+
+    def close(self):
+        if self.watch:
+            GLib.source_remove(self.watch)
+            self.watch = 0
+        try:
+            self.sock.close()
+        except Exception:
+            pass
+
+
+class Fanout(object):
+    """One-to-many byte pump.
+
+    Non-blocking throughout: a stuck reader must never stall the QMI main loop,
+    so anything that will not drain within CLIENT_BACKLOG_MAX gets dropped.
+    """
+
+    def __init__(self):
+        self.peers = {}
+        self.listeners = []
+        self.total_dropped = 0
+        # fd -> (source id, name). Kept so a listener can be un-watched and
+        # re-armed; see _on_accept's fd-exhaustion handling.
+        self.listen_watch = {}
+        self.rearm = {}
+
+    # -- listeners --------------------------------------------------------
+    def listen_unix(self, path, group_names=SOCKET_GROUPS, mode=0o660):
+        d = os.path.dirname(path)
+        if d and not os.path.isdir(d):
+            os.makedirs(d, 0o755)
+        # Clear a leftover socket from an unclean exit, but never clobber a
+        # real file that happens to sit on the path.
+        if os.path.exists(path):
+            if stat.S_ISSOCK(os.stat(path).st_mode):
+                os.unlink(path)
+            else:
+                raise RuntimeError("%s exists and is not a socket" % path)
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.bind(path)
+        gid = -1
+        chosen = None
+        for g in group_names:
+            try:
+                gid = grp.getgrnam(g).gr_gid
+                chosen = g
+                break
+            except KeyError:
+                continue
+        try:
+            os.chown(path, -1, gid)
+        except OSError as e:
+            log.warn("chown %s to group %s failed: %s", path, chosen, e)
+            chosen = None
+        try:
+            os.chmod(path, mode)
+        except OSError as e:
+            log.warn("chmod %s: %s", path, e)
+        s.listen(16)
+        s.setblocking(False)
+        self._watch_listener(s, "unix:%s" % path)
+        log.info("listening on %s (mode %04o, group %s)",
+                 path, mode, chosen or "root")
+        if chosen is None and not (mode & 0o006):
+            # Nothing but root can open it, which silently breaks geoclue --
+            # whose network-nmea source runs as the geoclue user -- in a way
+            # that looks like "the daemon produces no position".
+            log.warn("none of the groups %s exist, so %s is root-owned and "
+                     "mode %04o: unprivileged consumers such as geoclue will "
+                     "not be able to read it",
+                     "/".join(group_names), path, mode)
+        return s
+
+    def listen_tcp(self, port, host="127.0.0.1"):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind((host, port))
+        s.listen(16)
+        s.setblocking(False)
+        self._watch_listener(s, "tcp:%s:%d" % (host, port))
+        log.info("listening on tcp://%s:%d", host, port)
+        return s
+
+    def _watch_listener(self, s, name):
+        if s not in self.listeners:
+            self.listeners.append(s)
+        self.listen_watch[s.fileno()] = unix_fd_add_full(
+            GLib.PRIORITY_DEFAULT, s.fileno(), GLib.IOCondition.IN,
+            self._on_accept, (s, name))
+
+    # How long to stop accepting for when the process is out of file
+    # descriptors. Anything is better than returning to a level-triggered
+    # watch on a listener with a pending connection we cannot take, which
+    # spins the main loop at 100% CPU for as long as the condition lasts.
+    ACCEPT_BACKOFF = 5
+
+    def _on_accept(self, fd, cond, data):
+        s, name = data
+        while True:
+            try:
+                conn, addr = s.accept()
+            except BlockingIOError:
+                return True
+            except OSError as e:
+                if e.errno in (errno.EINTR,):
+                    continue
+                if e.errno in (errno.EBADF, errno.EINVAL):
+                    self.listen_watch.pop(fd, None)
+                    return False
+                if e.errno in (errno.EMFILE, errno.ENFILE, errno.ENOBUFS,
+                               errno.ENOMEM):
+                    log.error("accept on %s: %s; not accepting for %ds",
+                              name, e, self.ACCEPT_BACKOFF)
+                    self.listen_watch.pop(fd, None)
+                    self.rearm[fd] = GLib.timeout_add_seconds(
+                        self.ACCEPT_BACKOFF, self._rearm_listener, (s, name))
+                    return False
+                log.warn("accept on %s: %s", name, e)
+                return True
+            peer = Peer(conn, "%s#%d" % (name, conn.fileno()))
+            try:
+                conn.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 32768)
+                if conn.family == socket.AF_INET:
+                    conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            except OSError:
+                pass
+            self.peers[peer.fileno()] = peer
+            # Watch for hangup so dead readers are reaped even when idle.
+            peer.watch_hup = unix_fd_add_full(
+                GLib.PRIORITY_DEFAULT, peer.fileno(),
+                GLib.IOCondition.HUP | GLib.IOCondition.ERR |
+                GLib.IOCondition.IN,
+                self._on_peer_event, peer)
+            log.info("client connected: %s (%d total)",
+                     peer.name, len(self.peers))
+
+    def _rearm_listener(self, data):
+        s, name = data
+        try:
+            fd = s.fileno()
+        except Exception:
+            return False
+        self.rearm.pop(fd, None)
+        if fd < 0:
+            return False
+        log.info("accepting on %s again", name)
+        self._watch_listener(s, name)
+        return False
+
+    def _on_peer_event(self, fd, cond, peer):
+        if cond & (GLib.IOCondition.HUP | GLib.IOCondition.ERR):
+            self.drop(peer, "hangup")
+            return False
+        if cond & GLib.IOCondition.IN:
+            try:
+                data = peer.sock.recv(4096)
+            except BlockingIOError:
+                return True
+            except OSError:
+                self.drop(peer, "recv error")
+                return False
+            if not data:
+                self.drop(peer, "eof")
+                return False
+            # This is a one-way feed; anything a client sends is discarded.
+        return True
+
+    # -- output -----------------------------------------------------------
+    def broadcast(self, data):
+        if not self.peers:
+            return
+        for peer in list(self.peers.values()):
+            self._send(peer, data)
+
+    def _send(self, peer, data):
+        if peer.buf:
+            if len(peer.buf) + len(data) > CLIENT_BACKLOG_MAX:
+                self.drop(peer, "backlog over %d bytes" % CLIENT_BACKLOG_MAX)
+                return
+            peer.buf.extend(data)
+            return
+        try:
+            n = peer.sock.send(data)
+        except BlockingIOError:
+            n = 0
+        except (BrokenPipeError, ConnectionResetError):
+            self.drop(peer, "peer closed")
+            return
+        except OSError as e:
+            self.drop(peer, "send: %s" % e)
+            return
+        if n < len(data):
+            peer.buf.extend(data[n:])
+            if not peer.watch:
+                peer.watch = unix_fd_add_full(
+                    GLib.PRIORITY_DEFAULT, peer.fileno(),
+                    GLib.IOCondition.OUT, self._on_writable, peer)
+
+    def _on_writable(self, fd, cond, peer):
+        if cond & (GLib.IOCondition.HUP | GLib.IOCondition.ERR):
+            self.drop(peer, "hangup while draining")
+            return False
+        try:
+            n = peer.sock.send(peer.buf)
+        except BlockingIOError:
+            return True
+        except OSError as e:
+            self.drop(peer, "drain: %s" % e)
+            return False
+        del peer.buf[:n]
+        if peer.buf:
+            return True
+        peer.watch = 0
+        return False
+
+    def drop(self, peer, why):
+        if peer.fileno() in self.peers:
+            del self.peers[peer.fileno()]
+            self.total_dropped += 1
+            log.info("client gone: %s (%s), %d left",
+                     peer.name, why, len(self.peers))
+        hup = getattr(peer, "watch_hup", 0)
+        if hup:
+            try:
+                GLib.source_remove(hup)
+            except Exception:
+                pass
+            peer.watch_hup = 0
+        peer.close()
+
+    def shutdown(self):
+        for peer in list(self.peers.values()):
+            self.drop(peer, "shutdown")
+        for sid in list(self.listen_watch.values()) + list(self.rearm.values()):
+            try:
+                GLib.source_remove(sid)
+            except Exception:
+                pass
+        self.listen_watch = {}
+        self.rearm = {}
+        for s in self.listeners:
+            try:
+                name = s.getsockname()
+                s.close()
+                # Only unlink a path that is still the socket we bound. A
+                # second daemon that has already taken over the path must not
+                # have its socket removed by this one's exit.
+                if isinstance(name, str) and name and os.path.exists(name) \
+                        and stat.S_ISSOCK(os.stat(name).st_mode):
+                    os.unlink(name)
+            except Exception:
+                pass
+        self.listeners = []
+
+
+# ------------------------------------------------------------ wifi geolocation
+
+class AccessPoint(object):
+    """One BSS, in the shape Ichnaea's geolocate API wants."""
+
+    __slots__ = ("mac", "signal", "frequency", "age", "ssid")
+
+    def __init__(self, mac, signal=None, frequency=None, age=None, ssid=None):
+        self.mac = mac.lower()
+        self.signal = signal
+        self.frequency = frequency
+        self.age = age
+        self.ssid = ssid
+
+    @property
+    def nomap(self):
+        """Opted out of geolocation databases per the MLS/Google convention."""
+        return bool(self.ssid) and self.ssid.endswith("_nomap")
+
+    def as_json(self):
+        d = {"macAddress": self.mac}
+        if self.signal is not None:
+            d["signalStrength"] = int(self.signal)
+        if self.frequency:
+            d["frequency"] = int(self.frequency)
+        if self.age is not None:
+            d["age"] = int(self.age)
+        return d
+
+
+def _valid_bssid(mac):
+    if not re.fullmatch(r"(?:[0-9a-f]{2}:){5}[0-9a-f]{2}", mac):
+        return False
+    if mac in ("00:00:00:00:00:00", "ff:ff:ff:ff:ff:ff"):
+        return False
+    return True
+
+
+class WifiScanner(object):
+    """List the WiFi neighbourhood, without disturbing the connection.
+
+    Two backends:
+
+      nm  NetworkManager over D-Bus. Preferred, and the default. NM is already
+          scanning on its own schedule to keep its AP list warm, so reading
+          that list costs nothing, needs no privileges and never takes the
+          radio off-channel. The catch is that NM reports signal strength as a
+          0-100 "quality" rather than dBm, so it has to be converted back.
+
+      iw  `iw dev IF scan dump` for exact dBm out of the kernel's BSS cache,
+          falling back to a real `iw dev IF scan` when the cache is thin.
+          Needs root, and a full scan does take the radio away from the AP for
+          a moment.
+
+    NM is the default deliberately: repeatedly forcing active scans on this
+    phone is a good way to lose the SSH session you are working over.
+    """
+
+    NM = "org.freedesktop.NetworkManager"
+    NM_PATH = "/org/freedesktop/NetworkManager"
+
+    def __init__(self, backend="auto", interface=None):
+        self.backend = backend
+        self.interface = interface
+        self._bus = None
+        self._warned = set()
+
+    def _warn_once(self, key, msg, *a):
+        if key not in self._warned:
+            self._warned.add(key)
+            log.warn(msg, *a)
+
+    # ------------------------------------------------------------- NM backend
+    def _sysbus(self):
+        if self._bus is None:
+            self._bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+        return self._bus
+
+    def _nm_call(self, path, iface, method, args=None, timeout=5000):
+        return self._sysbus().call_sync(
+            self.NM, path, iface, method, args, None,
+            Gio.DBusCallFlags.NONE, timeout, None)
+
+    def _nm_get(self, path, iface, prop):
+        r = self._nm_call(path, "org.freedesktop.DBus.Properties", "Get",
+                          GLib.Variant("(ss)", (iface, prop)))
+        return r.unpack()[0]
+
+    def _wifi_devices(self):
+        out = []
+        for dev in self._nm_get(self.NM_PATH, self.NM, "AllDevices"):
+            try:
+                if self._nm_get(dev, self.NM + ".Device", "DeviceType") != 2:
+                    continue  # 2 == NM_DEVICE_TYPE_WIFI
+                name = self._nm_get(dev, self.NM + ".Device", "Interface")
+                if self.interface and name != self.interface:
+                    continue
+                out.append(dev)
+            except GLib.Error as e:
+                log.debug("NM device %s: %s", dev, e.message)
+        return out
+
+    def _nm_aps(self, devices):
+        aps = []
+        wifi = self.NM + ".Device.Wireless"
+        for dev in devices:
+            try:
+                for path in self._nm_get(dev, wifi, "AccessPoints"):
+                    aps.append(self._nm_ap(path))
+            except GLib.Error as e:
+                log.debug("NM %s AccessPoints: %s", dev, e.message)
+        return [a for a in aps if a is not None]
+
+    def _nm_request_scan(self, devices, wait=10.0):
+        """Ask NM for a fresh scan and wait for it to land.
+
+        NM only scans on its own initiative every couple of minutes while
+        associated, so its cache is routinely too old -- and right after a
+        reboot it is empty. Going through NM rather than running `iw scan`
+        ourselves means NM schedules the scan around the active connection and
+        applies its own rate limiting, instead of two things fighting over the
+        radio.
+        """
+        wifi = self.NM + ".Device.Wireless"
+        before = {}
+        asked = False
+        for dev in devices:
+            try:
+                before[dev] = self._nm_get(dev, wifi, "LastScan")
+                self._nm_call(dev, wifi, "RequestScan",
+                              GLib.Variant("(a{sv})", ({},)))
+                asked = True
+            except GLib.Error as e:
+                # "Scanning not allowed immediately following previous scan"
+                # is normal and simply means a fresh result is already coming.
+                log.debug("NM RequestScan on %s: %s", dev, e.message)
+        if not asked:
+            return
+        deadline = time.monotonic() + wait
+        while time.monotonic() < deadline:
+            time.sleep(0.5)
+            for dev in devices:
+                try:
+                    if self._nm_get(dev, wifi, "LastScan") != before.get(dev):
+                        return
+                except GLib.Error:
+                    pass
+
+    def scan_nm(self, allow_request=True):
+        devices = self._wifi_devices()
+        if not devices:
+            return []
+        aps = self._nm_aps(devices)
+        if allow_request and len(self._fresh_enough(aps)) < MIN_APS:
+            log.debug("NM cache has %d usable AP(s), asking for a scan",
+                      len(self._fresh_enough(aps)))
+            self._nm_request_scan(devices)
+            aps = self._nm_aps(devices)
+        return aps
+
+    @staticmethod
+    def _fresh_enough(aps):
+        return [a for a in aps
+                if not a.nomap
+                and (a.age is None or a.age <= AP_MAX_AGE * 1000)]
+
+    def _nm_ap(self, path):
+        ap = self.NM + ".AccessPoint"
+        try:
+            props = self._nm_call(
+                path, "org.freedesktop.DBus.Properties", "GetAll",
+                GLib.Variant("(s)", (ap,))).unpack()[0]
+        except GLib.Error:
+            return None
+        mac = str(props.get("HwAddress", "")).lower()
+        if not _valid_bssid(mac):
+            return None
+        ssid = bytes(props.get("Ssid", b"")).decode("utf-8", "replace")
+        # NM's Strength is wpa_supplicant's 0-100 quality. The inverse of the
+        # mapping NM applies is dBm = quality/2 - 100, which is what every
+        # other consumer of this property assumes. It is lossy -- measured
+        # against `iw` on this phone it runs about 5 dB pessimistic -- but the
+        # services only use signal strength to weight APs against each other,
+        # and a consistent offset does not change the weighting.
+        strength = props.get("Strength")
+        signal = None if strength is None else int(strength) / 2.0 - 100.0
+        # LastSeen is CLOCK_BOOTTIME seconds, or -1 if never seen.
+        age = None
+        last = props.get("LastSeen", -1)
+        if last is not None and int(last) >= 0:
+            age = max(0, int((time.clock_gettime(time.CLOCK_BOOTTIME)
+                              - int(last)) * 1000))
+        return AccessPoint(mac, signal=signal,
+                           frequency=props.get("Frequency"),
+                           age=age, ssid=ssid)
+
+    # ------------------------------------------------------------- iw backend
+    def _iw_interface(self):
+        if self.interface:
+            return self.interface
+        try:
+            out = subprocess.run(["iw", "dev"], capture_output=True,
+                                 text=True, timeout=10).stdout
+            m = re.search(r"^\s*Interface\s+(\S+)", out, re.M)
+            if m:
+                self.interface = m.group(1)
+                return self.interface
+        except Exception as e:
+            log.debug("iw dev: %s", e)
+        return "wlan0"
+
+    def _iw(self, *extra):
+        cmd = ["iw", "dev", self._iw_interface(), "scan"] + list(extra)
+        try:
+            p = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        except Exception as e:
+            log.debug("%s: %s", " ".join(cmd), e)
+            return []
+        if p.returncode != 0:
+            log.debug("%s: rc=%d %s", " ".join(cmd), p.returncode,
+                      p.stderr.strip()[:120])
+            return []
+        return self.parse_iw(p.stdout)
+
+    @staticmethod
+    def parse_iw(text):
+        aps, cur = [], None
+        for raw in text.splitlines():
+            line = raw.strip()
+            m = re.match(r"^BSS ([0-9a-fA-F:]{17})", line)
+            if m:
+                cur = AccessPoint(m.group(1))
+                aps.append(cur)
+                continue
+            if cur is None:
+                continue
+            m = re.match(r"^signal:\s*(-?[\d.]+)\s*dBm", line)
+            if m:
+                cur.signal = round(float(m.group(1)))
+                continue
+            m = re.match(r"^freq:\s*([\d.]+)", line)
+            if m:
+                cur.frequency = int(float(m.group(1)))
+                continue
+            m = re.match(r"^last seen:\s*(\d+)\s*ms ago", line)
+            if m:
+                cur.age = int(m.group(1))
+                continue
+            m = re.match(r"^SSID:\s?(.*)$", line)
+            if m:
+                cur.ssid = m.group(1)
+        return [a for a in aps if _valid_bssid(a.mac)]
+
+    def scan_iw(self):
+        aps = self._iw("dump")
+        if len(aps) < MIN_APS:
+            log.debug("iw scan dump had %d BSS, forcing a scan", len(aps))
+            aps = self._iw()
+        return aps
+
+    # ------------------------------------------------------------------ front
+    def scan(self):
+        """Return the usable APs, best signal first."""
+        order = (["nm", "iw"] if self.backend == "auto" else [self.backend])
+        aps = []
+        for backend in order:
+            try:
+                aps = self.scan_nm() if backend == "nm" else self.scan_iw()
+            except Exception as e:
+                self._warn_once("backend-" + backend,
+                                "wifi scan backend %r unusable: %s", backend, e)
+                aps = []
+            if aps:
+                log.debug("wifi scan via %s: %d BSS", backend, len(aps))
+                break
+
+        keep, skipped, stale = [], 0, 0
+        for ap in aps:
+            if ap.nomap:
+                skipped += 1
+                continue
+            if ap.age is not None and ap.age > AP_MAX_AGE * 1000:
+                stale += 1
+                continue
+            keep.append(ap)
+        if skipped:
+            log.debug("wifi scan: %d AP(s) opted out with _nomap", skipped)
+        if stale:
+            log.debug("wifi scan: %d AP(s) older than %.0fs", stale, AP_MAX_AGE)
+        keep.sort(key=lambda a: a.signal if a.signal is not None else -999,
+                  reverse=True)
+        return keep
+
+
+# ------------------------------------------------------------ cell geolocation
+
+def decode_plmn(raw):
+    """Three BCD octets from QMI -> (mcc, mnc), or (None, None).
+
+    3GPP TS 24.008 10.5.1.13. The digits are stored low nibble first and the
+    MNC's third digit is stashed in the high nibble of the *second* octet,
+    where 0xF means "this operator has a two-digit MNC". Getting that wrong
+    turns MNC 34 into MNC 43 or 340, which is a different network and a
+    guaranteed database miss, so it is worth spelling out.
+
+        octet 0:  MCC2 MCC1
+        octet 1:  MNC3 MCC3
+        octet 2:  MNC2 MNC1
+
+    b"\\x27\\xf2\\x43" is 722-34, the PLMN this phone sees.
+    """
+    try:
+        b = bytes(raw)
+    except (TypeError, ValueError):
+        return None, None
+    if len(b) < 3:
+        return None, None
+    d = [b[0] & 0x0F, b[0] >> 4, b[1] & 0x0F,        # mcc 1,2,3
+         b[2] & 0x0F, b[2] >> 4, b[1] >> 4]          # mnc 1,2,3
+    if any(x > 9 for x in d[:3]):
+        return None, None
+    mcc = d[0] * 100 + d[1] * 10 + d[2]
+    if d[5] == 0x0F:                                  # two-digit MNC
+        if any(x > 9 for x in d[3:5]):
+            return mcc, None
+        mnc = d[3] * 10 + d[4]
+    else:
+        if any(x > 9 for x in d[3:6]):
+            return mcc, None
+        mnc = d[3] * 100 + d[4] * 10 + d[5]
+    return mcc, mnc
+
+
+def gsm_rxlev_dbm(rxlev):
+    """GSM RXLEV index -> dBm.
+
+    3GPP TS 45.008 8.1.4: RXLEV n means the received level is between
+    -111+n and -110+n dBm, which is exactly how qmicli prints it
+    ("-97 dBm > level > -96 dBm ('14')"). The conventional single number for
+    it, and the one ModemManager and Android use, is -110 + n. Clamped to the
+    range Ichnaea will accept for a GSM cell; a value outside it is silently
+    dropped by the service, which is worse than a clamped one because the
+    weighting then falls back to a default.
+    """
+    if rxlev is None:
+        return None
+    try:
+        return max(-113, min(-51, int(rxlev) - 110))
+    except (TypeError, ValueError):
+        return None
+
+
+def nas_field(output, getter):
+    """Read one TLV out of a NAS response.
+
+    Not the same shape as tlv() above. The LOC indication getters return
+    (found, values...); these NAS ones return the values alone and raise
+    GLib.Error "Field ... was not found in the message" when the TLV is
+    absent -- which is the normal case for every radio the modem is not
+    currently listening to.
+    """
+    fn = getattr(output, getter, None)
+    if fn is None:
+        return None
+    try:
+        return fn()
+    except Exception:
+        return None
+
+
+class CellTower(object):
+    """One cell the modem can hear, in the shape Ichnaea's API wants."""
+
+    __slots__ = ("radio", "mcc", "mnc", "lac", "cid", "psc", "signal",
+                 "ta", "serving", "arfcn", "bsic", "age")
+
+    def __init__(self, radio, mcc, mnc, lac, cid, signal=None, psc=None,
+                 ta=None, serving=False, arfcn=None, bsic=None, age=None):
+        self.radio = radio
+        self.mcc = mcc
+        self.mnc = mnc
+        self.lac = lac
+        self.cid = cid
+        self.signal = signal
+        self.psc = psc
+        self.ta = ta
+        self.serving = bool(serving)
+        self.arfcn = arfcn
+        self.bsic = bsic
+        self.age = age
+
+    @property
+    def valid(self):
+        """Enough of an identity to look up.
+
+        Zero and all-ones are the values the modem reports for "I have not
+        decoded this yet", and while it is searching that is most of the time.
+        MEASURED on this phone: polls come back with PLMN 00-00, with
+        cell id 4294967295 and LAC 0 for a neighbour whose ARFCN and signal
+        level are already known, and with QMI error NoNetworkFound outright --
+        a neighbour is measured several seconds before its BCCH has been read.
+        Submitting any of those is asking a database about cell zero, and a
+        database that answers is worse than one that does not.
+
+        MCC 0 does not exist; MNC 0 does (it is a real network code), so only
+        the MCC is checked for zero.
+        """
+        return (self.mcc not in (None, 0) and 1 <= int(self.mcc) <= 999
+                and self.mnc is not None and 0 <= int(self.mnc) <= 999
+                and self.lac not in (None, 0, 0xFFFF, 0xFFFFFFFF)
+                and self.cid not in (None, 0, 0xFFFF, 0xFFFFFFFF, 0x0FFFFFFF))
+
+    def key(self):
+        return (self.radio, self.mcc, self.mnc, self.lac, self.cid)
+
+    def as_json(self):
+        d = {"radioType": self.radio,
+             "mobileCountryCode": int(self.mcc),
+             "mobileNetworkCode": int(self.mnc),
+             "locationAreaCode": int(self.lac),
+             "cellId": int(self.cid)}
+        if self.signal is not None:
+            d["signalStrength"] = int(self.signal)
+        if self.psc is not None:
+            d["psc"] = int(self.psc)
+        if self.ta is not None:
+            d["timingAdvance"] = int(self.ta)
+        if self.age is not None:
+            d["age"] = int(self.age)
+        d["serving"] = 1 if self.serving else 0
+        return d
+
+    def describe(self):
+        s = "%s %s-%s LAC %s CID %s" % (self.radio, self.mcc, self.mnc,
+                                        self.lac, self.cid)
+        if self.arfcn is not None:
+            s += " arfcn %s" % self.arfcn
+        if self.bsic is not None:
+            s += " bsic %s" % self.bsic
+        if self.signal is not None:
+            s += " %d dBm" % self.signal
+        if self.serving:
+            s += " (serving)"
+        return s
+
+
+def parse_qmicli_cell_info(text):
+    """Parse `qmicli --nas-get-cell-location-info` output into CellTowers.
+
+    The fallback backend, for installs without gir1.2-qmi-1.0. Kept as a pure
+    function of a string so the self-test can exercise it against real captured
+    output rather than needing a modem.
+
+    Structure is: an unindented section name, one-tab key/value lines for the
+    serving cell, and `Cell [n]:` introducing two-tab lines for a neighbour.
+    """
+    sections = []
+    cur = None
+    sub = None
+    for raw in text.splitlines():
+        if not raw.strip():
+            continue
+        if raw.startswith("["):                      # "[qrtr://0] Successfully"
+            continue
+        indent = len(raw) - len(raw.lstrip("\t "))
+        line = raw.strip()
+        if indent == 0:
+            cur = (line, {}, [])
+            sections.append(cur)
+            sub = None
+            continue
+        if cur is None:
+            continue
+        if re.match(r"^Cell \[\d+\]:$", line):
+            sub = {}
+            cur[2].append(sub)
+            continue
+        m = re.match(r"^([^:]+):\s*(.*)$", line)
+        if not m:
+            continue
+        key, val = m.group(1).strip(), m.group(2).strip()
+        target = sub if (sub is not None and indent >= 2) else cur[1]
+        target[key] = val
+
+    def num(d, key):
+        v = d.get(key)
+        if v is None:
+            return None
+        m = re.search(r"-?\d+", v)
+        return int(m.group(0)) if m else None
+
+    def plmn(d):
+        v = (d.get("PLMN") or "").strip("'\" ")
+        if not v.isdigit() or len(v) < 5:
+            return None, None
+        return int(v[:3]), int(v[3:])
+
+    def rxlev(d):
+        # "RX Level: -97 dBm > level > -96 dBm ('14')" -- the index is the
+        # only unambiguous number on the line.
+        v = d.get("RX Level") or ""
+        m = re.search(r"\('(\d+)'\)", v)
+        return gsm_rxlev_dbm(int(m.group(1))) if m else None
+
+    out = []
+    for name, fields, subs in sections:
+        low = name.lower()
+        if low.startswith("geran"):
+            mcc, mnc = plmn(fields)
+            ta = num(fields, "Timing Advance")
+            out.append(CellTower("gsm", mcc, mnc, num(fields, "Location Area Code"),
+                                 num(fields, "Cell ID"), signal=rxlev(fields),
+                                 ta=ta, serving=True,
+                                 arfcn=num(fields, "GERAN Absolute RF Channel Number"),
+                                 bsic=num(fields, "Base Station Identity Code")))
+            for s in subs:
+                m2, n2 = plmn(s)
+                out.append(CellTower("gsm", m2, n2,
+                                     num(s, "Location Area Code"),
+                                     num(s, "Cell ID"), signal=rxlev(s),
+                                     arfcn=num(s, "GERAN Absolute RF Channel Number"),
+                                     bsic=num(s, "Base Station Identity Code")))
+        elif low.startswith("umts") and "neighboring" not in low:
+            mcc, mnc = plmn(fields)
+            out.append(CellTower("wcdma", mcc, mnc,
+                                 num(fields, "Location Area Code"),
+                                 num(fields, "Cell ID"),
+                                 signal=num(fields, "RSCP"),
+                                 psc=num(fields, "Primary Scrambling Code"),
+                                 serving=True,
+                                 arfcn=num(fields, "UTRA Absolute RF Channel Number")))
+        elif "lte info" in low and low.startswith("intrafrequency"):
+            mcc, mnc = plmn(fields)
+            # LTE neighbours carry a physical cell id only, which is not a
+            # global identity and cannot be looked up, so only the serving
+            # cell is emitted here.
+            out.append(CellTower("lte", mcc, mnc,
+                                 num(fields, "Tracking Area Code"),
+                                 num(fields, "Global Cell ID"),
+                                 serving=True,
+                                 arfcn=num(fields, "EUTRA Absolute RF Channel Number")))
+    return [c for c in out if c.valid]
+
+
+class CellReader(object):
+    """Keep an up-to-date list of the cells the modem can hear.
+
+    SAFETY. This class allocates a QMI client for Qmi.Service.NAS and for
+    nothing else, and sends exactly one message, get-cell-location-info, which
+    is a read of measurements the radio has already made. It never touches
+    Qmi.Service.LOC, never sends set-operation-mode and never sends
+    QMI_LOC_START. The GNSS measurement engine -- the thing that power-cycles
+    this SoC -- is not reachable from here. If you are editing this file, note
+    that Qmi.Service.NAS appears exactly once below and should stay that way.
+
+    Intermittency. An unregistered modem is in a search loop, and
+    get-cell-location-info answers with whatever it has at that instant: a full
+    GERAN identity, a partial one, or nothing. Over 10 consecutive polls on
+    this phone the answer has ranged from 2/10 to 10/10 depending on how
+    settled the search is. So this polls on its own short timer, keeps the last
+    good answer, and reports how old it is; consumers decide what staleness
+    they will accept rather than seeing a list that blinks.
+    """
+
+    def __init__(self, args):
+        self.args = args
+        self.cells = []
+        self.when = 0.0            # monotonic of the last successful read
+        self.polls = 0
+        self.hits = 0
+        self.last_error = None
+        self.backend = None        # settled backend name, once known
+        self.enabled = False
+        self.busy = False
+        self.timer = 0
+        self.device = None
+        self.client = None
+        self.opening = False
+        self.backoff = 5
+        self._logged = None
+
+    # -------------------------------------------------------------- lifecycle
+    def start(self):
+        if self.enabled:
+            return
+        self.enabled = True
+        log.info("cell reader: %s backend, polling every %ds",
+                 self.args.cell_backend, self.args.cell_poll)
+        if self.args.cell_backend in ("auto", "qmi") and Qmi is not None:
+            self._open()
+        else:
+            self.backend = "qmicli"
+        self.timer = GLib.timeout_add_seconds(self.args.cell_poll, self._poll)
+        GLib.idle_add(self._kick)
+
+    def _kick(self):
+        self._poll()
+        return False
+
+    def stop(self):
+        self.enabled = False
+        if self.timer:
+            try:
+                GLib.source_remove(self.timer)
+            except Exception:
+                pass
+            self.timer = 0
+        self._release()
+
+    def _release(self):
+        c, self.client = self.client, None
+        d, self.device = self.device, None
+        if c is not None and d is not None:
+            # Not releasing the CID leaks a client in the modem until it is
+            # power-cycled; libqmi warns about it loudly on exit.
+            try:
+                d.release_client(c, Qmi.DeviceReleaseClientFlags.RELEASE_CID,
+                                 5, None, lambda *a: None, None)
+            except Exception:
+                pass
+        if d is not None:
+            try:
+                d.close_async(5, None, lambda *a: None, None)
+            except Exception:
+                pass
+
+    # ------------------------------------------------------------ QMI backend
+    def _open(self):
+        if self.opening or self.client is not None or not self.enabled:
+            return
+        self.opening = True
+        try:
+            Qmi.Device.new(Gio.File.new_for_commandline_arg(self.args.device),
+                           None, self._on_new, None)
+        except Exception as e:
+            self.opening = False
+            self._degrade("Qmi.Device.new: %s" % e)
+
+    def _on_new(self, _src, res, _u):
+        try:
+            self.device = Qmi.Device.new_finish(res)
+        except Exception as e:
+            self.opening = False
+            return self._degrade("Qmi.Device.new: %s" % e)
+        self.device.open(Qmi.DeviceOpenFlags.PROXY, 15, None,
+                         self._on_open, None)
+
+    def _on_open(self, device, res, _u):
+        try:
+            device.open_finish(res)
+        except Exception as e:
+            self.opening = False
+            self.device = None
+            return self._degrade("open %s: %s" % (self.args.device, e))
+        # The one and only service this class is allowed to speak.
+        device.allocate_client(Qmi.Service.NAS, Qmi.CID_NONE, 10, None,
+                               self._on_client, None)
+
+    def _on_client(self, device, res, _u):
+        self.opening = False
+        try:
+            self.client = device.allocate_client_finish(res)
+        except Exception as e:
+            return self._degrade("allocate NAS client: %s" % e)
+        self.backend = "qmi"
+        log.info("cell reader: NAS client allocated (cid %s), LOC not touched",
+                 self.client.get_cid())
+        self._poll()
+
+    def _degrade(self, why):
+        """QMI is not usable. Fall back to qmicli if we are allowed to."""
+        if self.args.cell_backend == "qmi":
+            self._note(why)
+            return
+        if self.backend != "qmicli":
+            log.warn("cell reader: %s; falling back to the qmicli binary", why)
+            self.backend = "qmicli"
+
+    def _note(self, err):
+        self.last_error = err
+        if err != self._logged:
+            self._logged = err
+            log.warn("cell reader: %s", err)
+
+    # ------------------------------------------------------------------ polls
+    def _poll(self):
+        if not self.enabled:
+            return False
+        if self.busy:
+            return True
+        self.polls += 1
+        if self.client is not None:
+            self.busy = True
+            try:
+                self.client.get_cell_location_info(
+                    None, self.args.cell_timeout, None, self._on_info, None)
+            except Exception as e:
+                self.busy = False
+                self._degrade("get_cell_location_info: %s" % e)
+        elif self.backend == "qmicli":
+            self.busy = True
+            threading.Thread(target=self._qmicli_work, daemon=True,
+                             name="cell-qmicli").start()
+        elif not self.opening:
+            self._open()
+        return self.enabled
+
+    def _on_info(self, client, res, _u):
+        self.busy = False
+        try:
+            out = client.get_cell_location_info_finish(res)
+            out.get_result()
+        except Exception as e:
+            msg = str(e)
+            if "NoNetworkFound" in msg:
+                # The expected answer from a modem that is between search
+                # passes. Not worth a warning every 15 seconds.
+                log.debug("cell reader: modem has nothing to report yet")
+            else:
+                self._note("get-cell-location-info: %s" % msg)
+            if "not-connected" in msg or "aborted" in msg.lower():
+                self._release()
+            return
+        try:
+            cells = self.parse_qmi(out)
+        except Exception as e:
+            self._note("parsing cell info: %s: %s" % (type(e).__name__, e))
+            return
+        self._accept(cells)
+
+    def _qmicli_work(self):
+        cells, err = [], None
+        cmd = ["qmicli", "-p", "-d", self.args.device,
+               "--nas-get-cell-location-info"]
+        try:
+            p = subprocess.run(cmd, capture_output=True, text=True,
+                               timeout=self.args.cell_timeout + 5)
+            if p.returncode != 0:
+                err = "qmicli rc=%d %s" % (p.returncode,
+                                           p.stderr.strip()[:160])
+            else:
+                cells = parse_qmicli_cell_info(p.stdout)
+        except FileNotFoundError:
+            err = "qmicli not installed (apt install libqmi-utils)"
+        except Exception as e:
+            err = "%s: %s" % (type(e).__name__, e)
+        GLib.idle_add(self._qmicli_done, cells, err)
+
+    def _qmicli_done(self, cells, err):
+        self.busy = False
+        if err:
+            self._note(err)
+        else:
+            self._accept(cells)
+        return False
+
+    def _accept(self, cells):
+        cells = [c for c in cells if c.valid]
+        if not cells:
+            self._note("modem reported no decoded cell identity "
+                       "(it is still searching)")
+            return
+        self.hits += 1
+        self.last_error = None
+        self._logged = None
+        new = [c.key() for c in cells]
+        old = [c.key() for c in self.cells]
+        self.cells = cells
+        self.when = time.monotonic()
+        if new != old:
+            log.info("cells: %s", "; ".join(c.describe() for c in cells))
+        else:
+            log.debug("cells unchanged (%d), %d/%d polls answered",
+                      len(cells), self.hits, self.polls)
+
+    # ----------------------------------------------------------------- output
+    # pygobject cannot read the fixed-size `guint8 plmn[3]` field of libqmi's
+    # neighbour-cell structs -- "Array type is assumed to be a pointer, but
+    # item size is 1 bytes" -- because the GIR has no length annotation for it.
+    # It is not a bug in this daemon and there is no way around it from
+    # introspection. The serving cell's PLMN comes through fine, because that
+    # one is a top-level out parameter rather than a struct field.
+    _plmn_gap_logged = False
+
+    @classmethod
+    def _neighbour_plmn(cls, element, fallback):
+        try:
+            mcc, mnc = decode_plmn(bytes(element.plmn))
+            if mcc:
+                return mcc, mnc
+        except Exception:
+            if not cls._plmn_gap_logged:
+                cls._plmn_gap_logged = True
+                log.debug("libqmi's GIR does not expose the neighbour PLMN "
+                          "field; assuming neighbours are on the serving "
+                          "PLMN. Use --cell-backend=qmicli to read it exactly.")
+        # A GERAN neighbour list is the serving cell's BA list, i.e. the cells
+        # this operator told the phone to measure, so the serving PLMN is the
+        # right assumption rather than a convenient one. It can be wrong within
+        # a few hundred metres of a national border; there, the identity simply
+        # will not be in any database and the query fails closed.
+        return fallback
+
+    @classmethod
+    def parse_qmi(cls, out):
+        """Turn a NAS get-cell-location-info response into CellTowers.
+
+        Each radio is handled in its own try block. A response can carry any
+        mixture of GERAN/UMTS/LTE TLVs and one of them failing to unpack must
+        not lose the others -- which it did, until this was split up: a
+        neighbour struct that pygobject could not marshal was enough to throw
+        away a perfectly good serving cell.
+        """
+        cells = []
+
+        try:
+            g = nas_field(out, "get_geran_info_v2")
+        except Exception:
+            g = None
+        if g is not None:
+            try:
+                mcc, mnc = decode_plmn(g[1])
+                ta = g[5]
+                if ta == QMI_UNAVAILABLE_U32:
+                    ta = None
+                cells.append(CellTower("gsm", mcc, mnc, g[2], g[0],
+                                       signal=gsm_rxlev_dbm(g[6]), ta=ta,
+                                       serving=True, arfcn=g[3], bsic=g[4]))
+            except Exception as e:
+                log.debug("GERAN serving cell unreadable: %s", e)
+            for n in (g[7] or []):
+                try:
+                    m2, n2 = cls._neighbour_plmn(n, (mcc, mnc))
+                    cells.append(CellTower(
+                        "gsm", m2, n2, n.lac, n.cell_id,
+                        signal=gsm_rxlev_dbm(n.rx_level),
+                        arfcn=n.geran_absolute_rf_channel_number,
+                        bsic=n.base_station_identity_code))
+                except Exception as e:
+                    log.debug("GERAN neighbour unreadable: %s", e)
+
+        try:
+            u = nas_field(out, "get_umts_info_v2")
+            if u is not None:
+                mcc, mnc = decode_plmn(u[1])
+                cells.append(CellTower("wcdma", mcc, mnc, u[2], u[0],
+                                       signal=u[5], psc=u[4], serving=True,
+                                       arfcn=u[3]))
+        except Exception as e:
+            log.debug("UMTS info unreadable: %s", e)
+
+        try:
+            l = nas_field(out, "get_intrafrequency_lte_info_v2")
+            if l is not None:
+                # (ue_in_idle, plmn, tac, global_cell_id, earfcn,
+                #  serving_cell_id, ...). LTE neighbours carry a physical cell
+                # id only, which is not globally unique, so they are not usable
+                # as an identity and only the serving cell is emitted.
+                mcc, mnc = decode_plmn(l[1])
+                cells.append(CellTower("lte", mcc, mnc, l[2], l[3],
+                                       serving=True, arfcn=l[4]))
+        except Exception as e:
+            log.debug("LTE info unreadable: %s", e)
+
+        return [c for c in cells if c.valid]
+
+    def age(self):
+        if not self.cells:
+            return None
+        return time.monotonic() - self.when
+
+    def fresh(self, max_age):
+        """The cached cells, if they are not older than max_age seconds."""
+        a = self.age()
+        if a is None:
+            return []
+        if max_age and a > max_age:
+            return []
+        return list(self.cells)
+
+
+class GeolocateError(Exception):
+    pass
+
+
+class IchnaeaClient(object):
+    """POST an Ichnaea geolocate query to each service until one answers."""
+
+    def __init__(self, urls, timeout=20.0, allow_fallback=False,
+                 max_accuracy=MAX_ACCURACY):
+        self.urls = list(urls)
+        self.timeout = timeout
+        self.allow_fallback = allow_fallback
+        self.max_accuracy = max_accuracy
+        # Why each service that was tried before the answer said no. Kept even
+        # on success, because "BeaconDB 404, Positon answered" is the sentence
+        # that explains this whole fallback chain and it is invisible if only
+        # failures are reported.
+        self.problems = []
+
+    @staticmethod
+    def label(url):
+        try:
+            return urllib.parse.urlsplit(url).netloc or url
+        except Exception:
+            return url.split("/")[2] if "//" in url else url
+
+    def _post(self, url, payload):
+        body = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            url, data=body, method="POST",
+            headers={"Content-Type": "application/json",
+                     "User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=self.timeout) as r:
+            return json.loads(r.read().decode("utf-8"))
+
+    def locate(self, aps=(), cells=()):
+        """Return (lat, lon, accuracy, provider) or raise GeolocateError.
+
+        Either or both arrays may be given. Sending both is allowed by the
+        Ichnaea API and both BeaconDB and Positon accept it; a service that can
+        match on WiFi will, and one that cannot still has the cell to fall back
+        on, in one round trip instead of two.
+        """
+        aps = list(aps or ())
+        cells = [c for c in (cells or ()) if c.valid]
+        if len(aps) < MIN_APS and len(cells) < MIN_CELLS:
+            raise GeolocateError(
+                "only %d usable AP(s) and %d cell(s); need %d AP(s) or %d cell(s)"
+                % (len(aps), len(cells), MIN_APS, MIN_CELLS))
+        # A single access point is not evidence -- Ichnaea says two minimum,
+        # and with one you are really just asking the service to geolocate your
+        # ISP. Drop it rather than let it dilute a cell-only query.
+        if len(aps) < MIN_APS:
+            aps = []
+        # considerIp=false is the whole point: an IP-derived "position" is the
+        # city the ISP peers in, and publishing that as a GPS fix would be a
+        # lie that no consumer can detect. It is also, specifically, what these
+        # services do when they cannot match the data you sent -- BeaconDB
+        # answers 404 without it and HTTP 200 with "fallback":"ipf" if you
+        # leave it out, which looks exactly like a success.
+        payload = {"considerIp": bool(self.allow_fallback)}
+        if aps:
+            payload["wifiAccessPoints"] = [a.as_json() for a in aps]
+        if cells:
+            payload["cellTowers"] = [c.as_json() for c in cells]
+        problems = self.problems = []
+        for url in self.urls:
+            name = self.label(url)
+            try:
+                reply = self._post(url, payload)
+            except urllib.error.HTTPError as e:
+                detail = "HTTP %d" % e.code
+                if e.code == 404:
+                    what = []
+                    if aps:
+                        what.append("%d BSSID(s)" % len(aps))
+                    if cells:
+                        what.append("%d cell(s)" % len(cells))
+                    detail += " (no coverage for these %s)" % " and ".join(what)
+                problems.append("%s: %s" % (name, detail))
+                continue
+            except Exception as e:
+                problems.append("%s: %s: %s" % (name, type(e).__name__, e))
+                continue
+
+            try:
+                loc = reply["location"]
+                lat, lon = float(loc["lat"]), float(loc["lng"])
+                acc = float(reply.get("accuracy") or 0.0)
+            except (KeyError, TypeError, ValueError):
+                problems.append("%s: unparsable reply %s"
+                                % (name, json.dumps(reply)[:120]))
+                continue
+
+            fb = reply.get("fallback")
+            if fb in FALLBACK_KINDS and not self.allow_fallback:
+                problems.append("%s: %s fallback only, not a wifi fix"
+                                % (name, fb))
+                continue
+            if self.max_accuracy and acc and acc >= self.max_accuracy:
+                problems.append("%s: accuracy %.0fm is worse than the %.0fm "
+                                "limit" % (name, acc, self.max_accuracy))
+                continue
+            if fb:
+                name += "/" + str(fb)
+            return lat, lon, acc, name
+
+        raise GeolocateError("; ".join(problems) or "no services configured")
+
+
+class WifiSource(object):
+    """Periodically turn a WiFi scan into a Fix, off the main loop.
+
+    urllib is blocking and the services are on the far side of the internet,
+    so the scan-and-query runs on a worker thread; only the finished Fix comes
+    back to the main loop, which therefore never stops pumping NMEA.
+    """
+
+    def __init__(self, args, on_fix, reader=None):
+        self.args = args
+        self.on_fix = on_fix
+        # --fuse: attach the cells the modem can hear to the WiFi query, so a
+        # provider that knows neither every BSSID nor the cell can still answer
+        # from whichever it does know, in one round trip. Off by default
+        # because it makes the resulting Fix's provenance ambiguous -- the
+        # reply does not say which array it matched on -- and this daemon
+        # prefers two sources it can tell apart. MEASURED with Positon here:
+        # a fused query returns the same 23 m WiFi answer as the WiFi-only
+        # query, i.e. it costs nothing and gains nothing while WiFi works.
+        self.reader = reader
+        self.scanner = WifiScanner(args.wifi_backend, args.wifi_interface)
+        self.client = IchnaeaClient(args.geolocate_urls,
+                                    timeout=args.wifi_timeout,
+                                    allow_fallback=args.allow_fallback,
+                                    max_accuracy=args.max_accuracy)
+        self.timer = 0
+        self.busy = False
+        self.enabled = False
+        self.queries = 0
+        self.failures = 0
+        self.last_error = None
+        self._last_error_logged = None
+
+    def start(self):
+        if self.enabled:
+            return
+        self.enabled = True
+        log.info("wifi source: %s backend, every %ds, services: %s",
+                 self.args.wifi_backend, self.args.wifi_interval,
+                 ", ".join(IchnaeaClient.label(u)
+                           for u in self.args.geolocate_urls))
+        self.timer = GLib.timeout_add_seconds(self.args.wifi_interval,
+                                              self._poll)
+        # Kick off the first query immediately rather than waiting a whole
+        # interval for it. Returning False matters: an idle source that
+        # returns True is rescheduled at once, which would turn --wifi-interval
+        # into a busy loop against the geolocation service.
+        GLib.idle_add(self._kick)
+
+    def _kick(self):
+        self._poll()
+        return False
+
+    def stop(self):
+        self.enabled = False
+        if self.timer:
+            try:
+                GLib.source_remove(self.timer)
+            except Exception:
+                pass
+            self.timer = 0
+
+    def _poll(self):
+        if not self.enabled:
+            return False
+        if not self.busy:
+            self.busy = True
+            threading.Thread(target=self._work, daemon=True,
+                             name="wifi-locate").start()
+        return self.enabled
+
+    def _work(self):
+        result = error = None
+        try:
+            aps = self.scanner.scan()
+            if self.args.max_aps:
+                aps = aps[:self.args.max_aps]
+            cells = ()
+            if self.args.fuse and self.reader is not None:
+                cells = self.reader.fresh(self.args.cell_max_age)
+            result = self.client.locate(aps, cells)
+            result = result + (len(aps),)
+        except GeolocateError as e:
+            error = str(e)
+        except Exception as e:
+            error = "%s: %s" % (type(e).__name__, e)
+        GLib.idle_add(self._done, result, error)
+
+    def _done(self, result, error):
+        self.busy = False
+        self.queries += 1
+        if error is not None:
+            self.failures += 1
+            self.last_error = error
+            # The usual failure here is "this area is not in the database",
+            # which does not change from minute to minute. Log it once per
+            # distinct message rather than every polling interval.
+            if error != self._last_error_logged:
+                log.warn("wifi geolocation failed: %s", error)
+                self._last_error_logged = error
+            return False
+        self._last_error_logged = None
+        self.last_error = None
+        lat, lon, acc, provider, naps = result
+        fix = Fix.from_geolocation(lat, lon, acc, provider)
+        log.info("wifi fix: %s (%d AP(s) submitted)", fix.describe(), naps)
+        self.on_fix(fix)
+        return False
+
+
+def load_cell_db_module():
+    """Import rhodep-cell-db, whose filename is not a Python identifier."""
+    import importlib.machinery
+    import importlib.util
+    here = os.path.dirname(os.path.abspath(__file__))
+    for path in (os.path.join(here, "rhodep-cell-db"),
+                 "/usr/local/sbin/rhodep-cell-db",
+                 "/usr/local/bin/rhodep-cell-db",
+                 "/usr/bin/rhodep-cell-db"):
+        if not os.path.exists(path):
+            continue
+        loader = importlib.machinery.SourceFileLoader("rhodep_cell_db", path)
+        spec = importlib.util.spec_from_loader("rhodep_cell_db", loader)
+        mod = importlib.util.module_from_spec(spec)
+        loader.exec_module(mod)
+        return mod
+    return None
+
+
+class OfflineCellProvider(object):
+    """Resolve cell identities against the local OpenCelliD extract.
+
+    First in the chain on purpose. It costs one page-in of a B-tree, needs no
+    API key, needs no network, and tells nobody where the phone is. When it
+    misses -- which, at this location, it does, because the operator has
+    renumbered its location areas since the 2024 dump was taken -- the network
+    providers are tried next.
+    """
+
+    def __init__(self, path=DEFAULT_CELL_DB):
+        self.path = path
+        self.db = None
+        self.label = "opencellid-offline"
+        self._tried = False
+        self._problem = None
+
+    def available(self):
+        if self._tried:
+            return self.db is not None
+        self._tried = True
+        if not self.path or not os.path.exists(self.path):
+            self._problem = "no database at %s (run rhodep-cell-db build)" \
+                % self.path
+            return False
+        mod = load_cell_db_module()
+        if mod is None:
+            self._problem = "rhodep-cell-db is not installed"
+            return False
+        try:
+            self.db = mod.CellDb(self.path)
+            n = self.db.count()
+            meta = self.db.meta()
+        except Exception as e:
+            self._problem = "%s: %s" % (type(e).__name__, e)
+            self.db = None
+            return False
+        if not n:
+            self._problem = "database at %s is empty" % self.path
+            self.db = None
+            return False
+        # CC-BY-SA 4.0 wants the credit visible wherever the data is used.
+        log.info("offline cell db: %d cells, %s", n,
+                 meta.get("source", "unknown source"))
+        if meta.get("attribution"):
+            log.info("offline cell db: %s", meta["attribution"])
+        return True
+
+    def locate(self, cells):
+        if not self.available():
+            raise GeolocateError("%s: %s" % (self.label, self._problem))
+        try:
+            r = self.db.locate([c for c in cells if c.valid])
+        except Exception as e:
+            # Everything this provider can go wrong with -- a truncated file,
+            # a schema from an older builder, sqlite's cross-thread check --
+            # has to arrive at the caller as a GeolocateError, because the
+            # caller's contract is "this provider missed, try the next one".
+            # MEASURED: a sqlite3.ProgrammingError escaping here aborted the
+            # whole provider chain, so a local miss became no fix at all.
+            raise GeolocateError("%s: %s: %s"
+                                 % (self.label, type(e).__name__, e))
+        if r is None:
+            raise GeolocateError("%s: none of the %d cell(s) are in the dump"
+                                 % (self.label, len(cells)))
+        lat, lon, acc, n = r
+        return lat, lon, acc, "%s(%d/%d)" % (self.label, n, len(cells))
+
+
+class CellSource(object):
+    """Periodically turn the modem's cell list into a Fix.
+
+    Same shape as WifiSource, and for the same reason: the providers are on the
+    far side of the internet and urllib blocks, so the query runs on a worker
+    thread and only the finished Fix comes back to the main loop.
+
+    The reader is separate (CellReader) and polls faster than this does. That
+    split is what makes the source usable on a modem that is stuck searching:
+    the reader catches the moments when an identity is decoded, and this only
+    has to find a cached one that is not too old.
+    """
+
+    def __init__(self, args, reader, on_fix):
+        self.args = args
+        self.reader = reader
+        self.on_fix = on_fix
+        self.offline = (OfflineCellProvider(args.cell_db)
+                        if args.cell_db else None)
+        self.client = IchnaeaClient(args.geolocate_urls,
+                                    timeout=args.wifi_timeout,
+                                    allow_fallback=args.allow_fallback,
+                                    max_accuracy=args.max_accuracy)
+        self.timer = 0
+        self.busy = False
+        self.enabled = False
+        self.queries = 0
+        self.failures = 0
+        self.last_error = None
+        self.chain = []          # per-provider outcome of the last attempt
+        self._last_error_logged = None
+
+    def start(self):
+        if self.enabled:
+            return
+        self.enabled = True
+        chain = ([self.offline.label] if self.offline else []) + \
+            [IchnaeaClient.label(u) for u in self.args.geolocate_urls]
+        log.info("cell source: every %ds, providers: %s",
+                 self.args.cell_interval, ", ".join(chain))
+        self.timer = GLib.timeout_add_seconds(self.args.cell_interval,
+                                              self._poll)
+        GLib.idle_add(self._kick)
+
+    def _kick(self):
+        self._poll()
+        return False
+
+    def stop(self):
+        self.enabled = False
+        if self.timer:
+            try:
+                GLib.source_remove(self.timer)
+            except Exception:
+                pass
+            self.timer = 0
+
+    def _poll(self):
+        if not self.enabled:
+            return False
+        if not self.busy:
+            cells = self.reader.fresh(self.args.cell_max_age)
+            if not cells:
+                a = self.reader.age()
+                log.debug("cell source: no cell identity%s",
+                          "" if a is None else " newer than %ds (last %.0fs ago)"
+                          % (self.args.cell_max_age, a))
+                return self.enabled
+            self.busy = True
+            threading.Thread(target=self._work, args=(cells,), daemon=True,
+                             name="cell-locate").start()
+        return self.enabled
+
+    def locate(self, cells):
+        """Run the provider chain once. Offline first, then the services.
+
+        Offline first because it is free, instant, private and works with the
+        WAN down. It is also, here, the one that misses -- see rhodep-cell-db
+        for why -- so the order is worth stating rather than assuming.
+        """
+        problems = []
+        if self.offline is not None:
+            try:
+                r = self.offline.locate(cells)
+                self.chain = list(problems) + ["%s: hit" % self.offline.label]
+                return r
+            except GeolocateError as e:
+                problems.append(str(e))
+            except Exception as e:
+                # Belt to OfflineCellProvider.locate()'s braces. One provider
+                # in the chain must never be able to prevent the others from
+                # being asked, whatever it raises.
+                problems.append("%s: %s: %s" % (self.offline.label,
+                                                type(e).__name__, e))
+        try:
+            r = self.client.locate((), cells)
+            self.chain = (list(problems) + list(self.client.problems)
+                          + ["%s: hit" % r[3]])
+            return r
+        except GeolocateError as e:
+            problems.append(str(e))
+        self.chain = list(problems)
+        raise GeolocateError("; ".join(problems))
+
+    def _work(self, cells):
+        result = error = None
+        try:
+            result = self.locate(cells) + (len(cells),)
+        except GeolocateError as e:
+            error = str(e)
+        except Exception as e:
+            error = "%s: %s" % (type(e).__name__, e)
+        GLib.idle_add(self._done, result, error)
+
+    def _done(self, result, error):
+        self.busy = False
+        self.queries += 1
+        if error is not None:
+            self.failures += 1
+            self.last_error = error
+            if error != self._last_error_logged:
+                log.warn("cell geolocation failed: %s", error)
+                self._last_error_logged = error
+            return False
+        self._last_error_logged = None
+        self.last_error = None
+        lat, lon, acc, provider, ncells = result
+        fix = Fix.from_geolocation(lat, lon, acc, provider,
+                                   source=SOURCE_CELL)
+        log.info("cell fix: %s (%d cell(s) submitted)", fix.describe(), ncells)
+        self.on_fix(fix)
+        return False
+
+
+def modem_is_registered(timeout=4000):
+    """Ask ModemManager whether any modem is registered on a network.
+
+    Deliberately a plain D-Bus property read. It does not open the QMI device,
+    does not allocate a LOC client and does not go anywhere near the GNSS
+    engine -- which matters, because on this SoC the things that talk to that
+    engine are the things that reboot the phone.
+
+    MMModem3gppRegistrationState: 1 = home, 5 = roaming, 8 = home SMS-only,
+    9 = home CSFB-not-preferred, 6/7 = roaming variants. Anything else
+    (0 = idle, 2 = searching, 3 = denied, 4 = unknown) is not a usable
+    registration.
+    """
+    REGISTERED = (1, 5, 6, 7, 8, 9, 10, 11)
+    MM = "org.freedesktop.ModemManager1"
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+        managed = bus.call_sync(
+            MM, "/org/freedesktop/ModemManager1",
+            "org.freedesktop.DBus.ObjectManager", "GetManagedObjects", None,
+            None, Gio.DBusCallFlags.NONE, timeout, None).unpack()[0]
+    except GLib.Error as e:
+        log.debug("ModemManager unavailable: %s", e.message)
+        return False, "ModemManager not answering"
+    if not managed:
+        return False, "no modem known to ModemManager"
+    for path, ifaces in managed.items():
+        props = ifaces.get(MM + ".Modem.Modem3gpp")
+        if not props:
+            continue
+        state = props.get("RegistrationState")
+        if state is None:
+            continue
+        if int(state) in REGISTERED:
+            return True, "%s registered (state %d)" % (path, int(state))
+    return False, "modem present but not registered"
+
+
+# --------------------------------------------------------------------- the QMI
+
+class GnssDaemon(object):
+
+    # Where the start-up sequence is. Anything that fails before RUNNING means
+    # no session was ever started, which is the safe state.
+    ST_IDLE = "idle"
+    ST_OPENING = "opening"
+    ST_REGISTERING = "registering"
+    ST_SETTING_MODE = "setting-mode"
+    ST_VERIFYING_MODE = "verifying-mode"
+    ST_STARTING = "starting"
+    ST_RUNNING = "running"
+    ST_STOPPING = "stopping"
+
+    def __init__(self, args):
+        self.args = args
+        self.loop = GLib.MainLoop()
+        self.device = None
+        self.client = None
+        self.state = self.ST_IDLE
+        self.session_started = False
+        self.fanout = Fanout()
+        # stale=0: _best_fix() has already applied the per-source expiry, so
+        # NmeaSynth must not apply a second, different one on top.
+        self.synth = NmeaSynth(talker=args.talker, stale=0)
+        self.wifi_stale = (args.wifi_stale if args.wifi_stale > 0
+                           else args.wifi_interval * 3)
+        self.indications = 0
+        self.last_indication = 0.0
+        self.emitted = 0
+        self.backoff = 2
+        self.shutting_down = False
+        self.retry_source = 0
+        self.tick_source = 0
+        self.watchdog_source = 0
+        self.mode_timeout = 0
+        self.handlers = []
+        self.first_fix_logged = False
+        self.mode = args.mode
+        # Whichever source produced the newest usable position. The QMI path
+        # keeps writing self.synth directly; the wifi path lands here and
+        # _tick() picks between them.
+        self.qmi_fix = None
+        self.wifi_fix = None
+        self.cell_fix = None
+        # The three operation-mode gates. See set_operation_mode().
+        self.gate_ack = None
+        self.gate_indication = False
+        self.gate_readback = False
+        self.source = args.source
+        self.use_qmi = False
+        self.wifi = None
+        self.cell = None
+        self.reader = None
+        self.cell_stale = (args.cell_stale if args.cell_stale > 0
+                           else args.cell_interval * 3)
+        # Warn once per distinct refusal rather than at 1 Hz.
+        self._coarse_logged = None
+
+    # ---------------------------------------------------------------- utility
+    def fatal(self, msg):
+        log.error("%s", msg)
+        self.exit_code = 1
+        self.shutdown()
+
+    def _clear_source(self, attr):
+        sid = getattr(self, attr, 0)
+        if sid:
+            try:
+                GLib.source_remove(sid)
+            except Exception:
+                pass
+            setattr(self, attr, 0)
+
+    # -------------------------------------------------------------- lifecycle
+    def run(self):
+        self.exit_code = 0
+        try:
+            if self.args.socket:
+                self.fanout.listen_unix(self.args.socket, mode=self.args.mode_bits)
+            if self.args.tcp:
+                self.fanout.listen_tcp(self.args.tcp, self.args.tcp_host)
+        except Exception as e:
+            log.error("cannot set up output sockets: %s", e)
+            # A UNIX listener that came up before a TCP listener that did not
+            # would otherwise be left bound, with its socket file on disk, by
+            # a process that is about to exit.
+            self.fanout.shutdown()
+            return 1
+
+        for signame in ("SIGTERM", "SIGINT", "SIGHUP"):
+            # SIGHUP matters: its default disposition is to terminate, which
+            # skips shutdown() and leaves /run/gnss-share.sock behind as a
+            # stale file. There is no configuration to reload, so the honest
+            # response is the same orderly exit the other two get.
+            sig = getattr(signal, signame, None)
+            if sig is None:
+                continue
+            try:
+                unix_signal_add(GLib.PRIORITY_HIGH, sig,
+                                self._on_signal, signame)
+            except Exception as e:
+                log.warn("cannot install a %s handler: %s", signame, e)
+
+        # Publish sentences from the very first tick, fix or no fix, so that
+        # gpsd and geoclue see a live NMEA source instead of a silent socket.
+        self.tick_source = GLib.timeout_add(
+            int(1000.0 / self.args.rate), self._tick)
+
+        self._select_source()
+
+        # The cell reader has to exist before either consumer: WifiSource can
+        # fuse its cells into the WiFi query, and CellSource needs it outright.
+        if self.args.source in (SOURCE_CELL, SOURCE_AUTO) and self.args.cell:
+            self.reader = CellReader(self.args)
+            self.cell = CellSource(self.args, self.reader, self._on_cell_fix)
+        if self.args.source in (SOURCE_WIFI, SOURCE_AUTO):
+            self.wifi = WifiSource(self.args, self._on_wifi_fix, self.reader)
+        if not self.use_qmi:
+            self._start_network_sources()
+        if self.use_qmi:
+            self.open_device()
+        self.loop.run()
+        return self.exit_code
+
+    def _start_network_sources(self):
+        """Start everything that does not open the QMI LOC service."""
+        if self.wifi is not None:
+            self.wifi.start()
+        if self.reader is not None:
+            self.reader.start()
+        if self.cell is not None:
+            self.cell.start()
+
+    def _stop_network_sources(self):
+        for s in (self.wifi, self.cell, self.reader):
+            if s is not None:
+                s.stop()
+
+    def _select_source(self):
+        """Decide whether the QMI LOC service gets opened at all.
+
+        The safety consequence is the point. In wifi and cell modes -- and in
+        auto mode with an unregistered modem, which is what an unprovisioned
+        SIM gives you -- open_device() is never called, no LOC client is
+        allocated and no session is started, so the whole class of GNSS reset
+        bugs is out of reach rather than merely guarded against. The cell
+        source does allocate a QMI *NAS* client, which is a different service
+        and cannot start the measurement engine; see CellReader.
+        """
+        if self.args.source == SOURCE_WIFI:
+            self.use_qmi = False
+            log.info("source: wifi (the modem is not touched)")
+            return
+        if self.args.source == SOURCE_CELL:
+            self.use_qmi = False
+            log.info("source: cell (QMI NAS reads only, LOC is never opened)")
+            return
+        if self.args.source == SOURCE_QMI:
+            self.use_qmi = True
+            log.info("source: qmi-cellid")
+            return
+
+        registered, why = modem_is_registered()
+        # Without the libqmi bindings there is no qmi-cellid leg at all; the
+        # cell source can still run because it has a qmicli fallback.
+        self.use_qmi = registered and Qmi is not None
+        if self.use_qmi:
+            log.info("source: auto -> qmi-cellid (%s)", why)
+        else:
+            log.info("source: auto -> wifi, then cell-tower (%s)", why)
+        # Re-check periodically: a SIM can be provisioned, or a modem can come
+        # back after a subsystem restart, without this daemon being restarted.
+        if self.args.recheck > 0:
+            GLib.timeout_add_seconds(self.args.recheck, self._recheck_source)
+
+    def _recheck_source(self):
+        if self.shutting_down:
+            return False
+        # Synchronous D-Bus on the main loop, so the timeout is also how long
+        # the 1 Hz NMEA pump can stall. The default 4 s is long enough for
+        # gpsd to notice a gap in the stream; 2 s is plenty for a property
+        # read from a daemon that is either answering or not.
+        registered, why = modem_is_registered(2000)
+        registered = registered and Qmi is not None
+        if registered and not self.use_qmi:
+            log.info("modem registered (%s), switching to qmi-cellid", why)
+            self.use_qmi = True
+            self._stop_network_sources()
+            self.open_device()
+        elif not registered and self.use_qmi and not self.session_started:
+            log.info("modem no longer registered (%s), falling back to "
+                     "wifi/cell", why)
+            self.use_qmi = False
+            self._start_network_sources()
+        return True
+
+    def _on_wifi_fix(self, fix):
+        self.wifi_fix = fix
+        if not self.first_fix_logged:
+            self.first_fix_logged = True
+            log.info("first position: %s", fix.describe())
+
+    def _on_cell_fix(self, fix):
+        self.cell_fix = fix
+        if not self.first_fix_logged:
+            self.first_fix_logged = True
+            log.info("first position: %s", fix.describe())
+
+    def _on_signal(self, name):
+        log.info("%s received, shutting down", name)
+        self.shutdown()
+        return False
+
+    def shutdown(self):
+        if self.shutting_down:
+            return
+        self.shutting_down = True
+        self._clear_source("retry_source")
+        self._clear_source("tick_source")
+        self._clear_source("watchdog_source")
+        self._clear_source("mode_timeout")
+        self._stop_network_sources()
+        self.fanout.shutdown()
+        if self.client is not None and self.session_started:
+            self.state = self.ST_STOPPING
+            log.info("stopping LOC session %d", self.args.session_id)
+            i = Qmi.MessageLocStopInput()
+            i.set_session_id(self.args.session_id)
+            try:
+                self.client.stop(i, 5, None, self._on_stop_done, None)
+                # Do not let a wedged modem hold the unit in "deactivating".
+                GLib.timeout_add_seconds(6, self._finish_shutdown)
+                return
+            except Exception as e:
+                log.warn("stop request failed: %s", e)
+        self._finish_shutdown()
+
+    def _on_stop_done(self, client, res, _u):
+        try:
+            client.stop_finish(res).get_result()
+            log.info("LOC session stopped")
+        except Exception as e:
+            log.warn("stop: %s", e)
+        self.session_started = False
+        self._finish_shutdown()
+
+    def _finish_shutdown(self):
+        if self.loop.is_running():
+            self._release_client()
+            self._close_device()
+            self.loop.quit()
+        return False
+
+    def _release_client(self):
+        if self.client is None:
+            return
+        for sid in self.handlers:
+            try:
+                self.client.disconnect(sid)
+            except Exception:
+                pass
+        self.handlers = []
+        c, self.client = self.client, None
+        if self.device is not None:
+            try:
+                self.device.release_client(
+                    c, Qmi.DeviceReleaseClientFlags.RELEASE_CID, 5,
+                    None, lambda d, r, u: None, None)
+            except Exception:
+                pass
+
+    def _close_device(self):
+        if self.device is None:
+            return
+        d, self.device = self.device, None
+        try:
+            d.close_async(5, None, lambda o, r, u: None, None)
+        except Exception:
+            try:
+                d.close()
+            except Exception:
+                pass
+
+    # ------------------------------------------------------------- reconnect
+    def restart(self, why):
+        if self.shutting_down or self.retry_source:
+            return
+        log.warn("restarting QMI stack: %s", why)
+        self._clear_source("watchdog_source")
+        self._clear_source("mode_timeout")
+        self.session_started = False
+        self.state = self.ST_IDLE
+        self._release_client()
+        self._close_device()
+        # In --source=auto the QMI path is a preference, not a commitment. If
+        # it is failing -- the device will not open, the mode cannot be
+        # confirmed, the modem went away -- there is no reason to publish
+        # nothing while it is retried, and previously that is exactly what
+        # happened: _recheck_source() only restarted the network sources when
+        # ModemManager stopped reporting the modem as registered, so a modem
+        # that stayed registered but whose LOC service was unusable left the
+        # daemon silent indefinitely. The sources are idempotent to start and
+        # qmi-cellid still wins in _best_fix() the moment it produces a fix.
+        if self.args.source == SOURCE_AUTO and not self.shutting_down:
+            self._start_network_sources()
+        delay = self.backoff
+        self.backoff = min(self.backoff * 2, 60)
+        log.info("reconnecting in %ds", delay)
+        self.retry_source = GLib.timeout_add_seconds(delay, self._retry)
+
+    def _retry(self):
+        self.retry_source = 0
+        if not self.shutting_down:
+            self.open_device()
+        return False
+
+    # ------------------------------------------------------------- QMI chain
+    def open_device(self):
+        self.state = self.ST_OPENING
+        log.info("opening %s", self.args.device)
+        Qmi.Device.new(Gio.File.new_for_commandline_arg(self.args.device),
+                       None, self._on_device_new, None)
+
+    def _on_device_new(self, _src, res, _u):
+        try:
+            self.device = Qmi.Device.new_finish(res)
+        except Exception as e:
+            return self.restart("Device.new: %s" % e)
+        try:
+            self.device.connect("device-removed",
+                                lambda d: self.restart("device removed"))
+        except Exception:
+            pass  # older libqmi has no such signal; the watchdog covers it
+        self.device.open(Qmi.DeviceOpenFlags.PROXY, 15, None,
+                         self._on_device_open, None)
+
+    def _on_device_open(self, device, res, _u):
+        try:
+            device.open_finish(res)
+        except Exception as e:
+            return self.restart("open: %s" % e)
+        log.info("device open, allocating LOC client")
+        device.allocate_client(Qmi.Service.LOC, Qmi.CID_NONE, 10, None,
+                               self._on_client, None)
+
+    def _on_client(self, device, res, _u):
+        try:
+            self.client = device.allocate_client_finish(res)
+        except Exception as e:
+            return self.restart("allocate_client: %s" % e)
+        log.info("LOC client allocated (cid %s)", self.client.get_cid())
+
+        for name, handler in (
+                ("nmea", self._on_nmea),
+                ("position-report", self._on_position),
+                ("gnss-sv-info", self._on_sv),
+                ("engine-state", self._on_engine),
+                ("set-operation-mode", self._on_set_mode_indication),
+                ("get-operation-mode", self._on_get_mode_indication)):
+            try:
+                self.handlers.append(self.client.connect(name, handler))
+            except Exception:
+                log.warn("libqmi has no LOC signal '%s'", name)
+
+        self.state = self.ST_REGISTERING
+        f = Qmi.LocEventRegistrationFlag
+        mask = (f.POSITION_REPORT | f.GNSS_SATELLITE_INFO | f.NMEA |
+                f.ENGINE_STATE | f.FIX_SESSION_STATE)
+        i = Qmi.MessageLocRegisterEventsInput()
+        i.set_event_registration_mask(mask)
+        log.debug("registering events mask 0x%x", mask)
+        self.client.register_events(i, 10, None, self._on_registered, None)
+
+    def _on_registered(self, client, res, _u):
+        try:
+            client.register_events_finish(res).get_result()
+        except Exception as e:
+            return self.restart("register_events: %s" % e)
+        log.info("events registered")
+        self.set_operation_mode()
+
+    # ------------------------------------------------------- the safety gate
+    def set_operation_mode(self):
+        try:
+            mode = getattr(Qmi.LocOperationMode, self.mode.upper())
+        except AttributeError:
+            known = [n for n in dir(Qmi.LocOperationMode) if n.isupper()]
+            return self.fatal("unknown operation mode %r (known: %s)"
+                              % (self.mode, ",".join(known)))
+        self.state = self.ST_SETTING_MODE
+        # The three gates, as explicit state rather than as control flow.
+        #
+        # This used to be a chain -- ack callback, then indication, then
+        # readback -- and that was wrong, because on this modem the two do not
+        # arrive in that order. MEASURED, 2026-09-05: the set-operation-mode
+        # *indication* is delivered before the set_operation_mode *response*,
+        # every time. The chain therefore advanced to the readback, and could
+        # have reached QMI_LOC_START, before gate 1 had returned a verdict at
+        # all; a late ack failure would then have been reported after the
+        # session was already running. Recording each gate's verdict and
+        # requiring all three at the point of use makes the order irrelevant.
+        self.gate_ack = None            # None = still pending
+        self.gate_indication = False
+        self.gate_readback = False
+        log.info("setting LOC operation mode to %s", self.mode)
+        i = Qmi.MessageLocSetOperationModeInput()
+        i.set_operation_mode(mode)
+        self._clear_source("mode_timeout")
+        self.mode_timeout = GLib.timeout_add_seconds(
+            self.args.mode_timeout, self._mode_gate_timeout, "set")
+        self.client.set_operation_mode(i, 10, None, self._on_set_mode_ack, None)
+
+    def _fault(self, gate):
+        """--test-gate-failure: pretend one gate said no.
+
+        The refusal path is the only thing standing between this daemon and a
+        power cycle, so it has to be exercisable without waiting for a modem
+        that misbehaves. Injecting the failure is the only honest way to prove
+        QMI_LOC_START is never sent.
+        """
+        if self.args.test_gate_failure != gate:
+            return False
+        log.warn("--test-gate-failure=%s: simulating a failed %s gate",
+                 gate, gate)
+        return True
+
+    def _on_set_mode_ack(self, client, res, _u):
+        try:
+            client.set_operation_mode_finish(res).get_result()
+        except Exception as e:
+            self.gate_ack = False
+            self._clear_source("mode_timeout")
+            return self.refuse("set_operation_mode was rejected: %s" % e)
+        if self._fault("ack"):
+            self.gate_ack = False
+            self._clear_source("mode_timeout")
+            return self.refuse("set_operation_mode was rejected (simulated)")
+        self.gate_ack = True
+        log.debug("gate 1/3: set_operation_mode acked")
+        self._after_set_mode()
+
+    def _on_set_mode_indication(self, _client, output):
+        if self.state != self.ST_SETTING_MODE:
+            return
+        st = tlv(output, "get_indication_status")
+        if self._fault("indication"):
+            st = Qmi.LocIndicationStatus.GENERAL_FAILURE
+        if st is None:
+            self._clear_source("mode_timeout")
+            return self.refuse("set-operation-mode indication carried no status")
+        if st != Qmi.LocIndicationStatus.SUCCESS:
+            self._clear_source("mode_timeout")
+            return self.refuse("modem refused operation mode %s: %s"
+                               % (self.mode, enum_name(st)))
+        self.gate_indication = True
+        log.info("gate 2/3: operation mode %s confirmed by indication",
+                 self.mode)
+        self._after_set_mode()
+
+    def _after_set_mode(self):
+        """Advance only once gates 1 and 2 have BOTH said yes.
+
+        Called from the ack callback and from the indication handler, in
+        whichever order they happen to arrive. Until both have landed this
+        does nothing and the "set" mode_timeout is still armed, so a gate that
+        never reports still ends in a refusal rather than in a session.
+        """
+        if self.state != self.ST_SETTING_MODE:
+            return
+        if self.gate_ack is not True or not self.gate_indication:
+            return
+        self._clear_source("mode_timeout")
+        if self.args.no_readback:
+            log.warn("mode readback (gate 3/3) disabled by --no-mode-readback")
+            return self.start_session()
+        self.verify_operation_mode()
+
+    def verify_operation_mode(self):
+        self.state = self.ST_VERIFYING_MODE
+        self._clear_source("mode_timeout")
+        self.mode_timeout = GLib.timeout_add_seconds(
+            self.args.mode_timeout, self._mode_gate_timeout, "readback")
+        log.debug("reading the operation mode back")
+        self.client.get_operation_mode(None, 10, None,
+                                       self._on_get_mode_ack, None)
+
+    def _on_get_mode_ack(self, client, res, _u):
+        try:
+            client.get_operation_mode_finish(res).get_result()
+        except Exception as e:
+            self._clear_source("mode_timeout")
+            return self.refuse("get_operation_mode was rejected: %s" % e)
+
+    def _on_get_mode_indication(self, _client, output):
+        if self.state != self.ST_VERIFYING_MODE:
+            return
+        self._clear_source("mode_timeout")
+        st = tlv(output, "get_indication_status")
+        if st is not None and st != Qmi.LocIndicationStatus.SUCCESS:
+            return self.refuse("get-operation-mode failed: %s" % enum_name(st))
+        got = tlv(output, "get_operation_mode")
+        if got is None:
+            return self.refuse("get-operation-mode carried no mode")
+        name = enum_name(got)
+        if self._fault("readback"):
+            name = "standalone"
+        if name.replace("-", "").lower() != self.mode.replace("-", "").lower():
+            return self.refuse("modem reports operation mode %r, expected %r"
+                               % (name, self.mode))
+        self.gate_readback = True
+        log.info("gate 3/3: operation mode readback confirms %s", name)
+        self.start_session()
+
+    def _mode_gate_timeout(self, which):
+        self.mode_timeout = 0
+        self.refuse("timed out after %ds waiting for the %s operation-mode "
+                    "indication" % (self.args.mode_timeout, which))
+        return False
+
+    def refuse(self, why):
+        """Abort before any session is started. This is the safety net."""
+        # Leave the gate state machine immediately. A refusal can be raised
+        # from a callback while another gate's reply is still in flight, and
+        # ST_SETTING_MODE / ST_VERIFYING_MODE are exactly the states those
+        # replies use to decide they may advance. Anything that arrives after
+        # this point must find a state it does not recognise and do nothing.
+        self.state = self.ST_IDLE
+        self.gate_ack = False
+        self.gate_indication = False
+        self.gate_readback = False
+        log.error("REFUSING TO START A GNSS SESSION: %s", why)
+        log.error("A session in any mode other than '%s' power-cycles this "
+                  "SoC. Not starting one.", SAFE_MODE)
+        if self.args.exit_on_refusal:
+            self.exit_code = EXIT_REFUSED
+            self.shutdown()
+        else:
+            # Keep publishing whatever the network sources can find while the
+            # QMI path is retried; see restart().
+            self.restart("operation mode could not be confirmed")
+
+    # ---------------------------------------------------------- the session
+    def start_session(self):
+        # Last line of defence. Every caller has already checked its own gate,
+        # but this is the single point where QMI_LOC_START is sent, so it is
+        # the one place worth re-asserting the whole precondition. If any of
+        # this is ever false, the bug is upstream of here and the right answer
+        # is still to not start a session.
+        if self.mode.lower() != SAFE_MODE and not self.args.unsafe:
+            return self.refuse(
+                "internal error: reached QMI_LOC_START with operation mode %r "
+                "and no --i-know-this-reboots-the-phone" % self.mode)
+        if self.gate_ack is not True:
+            return self.refuse("internal error: reached QMI_LOC_START without "
+                               "gate 1/3 (set-operation-mode ack)")
+        if not self.gate_indication:
+            return self.refuse("internal error: reached QMI_LOC_START without "
+                               "gate 2/3 (set-operation-mode indication)")
+        if not self.gate_readback and not self.args.no_readback:
+            return self.refuse("internal error: reached QMI_LOC_START without "
+                               "gate 3/3 (get-operation-mode readback)")
+        self.state = self.ST_STARTING
+        i = Qmi.MessageLocStartInput()
+        i.set_session_id(self.args.session_id)
+        for setter, value in (
+                ("set_fix_recurrence_type", 1),          # periodic
+                ("set_intermediate_report_state", 1),    # on
+                ("set_minimum_interval_between_position_reports",
+                 self.args.interval)):
+            try:
+                getattr(i, setter)(value)
+            except Exception as e:
+                log.debug("%s not supported: %s", setter, e)
+        log.info("starting LOC session %d (mode %s, interval %dms)",
+                 self.args.session_id, self.mode, self.args.interval)
+        self.client.start(i, 10, None, self._on_start, None)
+
+    def _on_start(self, client, res, _u):
+        try:
+            client.start_finish(res).get_result()
+        except Exception as e:
+            return self.restart("start: %s" % e)
+        self.session_started = True
+        self.state = self.ST_RUNNING
+        self.backoff = 2
+        self.last_indication = time.monotonic()
+        log.info("LOC session %d running", self.args.session_id)
+        # The modem's own fix is authoritative; stop paying a geolocation
+        # service for a worse one. (restart() turns them back on.)
+        if self.args.source == SOURCE_AUTO:
+            self._stop_network_sources()
+        self._clear_source("watchdog_source")
+        self.watchdog_source = GLib.timeout_add_seconds(
+            max(10, self.args.watchdog // 3), self._watchdog)
+
+    def _watchdog(self):
+        if self.state != self.ST_RUNNING:
+            return True
+        idle = time.monotonic() - self.last_indication
+        if idle > self.args.watchdog:
+            # A live cellid session produces something every couple of seconds.
+            # This much silence means the modem went away underneath us.
+            self.watchdog_source = 0
+            self.restart("no LOC indication for %.0fs" % idle)
+            return False
+        return True
+
+    # -------------------------------------------------------- QMI indications
+    def _bump(self):
+        self.indications += 1
+        self.last_indication = time.monotonic()
+
+    def _on_nmea(self, _client, output):
+        self._bump()
+        s = tlv(output, "get_nmea_string")
+        if not s:
+            return
+        s = s.strip()
+        log.debug("modem NMEA: %s", s)
+        if self.args.passthrough:
+            self.fanout.broadcast((s + "\r\n").encode("ascii", "replace"))
+
+    def _on_position(self, _client, output):
+        self._bump()
+        fix = Fix.from_indication(output)
+        self.qmi_fix = fix
+        if fix.valid and not self.first_fix_logged:
+            self.first_fix_logged = True
+            log.info("first position: %s", fix.describe())
+        else:
+            log.debug("position: %s", fix.describe())
+
+    def _on_sv(self, _client, output):
+        self._bump()
+        try:
+            svs = output.get_list()
+            log.debug("sv info: %d satellites", len(svs))
+        except Exception:
+            pass
+
+    def _on_engine(self, _client, output):
+        self._bump()
+        st = tlv(output, "get_engine_state")
+        log.info("engine state: %s", enum_name(st))
+
+    # ------------------------------------------------------------- 1 Hz pump
+    def _stale_limit(self, fix):
+        """How long a fix from this source stays publishable.
+
+        These differ by an order of magnitude and they have to. The QMI source
+        reports at --interval, so 30 s of silence means something is wrong.
+        The wifi source only queries every --wifi-interval, so applying the
+        same 30 s would blank the position out for half of every cycle -- and
+        it did, until this existed: gpsd flipped between mode 2 and mode 1
+        once a minute on a phone that had not moved.
+
+        A WiFi fix is also genuinely longer-lived than a satellite one. It
+        describes which access points are in range, which does not change
+        while the phone sits still, so outliving its poll interval by a couple
+        of rounds is honest rather than merely convenient.
+        """
+        if fix.source == SOURCE_WIFI:
+            return self.wifi_stale
+        if fix.source == SOURCE_CELL:
+            return self.cell_stale
+        return self.args.stale
+
+    def _advertisable(self, fix):
+        """May this fix be published as an NMEA fix at all?
+
+        The test is not "is it good enough to be useful", it is "can we state
+        its error without lying". $GPGGA carries HDOP and consumers bucket it;
+        the coarsest bucket geoclue has means 300 m. A fix known to be 1200 m
+        cannot be encoded, so publishing it would tell geoclue 300 m and there
+        would be nothing in the stream to contradict that.
+
+        See HDOP_CEILING_ACCURACY. --max-nmea-accuracy 0 turns this off.
+        """
+        limit = self.args.max_nmea_accuracy
+        if limit <= 0 or not fix.accuracy:
+            return True
+        if float(fix.accuracy) <= limit:
+            return True
+        why = ("%s fix from %s is %.0fm, coarser than the %.0fm that $GPGGA's "
+               "HDOP field can honestly express; not publishing it (raise or "
+               "disable --max-nmea-accuracy to override)"
+               % (fix.source, fix.provider or "?", fix.accuracy, limit))
+        if why != self._coarse_logged:
+            self._coarse_logged = why
+            log.warn("%s", why)
+        return False
+
+    def _fresh(self, fix):
+        if fix is None or not fix.valid:
+            return None
+        limit = self._stale_limit(fix)
+        if limit > 0 and (time.monotonic() - fix.when) > limit:
+            return None
+        if not self._advertisable(fix):
+            return None
+        return fix
+
+    def _best_fix(self):
+        """qmi-cellid, then WiFi, then cell-tower.
+
+        Not an accuracy comparison, a provenance one, and the order is by how
+        directly each answer is tied to where the phone actually is:
+
+          qmi-cellid  the modem's own resolved position. Only exists when the
+                      modem has a serving cell it can resolve, which needs a
+                      provisioned SIM, and when it exists it is the source this
+                      daemon was built around.
+          wifi        access points a few tens of metres away, several of them,
+                      trilaterated. MEASURED here: ~22 m.
+          cell-tower  one tower, up to a few kilometres away, and the answer is
+                      the tower's surveyed position rather than ours. MEASURED
+                      here: 250 m from Positon for the serving cell.
+
+        So cell-tower is the redundant source: it is what remains when the WiFi
+        neighbourhood is unknown to every provider, or when there is no WiFi.
+        It is deliberately last even though on this phone it is available more
+        often than the QMI path is.
+        """
+        return (self._fresh(self.qmi_fix) or self._fresh(self.wifi_fix)
+                or self._fresh(self.cell_fix))
+
+    def _tick(self):
+        if self.shutting_down:
+            return False
+        if not self.fanout.peers:
+            return True
+        self.synth.update(self._best_fix())
+        data = "".join(self.synth.sentences()).encode("ascii")
+        self.fanout.broadcast(data)
+        self.emitted += 1
+        if self.args.verbose and self.emitted % 10 == 1:
+            for line in self.synth.sentences():
+                log.debug("out: %s", line.strip())
+        return True
+
+
+# ---------------------------------------------------------------------- main
+
+def parse_args(argv):
+    p = argparse.ArgumentParser(
+        prog="rhodep-gnss-daemon",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Publish the rhodep modem's cell-id location as NMEA.",
+        epilog="Operation mode is forced to '%s'. Any other mode reboots this "
+               "phone within 100ms." % SAFE_MODE)
+    p.add_argument("--source", choices=SOURCES, default=SOURCE_AUTO,
+                   help="where positions come from: 'qmi-cellid' (modem's own "
+                        "fix, needs a registered modem), 'wifi' (geolocation "
+                        "service, never touches the modem), 'cell' (resolve "
+                        "the cells the modem can hear; QMI NAS reads only), or "
+                        "'auto' (default: qmi-cellid while the modem is "
+                        "registered, otherwise wifi and cell together, "
+                        "preferring wifi)")
+    p.add_argument("--device", default="qrtr://0",
+                   help="QMI device (default: qrtr://0)")
+    p.add_argument("--socket", default=DEFAULT_SOCKET,
+                   help="UNIX socket to publish NMEA on "
+                        "(default: %s; '' to disable)" % DEFAULT_SOCKET)
+    p.add_argument("--socket-mode", dest="mode_bits", default="0660",
+                   help="permissions for the UNIX socket (default: 0660)")
+    p.add_argument("--tcp", type=int, default=0, metavar="PORT",
+                   help="also serve NMEA on TCP (gpsd cannot read UNIX "
+                        "sockets; use tcp://127.0.0.1:PORT there)")
+    p.add_argument("--tcp-host", default="127.0.0.1",
+                   help="address to bind --tcp to (default: 127.0.0.1)")
+    p.add_argument("--rate", type=float, default=1.0,
+                   help="synthesized NMEA rate in Hz (default: 1)")
+    p.add_argument("--interval", type=int, default=1000, metavar="MS",
+                   help="minimum interval between QMI position reports "
+                        "(default: 1000)")
+    p.add_argument("--stale", type=float, default=30.0, metavar="SEC",
+                   help="report no fix if the last position is older than "
+                        "this (default: 30, 0 to never expire)")
+    p.add_argument("--talker", default="GP",
+                   help="NMEA talker id (default: GP)")
+    p.add_argument("--session-id", type=int, default=DEFAULT_SESSION_ID,
+                   help="LOC session id (default: %d)" % DEFAULT_SESSION_ID)
+    p.add_argument("--watchdog", type=int, default=120, metavar="SEC",
+                   help="reconnect if no indication arrives for this long "
+                        "(default: 120)")
+    p.add_argument("--mode-timeout", type=int, default=15, metavar="SEC",
+                   help="how long to wait for an operation-mode indication "
+                        "(default: 15)")
+    p.add_argument("--no-passthrough", dest="passthrough", action="store_false",
+                   help="do not republish the modem's own NMEA sentences")
+    p.add_argument("--no-mode-readback", dest="no_readback",
+                   action="store_true",
+                   help="skip the get-operation-mode confirmation, leaving "
+                        "two of the three gates. Removing a gate on this "
+                        "phone risks a power cycle, so it also requires "
+                        "--i-know-this-reboots-the-phone.")
+    p.add_argument("--keep-running-on-refusal", dest="exit_on_refusal",
+                   action="store_false",
+                   help="retry instead of exiting when the operation mode "
+                        "cannot be confirmed")
+    w = p.add_argument_group("wifi source")
+    w.add_argument("--geolocate-url", dest="geolocate_urls", action="append",
+                   metavar="URL", default=None,
+                   help="Ichnaea-compatible geolocate endpoint. May be given "
+                        "more than once; they are tried in order until one "
+                        "returns a position. Default: %s"
+                        % " then ".join(IchnaeaClient.label(u)
+                                        for u in DEFAULT_GEOLOCATE_URLS))
+    w.add_argument("--wifi-interval", type=int, default=60, metavar="SEC",
+                   help="how often to rescan and re-query (default: 60)")
+    w.add_argument("--wifi-stale", type=float, default=0.0, metavar="SEC",
+                   help="report no fix if the last wifi position is older "
+                        "than this. Default 0, meaning three times "
+                        "--wifi-interval; --stale is the wrong knob here "
+                        "because it is sized for a source that reports every "
+                        "second.")
+    w.add_argument("--wifi-timeout", type=float, default=20.0, metavar="SEC",
+                   help="HTTP timeout per geolocation service (default: 20)")
+    w.add_argument("--wifi-backend", choices=("auto", "nm", "iw"),
+                   default="auto",
+                   help="how to list access points: 'nm' reads "
+                        "NetworkManager's cache (no root, no forced scan), "
+                        "'iw' shells out to iw (exact dBm, needs root), "
+                        "'auto' tries nm then iw (default)")
+    w.add_argument("--wifi-interface", default=None, metavar="IF",
+                   help="restrict scanning to one interface (default: all)")
+    w.add_argument("--max-aps", type=int, default=32, metavar="N",
+                   help="submit at most this many APs, strongest first "
+                        "(default: 32, 0 for no limit)")
+    w.add_argument("--max-accuracy", type=float, default=MAX_ACCURACY,
+                   metavar="M",
+                   help="refuse any position whose accuracy radius is this "
+                        "many metres or worse (default: %.0f)" % MAX_ACCURACY)
+    w.add_argument("--allow-fallback", action="store_true",
+                   help="accept IP-address and cell-area fallback positions. "
+                        "Off by default: these are tens of kilometres wide "
+                        "and publishing one as a $GPGGA fix is a lie that no "
+                        "consumer can detect.")
+    w.add_argument("--recheck", type=int, default=300, metavar="SEC",
+                   help="in --source=auto, how often to re-test modem "
+                        "registration (default: 300, 0 to never)")
+    w.add_argument("--locate-once", action="store_true",
+                   help="do one wifi scan and geolocation query, print the "
+                        "result, and exit. Touches no modem and opens no "
+                        "sockets.")
+
+    c = p.add_argument_group("cell-tower source")
+    c.add_argument("--no-cell", dest="cell", action="store_false",
+                   help="never read cell identities, not even in --source=auto. "
+                        "With this the QMI device is not opened at all outside "
+                        "--source=qmi-cellid.")
+    c.add_argument("--cell-db", default=DEFAULT_CELL_DB, metavar="PATH",
+                   help="offline OpenCelliD extract to try before the network "
+                        "providers (default: %s; '' to skip). Build it with "
+                        "`rhodep-cell-db build --mcc NNN`." % DEFAULT_CELL_DB)
+    c.add_argument("--cell-backend", choices=("auto", "qmi", "qmicli"),
+                   default="auto",
+                   help="how to read cell identities: 'qmi' uses libqmi in "
+                        "process via gir1.2-qmi-1.0, 'qmicli' shells out to "
+                        "the qmicli binary, 'auto' tries qmi then qmicli "
+                        "(default). Both send the same read-only NAS message.")
+    c.add_argument("--cell-poll", type=int, default=15, metavar="SEC",
+                   help="how often to ask the modem which cells it can hear "
+                        "(default: 15). Shorter than --cell-interval on "
+                        "purpose: a searching modem only decodes an identity "
+                        "some of the time, so this is the net and "
+                        "--cell-interval is the query rate.")
+    c.add_argument("--cell-interval", type=int, default=60, metavar="SEC",
+                   help="how often to re-query the providers (default: 60)")
+    c.add_argument("--cell-max-age", type=float, default=300.0, metavar="SEC",
+                   help="do not submit a cell identity read longer ago than "
+                        "this (default: 300)")
+    c.add_argument("--cell-stale", type=float, default=0.0, metavar="SEC",
+                   help="report no fix if the last cell position is older "
+                        "than this. Default 0, meaning three times "
+                        "--cell-interval.")
+    c.add_argument("--cell-timeout", type=int, default=10, metavar="SEC",
+                   help="QMI timeout for one cell-info read (default: 10)")
+    c.add_argument("--fuse", action="store_true",
+                   help="send the WiFi scan and the cell list in one request. "
+                        "Both BeaconDB and Positon accept it. Off by default: "
+                        "the reply does not say which array it matched, so the "
+                        "resulting fix cannot be attributed to a source.")
+    c.add_argument("--cells-once", action="store_true",
+                   help="read the cells the modem can hear, resolve them, "
+                        "print the result and exit. Opens QMI NAS read-only "
+                        "and no sockets.")
+    c.add_argument("--max-nmea-accuracy", type=float,
+                   default=HDOP_CEILING_ACCURACY, metavar="M",
+                   help="refuse to publish a fix coarser than this as NMEA "
+                        "(default: %.0f). That default is not arbitrary: it is "
+                        "the largest error $GPGGA's HDOP field can convey, "
+                        "because consumers bucket HDOP and the coarsest bucket "
+                        "means 300 m. Publishing a 1200 m fix would tell "
+                        "geoclue 300 m with nothing in the stream to "
+                        "contradict it. 0 disables the check."
+                        % HDOP_CEILING_ACCURACY)
+
+    p.add_argument("--kmsg", action="store_true",
+                   help="also log to /dev/kmsg (survives an SoC reset in "
+                        "pstore; useful when bisecting)")
+    p.add_argument("-v", "--verbose", action="store_true")
+    p.add_argument("-V", "--version", action="version",
+                   version="rhodep-gnss-daemon " + VERSION)
+    p.add_argument("--test-gate-failure", choices=("ack", "indication",
+                                                   "readback"), default=None,
+                   help="fault-injection: make one of the three operation-mode "
+                        "gates fail, to prove no session is started")
+    p.add_argument("--self-test", action="store_true",
+                   help="print synthesized sentences for a canned fix and "
+                        "exit; touches no hardware")
+    p.add_argument("--operation-mode", dest="mode", default=SAFE_MODE,
+                   help=argparse.SUPPRESS)
+    p.add_argument("--i-know-this-reboots-the-phone", dest="unsafe",
+                   action="store_true", help=argparse.SUPPRESS)
+
+    args = p.parse_args(argv)
+
+    if not args.geolocate_urls:
+        args.geolocate_urls = list(DEFAULT_GEOLOCATE_URLS)
+    # Rate floors are checked before the one-shot modes return, not after:
+    # --cells-once honours --cell-poll and would otherwise accept 0 and poll
+    # the modem as fast as the main loop can turn.
+    if args.cell_poll < 5:
+        p.error("--cell-poll must be at least 5 seconds")
+    if args.cell_interval < 5:
+        p.error("--cell-interval must be at least 5 seconds; the services ask "
+                "not to be hammered")
+    if args.wifi_interval < 5:
+        p.error("--wifi-interval must be at least 5 seconds; the services ask "
+                "not to be hammered")
+    # Likewise the operation-mode gate: a one-shot mode does not use it, but
+    # accepting --operation-mode=standalone silently anywhere teaches the
+    # wrong thing about which invocations are safe.
+    if args.mode.lower() != SAFE_MODE and not args.unsafe:
+        p.error("operation mode %r is not permitted. Only %r is known not to "
+                "power-cycle this SoC. If you really mean it, pass "
+                "--i-know-this-reboots-the-phone."
+                % (args.mode, SAFE_MODE))
+    if args.no_readback and not args.unsafe:
+        p.error("--no-mode-readback removes one of the three operation-mode "
+                "gates that stop this phone power-cycling itself. If you "
+                "really mean it, pass --i-know-this-reboots-the-phone.")
+    if args.self_test or args.locate_once:
+        return args
+    if args.cells_once:
+        return args
+    if args.source == SOURCE_QMI and Qmi is None:
+        p.error("--source=qmi-cellid needs gir1.2-qmi-1.0, which is not "
+                "installed")
+    if args.source == SOURCE_AUTO and Qmi is None:
+        # The cell source can still run through the qmicli binary, so this is
+        # only fatal to the qmi-cellid leg of 'auto'.
+        log.warn("gir1.2-qmi-1.0 is not installed; --source=auto will not use "
+                 "qmi-cellid")
+    if args.unsafe and args.mode.lower() != SAFE_MODE:
+        log.error("!!! operation mode %s selected with "
+                  "--i-know-this-reboots-the-phone", args.mode)
+        log.error("!!! this phone is expected to reset within 100ms of the "
+                  "session start")
+    try:
+        args.mode_bits = int(args.mode_bits, 8)
+    except ValueError:
+        p.error("--socket-mode must be octal, e.g. 0660")
+    if args.rate <= 0:
+        p.error("--rate must be positive")
+    if args.mode_timeout < 1:
+        p.error("--mode-timeout must be at least 1 second")
+    if args.wifi_interval < 5:
+        p.error("--wifi-interval must be at least 5 seconds; the services ask "
+                "not to be hammered")
+    if not args.socket and not args.tcp:
+        p.error("nothing to publish on: give --socket and/or --tcp")
+    return args
+
+
+def _report_position(lat, lon, acc, provider, submitted, source):
+    print("\nlatitude   %.7f" % lat)
+    print("longitude  %.7f" % lon)
+    print("accuracy   %.0f m" % acc)
+    print("provider   %s" % provider)
+    print("submitted  %s" % submitted)
+    reported = hdop_reported_accuracy(acc)
+    print("hdop       %.1f (a consumer bucketing it concludes %.0f m)"
+          % (dop_for_accuracy(acc), reported))
+    if reported < acc:
+        print("           ^ that is LESS than the true %.0f m: this fix cannot "
+              "be" % acc)
+        print("             stated honestly in $GPGGA and the daemon will not "
+              "publish it")
+        print("             unless --max-nmea-accuracy is raised above %.0f."
+              % acc)
+    print("\nhttps://www.openstreetmap.org/?mlat=%.6f&mlon=%.6f#map=%d/%.6f/%.6f"
+          % (lat, lon, 17 if acc < 100 else 14, lat, lon))
+    for line in NmeaSynthPreview(lat, lon, acc, provider, source):
+        print(line.rstrip())
+
+
+def locate_once(args):
+    """One scan + one query, printed. No modem, no sockets, no main loop."""
+    scanner = WifiScanner(args.wifi_backend, args.wifi_interface)
+    aps = scanner.scan()
+    print("%d usable access point(s)%s"
+          % (len(aps), " (strongest first)" if aps else ""))
+    for ap in aps[:args.max_aps or len(aps)]:
+        print("  %-17s %5s dBm %5s MHz  %s"
+              % (ap.mac,
+                 "%d" % ap.signal if ap.signal is not None else "?",
+                 ap.frequency or "?", ap.ssid if ap.ssid else "<hidden>"))
+    if not aps:
+        print("no access points visible; is the interface up?")
+        return 1
+
+    client = IchnaeaClient(args.geolocate_urls, timeout=args.wifi_timeout,
+                           allow_fallback=args.allow_fallback,
+                           max_accuracy=args.max_accuracy)
+    submitted = aps[:args.max_aps] if args.max_aps else aps
+    try:
+        lat, lon, acc, provider = client.locate(submitted)
+    except GeolocateError as e:
+        print("\nno position: %s" % e)
+        return 1
+    _report_position(lat, lon, acc, provider,
+                     "%d access point(s)" % len(submitted), SOURCE_WIFI)
+    return 0
+
+
+def cells_once(args):
+    """One cell read + one provider chain run, printed. No LOC, no sockets.
+
+    The diagnostic that answers "is this location in anybody's database", which
+    is the only question that matters when the cell source produces nothing.
+    """
+    result = {}
+    loop = GLib.MainLoop()
+    reader = CellReader(args)
+
+    def give_up():
+        result.setdefault("cells", [])
+        loop.quit()
+        return False
+
+    deadline = max(args.cell_poll * 2 + 10, 30)
+    GLib.timeout_add_seconds(deadline, give_up)
+
+    accepted = reader._accept
+
+    def watch(cells):
+        accepted(cells)
+        if reader.cells:
+            result["cells"] = reader.cells
+            loop.quit()
+    reader._accept = watch
+    reader.start()
+    loop.run()
+    reader.stop()
+
+    cells = result.get("cells") or []
+    print("%d cell(s) with a decoded identity after %d poll(s)"
+          % (len(cells), reader.polls))
+    for c in cells:
+        print("  " + c.describe())
+    if not cells:
+        print("\nthe modem decoded no cell identity in %ds. That is normal "
+              "while it is" % deadline)
+        print("searching: it measures neighbours several seconds before it "
+              "reads their")
+        print("broadcast identity. Last error: %s" % (reader.last_error or "-"))
+        return 1
+
+    src = CellSource(args, reader, lambda f: None)
+    if src.offline is not None:
+        print("\noffline database: %s"
+              % (src.offline.path if src.offline.available()
+                 else src.offline._problem))
+    try:
+        lat, lon, acc, provider = src.locate(cells)
+    except GeolocateError as e:
+        print("\nno position. Every provider was asked and none knows these "
+              "cells:")
+        for part in str(e).split("; "):
+            print("  - %s" % part)
+        return 1
+    print("\nprovider chain:")
+    for note in src.chain:
+        print("  - %s" % note)
+    _report_position(lat, lon, acc, provider,
+                     "%d cell(s)" % len(cells), SOURCE_CELL)
+    return 0
+
+
+def NmeaSynthPreview(lat, lon, acc, provider, source=SOURCE_WIFI):
+    s = NmeaSynth()
+    s.update(Fix.from_geolocation(lat, lon, acc, provider, source=source))
+    return ["\nas NMEA:"] + ["  " + x for x in s.sentences()]
+
+
+def self_test():
+    """Sanity-check the NMEA generator without going anywhere near the modem."""
+    ok = True
+
+    def check(label, cond):
+        nonlocal ok
+        print("%-28s %s" % (label, "ok" if cond else "FAIL"))
+        ok = ok and bool(cond)
+
+    # Two sentences with checksums known from elsewhere: the u-blox TXT sample
+    # and the $PSTIS,*61 this very modem emits.
+    check("checksum u-blox TXT",
+          nmea_checksum("GPTXT,01,01,02,u-blox ag - www.u-blox.com") == "50")
+    check("checksum modem $PSTIS,", nmea_checksum("PSTIS,") == "61")
+
+    s = NmeaSynth()
+    print("--- no fix ---")
+    for line in s.sentences():
+        print("  " + line.rstrip())
+        check("field count/checksum", verify_sentence(line))
+
+    f = Fix()
+    f.when = time.monotonic()
+    f.lat = 52.3702157
+    f.lon = 4.8951679
+    f.alt_msl = 12.5
+    f.alt_ell = 55.0
+    f.speed = 3.5
+    f.heading = 91.2
+    f.pdop, f.hdop, f.vdop = 2.4, 1.3, 2.0
+    f.nsat = 0
+    f.utc = 1735689600.0        # 2025-01-01T00:00:00Z
+    s.update(f)
+    print("--- with fix ---")
+    got = s.sentences()
+    for line in got:
+        print("  " + line.rstrip())
+        check("field count/checksum", verify_sentence(line))
+    check("GGA has N hemisphere", ",5222.2129,N," in got[0])
+    check("GGA has E hemisphere", ",00453.7101,E," in got[0])
+    check("GGA quality 1", ",1,00,1.3,12.5,M," in got[0])
+    check("RMC active", got[1].startswith("$GPRMC,000000.00,A,"))
+    check("RMC date", ",010125,,,A*" in got[1])
+    check("RMC speed in knots", ",6.80,91.2," in got[1])
+    check("GSA 2D", got[2].startswith("$GPGSA,A,2,,,,,,,,,,,,,2.4,1.3,2.0*"))
+    check("no GST without accuracy", len(got) == 3)
+
+    # --- wifi source -----------------------------------------------------
+    print("--- wifi fix ---")
+    wf = Fix.from_geolocation(-32.954173, -60.644325, 23.0, "api.positon.xyz")
+    wf.utc = 1735689600.0
+    s.update(wf)
+    got = s.sentences()
+    for line in got:
+        print("  " + line.rstrip())
+        check("field count/checksum", verify_sentence(line))
+    check("wifi GGA position", ",3257.2504,S,06038.6595,W," in got[0])
+    check("wifi hdop from accuracy", ",1,00,7.5," in got[0])
+    check("hdop never over-claims",
+          [dop_for_accuracy(a) for a in (0.5, 1, 3, 22, 60, 150, 9000)]
+          == [1.5, 1.5, 3.5, 7.5, 15.0, 25.0, 25.0])
+    # The property that matters, stated directly: for any accuracy, the band
+    # we land in must imply an error at least as large as the real one.
+    check("band implication >= truth", all(
+        any(emit == dop_for_accuracy(a) and implied >= min(a, 300.0)
+            for _u, implied, emit in DOP_BANDS)
+        for a in (0.2, 0.9, 1.0, 2.5, 3.0, 22.0, 49.0, 51.0, 99.0, 299.0)))
+    check("GST emitted", len(got) == 4 and got[3].startswith("$GPGST,"))
+    check("GST carries metres", ",23.0,23.0,23.0,0.0,16.3,16.3,23.0*" in got[3])
+
+    print("--- iw scan parser ---")
+    sample = (
+        "BSS 8a:c2:27:a1:19:d0(on wlan0) -- associated\n"
+        "\tlast seen: 16 ms ago\n"
+        "\tfreq: 5785.0\n"
+        "\tsignal: -71.00 dBm\n"
+        "\tSSID: WiFi Mateo 5G\n"
+        "BSS c2:e1:be:d2:cf:30(on wlan0)\n"
+        "\tfreq: 2442.0\n"
+        "\tsignal: -69.00 dBm\n"
+        "\tSSID: shy_nomap\n"
+        "BSS 6e:26:36:bf:83:ef(on wlan0)\n"
+        "\tfreq: 2442.0\n"
+        "\tsignal: -77.00 dBm\n")
+    aps = WifiScanner.parse_iw(sample)
+    check("parsed 3 BSS", len(aps) == 3)
+    check("dBm exact", aps[0].signal == -71)
+    check("frequency", aps[0].frequency == 5785)
+    check("age", aps[0].age == 16)
+    check("hidden ssid", aps[2].ssid is None)
+    check("_nomap detected", aps[1].nomap and not aps[0].nomap)
+    check("json shape", aps[0].as_json() == {"macAddress": "8a:c2:27:a1:19:d0",
+                                             "signalStrength": -71,
+                                             "frequency": 5785, "age": 16})
+
+    print("--- geolocation reply handling ---")
+    c = IchnaeaClient(["https://example/v1/geolocate"])
+    fake = [{"location": {"lat": 1.0, "lng": 2.0}, "accuracy": 20.0}]
+    c._post = lambda u, p: fake.pop(0)
+    check("good reply accepted",
+          c.locate([AccessPoint("aa:bb:cc:dd:ee:0%d" % i, -60)
+                    for i in range(2)])[:3] == (1.0, 2.0, 20.0))
+    c._post = lambda u, p: {"location": {"lat": 1.0, "lng": 2.0},
+                            "accuracy": 25000.0, "fallback": "ipf"}
+    try:
+        c.locate([AccessPoint("aa:bb:cc:dd:ee:0%d" % i, -60) for i in range(2)])
+        check("ip fallback refused", False)
+    except GeolocateError as e:
+        check("ip fallback refused", "ipf fallback" in str(e))
+    c._post = lambda u, p: {"location": {"lat": 1.0, "lng": 2.0},
+                            "accuracy": 9000.0}
+    try:
+        c.locate([AccessPoint("aa:bb:cc:dd:ee:0%d" % i, -60) for i in range(2)])
+        check("too-coarse refused", False)
+    except GeolocateError as e:
+        check("too-coarse refused", "worse than" in str(e))
+    try:
+        c.locate([AccessPoint("aa:bb:cc:dd:ee:01", -60)])
+        check("single AP refused", False)
+    except GeolocateError as e:
+        check("single AP refused", "need 2" in str(e))
+    check("considerIp is false by default", c.allow_fallback is False)
+
+    # --- cell source -----------------------------------------------------
+    print("--- PLMN decoding ---")
+    # The three octets this phone's modem actually reports, and the two
+    # textbook shapes around them.
+    check("plmn 722-34 (2-digit MNC)",
+          decode_plmn(b"\x27\xf2\x43") == (722, 34))
+    check("plmn 310-260 (3-digit MNC)",
+          decode_plmn(b"\x13\x00\x62") == (310, 260))
+    check("plmn 234-15", decode_plmn(b"\x32\xf4\x51") == (234, 15))
+    check("plmn too short", decode_plmn(b"\x27\xf2") == (None, None))
+    check("plmn non-BCD mcc", decode_plmn(b"\xff\xff\xff") == (None, None))
+
+    print("--- GSM RXLEV ---")
+    # qmicli prints RXLEV 14 as "-97 dBm > level > -96 dBm"; the conventional
+    # single value is -110 + n.
+    check("rxlev 14 -> -96 dBm", gsm_rxlev_dbm(14) == -96)
+    check("rxlev 8 -> -102 dBm", gsm_rxlev_dbm(8) == -102)
+    check("rxlev clamped low", gsm_rxlev_dbm(0) == -110)
+    check("rxlev clamped high", gsm_rxlev_dbm(63) == -51)
+    check("rxlev None", gsm_rxlev_dbm(None) is None)
+
+    print("--- qmicli cell-info parser ---")
+    # Captured verbatim from this phone, 2026-09-05.
+    qmicli_out = (
+        "[qrtr://0] Successfully got cell location info\n"
+        "GERAN Info\n"
+        "\tCell ID: '60858'\n"
+        "\tPLMN: '72234'\n"
+        "\tLocation Area Code: '420'\n"
+        "\tGERAN Absolute RF Channel Number: '179'\n"
+        "\tBase Station Identity Code: '19'\n"
+        "\tTiming Advance: 'unavailable'\n"
+        "\tRX Level: -97 dBm > level > -96 dBm ('14')\n"
+        "\tCell [0]:\n"
+        "\t\tCell ID: '40012'\n"
+        "\t\tPLMN: '72234'\n"
+        "\t\tLocation Area Code: '421'\n"
+        "\t\tGERAN Absolute RF Channel Number: '239'\n"
+        "\t\tBase Station Identity Code: '4'\n"
+        "\t\tRX Level: -103 dBm > level > -102 dBm ('8')\n")
+    cells = parse_qmicli_cell_info(qmicli_out)
+    check("parsed 2 cells", len(cells) == 2)
+    check("serving is first and flagged",
+          cells[0].serving and not cells[1].serving)
+    check("serving identity",
+          cells[0].key() == ("gsm", 722, 34, 420, 60858))
+    check("neighbour identity",
+          cells[1].key() == ("gsm", 722, 34, 421, 40012))
+    check("serving signal", cells[0].signal == -96)
+    check("neighbour signal", cells[1].signal == -102)
+    check("arfcn/bsic", cells[0].arfcn == 179 and cells[0].bsic == 19)
+    check("'unavailable' TA is dropped", cells[0].ta is None)
+    check("cell json shape", cells[0].as_json() == {
+        "radioType": "gsm", "mobileCountryCode": 722, "mobileNetworkCode": 34,
+        "locationAreaCode": 420, "cellId": 60858, "signalStrength": -96,
+        "serving": 1})
+    # A modem that has measured a neighbour but not yet read its BCCH reports
+    # cell id 0. Asking a database about cell zero is asking for a wrong answer.
+    check("undecoded cell rejected",
+          parse_qmicli_cell_info(
+              "GERAN Info\n\tCell ID: '0'\n\tPLMN: '72234'\n"
+              "\tLocation Area Code: '0'\n") == [])
+    check("empty input", parse_qmicli_cell_info("") == [])
+
+    print("--- cell geolocation requests ---")
+    cc = IchnaeaClient(["https://example/v1/geolocate"])
+    sent = {}
+
+    def capture(url, payload):
+        sent.clear()
+        sent.update(payload)
+        return {"location": {"lat": -32.952961, "lng": -60.643772},
+                "accuracy": 250.0}
+    cc._post = capture
+    got = cc.locate((), cells)
+    check("one cell is enough", got[:3] == (-32.952961, -60.643772, 250.0))
+    check("considerIp false on cell query", sent.get("considerIp") is False)
+    check("cellTowers sent", len(sent.get("cellTowers", [])) == 2)
+    check("no empty wifi array", "wifiAccessPoints" not in sent)
+    aps2 = [AccessPoint("aa:bb:cc:dd:ee:0%d" % i, -60) for i in range(2)]
+    cc.locate(aps2, cells)
+    check("fused query carries both",
+          len(sent.get("cellTowers", [])) == 2
+          and len(sent.get("wifiAccessPoints", [])) == 2)
+    cc.locate(aps2[:1], cells)
+    check("lone AP dropped from a cell query",
+          "wifiAccessPoints" not in sent and "cellTowers" in sent)
+    try:
+        cc.locate((), ())
+        check("nothing to submit refused", False)
+    except GeolocateError as e:
+        check("nothing to submit refused", "need" in str(e))
+
+    print("--- provider chain isolation ---")
+    # One provider blowing up must cost that provider's answer and nothing
+    # else. MEASURED as a real failure in a soak: sqlite3.ProgrammingError out
+    # of the offline database escaped the chain and the network providers were
+    # never asked, so a cheap local miss became no fix at all.
+    class _CA(object):
+        cell_db = None
+        geolocate_urls = ("https://example/v1/geolocate",)
+        wifi_timeout = 5.0
+        allow_fallback = False
+        max_accuracy = MAX_ACCURACY
+        cell_interval = 60
+    cs = CellSource(_CA(), None, lambda f: None)
+
+    class _Boom(object):
+        label = "exploding-offline-db"
+
+        def locate(self, _cells):
+            raise RuntimeError("simulated database corruption")
+    cs.offline = _Boom()
+    cs.client._post = lambda u, p: {"location": {"lat": 3.0, "lng": 4.0},
+                                    "accuracy": 250.0}
+    try:
+        got = cs.locate(cells)
+        check("a broken offline provider does not abort the chain",
+              got[:3] == (3.0, 4.0, 250.0))
+    except Exception as e:
+        check("a broken offline provider does not abort the chain (%s)" % e,
+              False)
+    check("and is reported in the chain",
+          any("exploding-offline-db" in c for c in cs.chain))
+    # And a database that is merely missing is an ordinary miss.
+    cs.offline = OfflineCellProvider("/nonexistent/cells.sqlite")
+    got = cs.locate(cells)
+    check("a missing offline database is just a miss",
+          got[:3] == (3.0, 4.0, 250.0))
+
+    print("--- accuracy honesty ---")
+    check("ceiling is the worst band", HDOP_CEILING_ACCURACY == 300.0)
+    # The invariant the whole accuracy policy exists to guarantee.
+    check("HDOP never implies better than the truth, up to the ceiling",
+          all(hdop_reported_accuracy(a) >= a
+              for a in (0.0, 0.5, 1.0, 1.5, 2.9, 3.0, 3.1, 22.0, 49.9, 50.0,
+                        50.1, 99.0, 100.0, 250.0, 299.0, 300.0)))
+    check("and cannot, above it",
+          hdop_reported_accuracy(301.0) < 301.0
+          and hdop_reported_accuracy(3000.0) == 300.0)
+    check("a 250 m cell fix is expressible",
+          hdop_reported_accuracy(250.0) == 300.0)
+
+    class _A(object):
+        max_nmea_accuracy = HDOP_CEILING_ACCURACY
+    gate = GnssDaemon.__new__(GnssDaemon)
+    gate.args = _A()
+    gate._coarse_logged = None
+    for acc, want in ((22.0, True), (250.0, True), (300.0, True),
+                      (301.0, False), (1200.0, False), (None, True)):
+        f = Fix.from_geolocation(1.0, 2.0, acc, "t", source=SOURCE_CELL)
+        check("publish %s m fix: %s" % (acc, "yes" if want else "no"),
+              gate._advertisable(f) is want)
+    gate.args.max_nmea_accuracy = 0.0
+    f = Fix.from_geolocation(1.0, 2.0, 5000.0, "t", source=SOURCE_CELL)
+    check("--max-nmea-accuracy 0 disables the gate", gate._advertisable(f))
+
+    print("--- source priority ---")
+    d = GnssDaemon.__new__(GnssDaemon)
+    d.args = _A()
+    d.args.max_nmea_accuracy = HDOP_CEILING_ACCURACY
+    d.args.stale = 30.0
+    d.wifi_stale = 180.0
+    d.cell_stale = 180.0
+    d._coarse_logged = None
+    d.qmi_fix = d.wifi_fix = d.cell_fix = None
+    wf = Fix.from_geolocation(1.0, 1.0, 22.0, "positon", source=SOURCE_WIFI)
+    cf = Fix.from_geolocation(2.0, 2.0, 250.0, "positon", source=SOURCE_CELL)
+    d.cell_fix = cf
+    check("cell used when it is all there is", d._best_fix() is cf)
+    d.wifi_fix = wf
+    check("wifi beats cell", d._best_fix() is wf)
+    qf = Fix()
+    qf.when = time.monotonic()
+    qf.lat, qf.lon, qf.source = 3.0, 3.0, SOURCE_QMI
+    d.qmi_fix = qf
+    check("qmi-cellid beats both", d._best_fix() is qf)
+    qf.when = time.monotonic() - 3600
+    check("a stale qmi fix yields to wifi", d._best_fix() is wf)
+    wf.when = time.monotonic() - 3600
+    check("a stale wifi fix yields to cell", d._best_fix() is cf)
+    cf.accuracy = 2000.0
+    check("an inexpressible cell fix yields to nothing",
+          d._best_fix() is None)
+
+    print("--- NMEA field rounding ---")
+    # Formatting rounds; the field split must round first and carry, or the
+    # sentence gets a 60th minute or a 60th second, which is not a position
+    # and not a time.
+    check("minutes carry into degrees",
+          fmt_lat(52.99999999)[0] == "5300.0000,N")
+    check("minutes carry, southern",
+          fmt_lat(-8.999999999)[0] == "0900.0000,S")
+    check("longitude minutes carry",
+          fmt_lon(-60.99999999)[0] == "06100.0000,W")
+    check("normal minutes untouched", fmt_lat(52.3702157)[0] == "5222.2129,N")
+    ts = NmeaSynth()
+    for t in (1735689599.999, 1735689599.9999, 1735689600.0,
+              1735689659.999, 1735685999.996):
+        f2 = Fix()
+        f2.when = time.monotonic()
+        f2.lat, f2.lon, f2.utc = 1.0, 2.0, t
+        ts.update(f2)
+        hh = ts.sentences()[0].split(",")[1]
+        check("time %.3f -> %s" % (t % 3600, hh),
+              len(hh) == 9 and int(hh[4:6]) < 60 and int(hh[2:4]) < 60)
+
+    print("--- operation-mode gates ---")
+    # QMI_LOC_START is sent from exactly one function. Prove that function
+    # refuses when any gate is missing, whatever the caller believed.
+    class _G(object):
+        max_nmea_accuracy = 300.0
+        no_readback = False
+        exit_on_refusal = False
+        unsafe = False
+        session_id = DEFAULT_SESSION_ID
+        interval = 1000
+    started = []
+    refused = []
+    g = GnssDaemon.__new__(GnssDaemon)
+    g.args = _G()
+    g.mode = SAFE_MODE
+    g.state = GnssDaemon.ST_VERIFYING_MODE
+    g.refuse = lambda why: refused.append(why)
+    g.client = type("C", (), {"start": lambda *a: started.append(a)})()
+
+    def _attempt(ack, ind, rb, mode=SAFE_MODE, no_readback=False,
+                 unsafe=False):
+        del started[:], refused[:]
+        g.gate_ack, g.gate_indication, g.gate_readback = ack, ind, rb
+        g.mode = mode
+        g.args.no_readback = no_readback
+        g.args.unsafe = unsafe
+        try:
+            GnssDaemon.start_session(g)
+        except Exception as e:      # a missing gate must refuse, not crash
+            refused.append("exception: %s" % e)
+        return (len(started), len(refused))
+
+    check("no ack gate -> refused", _attempt(None, True, True) == (0, 1))
+    check("failed ack gate -> refused", _attempt(False, True, True) == (0, 1))
+    check("no indication gate -> refused", _attempt(True, False, True) == (0, 1))
+    check("no readback gate -> refused", _attempt(True, True, False) == (0, 1))
+    check("gates 1+2 alone are not enough without --no-mode-readback",
+          _attempt(True, True, False, no_readback=True) != (0, 1)
+          and _attempt(True, False, False, no_readback=True) == (0, 1))
+    check("non-cellid mode without the unsafe flag -> refused",
+          _attempt(True, True, True, mode="standalone") == (0, 1))
+    if Qmi is None:
+        print("  (gir1.2-qmi-1.0 absent: the paths that build a "
+              "QMI_LOC_START message are not exercised)")
+    else:
+        check("all three gates -> session starts",
+              _attempt(True, True, True) == (1, 0))
+        check("--no-mode-readback starts on gates 1+2",
+              _attempt(True, True, False, no_readback=True) == (1, 0))
+        check("non-cellid mode with the unsafe flag -> allowed",
+              _attempt(True, True, True, mode="standalone",
+                       unsafe=True) == (1, 0))
+    # refuse() must leave the state machine somewhere a late indication
+    # cannot restart it from.
+    r = GnssDaemon.__new__(GnssDaemon)
+    r.args = _G()
+    r.args.exit_on_refusal = True
+    r.state = GnssDaemon.ST_SETTING_MODE
+    r.gate_ack, r.gate_indication, r.gate_readback = True, True, True
+    r.shutting_down = True          # makes shutdown() a no-op
+    GnssDaemon.refuse(r, "test")
+    check("refuse() leaves the gate states",
+          r.state == GnssDaemon.ST_IDLE and r.gate_ack is False
+          and r.gate_indication is False and r.gate_readback is False)
+
+    print("--- cell NMEA ---")
+    s.update(Fix.from_geolocation(-32.952961, -60.643772, 250.0,
+                                  "api.positon.xyz", source=SOURCE_CELL))
+    got = s.sentences()
+    for line in got:
+        print("  " + line.rstrip())
+        check("field count/checksum", verify_sentence(line))
+    check("cell GGA position", ",3257.1777,S,06038.6263,W," in got[0])
+    check("cell hdop is the worst band", ",1,00,25.0," in got[0])
+    check("cell GST carries the real metres",
+          len(got) == 4 and ",250.0,250.0,250.0,0.0,176.8,176.8,250.0*" in got[3])
+    return 0 if ok else 1
+
+
+def verify_sentence(line):
+    if not line.startswith("$") or not line.endswith("\r\n"):
+        return False
+    body, _, ck = line[1:-2].partition("*")
+    return len(ck) == 2 and nmea_checksum(body) == ck
+
+
+def main(argv=None):
+    args = parse_args(argv if argv is not None else sys.argv[1:])
+    log.verbose = args.verbose
+    log.kmsg = args.kmsg
+    if args.self_test:
+        return self_test()
+    if args.locate_once:
+        return locate_once(args)
+    if args.cells_once:
+        return cells_once(args)
+    log.info("rhodep-gnss-daemon %s starting (source %s, mode %s)",
+             VERSION, args.source, args.mode)
+    daemon = GnssDaemon(args)
+    try:
+        return daemon.run()
+    except KeyboardInterrupt:
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

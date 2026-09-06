@@ -1,0 +1,733 @@
+rhodep-gnss
+===========
+
+What it does
+------------
+
+rhodep-gnss-daemon gets a position out of a phone whose satellite GNSS cannot
+be used, and republishes it as ordinary NMEA:
+
+    /run/gnss-share.sock     UNIX stream, mode 0660, group geoclue (or gps)
+    tcp://127.0.0.1:2948     the same stream, for gpsd
+
+Both accept any number of simultaneous readers. Writes are non-blocking and a
+reader more than 64 KiB behind is dropped, so nothing a client does can stall
+the daemon.
+
+rhodep-cell-db builds the optional offline cell-tower database that the cell
+source consults first.
+
+
+Why there is no satellite fix on this phone
+-------------------------------------------
+
+Because trying to get one power-cycles the SoC.
+
+Starting a QMI LOC session in operation mode standalone, default, msa or msb
+resets this phone within 100 ms, reproducibly, with no panic and no oops --
+the modem's GNSS measurement engine coming up is enough. Mode 'cellid' runs the
+session state machine without ever starting that engine, and survives. So there
+is no configuration of gpsd, geoclue or ModemManager that will produce a
+satellite fix here; the only positions available are network-derived ones, and
+that is what this package provides. See
+docs/interconnect-sm6375-wip/GNSS-SM6375.md and scripts/rhodep-gnss-test.py in
+the port repository for the bisection.
+
+This is also why geoclue's modem-gps source is turned off in the shipped
+configuration: it asks ModemManager to enable location, ModemManager enables
+unassisted GNSS, and that is exactly the reset.
+
+
+Where the position comes from
+-----------------------------
+
+--source picks the location source:
+
+  wifi        Scan the WiFi neighbourhood and ask an Ichnaea-compatible
+              geolocation service where those BSSIDs are. No SIM, no modem, no
+              GNSS engine: this path cannot trip the reset bug even in
+              principle, because it never opens the QMI device at all.
+              MEASURED here: 23 m.
+
+  cell        Read which GERAN/UMTS/LTE cells the modem can hear, and resolve
+              those identities to a position -- first against a local
+              OpenCelliD extract, then against the same geolocation services.
+              Works with an unprovisioned SIM and a modem that never registers.
+              Allocates a QMI NAS client; never touches QMI LOC.
+              MEASURED here: 250 m.
+
+  qmi-cellid  One QMI LOC session on qrtr://0, pinned to operation mode
+              'cellid'. This is the modem resolving its own serving cell
+              internally, which it will only do once it is registered -- in
+              practice, once it has a provisioned SIM. Unavailable here.
+
+  auto        The default, and what the shipped unit runs. Reads modem
+              registration state from ModemManager over D-Bus and uses
+              qmi-cellid only while the modem is actually registered;
+              otherwise runs wifi and cell together and publishes whichever
+              has a current fix, preferring wifi. Re-checks every --recheck
+              seconds, so a SIM that gets provisioned later is picked up
+              without a restart.
+
+The priority in 'auto' is qmi-cellid, then wifi, then cell. That is an ordering
+by how directly each answer is tied to where the phone is, not by how often it
+works:
+
+    qmi-cellid   the modem's own resolved position
+    wifi         several access points a few tens of metres away, trilaterated
+    cell         one tower up to a few kilometres away; the answer is the
+                 tower's surveyed position, not yours
+
+A source only wins if its fix is current (--stale, --wifi-stale, --cell-stale)
+and honest (see "Not over-claiming accuracy"). So a stale WiFi fix yields to a
+current cell fix automatically, and no fix at all is published if the only
+candidate is too coarse to describe truthfully.
+
+
+Which QMI services get opened, and why that is the safety story
+---------------------------------------------------------------
+
+    --source=wifi         no QMI at all
+    --source=cell         QMI NAS  (read-only)
+    --source=auto         QMI NAS  (read-only), plus QMI LOC only once the
+                          modem is registered
+    --source=qmi-cellid   QMI LOC
+
+The thing that resets this SoC is QMI_LOC_START in a mode that brings up the
+measurement engine. QMI NAS is the network-access service: get-cell-location-
+info and get-serving-system report what the radio has already measured while
+looking for a network. They start nothing. They have been run on this phone
+several hundred times during development with no uptime reset.
+
+The registration check that gates the LOC path is a plain D-Bus property read
+on org.freedesktop.ModemManager1.Modem.Modem3gpp. It does not open the QMI
+device, allocate a LOC client, or go anywhere near the location engine. With an
+unregistered modem, 'auto' means no LOC session is ever started, so the reset
+bug is out of reach rather than merely guarded against.
+
+--no-cell removes even the NAS client, if you want a daemon that provably
+speaks no QMI outside --source=qmi-cellid.
+
+
+The three operation-mode gates, and why they are state and not a chain
+-----------------------------------------------------------------------
+
+QMI_LOC_START is sent from exactly one function, start_session(). It is reached
+only when all three of these have said 'cellid':
+
+    gate 1   the set_operation_mode request is acked
+    gate 2   the set-operation-mode INDICATION reports SUCCESS
+    gate 3   get-operation-mode reads the mode back as 'cellid'
+
+Gate 1 alone is not enough: the LOC service acks the request and reports the
+real outcome in the indication, so a mode that was accepted but never applied
+leaves the engine in standalone -- which reboots the phone.
+
+These used to be a chain: ack callback -> indication -> readback -> start. That
+was wrong, and the fault injection is what showed it. MEASURED on this modem,
+2026-09-05, with --test-gate-failure=indication:
+
+    setting LOC operation mode to cellid
+    --test-gate-failure=indication: simulating a failed indication gate
+    REFUSING TO START A GNSS SESSION: modem refused operation mode cellid
+    set_operation_mode acked, waiting for the indication     <- ack arrived LAST
+
+The indication is delivered before the response, every time. So the chain
+advanced to the readback -- and could have reached QMI_LOC_START -- before gate
+1 had produced a verdict at all, and a late ack failure would have been
+reported after the session was already running. Each gate now records its
+verdict, _after_set_mode() advances only when gates 1 and 2 have both landed in
+whatever order they arrive, and start_session() re-asserts all three plus the
+operation mode before it sends anything. A missing gate is a refusal, not a
+session.
+
+refuse() also drops the state machine back to idle before doing anything else,
+so a reply still in flight for a gate that has already failed cannot find a
+state it recognises and restart the sequence.
+
+Proving it, without a modem that misbehaves:
+
+    rhodep-gnss-daemon --source qmi-cellid --test-gate-failure=ack
+    rhodep-gnss-daemon --source qmi-cellid --test-gate-failure=indication
+    rhodep-gnss-daemon --source qmi-cellid --test-gate-failure=readback
+
+Each must print REFUSING TO START A GNSS SESSION and must never print "starting
+LOC session". --self-test covers the same preconditions without hardware.
+
+--operation-mode and --no-mode-readback both require
+--i-know-this-reboots-the-phone. The second one is not obviously a safety flag
+-- it only removes gate 3 -- but removing a gate on a phone whose failure mode
+is a power cycle is exactly what that flag is for.
+
+
+ModemManager is the other way in
+--------------------------------
+
+The daemon can only guard its own path. ModemManager reaches the same
+measurement engine and has no gates at all. MEASURED here:
+
+    $ mmcli -m any --location-status
+      Location | capabilities: 3gpp-lac-ci, gps-raw, gps-nmea, agps-msa, agps-msb
+               |      enabled: 3gpp-lac-ci
+
+gps-raw, gps-nmea, agps-msa and agps-msb all reset this SoC, and all four are
+one D-Bus call to Location.Setup() away -- from a settings panel, a phone
+shell's location toggle, geoclue's modem-gps source, or `mmcli
+--location-enable-gps-nmea`. So this package ships
+
+    /usr/share/dbus-1/system.d/zz-rhodep-no-modem-gnss.conf
+
+a mandatory D-Bus deny of Location.Setup, Location.InjectAssistanceData and
+Location.SetSuplServer. context="mandatory" because ModemManager's own policy
+allows root everything and D-Bus applies default < user < mandatory; the
+accident being prevented is very much a `sudo mmcli` one. GetLocation and
+SetGpsRefreshRate are left alone: neither can start the engine. Verify with
+
+    $ mmcli -m any --location-enable-3gpp
+    error: ... Rejected send message ...
+
+(that call is safe to run either way: it asks for the LAC/CI source, which is
+already enabled and touches no GNSS.) To undo on a fixed kernel, delete the
+file and `systemctl reload dbus`.
+
+What this does NOT stop is ModemManager probing the LOC service by itself while
+initialising a modem, to fill in the capability list above:
+
+    <wrn> [modem0] couldn't load SUPL server: Failed to receive indication ...
+    <wrn> [modem0] couldn't load supported assistance data types: Failed to
+                   receive indication with the predicted orbits data source
+
+Those are LOC reads (QMI_LOC_GET_SERVER and the predicted-orbits/XTRA data
+source query), they happen on every modem enumeration, there is no ModemManager
+configuration in 1.24 that disables them, and they have been observed on this
+phone several times without a reset. What can be controlled is how often a
+modem gets enumerated -- see below.
+
+
+rhodep-qmi-proxy.service
+------------------------
+
+libqmi clients that open a device with the PROXY flag share one
+/usr/libexec/qmi-proxy, forked on demand by whichever client finds the socket
+missing first. MEASURED, 2026-09-05: that was rhodep-gnss.service, so the proxy
+lived in its cgroup, and the default KillMode=control-group meant every
+`systemctl restart rhodep-gnss` killed ModemManager's transport with it:
+
+    19:33:08  ModemManager: Cannot read from istream: connection broken
+    19:33:08  ModemManager: [modem0] port 'qrtr0' no longer controllable, reprobing
+    19:33:26  ModemManager: [modem1] couldn't load SUPL server: ...
+    19:33:36  ModemManager: [modem1] couldn't load supported assistance data types: ...
+
+i.e. restarting the location daemon re-enumerated the modem and made
+ModemManager re-probe the LOC service. rhodep-qmi-proxy.service owns the proxy
+instead, so neither daemon forks one and neither can take the other's transport
+down. rhodep-gnss.service also carries KillMode=process as a fallback for the
+case where that unit is masked.
+
+
+The wifi source
+---------------
+
+Scanning. Two backends, --wifi-backend:
+
+  nm    NetworkManager over D-Bus (default, tried first). NM is already
+        scanning to keep its own AP list warm, so reading it is free. When
+        that list is too old or too thin -- which it is right after a boot, and
+        while associated NM only rescans every couple of minutes -- the daemon
+        asks NM for a scan via RequestScan and waits for LastScan to move.
+        Going through NM means NM schedules the scan around the active
+        connection instead of two things fighting over the radio.
+
+  iw    `iw dev IF scan dump` for exact dBm out of the kernel BSS cache,
+        falling back to a full `iw dev IF scan`. Needs root. NM reports signal
+        as a 0-100 quality which has to be converted back to dBm and comes out
+        about 5 dB pessimistic; iw gives the real number. The services only use
+        signal to weight APs against each other, so it rarely matters.
+
+Access points whose SSID ends in _nomap are excluded, per the opt-out
+convention. Nothing is ever submitted back to any service: submission would
+need a trustworthy GPS fix to tie the BSSIDs to, and the only fix this phone
+can produce is itself derived from a geolocation service.
+
+Fewer than two visible access points produces "only 0 usable AP(s) and 0
+cell(s); need 2 AP(s) or 1 cell(s)". Two is Ichnaea's minimum; with one AP you
+are really just asking the service to geolocate your ISP.
+
+
+The cell source
+---------------
+
+Reading the cells. The modem is asked, every --cell-poll seconds (default 15),
+for QMI NAS get-cell-location-info. On this phone that is:
+
+    $ qmicli -p -d qrtr://0 --nas-get-cell-location-info
+    GERAN Info
+        Cell ID: '60858'
+        PLMN: '72234'
+        Location Area Code: '420'
+        GERAN Absolute RF Channel Number: '179'
+        Base Station Identity Code: '19'
+        Timing Advance: 'unavailable'
+        RX Level: -97 dBm > level > -96 dBm ('14')
+        Cell [0]:
+            Cell ID: '40012'
+            PLMN: '72234'
+            Location Area Code: '421'
+            GERAN Absolute RF Channel Number: '239'
+            Base Station Identity Code: '4'
+            RX Level: -103 dBm > level > -102 dBm ('8')
+
+i.e. MCC 722, MNC 34, LAC 420, CID 60858 for the serving cell, and a decoded
+neighbour on LAC 421. Note that this works with a SIM the network rejects and a
+modem that reports "not-registered-searching": a modem measures and decodes the
+broadcast identity of the cells around it as part of searching, whether or not
+it ever registers.
+
+ModemManager's own --location-get reports nothing here, because MM only
+populates 3GPP LAC/CI from a *registered* serving cell. Reading NAS directly
+bypasses that. (3gpp-lac-ci is enabled in MM regardless; it makes no
+difference.)
+
+Intermittency, and why the reader is separate from the query. The same command
+run ten times in a row returns anything from a full identity to
+"NoNetworkFound" to PLMN 00-00 to a neighbour whose ARFCN and signal are known
+but whose Cell ID reads 'unavailable' -- a neighbour is measured several
+seconds before its BCCH has been read. Observed hit rates on this phone have
+ranged from 2/10 while the modem was actively cycling through bands to 10/10
+once it settled on a cell in limited service. So:
+
+  * CellReader polls on the short --cell-poll timer, keeps the last good
+    answer, and records how old it is;
+  * CellSource asks the providers every --cell-interval (default 60) using
+    whatever the reader has, provided it is newer than --cell-max-age
+    (default 300);
+  * anything with cell id 0, LAC 0 or an all-ones field is discarded, not
+    submitted. Asking a database about cell zero is asking for a wrong answer.
+
+Backends, --cell-backend: 'qmi' talks to libqmi in process through
+gir1.2-qmi-1.0; 'qmicli' shells out to the qmicli binary from libqmi-utils;
+'auto' (default) tries qmi and falls back to qmicli. They send the same message.
+One known difference: pygobject cannot marshal libqmi's fixed-size PLMN field
+inside the neighbour-cell struct ("Array type is assumed to be a pointer, but
+item size is 1 bytes"), so the in-process backend assumes neighbours are on the
+serving PLMN -- true by construction for a GERAN BA list -- while the qmicli
+backend reads each neighbour's PLMN exactly.
+
+Providers, tried in order:
+
+  1. the offline OpenCelliD extract, /var/lib/rhodep-gnss/cells.sqlite, if one
+     has been built. First because it is free, instant, private and works with
+     the WAN down.
+  2. BeaconDB, https://api.beacondb.net/v1/geolocate
+  3. Positon, https://api.positon.xyz/v1/geolocate?key=...
+
+MEASURED on 2026-09-05 in Rosario/AR, for GSM 722-34 LAC 420 CID 60858:
+
+    offline (OpenCelliD 2024-05 + MLS 2024-03, 652905 cells for MCC 722)
+                                    miss - the identity is not in either dump
+    BeaconDB                        HTTP 404, no coverage
+    Positon                         -32.952961, -60.643772, accuracy 250 m
+
+The Positon answer is 137 m from the WiFi fix taken at the same moment, which
+is consistent with a 250 m claim. A second, independently decoded neighbour
+cell (LAC 421 CID 40012) also resolves, to -32.955648, -60.645272 at 159 m.
+
+About OpenCelliD's API. https://opencellid.org/cell/get needs an API access
+token; without one it answers {"error":"API Key not known: ","code":2} with
+HTTP 200, and an invalid token gets the same. There is no anonymous or keyless
+mode. Tokens are free, but registration is a web form at
+https://my.opencellid.org/register asking for a name and an e-mail address and
+protected by reCAPTCHA, so one cannot be obtained non-interactively. This
+package therefore does not ship a token and does not query the OpenCelliD API.
+If you have one, put it in TOKEN= in /etc/default/rhodep-cell-db and
+rhodep-cell-db will use the official, current, per-country export instead of
+the archived mirror.
+
+
+The offline cell database
+-------------------------
+
+    rhodep-cell-db build --mcc 722 --source ocid,mls    # needs root to write
+    rhodep-cell-db info
+    rhodep-cell-db lookup --mcc 722 --mnc 34 --lac 420 --cid 60858 --radio gsm
+    rhodep-cell-db self-test
+
+Both binaries live in /usr/local/sbin, which is NOT in sudo's secure_path on
+this image (Defaults secure_path="/usr/sbin:/usr/bin:/sbin:/bin"), so anything
+run under sudo needs the full path:
+
+    sudo /usr/local/sbin/rhodep-cell-db build --mcc 722 --source ocid,mls
+
+info, lookup and self-test are read-only and do not need root at all.
+
+Sources, all keyless:
+
+  ocid  Internet Archive mirror of the OpenCelliD full export, 2024-05-19,
+        CC-BY-SA 4.0. 1.1 GB compressed.
+  mls   Internet Archive copy of the final Mozilla Location Service cell
+        export, 2024-03-27, public domain. 1.6 GB compressed. Frozen for good,
+        MLS having shut down in 2024, but it was an independent survey.
+
+Comma-separate them to merge; the first one named wins where they disagree.
+The dump is streamed and filtered on the fly, so nothing is spooled to disk and
+memory stays bounded regardless of dump size. MEASURED for MCC 722:
+
+    ocid alone      312146 cells
+    ocid,mls        652905 cells, 29.2 MiB of SQLite, 530 s over a 5 MB/s link
+                    (206603 UMTS / 53383 GSM / 52160 LTE from ocid, plus
+                     340759 more from mls)
+
+A prebuilt database is NOT shipped in this package, deliberately. See the next
+section for why it would be misleading here, and note that it would also be
+29 MiB of Argentina in a package installed on phones that are not in Argentina.
+
+rhodep-cell-db.timer refreshes it monthly and is shipped DISABLED, because a
+refresh streams over a gigabyte and a package should not decide to do that on
+someone's phone:
+
+    systemctl enable --now rhodep-cell-db.timer
+
+Configure it in /etc/default/rhodep-cell-db (MCC, SOURCE, DB, TOKEN). Note that
+with the default archived sources a refresh is pure waste -- they are static
+snapshots that will never change -- so building once by hand is usually the
+right answer. The timer becomes worth enabling once TOKEN= is set.
+
+Lookups are exact on (mcc, mnc, lac, cid), with the radio type used when it
+matches and ignored when it does not, since a hit on the same identity under a
+different radio is still an exact identity. There is deliberately no "nearest
+cell in this location area" mode: an LAC centroid is the lacf answer the daemon
+refuses from the network providers, and it would be no more honest for coming
+out of a local file. When several observed cells resolve, the answer is their
+inverse-variance-weighted centroid and the accuracy is the largest of
+(distance from the answer to that cell) + (that cell's coverage radius) over
+all of them -- a circle that contains every contributing cell's entire claimed
+coverage, rather than an average that no measurement supports.
+
+
+Why the offline database misses this phone's own cell
+------------------------------------------------------
+
+This is worth stating plainly, because it looks like a bug and is not.
+
+The 2024 OpenCelliD export has 4572 cells within 3 km of this flat. The area is
+very well surveyed. But its GSM cells for operator 722-34 here are under LAC
+400, with cell ids 60213, 40213, 40012, 30213, 10012 and so on, while the modem
+today reports LAC 420 CID 60858 and LAC 421 CID 40012. Telecom Argentina
+appears to have renumbered its GERAN location areas since the dump was taken.
+CID 60858 does not appear anywhere in MCC 722 in either dump; the only 60858 in
+Argentina belongs to operator 722-07, in Neuquén, 800 km away -- which is
+exactly why matching is on the full (mcc, mnc, lac, cid) tuple and never on
+cell id alone.
+
+A stale dump does not degrade gracefully into a worse fix. It simply does not
+contain the key you are looking for. That is the whole argument for keeping a
+provider chain instead of picking one provider.
+
+OpenCelliD's own exports are limited to the last 18 months of observations,
+which is why a 2024 mirror is what is publicly available without a token; the
+OpenCelliD API has no such limit, which is a reason to get a token if you can.
+
+For completeness, one other keyless cell API was measured and rejected:
+api.mylnikov.org answers for this cell, but with a "range" of 18.7 km at a
+position 72 km from the truth -- not even self-consistent. It is not in the
+chain. --max-accuracy would refuse it anyway.
+
+
+Fusing WiFi and cell
+--------------------
+
+--fuse sends the WiFi scan and the cell list in one Ichnaea request. Both
+BeaconDB and Positon accept that. It is off by default for two reasons: the
+reply does not say which array it matched, so the resulting fix cannot be
+attributed to a source, and MEASURED here it changes nothing -- a fused query
+returns the same 23 m answer as the WiFi-only query while WiFi works, and when
+WiFi stops working the separate cell source produces its own fix anyway.
+
+
+The considerIp trap
+-------------------
+
+Every geolocate request this daemon sends contains "considerIp": false, and
+that is not a detail.
+
+Leave it out and BeaconDB answers HTTP 200 with a location and
+"fallback": "ipf". That is DB-IP geolocation of your egress IP address. On this
+phone it is 25 km wrong, and if the phone is behind a VPN or a carrier NAT it
+can be a different country. Nothing about the reply says "this is a guess"
+except that one field, and an HTTP 200 with plausible coordinates looks exactly
+like a success.
+
+So: considerIp is false, and any reply that comes back flagged ipf (IP address)
+or lacf (location area centroid) is refused anyway, as is anything coarser than
+--max-accuracy (default 5000 m). --allow-fallback turns all of that off if you
+have a reason to want it.
+
+
+Trying it by hand
+-----------------
+
+    rhodep-gnss-daemon --locate-once     # one wifi scan + one query, printed
+    sudo /usr/local/sbin/rhodep-gnss-daemon --cells-once
+                                         # one cell read + the provider chain
+    rhodep-gnss-daemon --self-test       # 112 checks, no hardware, no network
+
+--cells-once needs root, for AF_QIPCRTR, and the full path, because
+/usr/local/sbin is not in sudo's secure_path on this image.
+
+--locate-once and --cells-once each do exactly one lookup, print what they
+submitted, the coordinates, the accuracy, what a consumer bucketing our HDOP
+will conclude, an OpenStreetMap link and the NMEA that would have been emitted,
+then exit. Neither opens a socket. --cells-once opens QMI NAS read-only and
+prints the per-provider outcome:
+
+    provider chain:
+      - opencellid-offline: none of the 1 cell(s) are in the dump
+      - api.beacondb.net: HTTP 404 (no coverage for these 1 cell(s))
+      - api.positon.xyz: hit
+
+
+Why the operation mode matters
+------------------------------
+
+(All of this applies to --source=qmi-cellid, and to --source=auto once the
+modem is registered. In wifi and cell modes none of it runs.)
+
+The check is deliberately paranoid, because the failure mode is a reboot:
+
+  1. QMI_LOC_SET_OPERATION_MODE must be acked, and
+  2. the set-operation-mode *indication* must come back SUCCESS - the ack alone
+     only says the request was accepted, and
+  3. QMI_LOC_GET_OPERATION_MODE must read the mode back as cellid.
+
+A set that is acked but not applied leaves the engine in standalone, which is
+exactly the case that reboots the phone, so "assume it worked" is not an option
+here.
+
+If any of those fails the daemon logs "REFUSING TO START A GNSS SESSION" and
+exits 3 without ever sending QMI_LOC_START. That path can be exercised without
+waiting for a modem that misbehaves:
+
+    rhodep-gnss-daemon --test-gate-failure=ack        --socket '' --tcp 2960
+    rhodep-gnss-daemon --test-gate-failure=indication --socket '' --tcp 2961
+    rhodep-gnss-daemon --test-gate-failure=readback   --socket '' --tcp 2962
+
+Exit 3 rather than 1 so systemd can tell a decision from a fault:
+rhodep-gnss.service carries RestartPreventExitStatus=3, so a refusal leaves the
+unit visibly failed instead of restarting into the same refusal forever. That
+replaced a StartLimitBurst=5, which counted every start including successful
+ones and `systemctl restart`, and MEASURED here locked the daemon out for five
+minutes after five ordinary restarts, taking /run/gnss-share.sock with it.
+
+--i-know-this-reboots-the-phone unlocks --operation-mode for future testing,
+and is also required by --no-mode-readback, which removes gate 3. Do not use
+either on hardware you want to stay up.
+
+
+The sentences
+-------------
+
+In cellid mode the modem's own NMEA output is a bare $PSTIS, once per second,
+which gpsd and geoclue can do nothing with, and the network sources produce no
+NMEA at all. So the daemon builds $GPGGA, $GPRMC and $GPGSA at 1 Hz from
+whichever position it has, with correct checksums. The modem's own sentences
+are passed through as well unless --no-passthrough is given.
+
+GGA fix quality is reported as 1 ("GPS fix") when there is a position. NMEA
+0183 has no code for a network/cell-id/WiFi fix and gpsd treats 0 as no fix at
+all, so 1 is the only value that makes the fix visible; the satellite count
+stays 0.
+
+$GPGST is emitted as well whenever the source knows its real accuracy, which
+the geolocation services and the offline database both do. GST is the only NMEA
+sentence that carries an error estimate in metres rather than a dimensionless
+DOP. gpsd 3.27.5 parses it and republishes it verbatim as its own report class,
+but, measured here, does not fold it into TPV: TPV's eph stays HDOP times
+gpsd's 19 m UERE. So a client that wants the real number reads the GST report;
+a client that reads TPV.eph gets a conservative overestimate. Neither is told
+the fix is better than it is, which is the property that matters.
+
+
+Not over-claiming accuracy
+--------------------------
+
+A network fix has no satellite geometry, so whatever goes in the HDOP field is
+a fabrication. The question is which fabrication. Consumers bucket HDOP into
+quality bands; geoclue 2.8.1, measured on this phone by feeding it synthetic
+GGA at fixed HDOP, maps them to:
+
+    HDOP <=1 -> 0 m    <=2 -> 1 m     <=5 -> 3 m
+         <=10 -> 50 m  <=20 -> 100 m   >20 -> 300 m
+
+Scaling accuracy by the conventional 5 m per DOP is therefore actively
+harmful: a 22 m WiFi fix becomes HDOP 4.4, lands in the "good" band, and
+geoclue reports 3 m -- a sevenfold overstatement. So instead the daemon picks
+the lowest band whose implied accuracy is still at least as large as the
+accuracy it was actually given, and emits an HDOP from inside it. Consumers
+that bucket HDOP round the error up, never down; consumers that read GST get
+the exact metres anyway.
+
+Cell-tower fixes make that table's ceiling matter. It saturates at 300 m, so
+there is no HDOP -- no value at all -- that tells geoclue "1200 m". Any fix
+coarser than 300 m would reach geoclue as a claim of 300 m, with nothing in the
+stream to contradict it. $GPGST would still carry the truth, but geoclue does
+not read GST: `strings /usr/libexec/geoclue` on this phone contains "$GPGGA"
+and nothing else, and gclue-nmea-source.c only ever parses GGA.
+
+So the daemon refuses to publish a fix whose accuracy exceeds
+--max-nmea-accuracy, which defaults to exactly that 300 m ceiling. It logs why,
+once:
+
+    cell fix from api.positon.xyz is 1200m, coarser than the 300m that $GPGGA's
+    HDOP field can honestly express; not publishing it (raise or disable
+    --max-nmea-accuracy to override)
+
+--max-nmea-accuracy 0 disables the check, for anyone who would rather have a
+coarse position than none. The GST metres stay honest either way.
+
+The resulting invariant, which --self-test checks directly, is: for every fix
+this daemon publishes, the accuracy a consumer infers from the HDOP is at least
+the accuracy the source actually reported.
+
+MEASURED at this location:
+
+                            WiFi fix            cell fix
+    truth (Positon)             23 m              250 m
+    $GPGST                      23 m              250 m   exact
+    geoclue                     50 m              300 m
+    gpsd TPV eph               142 m              475 m   HDOP x 19 m UERE
+    cgps 2D Err                467 ft            1558 ft
+
+Every number in every column is at least the truth. That is the intended
+outcome; the alternative ordering, where a consumer believes 3 m, is not
+recoverable downstream.
+
+
+Timestamps
+----------
+
+Sentences carry the time they are sent, not the time the position was
+obtained -- except for QMI positions less than two seconds old, which keep the
+modem's own more precise UTC. The network sources only produce a position every
+--wifi-interval / --cell-interval, and re-broadcasting one at 1 Hz under its
+original timestamp freezes the clock in the stream; gpsd reads that as one
+endlessly repeated epoch and stops propagating the fix to clients. Stamping
+with the current time says "this is where you are now", which is the claim a
+network fix is making anyway.
+
+When there is no position - or the last one is older than the relevant staleness
+limit - the sentences are still emitted, with RMC status V and GGA quality 0.
+That keeps gpsd and geoclue attached to a live source instead of a silent
+socket.
+
+
+When there is no position
+-------------------------
+
+qmi-cellid needs a registered modem. If the modem is not registered (no SIM, or
+a SIM the network rejects - check `mmcli -m 0` for "registration: searching"
+and any "network rejection error") every position report comes back with
+session status general-failure and no coordinates. --source=auto avoids this
+case entirely by not using the QMI LOC path at all until the modem registers.
+
+WiFi geolocation fails when the services have no data for the BSSIDs in range.
+The daemon logs the reason once rather than every interval, since "this area
+is not in the database" does not change from minute to minute:
+
+    wifi geolocation failed: api.beacondb.net: HTTP 404 (no coverage for
+    these 12 BSSID(s)); api.positon.xyz: HTTP 404 ...
+
+Cell geolocation fails the same way, and additionally when the modem has not
+decoded any identity yet:
+
+    cell reader: modem reported no decoded cell identity (it is still searching)
+    cell geolocation failed: opencellid-offline: none of the 1 cell(s) are in
+    the dump; api.beacondb.net: HTTP 404 ...
+
+If every configured provider says that, cell positioning genuinely cannot work
+for that cell and there is no setting that will fix it. It is a legitimate
+outcome, and it is why the daemon has three sources rather than one.
+
+In all of these cases the daemon runs normally and publishes valid no-fix
+sentences, keeping gpsd and geoclue attached to a live source.
+
+
+Checking it
+-----------
+
+    systemctl status rhodep-gnss
+    journalctl -u rhodep-gnss -f
+
+    socat -u UNIX-CONNECT:/run/gnss-share.sock -      # the UNIX feed
+    nc 127.0.0.1 2948                                 # the TCP feed
+    gpspipe -r ; gpspipe -w                           # through gpsd
+    cgps -s
+
+netcat-traditional (the /usr/bin/nc on this image) has no -U, hence socat.
+
+    /usr/local/sbin/rhodep-gnss-daemon --self-test    # NMEA generator, scan
+                                                      # and cell-info parsers,
+                                                      # PLMN decoding, provider
+                                                      # request shapes, source
+                                                      # priority, accuracy
+                                                      # policy. No hardware,
+                                                      # no network.
+    /usr/local/sbin/rhodep-cell-db self-test          # builder and lookups
+
+Note that geoclue behaves differently for uid 0; run geoclue client tools as an
+ordinary user or they will hang waiting for a client that never gets created.
+
+gpsd
+----
+
+gpsd cannot read UNIX sockets, only serial devices and tcp://|udp:// URLs, so
+it gets the TCP feed. The package ships
+/usr/lib/systemd/system/gpsd.service.d/10-rhodep-gnss.conf, which sets
+
+    DEVICES=tcp://127.0.0.1:2948
+    GPSD_OPTIONS=-n
+
+and, because drop-ins are merged after the unit's own EnvironmentFile=, wins
+over /etc/default/gpsd. The postinst writes the same values into
+/etc/default/gpsd as well, but only while that file is still at the pristine
+Debian default, and keeps a .rhodep-gnss.bak that postrm restores.
+
+geoclue
+-------
+
+/etc/geoclue/conf.d/20-rhodep-wifi.conf:
+
+  * turns on network-nmea and points it at /run/gnss-share.sock, which is what
+    actually delivers a position here;
+  * turns on the wifi source and pins its URL to BeaconDB. geoclue 2.8 already
+    defaults to BeaconDB, so this is mostly making it explicit -- and note
+    that geoclue's wifi source takes exactly one URL and cannot fail over,
+    which is why the BeaconDB-then-Positon chain lives in the daemon instead.
+    Where BeaconDB has no coverage this source simply produces nothing;
+  * turns off modem-gps, on purpose. It asks ModemManager to enable location,
+    ModemManager enables unassisted GNSS, and that is the thing that reboots
+    this phone;
+  * turns off the ip source, whose answer here is the ISP's city at 25 km. It
+    would otherwise hand applications a plausible-looking wrong answer in
+    exactly the situation this package exists to fix;
+  * marks a few command-line clients as system components, so they get a
+    location without an agent to authorize them. Without this a tool with no
+    .desktop file blocks until it times out.
+
+geoclue is dbus-activated, so it picks up config changes on its next start:
+
+    systemctl stop geoclue        # next client gets the new configuration
+
+Attribution
+-----------
+
+Cell tower data from OpenCelliD is (c) OpenCelliD contributors and licensed
+CC-BY-SA 4.0; see https://opencellid.org/. Cell tower data from the Mozilla
+Location Service is in the public domain. `rhodep-cell-db info` prints the
+attribution recorded in whichever database was built, and the daemon logs it
+when it opens one.
+
+See also
+--------
+
+docs/interconnect-sm6375-wip/GNSS-SM6375.md and scripts/rhodep-gnss-test.py in
+the port repository, for how the reset was bisected down to the operation mode.

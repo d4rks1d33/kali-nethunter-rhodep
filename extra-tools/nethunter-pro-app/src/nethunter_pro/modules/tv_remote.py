@@ -966,10 +966,15 @@ class RokuDriver(Driver):
         "vol_up": "VolumeUp", "vol_down": "VolumeDown",
         "vol_mute": "VolumeMute",
         "play_pause": "Play", "play": "Play", "pause": "Play",
-        "stop": "Back",  # Roku has no dedicated Stop; Back exits playback
-        "next": "Fwd", "prev": "Rev",
+        "stop": "Back",       # Roku has no Stop; Back exits playback
+        "next": "Fwd",        # skip forward / next track
+        "prev": "Rev",        # skip back / prev track
+        "rewind": "Rev",      # seek backward (same ECP key as prev on Roku)
+        "fast_forward": "Fwd",# seek forward (same ECP key as next on Roku)
         "ch_up": "ChannelUp", "ch_down": "ChannelDown",
         "menu": "Info",
+        "settings": "Info",   # closest Roku equivalent
+        "input": "InputTuner",# cycle input (Roku TV)
     }
 
     def _post(self, path: str) -> str:
@@ -1025,17 +1030,25 @@ class SamsungDriver(Driver):
     }
 
     KEYMAP = {
-        "power": "KEY_POWER", "home": "KEY_HOME", "back": "KEY_RETURN",
-        "up": "KEY_UP", "down": "KEY_DOWN",
-        "left": "KEY_LEFT", "right": "KEY_RIGHT",
-        "ok": "KEY_ENTER",
-        "vol_up": "KEY_VOLUP", "vol_down": "KEY_VOLDOWN",
-        "vol_mute": "KEY_MUTE",
-        "play_pause": "KEY_PLAY", "play": "KEY_PLAY", "pause": "KEY_PAUSE",
-        "stop": "KEY_STOP",
-        "next": "KEY_FF", "prev": "KEY_REWIND",
-        "ch_up": "KEY_CHUP", "ch_down": "KEY_CHDOWN",
-        "menu": "KEY_MENU", "settings": "KEY_TOOLS",
+        "power":        "KEY_POWER",
+        "home":         "KEY_HOME",
+        "back":         "KEY_RETURN",
+        "up":           "KEY_UP",   "down":  "KEY_DOWN",
+        "left":         "KEY_LEFT", "right": "KEY_RIGHT",
+        "ok":           "KEY_ENTER",
+        "vol_up":       "KEY_VOLUP", "vol_down": "KEY_VOLDOWN",
+        "vol_mute":     "KEY_MUTE",
+        "play_pause":   "KEY_PLAYPAUSE",  # was KEY_PLAY (play-only); PLAYPAUSE is the toggle
+        "play":         "KEY_PLAY",
+        "pause":        "KEY_PAUSE",
+        "stop":         "KEY_STOP",
+        "next":         "KEY_NEXT",       # skip-track (was KEY_FF = seek-forward)
+        "prev":         "KEY_PREVIOUS",   # skip-track (was KEY_REWIND = seek-back)
+        "rewind":       "KEY_REWIND",     # seek backward
+        "fast_forward": "KEY_FF",         # seek forward
+        "ch_up":        "KEY_CHUP", "ch_down": "KEY_CHDOWN",
+        "menu":         "KEY_MENU",  "settings": "KEY_TOOLS",
+        "input":        "KEY_SOURCE",     # input / HDMI source switcher
         "0": "KEY_0", "1": "KEY_1", "2": "KEY_2", "3": "KEY_3",
         "4": "KEY_4", "5": "KEY_5", "6": "KEY_6", "7": "KEY_7",
         "8": "KEY_8", "9": "KEY_9",
@@ -1062,7 +1075,9 @@ class SamsungDriver(Driver):
         return await asyncio.to_thread(run)
 
     async def send_key(self, key: str) -> str:
-        code = self.KEYMAP.get(key, key)
+        code = self.KEYMAP.get(key)
+        if not code:
+            return f"Samsung: no mapping for '{key}'"  # was silently sending raw key name
         def run() -> str:
             tv = self._tv()
             try:
@@ -1099,16 +1114,25 @@ class LGWebOSDriver(Driver):
     }
 
     KEYMAP = {
-        "power": "power_off",
-        "home": "home", "back": "back",
-        "up": "up", "down": "down", "left": "left", "right": "right",
-        "ok": "ok",
-        "vol_up": "volume_up", "vol_down": "volume_down",
-        "vol_mute": "set_mute", "play_pause": "pause",
-        "play": "play", "pause": "pause", "stop": "stop",
-        "next": "fast_forward", "prev": "rewind",
-        "ch_up": "channel_up", "ch_down": "channel_down",
-        "menu": "menu",
+        "power":        "power_off",
+        "home":         "home",  "back":  "back",
+        "up":           "up",    "down":  "down",
+        "left":         "left",  "right": "right",
+        "ok":           "ok",
+        "vol_up":       "volume_up", "vol_down":  "volume_down",
+        "vol_mute":     "set_mute",
+        "play_pause":   "play",          # was "pause" (always paused); LG "play" is a toggle
+        "play":         "play",
+        "pause":        "pause",
+        "stop":         "stop",
+        "next":         "channel_up",    # bscpylgtv: next track → channel_up (closest equivalent)
+        "prev":         "channel_down",  # same reasoning; skip-track not available
+        "rewind":       "rewind",        # seek backward
+        "fast_forward": "fast_forward",  # seek forward
+        "ch_up":        "channel_up",    "ch_down": "channel_down",
+        "menu":         "menu",
+        "settings":     "info",
+        "input":        "external_input",  # LG input source switcher
         "0": "0", "1": "1", "2": "2", "3": "3", "4": "4",
         "5": "5", "6": "6", "7": "7", "8": "8", "9": "9",
     }
@@ -1135,7 +1159,9 @@ class LGWebOSDriver(Driver):
         return "paired (accepted on TV, key stored)"
 
     async def send_key(self, key: str) -> str:
-        name = self.KEYMAP.get(key, key)
+        name = self.KEYMAP.get(key)
+        if not name:
+            return f"LG: no mapping for '{key}'"
         try:
             c = await self._client()
         except Exception as e:
@@ -1143,7 +1169,6 @@ class LGWebOSDriver(Driver):
         try:
             fn = getattr(c, name, None)
             if fn is None:
-                # Fall back to raw button() call which most keys accept.
                 await c.button(name)
                 return "button " + name
             await fn()
@@ -1182,25 +1207,30 @@ class SonyDriver(Driver):
     # Sony IRCC codes are base64-encoded 20-byte payloads. These are the
     # published ones for the mobile app remote.
     IRCC = {
-        "power":  "AAAAAQAAAAEAAAAVAw==",
-        "home":   "AAAAAQAAAAEAAABgAw==",
-        "back":   "AAAAAgAAAJcAAAAjAw==",
-        "up":     "AAAAAQAAAAEAAAB0Aw==",
-        "down":   "AAAAAQAAAAEAAAB1Aw==",
-        "left":   "AAAAAQAAAAEAAAA0Aw==",
-        "right":  "AAAAAQAAAAEAAAAzAw==",
-        "ok":     "AAAAAQAAAAEAAABlAw==",
-        "vol_up":   "AAAAAQAAAAEAAAASAw==",
-        "vol_down": "AAAAAQAAAAEAAAATAw==",
-        "vol_mute": "AAAAAQAAAAEAAAAUAw==",
-        "play":     "AAAAAgAAAJcAAAAaAw==",
-        "pause":    "AAAAAgAAAJcAAAAZAw==",
-        "stop":     "AAAAAgAAAJcAAAAYAw==",
-        "next":     "AAAAAgAAAJcAAAAcAw==",
-        "prev":     "AAAAAgAAAJcAAAAbAw==",
-        "ch_up":    "AAAAAQAAAAEAAAAQAw==",
-        "ch_down":  "AAAAAQAAAAEAAAARAw==",
-        "menu":     "AAAAAgAAAJcAAAA2Aw==",
+        "power":        "AAAAAQAAAAEAAAAVAw==",
+        "home":         "AAAAAQAAAAEAAABgAw==",
+        "back":         "AAAAAgAAAJcAAAAjAw==",
+        "up":           "AAAAAQAAAAEAAAB0Aw==",
+        "down":         "AAAAAQAAAAEAAAB1Aw==",
+        "left":         "AAAAAQAAAAEAAAA0Aw==",
+        "right":        "AAAAAQAAAAEAAAAzAw==",
+        "ok":           "AAAAAQAAAAEAAABlAw==",
+        "vol_up":       "AAAAAQAAAAEAAAASAw==",
+        "vol_down":     "AAAAAQAAAAEAAAATAw==",
+        "vol_mute":     "AAAAAQAAAAEAAAAUAw==",
+        "play_pause":   "AAAAAgAAAJcAAAAaAw==",  # Sony Play (acts as toggle)
+        "play":         "AAAAAgAAAJcAAAAaAw==",
+        "pause":        "AAAAAgAAAJcAAAAZAw==",
+        "stop":         "AAAAAgAAAJcAAAAYAw==",
+        "next":         "AAAAAgAAAJcAAAAcAw==",
+        "prev":         "AAAAAgAAAJcAAAAbAw==",
+        "rewind":       "AAAAAQAAAAEAAAAlAw==",   # Sony IRCC Rewind
+        "fast_forward": "AAAAAQAAAAEAAAAkAw==",   # Sony IRCC FastForward
+        "ch_up":        "AAAAAQAAAAEAAAAQAw==",
+        "ch_down":      "AAAAAQAAAAEAAAARAw==",
+        "menu":         "AAAAAgAAAJcAAAA2Aw==",
+        "settings":     "AAAAAgAAAMQAAABIAw==",   # Sony SyncMenu (closest to Settings)
+        "input":        "AAAAAQAAAAEAAAAlAw==",    # Sony Input (cycle sources)
         "0": "AAAAAQAAAAEAAAAJAw==",
         "1": "AAAAAQAAAAEAAAAAAw==",
         "2": "AAAAAQAAAAEAAAABAw==",
@@ -1268,13 +1298,27 @@ class VizioDriver(Driver):
     }
 
     KEYMAP = {
-        "power": "pow_toggle",
-        "vol_up": "vol_up", "vol_down": "vol_down",
-        "vol_mute": "mute_toggle",
-        "up": "up", "down": "down", "left": "left", "right": "right",
-        "ok": "ok", "back": "back", "home": "menu",
-        "play": "play", "pause": "pause",
-        "ch_up": "ch_up", "ch_down": "ch_down",
+        "power":        "pow_toggle",
+        "vol_up":       "vol_up",     "vol_down": "vol_down",
+        "vol_mute":     "mute_toggle",
+        "up":           "up",   "down":  "down",
+        "left":         "left", "right": "right",
+        "ok":           "ok",   "back":  "back",
+        "home":         "menu",           # Vizio: Home → Menu
+        "menu":         "menu",
+        "play":         "play",
+        "pause":        "pause",
+        "play_pause":   "pause",          # Vizio has no play/pause toggle; pause is closest
+        "stop":         "pause",          # Vizio has no dedicated stop
+        "next":         "next",
+        "prev":         "previous",
+        "rewind":       "rewind",
+        "fast_forward": "fast_forward",
+        "ch_up":        "ch_up",  "ch_down": "ch_down",
+        "input":        "input_next",     # cycle input sources
+        "0": "num_0", "1": "num_1", "2": "num_2", "3": "num_3",
+        "4": "num_4", "5": "num_5", "6": "num_6", "7": "num_7",
+        "8": "num_8", "9": "num_9",
     }
 
     _PENDING: dict[str, tuple] = {}
@@ -1400,15 +1444,18 @@ class ADBDriver(Driver):
         "cast_url": 0, "screenshot": 2, "input_switch": 0,
     }
 
-    # Android KEYCODEs.
+    # Android KEYCODEs (matches Flipper wlan_androidtv.h for ATV keys).
     KEYMAP = {
         "power": 26, "home": 3, "back": 4,
         "up": 19, "down": 20, "left": 21, "right": 22, "ok": 23,
         "vol_up": 24, "vol_down": 25, "vol_mute": 164,
         "play_pause": 85, "play": 126, "pause": 127, "stop": 86,
         "next": 87, "prev": 88,
+        "rewind": 89,        # KEYCODE_MEDIA_REWIND (Flipper WlanAtvKeyMediaRewind)
+        "fast_forward": 90,  # KEYCODE_MEDIA_FAST_FORWARD (Flipper WlanAtvKeyMediaFastForward)
         "ch_up": 166, "ch_down": 167,
         "menu": 82, "settings": 176,
+        "input": 178,        # KEYCODE_TV_INPUT (Flipper WlanAtvKeyInput)
         "0": 7, "1": 8, "2": 9, "3": 10, "4": 11,
         "5": 12, "6": 13, "7": 14, "8": 15, "9": 16,
     }
@@ -1523,11 +1570,16 @@ class JointSpaceDriver(Driver):
         "ok": "Confirm",
         "vol_up": "VolumeUp", "vol_down": "VolumeDown",
         "vol_mute": "Mute",
-        "play_pause": "PlayPause", "play": "Play",
-        "pause": "Pause", "stop": "Stop",
-        "next": "FastForward", "prev": "Rewind",
-        "ch_up": "ChannelStepUp", "ch_down": "ChannelStepDown",
-        "menu": "Options",
+        "play_pause":   "PlayPause",  "play": "Play",
+        "pause":        "Pause",      "stop": "Stop",
+        "next":         "Next",            # skip track (was FastForward = seek)
+        "prev":         "Previous",        # skip track (was Rewind = seek)
+        "rewind":       "Rewind",          # seek backward
+        "fast_forward": "FastForward",     # seek forward
+        "ch_up":        "ChannelStepUp",  "ch_down": "ChannelStepDown",
+        "menu":         "Options",
+        "settings":     "Setup",
+        "input":        "Source",          # Philips input/source switcher
         "0": "Digit0", "1": "Digit1", "2": "Digit2",
         "3": "Digit3", "4": "Digit4", "5": "Digit5",
         "6": "Digit6", "7": "Digit7", "8": "Digit8", "9": "Digit9",
@@ -1836,12 +1888,22 @@ class TVRemote(NHModule):
 
     # The full pad layout, in the order the buttons render. Each entry
     # is (row_id, key, label). Rows are drawn top-down.
-    PAD_ROWS: list[list[tuple[str, str]]] = [
-        [("power", "Power"), ("vol_mute", "Mute"),
-         ("home", "Home"),   ("back", "Back"),
-         ("input", "Input"), ("menu", "Menu")],   # Input = TV source switcher (Flipper: KEYCODE_TV_INPUT)
-        [("vol_up", "Vol +"), ("ch_up", "Ch +"),
-         ("vol_down", "Vol -"), ("ch_down", "Ch -")],
+    # Each tuple: (key, label, css_class_or_None)
+    # Labels use Unicode symbols for clarity on a small phone screen.
+    PAD_ROWS: list[list[tuple[str, str, str | None]]] = [
+        # Row 1: power controls + navigation helpers
+        [("power",    "⏻ Power",  "destructive-action"),
+         ("vol_mute", "🔇 Mute",   None),
+         ("home",     "⌂ Home",   "suggested-action"),
+         ("back",     "← Back",   None),
+         ("input",    "⎘ Input",  None),   # source switcher (Flipper KEYCODE_TV_INPUT=178)
+         ("menu",     "☰ Menu",   None),
+         ("settings", "⚙ Setts",  None)],
+        # Row 2: volume + channel
+        [("vol_up",   "🔊 Vol +",  None),
+         ("ch_up",    "📺 Ch +",  None),
+         ("vol_down", "🔉 Vol −",  None),
+         ("ch_down",  "📺 Ch −",  None)],
     ]
 
     def __init__(self, app_window):
@@ -1925,65 +1987,75 @@ class TVRemote(NHModule):
                              row_spacing=6,
                              min_children_per_line=2,
                              max_children_per_line=4)
-            for key, label in row:
+            for key, label, css in row:
                 b = Gtk.Button(label=label, valign=Gtk.Align.CENTER)
+                if css:
+                    b.add_css_class(css)
                 b.connect("clicked",
                           lambda _b, k=key: self._send(k))
                 fb.append(b)
             pad_box.append(fb)
 
-        # Dpad in a 3x3 grid so up/down/left/right + OK line up.
-        dpad = Gtk.Grid(row_spacing=6, column_spacing=6,
+        # D-pad: 3×3 grid with larger touch targets and clear directional arrows.
+        # Corner cells are empty; only the cross positions are used.
+        dpad = Gtk.Grid(row_spacing=4, column_spacing=4,
                         halign=Gtk.Align.CENTER)
-        dpad.set_margin_top(6)
-        dpad.set_margin_bottom(6)
-        for key, label, col, row in (
-            ("up", "▲", 1, 0),
-            ("left", "◀", 0, 1),
-            ("ok", "OK", 1, 1),
-            ("right", "▶", 2, 1),
-            ("down", "▼", 1, 2),
+        dpad.set_margin_top(8)
+        dpad.set_margin_bottom(8)
+        DPAD_SIZE = 72   # px — finger-friendly on a phone
+        for key, label, col, row, css in (
+            ("up",    "▲",  1, 0, None),
+            ("left",  "◀",  0, 1, None),
+            ("ok",    "⏎",  1, 1, "suggested-action"),   # return/enter symbol
+            ("right", "▶",  2, 1, None),
+            ("down",  "▼",  1, 2, None),
         ):
             b = Gtk.Button(label=label, valign=Gtk.Align.CENTER,
-                           width_request=64, height_request=48)
-            if key == "ok":
-                b.add_css_class("suggested-action")
+                           width_request=DPAD_SIZE, height_request=DPAD_SIZE)
+            if css:
+                b.add_css_class(css)
             b.connect("clicked", lambda _b, k=key: self._send(k))
             dpad.attach(b, col, row, 1, 1)
         pad_box.append(dpad)
 
-        # Media row
+        # Media transport row.
+        # Layout (Flipper-inspired): ⏪ seek-back | ⏮ skip-prev | ⏯ play/pause |
+        #                            ⏭ skip-next | ⏩ seek-fwd | ⏹ stop
+        # Seek (⏪/⏩) and skip (⏮/⏭) are intentionally distinct.
         media_fb = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE,
-                               homogeneous=True, column_spacing=6,
-                               row_spacing=6,
+                               homogeneous=True, column_spacing=4,
+                               row_spacing=4,
                                min_children_per_line=3,
-                               max_children_per_line=5)
-        # Flipper layout: << (rewind) | ⏮ (prev) | ⏯ | ⏭ (next) | >> (ff)
-        # rewind/fast_forward = seek within track; prev/next = skip track
-        for key, label in (
-            ("rewind", "⏪"), ("prev", "⏮"),
-            ("play_pause", "⏯"),
-            ("next", "⏭"), ("fast_forward", "⏩"),
-            ("stop", "⏹"),
+                               max_children_per_line=6)
+        for key, label, css in (
+            ("rewind",       "⏪", None),
+            ("prev",         "⏮", None),
+            ("play_pause",   "⏯", "suggested-action"),
+            ("next",         "⏭", None),
+            ("fast_forward", "⏩", None),
+            ("stop",         "⏹", "destructive-action"),
         ):
-            b = Gtk.Button(label=label, valign=Gtk.Align.CENTER)
+            b = Gtk.Button(label=label, valign=Gtk.Align.CENTER,
+                           height_request=52)
+            if css:
+                b.add_css_class(css)
             b.connect("clicked", lambda _b, k=key: self._send(k))
             media_fb.append(b)
         pad_box.append(media_fb)
 
-        # Number pad 0-9 (3x4).
-        num_grid = Gtk.Grid(row_spacing=6, column_spacing=6,
+        # Number pad 0-9 (3×4 grid), used for channel entry.
+        num_grid = Gtk.Grid(row_spacing=4, column_spacing=4,
                             halign=Gtk.Align.CENTER)
         num_grid.set_margin_top(6)
         num_grid.set_margin_bottom(6)
         for i in range(1, 10):
             b = Gtk.Button(label=str(i), valign=Gtk.Align.CENTER,
-                           width_request=52, height_request=44)
+                           width_request=58, height_request=50)
             b.connect("clicked", lambda _b, k=str(i): self._send(k))
             num_grid.attach(b, (i - 1) % 3, (i - 1) // 3, 1, 1)
-        # 0 centred on the last row.
+        # 0 centred below the 7-8-9 row.
         b0 = Gtk.Button(label="0", valign=Gtk.Align.CENTER,
-                       width_request=52, height_request=44)
+                        width_request=58, height_request=50)
         b0.connect("clicked", lambda _b: self._send("0"))
         num_grid.attach(b0, 1, 3, 1, 1)
         pad_box.append(num_grid)

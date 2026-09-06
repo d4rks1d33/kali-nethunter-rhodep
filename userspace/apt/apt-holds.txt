@@ -44,6 +44,7 @@ qmlkonsole
 qrtr-tools
 realtek-rtl8188eus-dkms
 rhodep-battery-jeita
+rhodep-gnss
 rhodep-modem-support
 rhodep-usb-otg
 rmtfs

@@ -123,9 +123,9 @@ install -D -m 0644 "$here/apply-holds.sh" /usr/share/doc/rhodep-apt/apply-holds.
 	/usr/local/share/rhodep/apt-holds.txt 2>/dev/null || true
 
 # --- the port's own .debs, which a hold does NOT fully cover ------------------
-# rhodep-battery-jeita, rhodep-modem-support and rhodep-usb-otg are built here
-# and exist only in /var/lib/dpkg/status: no repo, no cached archive. apt says
-# so outright --
+# rhodep-battery-jeita, rhodep-modem-support, rhodep-usb-otg and rhodep-gnss are
+# built here and exist only in /var/lib/dpkg/status: no repo, no cached archive.
+# apt says so outright --
 #
 #	# apt-get install --reinstall rhodep-battery-jeita
 #	Reinstallation of rhodep-battery-jeita is not possible, it cannot be downloaded.
@@ -170,6 +170,34 @@ install -D -m 0644 "$here/apply-holds.sh" /usr/share/doc/rhodep-apt/apply-holds.
 /usr/local/sbin/rhodep-protect-files register usb-otg-conf 0644 \
 	/usr/lib/systemd/system/otg-default-charge.service 2>/dev/null || true
 
+# rhodep-gnss is the same case as the packages above: a .deb built in this repo,
+# present only in /var/lib/dpkg/status with no repo and no cached archive, so a
+# hold stops an upgrade and dpkg's Protected stops removal, but nothing stops
+# `rm` of a file and there is nowhere to re-fetch it from. Losing
+# /usr/local/sbin/rhodep-gnss-daemon means losing the only location this phone
+# has -- satellite GNSS resets the SoC, so there is no fallback -- on a package
+# that still looks installed. So it gets the file layer too.
+#
+# zz-rhodep-no-modem-gnss.conf is the one that matters most to protect: it is
+# the mandatory D-Bus deny that stops anything from enabling GNSS through
+# ModemManager, and enabling GNSS on this modem power-cycles the phone. If an
+# upgrade or an `rm` took it out, an unprivileged D-Bus call could reset the
+# device with no warning. Immutable is exactly right for it.
+/usr/local/sbin/rhodep-protect-files register gnss 0755 \
+	/usr/local/sbin/rhodep-gnss-daemon \
+	/usr/local/sbin/rhodep-cell-db \
+	/usr/local/sbin/rhodep-xtra 2>/dev/null || true
+/usr/local/sbin/rhodep-protect-files register gnss-conf 0644 \
+	/usr/lib/systemd/system/rhodep-gnss.service \
+	/usr/lib/systemd/system/rhodep-qmi-proxy.service \
+	/usr/lib/systemd/system/rhodep-xtra.service \
+	/usr/lib/systemd/system/rhodep-xtra.timer \
+	/usr/lib/systemd/system/rhodep-cell-db.service \
+	/usr/lib/systemd/system/rhodep-cell-db.timer \
+	/usr/lib/systemd/system/gpsd.service.d/10-rhodep-gnss.conf \
+	/usr/share/dbus-1/system.d/zz-rhodep-no-modem-gnss.conf \
+	/etc/geoclue/conf.d/20-rhodep-wifi.conf 2>/dev/null || true
+
 # The enabled state, which the immutable bit cannot protect: `systemctl
 # disable` still works on a file that cannot be deleted. Only `disabled` is
 # ever acted on and only with `enable`, so nothing here restarts a service.
@@ -179,6 +207,14 @@ install -D -m 0644 "$here/apply-holds.sh" /usr/share/doc/rhodep-apt/apply-holds.
 	rhodep-modem-fw.service ath10k-late.service readonly-firmware.mount 2>/dev/null || true
 /usr/local/sbin/rhodep-protect-files register-units usb-otg \
 	otg-default-charge.service 2>/dev/null || true
+# The enabled set the rhodep-gnss postinst leaves behind: the daemon, the shared
+# qmi-proxy it needs up before anything forks its own, and the xtra timer. NOT
+# rhodep-cell-db.timer -- the package ships it disabled on purpose, since a
+# refresh streams over a gigabyte -- so it is left out here too. gpsd.service and
+# gpsd.socket belong to the gpsd package and can be re-enabled from it, so they
+# are not registered.
+/usr/local/sbin/rhodep-protect-files register-units gnss \
+	rhodep-gnss.service rhodep-qmi-proxy.service rhodep-xtra.timer 2>/dev/null || true
 /usr/local/sbin/rhodep-protect-files register-units apt \
 	rhodep-holds-enforce.timer 2>/dev/null || true
 

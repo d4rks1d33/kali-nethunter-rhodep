@@ -39,6 +39,7 @@ from . import pmkid            # noqa: F401
 from . import handshake        # noqa: F401
 # Wi-Fi: utility
 from . import deauth           # noqa: F401
+from . import wifi_beacon_spam # noqa: F401
 # Wi-Fi: rogue AP
 from . import evil_twin        # noqa: F401
 from . import karma            # noqa: F401

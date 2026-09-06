@@ -33,6 +33,13 @@ reproducibly, with `ipa.ko` not loaded.**
 > injected on that boot, and the event registration mask turns out to be a
 > second, independent reset lever. Still **no fix, no measurement report, no
 > satellite ever observed**.
+>
+> **The event-mask half of that is itself now retracted.** `0x3203fff` survives
+> 300 s twice on two boots and `0xffffffffffffffff` survives 300 s, on boots
+> where the time lever is verifiably disarmed, with two positive controls that
+> reset on command. The second lever is **`powerMode`**, not the mask:
+> `powerMode 2` resets with no time anywhere on the boot. Ten runs at
+> ["Retracted: the event registration mask is not a reset lever"](#retracted-the-event-registration-mask-is-not-a-reset-lever).
 
 > ## Narrowed: it is the measurement engine, and `cellid` positioning works
 >
@@ -2049,3 +2056,379 @@ runs created no session and cost nothing. The phone was left with
 `rhodep-gnss.service` and `rhodep-xtra.timer` active, `rhodep-qmi-proxy`
 running, no failed units, `wlan0` up at 192.168.1.53, `qrtr-lookup` showing
 service 16, and `mmcli -L` listing the modem.
+
+---
+
+# Retracted: the event registration mask is not a reset lever
+
+**`0x3203fff` does not reset this phone. Neither does `0xffffffffffffffff`. On a
+boot where the time lever is verifiably disarmed, every event mask tried
+survived — including the exact mask the section above records as a ~100 ms
+reset, twice, on two different boots, and the full 64-bit mask for 300 s. The
+bisection that this session was sent to do could not be run, because there is
+nothing to bisect.**
+
+Ten runs. Six mask survivals, two positive controls that both reset on
+command, and one single-variable pair on the disputed configuration itself.
+Nothing here is a fix and nothing here saw a satellite: `MEASUREMENT REPORTS: 0`
+and `SATELLITE INFO INDICATIONS: 0` in all six survivals, as in every run before
+them.
+
+## The result in one pair
+
+Same command, same boot-clean state, one word different. `0x3203fff` is the
+mask the section above calls a lever, `powerMode 3` and `recurrence=periodic`
+are the configuration it calls safe:
+
+	run 7   ... events=0x3203fff                    -> SURVIVED 300 s, 2157 indications
+	run 9   ... events=0x3203fff preinject=time     -> watchdog reset at QMI_LOC_START
+
+	run 9, /var/lib/systemd/pstore/console-ramoops-0, verbatim:
+	[  154.336786] rhodep-gnss:   read back: operation mode = standalone (4)
+	[  154.338405] rhodep-gnss: REG_EVENTS mask 0x3203fff (0x3203fff)
+	[  158.375297] rhodep-gnss: config verified: opmode=standalone, events=0x3203fff
+	[  158.377362] rhodep-gnss: PREINJECT (no session running): time
+	[  158.381239] rhodep-gnss: RESPOND time: RESP ok (2 ms)
+	[  158.382651] rhodep-gnss: RESPOND time: IND status=SUCCESS 0x01[4]=00000000
+	[  166.396477] rhodep-gnss: QMI_LOC_START  session=11  recurrence=periodic  powerMode=3/1000ms
+	                                       <- console ends here, SoC gone
+	androidboot.bootreason=watchdog   androidboot.powerup_reason=0x00008000
+
+The mask is not the variable. Time is. What the section above reports as a
+second, independent lever is the first lever seen through a boot whose state
+was not checked.
+
+## The controlled series
+
+Every row is `opmode=standalone`, `recurrence=periodic`, `powermode=3,1000`
+unless the row says otherwise, run as
+`rhodep-gnss-bisect.py <sec> ... events=<mask>`. Every run verified
+`read back: operation mode = standalone (4)`,
+`REG_EVENTS mask <the value asked for>` and
+`POSTSTART-VERIFY: powerMode = (3, 1000) APPLIED` before the listening window.
+Every reset is confirmed by `androidboot.bootreason=watchdog` /
+`androidboot.powerup_reason=0x00008000` **and** by the console record ending
+mid-run; every survival by `/proc/uptime` continuity **and** the tool's
+`SURVIVED` line.
+
+	| #  | boot | mask                | added over baseline      | time | listen | outcome                    |
+	| -- | ---- | ------------------- | ------------------------ | ---- | ------ | -------------------------- |
+	| 1  | B    | 0x30001f7           | - (baseline)             | no   | 120 s  | SURVIVED, 645 indications  |
+	| 2  | B    | 0x30007ff           | 0x8 0x200 0x400          | no   | 120 s  | SURVIVED, 903 indications  |
+	| 3  | B    | 0x32039f7           | 0x800 0x1000 0x2000 0x200000 | no | 120 s | SURVIVED, 646 indications |
+	| 4  | B    | 0x3203fff           | all seven ("req")        | no   | 120 s  | SURVIVED, 903 indications  |
+	| 5  | B    | 0xffffffffffffffff  | every bit                | no   | 300 s  | SURVIVED, 2165 indications |
+	| 6  | B    | 0x30001f7           | - (baseline)             | YES  | 120 s  | RESET at QMI_LOC_START     |
+	| 7  | C    | 0x3203fff           | all seven                | no   | 300 s  | SURVIVED, 2157 indications |
+	| 8  | C    | 0x30001f7, powerMode 2 | -                     | no   | 120 s  | RESET at QMI_LOC_START     |
+	| 9  | D    | 0x3203fff           | all seven                | YES  | 120 s  | RESET at QMI_LOC_START     |
+	| 10 | E    | 0x30003f7           | 0x200 only               | no   | 90 s   | SURVIVED, 693 indications  |
+
+Runs 1-6 are one boot, uptime 106.7 -> 1293.6 continuous. Runs 7-8 are one
+boot, 156.2 -> 525.8. The bisection proper is runs 1-4: the seven request bits
+were split in half, neither half reset, and their union — the reported mask —
+did not reset either. Run 5 then removed the "maybe the bit is elsewhere"
+escape by registering all 64.
+
+## How the time lever was disarmed, and how that was checked
+
+`rhodep-xtra.timer` had already fired on the boot this session inherited:
+
+	Sep 06 00:34:02 kali rhodep-xtra[7732]: injected time (NTP-synced, uncertainty 1000 ms)
+
+so that boot was discarded. `systemctl stop`, `systemctl disable`, then a
+deliberate `systemctl reboot`, which recorded
+`androidboot.bootreason=reboot` / `androidboot.powerup_reason=0x00004000` —
+the calibration point for every watchdog reading below. On every boot used for
+a run:
+
+	systemctl show rhodep-xtra.service -p ExecMainStartTimestamp   -> ExecMainStartTimestamp=   (empty)
+	systemctl is-enabled rhodep-xtra.timer                         -> disabled
+	systemctl is-active  rhodep-xtra.timer                         -> inactive
+	journalctl -b | grep -i inject                                 -> nothing
+
+That is the negative check, and on its own it is only an argument about
+userspace. The check that matters is the modem's own behaviour, and it is
+positive: in every one of the six survivals the engine asked the AP for time
+once per fix cycle and was never answered.
+
+	run 1:  REQUEST INVENTORY: 1 kind(s)
+	          request INJECT_TIME_REQ              x129        (120 s)
+	run 7:    request INJECT_TIME_REQ              x308        (300 s)
+
+An engine that has time stops asking — runs 2 and 3 of the section above show
+the 1 Hz loop halting within a second of being answered. 129 unanswered
+requests in 120 s is direct evidence that the engine had no valid time for the
+whole run, which no amount of unit-file inspection could establish.
+
+## Two positive controls, because six survivals prove nothing on a phone that has stopped resetting
+
+Both were run on time-disarmed boots, and both took the SoC down.
+
+**Run 6 — the documented time reproducer, minimal mask.** This is the previous
+section's runs 6 and 8 repeated, making that result `n=3`:
+
+	[ 1285.551137] rhodep-gnss: REG_EVENTS mask 0x30001f7 (min,engine,inject,meas,svpoly)
+	[ 1285.590499] rhodep-gnss: PREINJECT (no session running): time
+	[ 1285.594811] rhodep-gnss: RESPOND time: RESP ok (2 ms)
+	[ 1285.597374] rhodep-gnss: RESPOND time: IND status=SUCCESS 0x01[4]=00000000
+	[ 1293.618216] rhodep-gnss: QMI_LOC_START  session=11  recurrence=periodic  powerMode=3/1000ms
+	                                       <- console ends here, SoC gone
+
+**Run 8 — `powerMode 2`, no time at all.** This one is a new fact, not a
+repeat. The header of this file says the `powerMode` table is "downstream of
+the time lever"; that is true of the *survivals* at modes 3 and 5 and it is
+**not** true of the resets. Mode 2 kills the SoC on a boot where nothing ever
+injected time:
+
+	[  521.736506] rhodep-gnss: REG_EVENTS mask 0x30001f7 (min,engine,inject,meas,svpoly)
+	[  525.770378] rhodep-gnss: config verified: opmode=standalone, events=min,engine,inject,meas,svpoly
+	[  525.772805] rhodep-gnss: QMI_LOC_START  session=11  recurrence=periodic  powerMode=2/1000ms
+	                                       <- console ends here, SoC gone
+
+So there really are two levers, and the second one is **`powerMode`, not the
+event mask**. `powerMode 0/1/2` reset without time; `powerMode 3/5` need time
+to reset. Run 8 also does the job the survivals needed: it proves the phone,
+the firmware state and the reproducer were all still capable of resetting
+during the mask series — five mask survivals at `powerMode 3` were followed,
+on the very next command of the same boot, by a reset.
+
+## Where the retracted observation probably came from
+
+`rhodep-xtra.timer` is not an at-boot job:
+
+	[Timer]
+	OnBootSec=3min
+	OnUnitActiveSec=6h
+	RandomizedDelaySec=20min
+	Persistent=true
+
+It fires at a uniformly random point in **[3 min, 23 min] of every boot**. The
+previous session's run 1 — the one that produced `0x3203fff` and the reset —
+is timestamped `[ 1152.877256]`, i.e. **19.2 minutes into its boot**, which is
+81 % of the way through that window. Its Run 2, the 64-bit mask that died after
+253 s, started at `[ 896.651]`, 60 % of the way through. Neither run carried
+the `ExecMainStartTimestamp` check; that check was introduced two runs later,
+for the `preinject` pair, and the section above says so explicitly ("Both of
+this session's `preinject` runs did exactly that check").
+
+**This cannot be settled by forensics.** The journal on the device retains only
+eight boots, the oldest beginning `Sat 2026-09-05 23:52:57`, and both runs
+predate that:
+
+	journalctl --list-boots   ->  -7 .. 0, oldest FIRST ENTRY Sat 2026-09-05 23:52:57 -03
+
+So the confound is *demonstrated to have been possible and likely*, not
+demonstrated to have occurred. Other differences between the two sessions that
+were not controlled and could in principle matter: the modem's EFS state, the
+XTRA almanac's age, and whatever the phone had been doing in the hours before.
+What is established is the thing that matters operationally — **the mask alone
+does not reset this device**, on two boots, at two mask widths, with the
+positive controls to show the reset was available the whole time.
+
+## The request inventory, which the previous section said could not be taken
+
+It said: "the complete request inventory the brief asked for **cannot be taken
+on this device**, because taking it is itself a reset". That is now false. Here
+it is, 300 s under the full 64-bit mask (run 5) and 300 s under `0x3203fff`
+(run 7):
+
+	run 5, events=0xffffffffffffffff, 300 s, 2165 indications:
+	  indication POSITION_REPORT             x309
+	  indication NMEA                        x309
+	  indication INJECT_TIME_REQ             x309
+	  indication INJECT_PREDICTED_ORBITS_REQ x1
+	  indication FIX_SESSION_STATE           x618
+	  indication WIFI_REQ?                   x618
+	  indication 0x00be                      x1
+	  MEASUREMENT REPORTS: 0
+	  SATELLITE INFO INDICATIONS: 0
+
+	run 7, events=0x3203fff, 300 s, 2157 indications:
+	  request INJECT_TIME_REQ                x308
+	  request WIFI_REQ?                      x616
+
+**Three request kinds, and that is all.** With every bit in the register
+registered for five minutes the engine asks for time (once per fix cycle),
+WiFi (twice per fix cycle) and predicted orbits (once in five minutes). It asks
+for nothing else. In particular, and each of these was registered and produced
+zero indications in runs 3, 5 and 7: no `NI_NOTIFY_VERIFY_REQUEST`, no
+`SENSOR_STREAMING_READY_STATUS`, no `TIME_SYNC_REQUEST`, no
+`SET_SPI_STREAMING_REPORT`, no `LOCATION_SERVER_CONNECTION_REQUEST`.
+
+`0x00cd`, which the previous session saw twice in the four seconds before its
+253 s death, **did not appear at all** in 300 s of the same 64-bit mask here.
+`0x00be` appeared once, carrying only zeros, as before.
+
+## The seven bits, named
+
+From the device's own libqmi introspection data, `Qmi.LocEventRegistrationFlag`
+(`gir1.2-qmi-1.0` 1.38.0-1+b1), which confirms the IDL numbering the previous
+section flagged as unconfirmed:
+
+	0x00000008  NI_NOTIFY_VERIFY_REQUEST
+	0x00000200  WIFI_REQUEST
+	0x00000400  SENSOR_STREAMING_READY_STATUS
+	0x00000800  TIME_SYNC_REQUEST
+	0x00001000  SET_SPI_STREAMING_REPORT
+	0x00002000  LOCATION_SERVER_CONNECTION_REQUEST
+	0x00200000  -- absent from libqmi's enum, which stops at
+	               0x00040000 MOTION_DATA_CONTROL
+
+Six of the seven are confirmed by name against the library on the phone. The
+seventh, `0x200000`, is still only the IDL's `INJECT_WIFI_AP_DATA_REQ` and
+remains unconfirmed. **None of the seven arms a reset, individually as a group
+half, or all together.** Note in particular that `TIME_SYNC_REQUEST (0x800)` —
+by far the most suggestive name in the set, given the other lever — was
+registered in runs 3, 4, 5, 7 and 9 and never produced an indication, and run 3
+registered it with no time present and survived 120 s.
+
+## What bit `0x200` does do: the engine asks for WiFi, twice per fix, in standalone
+
+The one positive finding from the mask work. Run 10 registered
+`WIFI_REQUEST (0x200)` and nothing else over the baseline
+(`events=0x30003f7`), and the previously unidentified `0x002d` indication
+appeared 198 times in 90 s — exactly twice per fix cycle:
+
+	SURVIVED 90 s; indications received: 693
+	  indication POSITION_REPORT            x99
+	  indication INJECT_TIME_REQ            x99
+	  indication FIX_SESSION_STATE          x198
+	  indication WIFI_REQ?                  x198
+
+and run 3, which registered the other four request bits and not `0x200`,
+produced none. So `0x002d` is gated by `WIFI_REQUEST` and by no other bit in
+the group. The previous section identified it as `QMI_LOC_EVENT_WIFI_REQ` "by
+message-id ordering in the IDL … inference from numbering only and is not
+confirmed"; it is now confirmed by the registration bit that gates it. It is
+still **not** a decode of the message — libqmi 1.38 models no WiFi-request
+indication at all (`dir(Qmi)` has no `IndicationLocWifi*`), so the payload
+reading below is structural, not authoritative.
+
+The pair is plainly a start and a stop, one at each end of the fix cycle:
+
+	REQUEST WIFI_REQ? #n   0x01[4]=00000000  0x10[2]=e803  0x11[1]=00   <- at FIXSESS STARTED
+	REQUEST WIFI_REQ? #n+1 0x01[4]=02000000  0x10[2]=0000  0x11[1]=00   <- at FIXSESS FINISHED
+	                        |                 |
+	                        |                 \_ 0x03e8 = 1000 ms, then 0
+	                        \_ 0 then 2, the same START/FINISH coding
+	                           FIX_SESSION_STATE uses
+
+### Does this port provide what servicing it would require?
+
+**The data exists on this port; the delivery path does not.** This is the same
+shape as the time request, and it is worth stating precisely because it is the
+kind of thing that reads like a lead and may not be one:
+
+* The engine asks for WiFi aiding **in `standalone`**, with no SIM, no
+  registration and no SUPL — 616 times in five minutes. It is not a
+  network-assistance dependency.
+* The AP has the answer. `docs/GPS-USERSPACE.md` gets a **22 m fix from WiFi
+  access points** on this phone, live. The scan and the geolocation both work.
+* Nothing delivers it into LOC. `rhodep-gnss-bisect.py`'s `respond=` handles
+  `time`, `position` and `xtra` only; there is no WiFi responder in it, and
+  none anywhere else on this port. Stock's `izat.conf` has `lowi-server`
+  `PROCESS_STATE=ENABLED` — that is the daemon whose whole job this is — and
+  this port has no equivalent.
+* Whether answering it changes anything is **untested**. It was not attempted
+  this session: it needs a new responder in the tool, and the AP-side wire
+  format for the reply was not derived. Note the counter-evidence before anyone
+  spends a week on it — injecting a *position* was already shown to change
+  nothing observable (previous section, run 7: a 22 m WiFi fix went in and the
+  engine emitted 309 more empty reports and asked for time 309 more times).
+
+The two remaining request bits point at hardware this board does not use for
+GNSS at all, which is consistent with their silence:
+`SENSOR_STREAMING_READY_STATUS` and `SET_SPI_STREAMING_REPORT` are the sensor
+path, and the recovered stock `sap.conf` says `SENSOR_CONTROL_MODE=2`, i.e.
+sensors are not used by GNSS on this board.
+
+## What this does NOT prove
+
+* **Not that the previous section's run 1 was time-armed.** The journal for
+  that boot is gone. The timer window makes it likely; it is not shown.
+* **Not that the event mask can never matter.** Six masks were tried at
+  `powerMode 3` on a time-disarmed engine. Nothing was tried at `powerMode 0/1/2`
+  with a wide mask, and nothing was tried on a *time-armed* engine other than
+  run 9, which reset — and run 9 cannot distinguish "the mask contributed" from
+  "time alone was enough", because time alone is already enough.
+* **`n` is small.** `0x3203fff` survived twice, on two different boots.
+  `0xffffffffffffffff` survived once. The two positive controls are `n=1` each
+  this session, though run 6 makes the time result `n=3` overall.
+* **Still no fix, no measurement report, no satellite.** Six survivals, 1500+
+  fix cycles between them, `MEASUREMENT REPORTS: 0` and
+  `SATELLITE INFO INDICATIONS: 0` every time, and the only NMEA ever emitted is
+  `$PSTIS,*61`. Nothing in this session moves the actual GPS problem.
+* The runs were not repeated with `rhodep-gnss.service` left running; it was
+  stopped before every run, as the protocol requires.
+
+## What this changes for anyone continuing
+
+1. **Stop treating the mask as a variable.** Register whatever is useful. It is
+   free. That includes `meas` and `svpoly`, and it includes all 64 bits if the
+   point is to see what the engine emits.
+2. **The two real levers are `powerMode` and time**, and they are not the same
+   lever: `powerMode 2` resets with no time (run 8), `powerMode 3` resets only
+   with time (run 9 and the previous section). A minimal statement of the bug
+   is now: *the SoC dies at `QMI_LOC_START` whenever the engine is in a state
+   where it would bring the receiver up, and the two known ways to put it in
+   that state are a non-background `powerMode` and giving it UTC time.*
+3. **Check `ExecMainStartTimestamp` before every run and count the
+   `INJECT_TIME_REQ`s after it.** The second check is the load-bearing one, and
+   it is free — the tool already prints it as `REQUEST INVENTORY`. A run with
+   zero `INJECT_TIME_REQ`s in the inventory was a run on a time-armed engine,
+   whatever the unit files said.
+4. `rhodep-xtra.timer`'s `RandomizedDelaySec=20min` means **a boot is not safe
+   just because the timer has not fired yet** — it can fire in the middle of a
+   run. Disable it, do not merely observe it.
+
+## Reproducing
+
+	sudo systemctl stop rhodep-gnss.service
+	sudo systemctl stop rhodep-xtra.timer && sudo systemctl disable rhodep-xtra.timer
+	sudo systemctl reboot                                   # clears time from the modem
+	# after the reboot, on the new boot:
+	systemctl show rhodep-xtra.service -p ExecMainStartTimestamp   # must be empty
+	md5sum scripts/rhodep-gnss-bisect.py    # 507cbb2ce6fea20b8ea7437daaea1df9, 62739 bytes
+	python3 -c "import ast; ast.parse(open('scripts/rhodep-gnss-bisect.py').read())"
+	qrtr-lookup | awk '$1==16'
+	sudo qmicli -p -d qrtr://0 --dms-set-operating-mode=online
+
+	# SURVIVES 300 s. The mask the file used to call a lever:
+	sudo ./scripts/rhodep-gnss-bisect.py 300 opmode=standalone powermode=3,1000 \
+	     recurrence=periodic events=0x3203fff
+
+	# SURVIVES 300 s. Every bit there is:
+	sudo ./scripts/rhodep-gnss-bisect.py 300 opmode=standalone powermode=3,1000 \
+	     recurrence=periodic events=0xffffffffffffffff
+
+	# RESETS THE PHONE, same mask, one word added:
+	sudo ./scripts/rhodep-gnss-bisect.py 120 opmode=standalone powermode=3,1000 \
+	     recurrence=periodic events=0x3203fff \
+	     preinject=time lat=-32.9542220 lon=-60.6442330 acc=50
+
+	# RESETS THE PHONE with no time anywhere on the boot -- the powerMode lever:
+	sudo ./scripts/rhodep-gnss-bisect.py 120 opmode=standalone powermode=2,1000 \
+	     recurrence=periodic events=min,engine,inject,meas,svpoly
+
+Confirm each survival with `REQUEST INVENTORY: ... request INJECT_TIME_REQ xN`
+where N is roughly the run length in seconds. If N is 0, the engine had time
+and the run is void.
+
+Session ledger, for boot-reason bookkeeping: **three watchdog resets**, runs 6,
+8 and 9, all `androidboot.bootreason=watchdog` /
+`androidboot.powerup_reason=0x00008000`, all with the console record ending on
+the `QMI_LOC_START` line. **Seven survivals** — runs 1, 2, 3, 4, 5, 7, 10 —
+each confirmed by `/proc/uptime` continuity across the run and by the tool's
+`SURVIVED` line, five of them consecutive on one boot (106.7 -> 1255.5).
+**One deliberate `systemctl reboot`** at the start of the session, to discard
+the inherited boot on which `rhodep-xtra` had injected time; it recorded
+`bootreason=reboot` / `powerup_reason=0x00004000` and calibrates the three
+watchdog readings. The on-device copy of `rhodep-gnss-bisect.py` was md5-checked
+against the host copy before every run and after every reset and never changed
+(`507cbb2ce6fea20b8ea7437daaea1df9`); `ast.parse` clean throughout. No block
+device was written, no MMIO or PMIC register was read, no `*_persist_*` QMI
+field was sent, no module was removed. The phone was left with
+`rhodep-xtra.timer` re-enabled and active, `rhodep-gnss.service` active, no
+failed units, `wlan0` up at 192.168.1.53, `qrtr-lookup` showing service 16 at
+0:108, and `mmcli -L` listing the modem.

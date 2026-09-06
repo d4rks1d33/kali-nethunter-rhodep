@@ -33,6 +33,18 @@ backups/**/*.toml.*
 backups/**/*.tar.gz
 backups/**/*.tar.xz
 
+# Stock Motorola device tree and vendor configuration, read off the phone's own
+# factory partitions (slot _b, which the pmOS install never touched). Kept on
+# disk because it is the single most useful reference artifact this port has --
+# every earlier session argued about the vendor tree from hand transcriptions,
+# and two of those turned out to be wrong. NOT pushed: it is Motorola's, and
+# decompiled or not, it is not ours to redistribute.
+#
+# See backups/vendor-dt-rhodep-*/README.md for provenance and for the findings
+# that came out of it. The conclusions are quoted in docs/ where they matter,
+# which is the part that does travel.
+backups/vendor-dt-rhodep-*/
+
 # debos build output
 debos/rootfs*.tar.xz
 

@@ -13,6 +13,17 @@ Type=simple
 # while there is no reserved region to hand out. Passing a size makes the modem
 # follow up with an allocation request, which is only useful for experiments
 # until that request can actually be satisfied.
+#
+# A size passed here is not taken on trust: the daemon reads
+# /proc/device-tree/reserved-memory/ at start-up and caps the offer at what is
+# actually reserved, or refuses it outright if nothing is. So this unit cannot
+# hand the modem an address on an image whose device tree lacks the region,
+# whatever it is told to do. `rhodep-memshare check` reports what it sees.
+#
+# The opt-in experiment drop-in that passes 5 MiB (stock's answer) ships in
+# rhodep-modem-support as
+# /usr/lib/systemd/system/rhodep-memshare.service.d/20-offer-5mib.conf.disabled
+# and is inert until copied into /etc as a .conf. Read it before using it.
 ExecStart=/usr/local/bin/rhodep-memshare
 Restart=always
 RestartSec=2s

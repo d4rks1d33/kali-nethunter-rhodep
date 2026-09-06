@@ -1,0 +1,73 @@
+# EXPERIMENT ONLY -- NOT ACTIVE. Note the .disabled suffix: systemd reads only
+# *.conf out of a .d/ directory, so this file is inert where it is installed.
+# It is shipped, rather than typed out by hand each time, so that the exact
+# configuration an experiment used is a file in the repository.
+#
+# WHAT IT DOES
+#
+# Makes the memshare responder answer 5 MiB (0x500000) to the modem's
+# MEM_QUERY_SIZE instead of 0. That is what a stock kernel answers: the stock
+# device tree's only non-zero memshare client is
+#
+#	qcom,client_3 {
+#		qcom,peripheral-size = <0x500000>;
+#		qcom,client-id = <0x01>;
+#		qcom,allocate-on-request;
+#		memory-region = <&memshare_region>;
+#		label = "modem";
+#	};
+#
+# and in the vendor driver (drivers/soc/qcom/memshare/msm_memshare.c) init_size
+# is taken from qcom,peripheral-size unconditionally -- allocate-on-request
+# defers the allocation, not the advertised size -- and handle_query_size_req()
+# answers init_size. The single query this modem sends at boot is for
+# client-id 1, so stock answers 5 MiB to exactly the question this port answers
+# 0 to.
+#
+# Told 5 MiB, the modem follows up with MEM_ALLOC_GENERIC (num_bytes 0x500000,
+# client_id 1, alloc_contiguous 1) and the daemon hands over the base of the
+# reserved region.
+#
+# WHY IT IS NOT ENABLED
+#
+# 1. It is only safe on a boot image whose device tree reserves the region
+#    (kernel/patches/0120). On any other image the address handed over is
+#    memory Linux is still using, and the corruption that follows is silent.
+#
+#    The daemon enforces this on its own -- it reads /proc/device-tree/
+#    reserved-memory/ at start-up and refuses to hand out anything if there is
+#    no no-map memshare node -- so enabling this on the wrong image degrades to
+#    "reports 0", not to corruption. That guard is the real protection; this
+#    file staying inert is the second layer, so that a mistake has to be made
+#    twice.
+#
+# 2. Even with the region reserved, the modem's *writes* to it are only legal
+#    once the pages have been moved from VMID_HLOS to VMID_MSS_MSA. The vendor
+#    driver does that with hyp_assign_phys(); nothing in this port does it from
+#    the normal boot path. Load kernel/diag-modules/rhodep_memassign.ko before
+#    the modem is given the address, or accept that a write is an XPU violation,
+#    which on this SoC is a silent reset.
+#
+# HOW TO ENABLE, FOR ONE EXPERIMENT
+#
+#	sudo install -D -m 0644 \
+#	  /usr/lib/systemd/system/rhodep-memshare.service.d/20-offer-5mib.conf.disabled \
+#	  /etc/systemd/system/rhodep-memshare.service.d/20-offer-5mib.conf
+#	sudo systemctl daemon-reload
+#	sudo reboot          # the modem asks once, at boot; restarting the
+#	                     # daemon later is too late to be asked again
+#
+# HOW TO TURN IT OFF AGAIN
+#
+#	sudo rm /etc/systemd/system/rhodep-memshare.service.d/20-offer-5mib.conf
+#	sudo systemctl daemon-reload && sudo reboot
+#
+# CHECK FIRST, on the image you are about to do this on:
+#
+#	/usr/local/bin/rhodep-memshare check
+#	  -> "reserved region memshare@8ab00000: 0x8ab00000 + 0x800000 (no-map)"
+#	     and exit status 0, or this drop-in will do nothing at all.
+
+[Service]
+ExecStart=
+ExecStart=/usr/local/bin/rhodep-memshare 0x500000

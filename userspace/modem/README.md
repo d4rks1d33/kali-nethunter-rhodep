@@ -89,6 +89,15 @@ read-only means every write the modem makes goes into a per-open RAM shadow and
 is thrown away at reboot. The packaged drop-in shipped `-r` with a comment
 claiming it meant read/write; `install.sh` overrides it with `-P -s`.
 
+**Fixed in the package too, 2026-09-05.**
+`packages/rhodep-modem-support/usr/lib/systemd/system/rmtfs.service.d/10-rhodep.conf`
+now says `-P -s` and carries the correction in its comment. Nothing was broken
+on *this* device, because the `/etc` drop-in `install.sh` writes takes
+precedence over the `/usr/lib` one from the `.deb` — but on a device where the
+`.deb` drop-in is the only one, UIM provisioning would silently stop persisting
+and every boot would need the SIM re-provisioned. That is the kind of bug that
+looks like a hardware fault.
+
 This matters because the modem keeps the UIM provisioning session in NV. With
 `-r`, a SIM the modem has not seen before never gets one.
 
@@ -127,13 +136,79 @@ service just logs "already exists". It is still needed for any new SIM.
 ## memshare
 
 The modem asks the application processor for 5 MB over QMI service 52 during
-bring-up. `memshare-daemon.c` answers it, and `kali-boot-v93`+ reserves the
-region at 0x8ab00000. This was investigated at length and is **not** what was
-blocking the radio (see HANDOFF-SESSION4.md sessions 13b/13c), but answering it
-is correct and it is kept.
+bring-up. `memshare-daemon.c` answers it. This was investigated at length and is
+**not** what was blocking the radio (see HANDOFF-SESSION4.md sessions 13b/13c),
+but answering it is correct and it is kept.
 
-Do not advertise a size on an image whose device tree lacks the region: the
-daemon would hand out memory Linux is still using.
+The shipped answer is **0**, which is not what stock answers. Stock's only
+non-zero memshare client is `qcom,client_3` with
+`qcom,peripheral-size = <0x500000>` and `qcom,client-id = <0x01>`, and the
+vendor driver sets `init_size` from that unconditionally -- `allocate-on-request`
+defers the allocation, not the advertised size -- so a stock kernel answers
+5 MiB to exactly the one query this modem sends. Answering 0 is a deliberate
+divergence and the reason is the next paragraph.
+
+Do not advertise a size on a system where nothing actually owns the region: the
+daemon would hand out memory Linux is still using. **The daemon enforces this
+itself**, and it will accept a region from exactly two sources:
+
+1. `/proc/device-tree/reserved-memory/` -- a `no-map` `memshare*` node in the
+   *live* tree. Preferred, because no-map memory is never mapped by Linux at all.
+2. `/sys/kernel/rhodep_memshare/` -- a region that
+   `kernel/diag-modules/rhodep_memassign.ko` allocated itself with `alloc=1`,
+   holds for its whole lifetime, and has already moved to `VMID_MSS_MSA`. The
+   `assigned` attribute is a fact about the return value of
+   `qcom_scm_assign_mem()`, not about what the module was asked to do, and
+   anything other than `1` is treated as "no region".
+
+The device tree is tried first; the module is the fallback for images whose boot
+image predates the reservation, and it is the only route that needs no reflash.
+If neither is present the offer is forced to 0 whatever the command line says, so
+a boot image and a rootfs that disagree degrade to "reports 0" instead of to
+silent corruption. Ask it what it sees:
+
+	rhodep-memshare check
+	# reserved region memshare@8ab00000: 0x8ab00000 + 0x800000 (no-map)   -> exit 0
+	# module region rhodep_memassign: 0xfd200000 + 0x500000 (...)         -> exit 0
+	# no assigned region at /sys/kernel/rhodep_memshare either            -> exit 1
+
+The reservation itself is `kernel/patches/0120`. A one-off hand-repacked
+`kali-boot-v93-memshare.img` carried it during session 13c and was never
+committed; 0120 is that node as a patch.
+
+One thing the daemon cannot do itself, and it matters if the modem is ever going
+to *use* the buffer rather than just be told about it: the vendor driver calls
+`shared_hyp_mapping()` -> `hyp_assign_phys(phys, size, {VMID_HLOS} ->
+{VMID_MSS_MSA}, RW)` before the modem touches the memory. Userspace has no way
+to make that call. `kernel/diag-modules/rhodep_memassign.c` does it with
+`qcom_scm_assign_mem()` and has to be loaded before the address is handed over.
+Without it a modem that writes to the buffer takes an XPU violation, which on
+this SoC is a silent reset. In session 13c the modem was handed the address with
+no assignment and nothing happened -- but that modem never finished
+initialisation, so it almost certainly never wrote to it. That is not evidence
+that the assignment is unnecessary.
+
+### The full 5 MiB answer has now been given, and the modem takes it
+
+Measured 2026-09-05 with `rhodep_memassign.ko alloc=1 size=0x500000` loaded from
+an `ExecStartPre=/sbin/modprobe` on `rhodep-memshare.service`, offer `0x500000`:
+
+	[12.926] rhodep_memassign: allocated 0xfd300000 + 0x500000 and holding it
+	[12.948] rhodep_memassign: qcom_scm_assign_mem(... HLOS -> vmid 0xf perm 0x6) returned 0
+	[12.977] memshare: module region rhodep_memassign: 0xfd300000 + 0x500000
+	[16.205] memshare: request from node=0 port=8 MEM_QUERY_SIZE (0x0024) txn=1
+	[16.205] memshare: reporting size 5242880
+	[16.205] memshare: request from node=0 port=8 MEM_ALLOC_GENERIC (0x0022) txn=2
+	[16.205] memshare: handing out 0xfd300000 (5242880 bytes)
+
+So the "if the modem is offered memory it will follow up with an allocation
+request" question is answered: **it does**, in the same millisecond, and its
+request decodes exactly as stock's client 3 --
+`01` num_bytes `0x00500000`, `02` client_id `1`, `03` proc_id `0`,
+`04` sequence_id `0`, `10` alloc_contiguous `1`. It never sends `MEM_FREE`.
+
+It changes nothing about the GNSS reset. See
+`kernel/diag-modules/README.md`, "What they have found so far".
 
 ## Also required, outside this directory
 

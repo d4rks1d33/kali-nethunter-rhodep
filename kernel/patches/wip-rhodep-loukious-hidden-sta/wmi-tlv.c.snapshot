@@ -3105,18 +3105,19 @@ ath10k_wmi_tlv_op_gen_mgmt_tx_send(struct ath10k *ar, struct sk_buff *msdu,
 	arvif = (void *)cb->vif->drv_priv;
 	vdev_id = arvif->vdev_id;
 
-	/* rhodep: reroute monitor-vif mgmt frames to the hidden STA vdev
-	 * (see mac.c ath10k_rhodep_ensure_inject_vdev). fw will accept these
-	 * because the STA opmode passes the mgmt-tx allow-list gate.
+	/* rhodep: for monitor vif frames, redirect to hidden STA vdev.
+	 * ath10k_rhodep_inject_vdev_for_mon returns the hidden STA vdev
+	 * if created, else falls back to the monitor vdev id (harmless).
 	 */
-	{
-		u32 remapped = ath10k_rhodep_inject_vdev_for_mon(ar, vdev_id);
-		bool is_monitor = (cb->vif->type == NL80211_IFTYPE_MONITOR);
-		if (is_monitor && remapped != vdev_id) {
-			ath10k_dbg(ar, ATH10K_DBG_WMI,
-				   "rhodep inject: rewrite vdev %u -> %u\n",
-				   vdev_id, remapped);
-			vdev_id = remapped;
+	if (cb->vif->type == NL80211_IFTYPE_MONITOR) {
+		u32 mapped = ath10k_rhodep_inject_vdev_for_mon(ar, vdev_id);
+		if (mapped != vdev_id) {
+			ath10k_info(ar, "rhodep: mgmt-tx vdev %u -> hidden STA %u\n",
+				    vdev_id, mapped);
+			vdev_id = mapped;
+		} else {
+			ath10k_info(ar, "rhodep: mgmt-tx vdev %u (no hidden STA, using monitor)\n",
+				    vdev_id);
 		}
 	}
 
@@ -3125,11 +3126,7 @@ ath10k_wmi_tlv_op_gen_mgmt_tx_send(struct ath10k *ar, struct sk_buff *msdu,
 			 ieee80211_is_qos_nullfunc(hdr->frame_control)))))
 		return ERR_PTR(-EINVAL);
 
-	/* rhodep: len now includes trailing wmi_tlv_tx_send_params TLV,
-	 * which WCN3990 fw's TLV validator requires even for tx_params_valid=0.
-	 */
-	len = sizeof(*cmd) + 3 * sizeof(*tlv) +
-	      sizeof(struct wmi_tlv_tx_send_params);
+	len = sizeof(*cmd) + 2 * sizeof(*tlv);
 
 	if ((ieee80211_is_action(hdr->frame_control) ||
 	     ieee80211_is_deauth(hdr->frame_control) ||
@@ -3161,21 +3158,10 @@ ath10k_wmi_tlv_op_gen_mgmt_tx_send(struct ath10k *ar, struct sk_buff *msdu,
 	cmd = (void *)tlv->value;
 	cmd->vdev_id = __cpu_to_le32(vdev_id);
 	cmd->desc_id = __cpu_to_le32(desc_id);
-	/* rhodep: pass current chanfreq for monitor-vif injected frames so
-	 * fw can schedule TX on the right channel. Loukious does this for
-	 * WCN3998. For non-monitor frames keep the historical 0.
-	 */
-	if (cb->vif->type == NL80211_IFTYPE_MONITOR &&
-	    ar->rhodep_inject.created)
-		cmd->chanfreq = __cpu_to_le32(ar->rhodep_inject.chanfreq);
-	else
-		cmd->chanfreq = 0;
+	cmd->chanfreq = 0;
 	cmd->buf_len = __cpu_to_le32(buf_len);
 	cmd->frame_len = __cpu_to_le32(msdu->len);
 	cmd->paddr = __cpu_to_le64(paddr);
-	cmd->tx_params_valid = __cpu_to_le32(0);
-	cmd->tx_flags = 0;
-	cmd->peer_rssi = 0;
 
 	ptr += sizeof(*tlv);
 	ptr += sizeof(*cmd);
@@ -3186,13 +3172,6 @@ ath10k_wmi_tlv_op_gen_mgmt_tx_send(struct ath10k *ar, struct sk_buff *msdu,
 
 	ptr += sizeof(*tlv);
 	memcpy(ptr, msdu->data, buf_len);
-	ptr += buf_len;
-
-	/* rhodep: mandatory trailing wmi_tlv_tx_send_params TLV, zeroed. */
-	tlv = ptr;
-	tlv->tag = __cpu_to_le16(WMI_TLV_TAG_STRUCT_TX_SEND_PARAMS);
-	tlv->len = __cpu_to_le16(sizeof(struct wmi_tlv_tx_send_params));
-	memset(tlv->value, 0, sizeof(struct wmi_tlv_tx_send_params));
 
 	return skb;
 

@@ -3706,7 +3706,7 @@ struct ath10k *ath10k_core_create(size_t priv_size, struct device *dev,
 
 	mutex_init(&ar->conf_mutex);
 	mutex_init(&ar->dump_mutex);
-	mutex_init(&ar->rhodep_inject.lock);
+	spin_lock_init(&ar->rhodep_inject.lock);
 	spin_lock_init(&ar->data_lock);
 
 	for (int ac = 0; ac < IEEE80211_NUM_ACS; ac++)

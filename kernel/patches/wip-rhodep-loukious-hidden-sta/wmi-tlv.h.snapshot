@@ -2679,20 +2679,5 @@ struct wmi_tlv_mgmt_tx_cmd {
 	__le64 paddr;
 	__le32 frame_len;
 	__le32 buf_len;
-	/* rhodep: extra fields expected by WCN3990 fw TLV validator
-	 * (present in qcacld's wmi_mgmt_tx_send_cmd_fixed_param).
-	 * When absent, firmware silently discards the command.
-	 */
-	__le32 tx_params_valid;
-	__le32 tx_flags;
-	__le32 peer_rssi;
-} __packed;
-
-/* rhodep: trailing wmi_tx_send_params TLV — mandatory for fw parser
- * even when tx_params_valid=0. Ported from qcacld / ath11k.
- */
-struct wmi_tlv_tx_send_params {
-	__le32 tx_param_dword0;  /* pwr/mcs_mask/nss_mask/retry_limit */
-	__le32 tx_param_dword1;  /* chain_mask/bw_mask/preamble/frame_type */
 } __packed;
 #endif

@@ -1324,20 +1324,30 @@ struct ath10k {
 	s32 tx_power_5g_limit;
 
 	/* rhodep: hidden STA vdev + self-peer created on-demand for
-	 * monitor-vif mgmt-tx injection. The fw's mgmt_tx_send handler
-	 * requires a valid vdev opmode (STA/AP) with a peer at vdev+0xc;
-	 * monitor vdevs lack both and get their frames silently dropped
-	 * (or crashed) by the fw. We route monitor mgmt frames through
-	 * this hidden STA vdev instead. Ported from Loukious @ Xiaomi
-	 * sm8150 (qcacld-3.0). See item 14.
+	 * monitor-vif mgmt-tx injection. See mac.c ath10k_rhodep_ensure_inject_vdev.
+	 * Ported from Loukious v7 qcacld-3.0 monitor_sta_vdev_tx patch.
 	 */
 	struct {
 		bool created;
-		u8 vdev_id;      /* fw vdev id of the hidden helper */
+		u8 vdev_id;         /* fw vdev id of the hidden helper */
 		u8 monitor_vdev_id; /* originating monitor vdev id */
-		u32 chanfreq;    /* frequency of the vdev_start */
+		u32 chanfreq;       /* frequency of the vdev_start */
 		u8 mac_addr[ETH_ALEN]; /* LAA MAC assigned to helper */
-		struct mutex lock;
+		/* Peer cache is unused now (v2 removed per-DA peer_create)
+		 * but the struct fields are kept for backward compat with
+		 * possible future re-introduction.
+		 */
+#define ATH10K_RHODEP_PEER_CACHE 8
+		u8 peer_cache[ATH10K_RHODEP_PEER_CACHE][ETH_ALEN];
+		u8 peer_cache_next;
+		/* SPINLOCK not mutex: gen_mgmt_tx_send is called from
+		 * ath10k_mgmt_over_wmi_tx_work via ath10k_wmi_cmd_send_nowait
+		 * which may hold spin_lock_bh(&ar->htc.tx_lock) or run in a
+		 * softirq path where mutex_lock would BUG_ON might_sleep.
+		 * Called from setup path (workqueue) via spin_lock_bh which
+		 * is safe.
+		 */
+		spinlock_t lock;
 	} rhodep_inject;
 
 	/* must be last */

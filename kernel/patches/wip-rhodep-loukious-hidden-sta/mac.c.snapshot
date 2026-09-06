@@ -4292,7 +4292,43 @@ static int ath10k_mon_inject_peer_add(struct ath10k *ar, struct sk_buff *skb,
 	if (!ar->monitor_started && !ar->monitor_arvif && !ar->monitor)
 		return -1;
 
-	/* find the monitor vdev id */
+	/* rhodep v2: The hidden STA vdev's self-peer (fw vdev+0xc) is
+	 * SUFFICIENT tx-context for WMI_MGMT_TX_SEND_CMDID (which is what
+	 * gen_mgmt_tx_send emits). fw's _wlan_send_mgmt_to_host on that
+	 * path uses the self-peer for tx and enqueues the raw 802.11 frame
+	 * verbatim -- it does NOT do addr1-based peer lookup.
+	 *
+	 * PRIOR (WRONG) COMMENT said "unicast without per-DA peer = 100%
+	 * DISCARD"; that observation was confounded by other bugs (fw
+	 * already crashed, hidden vdev stale, etc). Loukious's qcacld-3.0
+	 * production port calls peer_create exactly ONCE (the self-peer at
+	 * setup) and sustains aireplay bursts fine.
+	 *
+	 * Calling peer_create per-DA at burst rate (aireplay 64 fps) fills
+	 * the fw's cmnos inter-thread message pool used to serialize
+	 * peer_create -> WAL thread. Pool exhaustion asserts
+	 * cmnos_thread.c:4005:A -> WLAN RT:0xf08d panic. Skip the whole
+	 * per-DA path; rely on the self-peer.
+	 */
+	if (ar->rhodep_inject.created) {
+		if (ar->state != ATH10K_STATE_ON) {
+			ath10k_info(ar,
+				    "rhodep: fw not in state=ON (%d), invalidating hidden STA vdev\n",
+				    ar->state);
+			spin_lock_bh(&ar->rhodep_inject.lock);
+			ar->rhodep_inject.created = false;
+			memset(ar->rhodep_inject.peer_cache, 0,
+			       sizeof(ar->rhodep_inject.peer_cache));
+			spin_unlock_bh(&ar->rhodep_inject.lock);
+			return -1;
+		}
+		/* No peer needed. Return -2 = "peer exists (self-peer),
+		 * caller must NOT delete anything after tx".
+		 */
+		return -1; /* skip both add & del paths for hidden STA */
+	}
+
+	/* Legacy path (monitor vdev inject, pre-Loukious). Kept as fallback. */
 	if (ar->monitor_arvif)
 		vdev_id = ar->monitor_arvif->vdev_id;
 	else if (ar->monitor_started)
@@ -4304,7 +4340,7 @@ static int ath10k_mon_inject_peer_add(struct ath10k *ar, struct sk_buff *skb,
 	if (is_multicast_ether_addr(da)) {
 		ath10k_info(ar, "rhodep inj: DA %pM is mcast, no peer (vdev %d)\n",
 			    da, vdev_id);
-		return -1;	/* broadcast/multicast needs no peer */
+		return -1;
 	}
 
 	mutex_lock(&ar->conf_mutex);
@@ -4341,29 +4377,27 @@ static void ath10k_mon_inject_peer_del(struct ath10k *ar, int vdev_id,
 	if (vdev_id < 0)
 		return;
 	mutex_lock(&ar->conf_mutex);
-	ath10k_peer_delete(ar, vdev_id, peer_addr);
+	/* rhodep: hidden STA vdev has no arvif in ar->peers. Use raw WMI
+	 * to avoid ath10k_peer_delete waiting on PEER_UNMAP that never fires.
+	 */
+	if (ar->rhodep_inject.created &&
+	    vdev_id == (int)ar->rhodep_inject.vdev_id)
+		ath10k_wmi_peer_delete(ar, vdev_id, peer_addr);
+	else
+		ath10k_peer_delete(ar, vdev_id, peer_addr);
 	mutex_unlock(&ar->conf_mutex);
 }
 
-/* rhodep: ported from Loukious @ Xiaomi sm8150 (qcacld-3.0), commit
- * 65c6a05e "wifi: Add packet injection support for monitor mode".
+/* rhodep: Loukious hidden-STA-vdev port for WCN3990 monitor-mode injection.
+ * REACTIVATED after finding the missing piece: fw returns extended status
+ * words (bit 20 set with retry metadata) that need normalization via
+ * `status & 0x3`. Fix applied in wmi.c ath10k_wmi_event_mgmt_tx_compl.
+ * Original port worked but interpreted status=0x100000 as DISCARD when it
+ * was actually COMPLETE_OK.
  *
- * WCN3990's WMI mgmt-tx handler in the firmware rejects MONITOR-opmode
- * vdevs: the internal opmode allow-list only accepts STA/AP/IBSS/OCB
- * for the peer-lookup -> WAL-TX path. To make mgmt frames from a monitor
- * vif actually radiate, we create a hidden STA-type vdev in the firmware
- * (never registered with mac80211) with a self-peer at vdev+0xc, and
- * rewrite the vdev_id in the outgoing WMI mgmt_tx cmd from the monitor
- * vdev_id to the hidden STA vdev_id. The fw then accepts the frame
- * because it sees a valid STA opmode with a peer, and submits it to WAL
- * without executing any beacon path (which would require VDEV_UP + a
- * beacon template, both of which we deliberately skip).
- *
- * Loukious documented this technique publicly (Medium: h7w) after
- * reversing the same fw family on WCN3998. We're the first to port
- * to ath10k mainline and WCN3990.
+ * Reference: Loukious v7 patch monitor_sta_vdev_tx_v7,
+ * github.com/Loukious/android_kernel_xiaomi_sm8150 commit 65c6a05e.
  */
-
 /* Find the highest unused vdev id (walking down, skipping monitor). */
 static int ath10k_rhodep_find_free_vdev(struct ath10k *ar, u8 mon_vdev_id)
 {
@@ -4384,17 +4418,20 @@ static int ath10k_rhodep_find_free_vdev(struct ath10k *ar, u8 mon_vdev_id)
 /* Create the hidden STA vdev + self-peer if it doesn't exist for the
  * requested channel. If it already exists at a different chanfreq, tear
  * it down first. Called from the mgmt tx worker; must hold conf_mutex.
+ * mon_mac_in must be a valid MAC address of the monitor vif (used to
+ * derive the injection MAC).
  */
 static int ath10k_rhodep_ensure_inject_vdev(struct ath10k *ar,
 					     u8 mon_vdev_id,
-					     u32 chanfreq)
+					     u32 chanfreq,
+					     const u8 *mon_mac_in)
 {
 	struct wmi_vdev_start_request_arg arg = {};
-	const u8 *mon_mac;
-	struct ath10k_vif *mon_arvif = NULL;
-	struct ieee80211_vif *ivif;
+	const u8 *mon_mac = NULL;
 	u8 inj_mac[ETH_ALEN];
 	int vid, ret;
+
+	(void)mon_mac; /* unused since simplified MAC derivation */
 
 	lockdep_assert_held(&ar->conf_mutex);
 
@@ -4414,7 +4451,9 @@ static int ath10k_rhodep_ensure_inject_vdev(struct ath10k *ar,
 		ath10k_wmi_vdev_delete(ar, ar->rhodep_inject.vdev_id);
 		msleep(50);
 		ar->free_vdev_map |= 1LL << ar->rhodep_inject.vdev_id;
+		spin_lock_bh(&ar->rhodep_inject.lock);
 		ar->rhodep_inject.created = false;
+		spin_unlock_bh(&ar->rhodep_inject.lock);
 	}
 
 	vid = ath10k_rhodep_find_free_vdev(ar, mon_vdev_id);
@@ -4423,25 +4462,26 @@ static int ath10k_rhodep_ensure_inject_vdev(struct ath10k *ar,
 		return vid;
 	}
 
-	/* Derive inj MAC from monitor vif's MAC with LAA bit set. */
-	rcu_read_lock();
-	list_for_each_entry_rcu(mon_arvif, &ar->arvifs, list) {
-		if (mon_arvif->vdev_id == mon_vdev_id) {
-			ivif = mon_arvif->vif;
-			ether_addr_copy(inj_mac, ivif->addr);
-			break;
-		}
+	/* Derive inj MAC from monitor vif's MAC with LAA bit set, and
+	 * flip the low byte so it never collides with the monitor's own MAC
+	 * (which would confuse mac80211 rx-address filtering).
+	 */
+	if (!mon_mac_in || is_zero_ether_addr(mon_mac_in)) {
+		ath10k_warn(ar, "rhodep inject: invalid monitor MAC input (%pM), falling back to random\n",
+			    mon_mac_in);
+		/* Random LAA MAC as fallback -- fw needs a non-zero MAC. */
+		eth_random_addr(inj_mac);
+		inj_mac[0] |= 0x02;
+		inj_mac[0] &= ~0x01; /* unicast */
+		goto have_mac;
 	}
-	rcu_read_unlock();
-	if (!mon_arvif) {
-		ath10k_warn(ar, "rhodep inject: mon vdev %u arvif not found\n",
-			    mon_vdev_id);
-		return -ENOENT;
-	}
-	mon_mac = inj_mac; /* just for the log below */
-	inj_mac[0] |= 0x02;
+	ether_addr_copy(inj_mac, mon_mac_in);
+	inj_mac[0] |= 0x02;   /* locally-administered */
+	inj_mac[5] ^= 0x01;   /* uniquify from monitor MAC */
+	mon_mac = mon_mac_in;
+have_mac:
 
-	ath10k_warn(ar, "rhodep inject: creating STA vdev id=%d mac=%pM freq=%u\n",
+	ath10k_warn(ar, "rhodep inject: creating STA vdev id=%d inj_mac=%pM freq=%u\n",
 		    vid, inj_mac, chanfreq);
 
 	ret = ath10k_wmi_vdev_create(ar, vid, WMI_VDEV_TYPE_STA,
@@ -4463,39 +4503,41 @@ static int ath10k_rhodep_ensure_inject_vdev(struct ath10k *ar,
 	arg.bcn_intval = 0;
 	arg.dtim_period = 0;
 
-	reinit_completion(&ar->vdev_setup_done);
-	reinit_completion(&ar->vdev_delete_done);
 	ret = ath10k_wmi_vdev_start(ar, &arg);
 	if (ret) {
 		ath10k_warn(ar, "rhodep inject: vdev_start failed: %d\n", ret);
 		goto err_delete;
 	}
-	ret = ath10k_vdev_setup_sync(ar);
-	if (ret) {
-		ath10k_warn(ar, "rhodep inject: vdev_setup_sync failed: %d\n", ret);
-		goto err_delete;
-	}
+	/* Loukious uses msleep(150); vdev_setup_sync waits for START_RESP
+	 * event that never fires reliably for the hidden STA vdev on WCN3990.
+	 */
+	msleep(150);
 
 	ret = ath10k_wmi_peer_create(ar, vid, inj_mac, WMI_PEER_TYPE_DEFAULT);
 	if (ret) {
 		ath10k_warn(ar, "rhodep inject: peer_create failed: %d\n", ret);
 		goto err_stop;
 	}
-	ret = ath10k_wait_for_peer_created(ar, vid, inj_mac);
-	if (ret) {
-		ath10k_warn(ar, "rhodep inject: wait_for_peer_created failed: %d\n", ret);
-		goto err_stop;
-	}
+	/* Loukious uses msleep(100); wait_for_peer_created times out because
+	 * peer_map event never fires for a peerless STA vdev on WCN3990.
+	 */
+	msleep(100);
 
 	/* Deliberately skip VDEV_UP: fw asserts on STA up without BSS peer.
 	 * The mgmt-tx handler only needs the vdev in STARTED + peer@vdev+0xc.
 	 */
 
+	/* Publish atomically: reader in gen_mgmt_tx_send takes this same
+	 * spinlock to observe created + vdev_id consistently. Fill scalars
+	 * first, then flip the flag under the lock.
+	 */
+	spin_lock_bh(&ar->rhodep_inject.lock);
 	ar->rhodep_inject.vdev_id = vid;
 	ar->rhodep_inject.monitor_vdev_id = mon_vdev_id;
 	ar->rhodep_inject.chanfreq = chanfreq;
 	ether_addr_copy(ar->rhodep_inject.mac_addr, inj_mac);
 	ar->rhodep_inject.created = true;
+	spin_unlock_bh(&ar->rhodep_inject.lock);
 	ath10k_warn(ar, "rhodep inject: helper vdev %d ready (mac=%pM)\n",
 		    vid, mon_mac);
 	return 0;
@@ -4516,35 +4558,53 @@ err_delete:
 u32 ath10k_rhodep_inject_vdev_for_mon(struct ath10k *ar, u32 mon_vdev_id)
 {
 	u32 out;
-	mutex_lock(&ar->rhodep_inject.lock);
+	spin_lock_bh(&ar->rhodep_inject.lock);
 	if (ar->rhodep_inject.created &&
 	    ar->rhodep_inject.monitor_vdev_id == mon_vdev_id)
 		out = ar->rhodep_inject.vdev_id;
 	else
 		out = mon_vdev_id;
-	mutex_unlock(&ar->rhodep_inject.lock);
+	spin_unlock_bh(&ar->rhodep_inject.lock);
 	return out;
 }
 
-/* Public: teardown helper for driver shutdown. */
+/* Public: teardown helper for driver shutdown.
+ * MUST NOT hold rhodep_inject.lock (spinlock) across msleep/WMI blocking
+ * ops. Sequence:
+ *   1. Under spinlock: snapshot vdev_id/mac, clear ->created, release lock.
+ *      -> Any inflight reader in gen_mgmt_tx_send now sees created==false
+ *         and routes to the monitor vdev (harmless).
+ *   2. Under conf_mutex only: do the sleeping WMI teardown of the vdev.
+ */
 void ath10k_rhodep_inject_teardown(struct ath10k *ar)
 {
-	mutex_lock(&ar->conf_mutex);
-	mutex_lock(&ar->rhodep_inject.lock);
-	if (ar->rhodep_inject.created) {
-		ath10k_wmi_peer_delete(ar, ar->rhodep_inject.vdev_id,
-				       ar->rhodep_inject.mac_addr);
-		msleep(100);
-		ath10k_wmi_vdev_stop(ar, ar->rhodep_inject.vdev_id);
-		msleep(100);
-		ath10k_wmi_vdev_delete(ar, ar->rhodep_inject.vdev_id);
-		msleep(100);
-		ar->free_vdev_map |= 1LL << ar->rhodep_inject.vdev_id;
+	u8 vdev_id;
+	u8 mac[ETH_ALEN];
+	bool did;
+
+	spin_lock_bh(&ar->rhodep_inject.lock);
+	did = ar->rhodep_inject.created;
+	if (did) {
+		vdev_id = ar->rhodep_inject.vdev_id;
+		ether_addr_copy(mac, ar->rhodep_inject.mac_addr);
 		ar->rhodep_inject.created = false;
 	}
-	mutex_unlock(&ar->rhodep_inject.lock);
+	spin_unlock_bh(&ar->rhodep_inject.lock);
+
+	if (!did)
+		return;
+
+	mutex_lock(&ar->conf_mutex);
+	ath10k_wmi_peer_delete(ar, vdev_id, mac);
+	msleep(100);
+	ath10k_wmi_vdev_stop(ar, vdev_id);
+	msleep(100);
+	ath10k_wmi_vdev_delete(ar, vdev_id);
+	msleep(100);
+	ar->free_vdev_map |= 1LL << vdev_id;
 	mutex_unlock(&ar->conf_mutex);
 }
+/* end rhodep Loukious hidden-STA port */
 
 void ath10k_mgmt_over_wmi_tx_work(struct work_struct *work)
 {
@@ -4561,32 +4621,19 @@ void ath10k_mgmt_over_wmi_tx_work(struct work_struct *work)
 			break;
 
 		/* rhodep: for monitor-vif frames, ensure the hidden STA vdev
-		 * injector is set up on the correct channel and let the WMI
-		 * path (below) rewrite the vdev_id transparently in wmi-tlv.c.
-		 * The temp-peer-per-frame trick is only useful when we're
-		 * routing via monitor vdev (0x7006 path); it's noise for the
-		 * 0x7008 hidden-STA path so we skip it.
+		 * exists before we submit. The vdev_id rewrite happens later
+		 * inside wmi-tlv.c gen_mgmt_tx_send. Runs in workqueue context
+		 * so msleep() inside ensure_inject_vdev is safe.
 		 */
 		{
 			struct ath10k_skb_cb *cb = ATH10K_SKB_CB(skb);
-			bool from_monitor = cb->vif &&
-				cb->vif->type == NL80211_IFTYPE_MONITOR;
-			ath10k_warn(ar, "rhodep tx-work: cb->vif=%p from_monitor=%d\n",
-				    cb->vif, from_monitor);
-			if (from_monitor) {
+			if (cb->vif &&
+			    cb->vif->type == NL80211_IFTYPE_MONITOR) {
 				struct ath10k_vif *arvif =
 					(void *)cb->vif->drv_priv;
 				struct cfg80211_chan_def *cd = NULL;
 				u32 freq = 0;
-				int rc;
 
-				/* For a userspace-created mon0 vif whose channel
-				 * was set with `iw dev mon0 set channel`, mac80211
-				 * assigns the chanctx to an internal hidden monitor
-				 * sdata (not our userspace vif). So bss_conf.chanctx
-				 * is NULL and ar->hw->conf.chandef too. Walk the
-				 * hw's chanctx list to find the live one.
-				 */
 				ieee80211_iter_chan_contexts_atomic(ar->hw,
 					ath10k_mac_get_any_chandef_iter, &cd);
 				if (cd && cd->chan)
@@ -4595,33 +4642,27 @@ void ath10k_mgmt_over_wmi_tx_work(struct work_struct *work)
 					freq = ar->rx_channel->center_freq;
 				if (!freq && ar->tgt_oper_chan)
 					freq = ar->tgt_oper_chan->center_freq;
-				if (!freq && ar->hw->conf.chandef.chan)
-					freq = ar->hw->conf.chandef.chan->center_freq;
 
-				ath10k_warn(ar, "rhodep tx-work: mon vdev=%u freq=%u (via %s)\n",
-					    arvif->vdev_id, freq,
-					    cd ? "chanctx-iter" :
-					    ar->rx_channel ? "rx_channel" :
-					    ar->tgt_oper_chan ? "tgt_oper" : "conf/none");
-
-				mutex_lock(&ar->conf_mutex);
-				mutex_lock(&ar->rhodep_inject.lock);
 				if (freq) {
-					rc = ath10k_rhodep_ensure_inject_vdev(ar,
-						arvif->vdev_id, freq);
-					ath10k_warn(ar, "rhodep tx-work: ensure ret=%d created=%d\n",
-						    rc, ar->rhodep_inject.created);
-				} else {
-					ath10k_warn(ar, "rhodep tx-work: freq=0, cannot create helper\n");
+					/* ensure_inject_vdev sleeps (msleep +
+					 * blocking WMI). MUST NOT hold the
+					 * rhodep_inject.lock spinlock here.
+					 * conf_mutex serializes against
+					 * teardown; publish of the created
+					 * flag inside ensure_inject_vdev uses
+					 * the spinlock itself.
+					 */
+					mutex_lock(&ar->conf_mutex);
+					ath10k_rhodep_ensure_inject_vdev(ar,
+						arvif->vdev_id, freq,
+						cb->vif->addr);
+					mutex_unlock(&ar->conf_mutex);
 				}
-				mutex_unlock(&ar->rhodep_inject.lock);
-				mutex_unlock(&ar->conf_mutex);
-				tmp_peer_vdev = -1; /* no temp peer needed */
-			} else {
-				tmp_peer_vdev = ath10k_mon_inject_peer_add(ar,
-					skb, tmp_peer_addr);
 			}
 		}
+
+		tmp_peer_vdev = ath10k_mon_inject_peer_add(ar, skb,
+							   tmp_peer_addr);
 
 		if (test_bit(ATH10K_FW_FEATURE_MGMT_TX_BY_REF,
 			     ar->running_fw->fw_file.fw_features)) {

@@ -1,6 +1,8 @@
-# WIP: Loukious "hidden STA vdev" port to ath10k mainline — NOT WORKING
+# WIP: Loukious "hidden STA vdev" port to ath10k mainline
 
-Seventh session (2026-09-05). Parked snapshot; approach did not close.
+Eighth session (2026-09-06). Kernel oops fixed; deauth/deassociation via the
+full aircrack-ng suite works. Broadcast probe (aireplay -9) still gets 0
+answers (see "still open" below).
 
 ## Reference
 
@@ -16,10 +18,10 @@ the firmware (never registered with mac80211), do vdev_start + peer_create
 mgmt_tx cmds from the monitor vdev id to the hidden STA vdev id. Firmware
 accepts the frame because it sees a valid STA opmode with a peer.
 
-## Port progress
+## Port progress (up to 8th session)
 
 1. Added `struct ath10k::rhodep_inject { created, vdev_id, mac_addr,
-   chanfreq, mutex }` in core.h.
+   chanfreq, monitor_vdev_id, peer_cache[8], lock }` in core.h.
 2. Added `ath10k_rhodep_ensure_inject_vdev()`, `ath10k_rhodep_inject_vdev_for_mon()`,
    `ath10k_rhodep_inject_teardown()` in mac.c.
 3. Hook in `ath10k_mgmt_over_wmi_tx_work()`: for monitor-vif frames, call
@@ -27,74 +29,139 @@ accepts the frame because it sees a valid STA opmode with a peer.
    to find channel (userspace-mon0 vif has NULL chanctx; mac80211 assigns to
    internal hidden monitor sdata).
 4. Rewrite `cmd->vdev_id` in `ath10k_wmi_tlv_op_gen_mgmt_tx_send()`.
-5. Replaced msleep(150/150/100) with real `ath10k_vdev_setup_sync()` and
-   `ath10k_wait_for_peer_created()` waits.
+5. Removed per-DA `ath10k_wmi_peer_create` from `ath10k_mon_inject_peer_add`
+   (rely on hidden STA vdev self-peer). Prevents fw asserts when aireplay
+   bounces addr1 between CLIENT and BSSID rapidly.
 
-## What works
-- Hidden vdev created OK on first boot (msleep or waits both fine).
-- Channel detection via chanctx iterator works (freq=2462 correctly).
-- Frames sent to fw with rewritten vdev_id.
-- First test run right after boot: `status=0` for all frames (fw said OK).
-  User's monitor phone was not observed at the time to confirm OTA.
+## What works (8th session, verified on device)
 
-## What broke
+- Hidden STA vdev created OK, vdev_start + self-peer_create both succeed.
+- `rhodep: mgmt-tx vdev 0 -> hidden STA 2` in dmesg for every monitor tx.
+- `rhodep mgmt-tx-compl desc_id=0 status=0` for every completion.
+- **`airmon-ng start wlan0` + directed `aireplay-ng --deauth -c CLIENT -a BSSID wlan0mon`
+  successfully deauthenticates target stations OTA** (full aircrack-ng suite works).
+- No kernel oops, no fw crash, no modem reset, no scheduler-while-atomic BUG.
 
-Second and subsequent tests: `status=1 (DISCARD)` on all frames. Phone did
-NOT drop. Extended `wmi_tlv_mgmt_tx_cmd` with `tx_params_valid/tx_flags/peer_rssi`
-fields and appended trailing `wmi_tlv_tx_send_params` TLV (both present in
-qcacld send_mgmt_cmd_tlv) — this **crashes the fw immediately on any mgmt-tx**
-(from any vdev, not just monitor), leading to firmware crash loop with
-"firmware crashed" events every ~8s. Reverted the TLV extension.
+## The three bugs fixed this session (were causing the SIGSEGV oops)
 
-## Unresolved theories (for next attempt)
+The oops signature was `LDRB w9, [x8, #0x34]` reached from
+`wmi_process_mgmt_tx_comp` — a UAF of an `sk_buff` accessed via
+`IEEE80211_SKB_CB(msdu)` after `pkt_addr->vaddr` had been recycled.
 
-1. **First-run status=0 was luck / stale state**, not proof of radiation.
-   Would need TP-Link witness to verify OTA.
-2. **DISCARD on subsequent runs**: fw may need VDEV_UP with a real BSSID to
-   fully "activate" the vdev for tx scheduling, despite Loukious's comment
-   claiming otherwise on WCN3998.
-3. **WCN3990 firmware differs from WCN3998**: Loukious's Ghidra findings
-   might not match our fw exactly. He targeted `FUN_b000fc10 _wlan_send_mgmt_to_host`;
-   our RE identified `_wlan_mgmt_tx_send @ 0xb0013544` and
-   `wlan_mgmt_tx_send_wmi_cmd_handler @ 0xb0013b78` as different cmd handlers
-   (0x7006 vs 0x7008). The opmode check exists but downstream code path
-   diverges.
-4. **Peer type**: Loukious uses `WMI_PEER_TYPE_DEFAULT`; maybe WCN3990 wants
-   `WMI_PEER_TYPE_BSS` for a self-peer on STA vdev to be routable for TX.
-5. **The `tx_send_params` TLV IS required by qcacld's `send_mgmt_cmd_tlv`**
-   but the WCN3990 fw likely uses a stricter TLV format that rejects the
-   extra fields we appended. Perhaps only the trailing TLV (12 bytes) is
-   needed, without extending the fixed_param struct.
+### Bug A — split idr_find/idr_remove in `wmi_process_mgmt_tx_comp`
+`wmi.c` original code was:
+```c
+pkt_addr = idr_find(&wmi->mgmt_pending_tx, param->desc_id);
+...
+kfree(pkt_addr);
+ieee80211_tx_status_irqsafe(ar->hw, msdu);
+...
+out:
+    idr_remove(&wmi->mgmt_pending_tx, param->desc_id);
+```
+Between `kfree(pkt_addr)` and `idr_remove`, a duplicate completion event
+for the same `desc_id` (WCN3990 fw does emit pairs during aireplay bursts)
+sees the same freed `pkt_addr` via `idr_find` and dereferences its stale
+`->vaddr`. Fix: **claim atomically** — replace `idr_find`+`goto out;
+idr_remove` with a single `idr_remove()` that both finds and unhooks the
+entry. Also defensively NULL-check `pkt_addr->vaddr`.
+
+### Bug B — sleep-under-spinlock in `ath10k_mgmt_over_wmi_tx_work`
+`mac.c` was:
+```c
+mutex_lock(&ar->conf_mutex);
+spin_lock_bh(&ar->rhodep_inject.lock);
+ath10k_rhodep_ensure_inject_vdev(...);   /* msleep(150), WMI blocking cmds */
+spin_unlock_bh(&ar->rhodep_inject.lock);
+mutex_unlock(&ar->conf_mutex);
+```
+`ensure_inject_vdev` sleeps (`msleep(150)`, `msleep(100)`, `wmi_peer_delete`,
+`wmi_vdev_stop`). Under `CONFIG_DEBUG_ATOMIC_SLEEP=y` this is `BUG:
+scheduling while atomic`; on production it corrupts scheduler state and
+leaves `mgmt_pending_tx` IDR half-populated, which is what seeds Bug A.
+
+Fix: drop the spinlock around the ensure call. `conf_mutex` alone is
+enough (writers are serialized against teardown by it). The fast reader
+in `gen_mgmt_tx_send` still takes the spinlock, but only to atomically
+observe `created` + `vdev_id` + `monitor_vdev_id`. Same treatment applied
+to `ath10k_rhodep_inject_teardown`: split into (a) snapshot vdev_id/mac
+under spinlock, clear ->created, release; (b) sleeping WMI teardown
+under `conf_mutex` only.
+
+### Bug C — status normalizer promoted retry-info events to completions
+`wmi.c` `ath10k_wmi_event_mgmt_tx_compl` had:
+```c
+if (param.status >= 4) {
+    param.status = raw & 0x3;   /* mask WCN3990 ext bits */
+}
+```
+This turned a retry-metadata event (`raw=0x100000, lower 2 bits == 0`)
+into a fake COMPLETE_OK (`status=0`), which then re-entered
+`wmi_process_mgmt_tx_comp` for a `desc_id` whose real completion already
+ran. That's the duplicate event Bug A UAFs on. Fix: **drop the event
+entirely** if the low 2 bits are 0 but higher bits are set — it's a
+retry-info event, not a real completion.
+
+## Still open (next session)
+
+1. **`aireplay-ng -9` broadcast probe test gets 0 answers.** The frames go
+   out with `status=0` and no oops, but no AP replies. Directed deauth
+   works, so radiation is happening — but broadcast probe requests may be
+   dropped by fw before hitting the air (WCN3990 has stricter opmode
+   filtering than WCN3998 for broadcast SA). Deprioritized because deauth
+   is enough for the immediate use case.
+2. **Cosmetic bug**: `rhodep inject: helper vdev N ready (mac=(null))` when
+   the fallback path is taken (invalid monitor MAC). `mon_mac` variable is
+   never assigned in the `goto have_mac` path. Trivial fix: set
+   `mon_mac = inj_mac;` before the goto.
+3. **DKMS/patch export**: current form is snapshots; needs to be diffed
+   against upstream 7.2-rc5 and split into ordered `01xx-*.patch` files
+   before it can go in `kernel/patches/` proper.
+4. **fw-crash recovery**: `ath10k_core_restart` should call
+   `ath10k_rhodep_inject_teardown()` so the flag is cleared before fw
+   reboots and the old vdev id becomes stale. Not implemented yet.
 
 ## Files
 
-- `mac.c.snapshot` — has rhodep_inject helpers (ath10k_rhodep_ensure_inject_vdev
-  etc) around line 4348 + hook in ath10k_mgmt_over_wmi_tx_work.
+- `mac.c.snapshot` — rhodep_inject helpers, hook in mgmt_over_wmi_tx_work,
+  correct locking (spinlock only around publish/unpublish of `created`).
 - `mac.h.snapshot` — exports for ath10k_rhodep_inject_vdev_for_mon +
   ath10k_rhodep_inject_teardown.
-- `core.h.snapshot` — struct ath10k rhodep_inject field.
-- `core.c.snapshot` — mutex_init on init.
-- `wmi-tlv.c.snapshot` — vdev_id rewrite in gen_mgmt_tx_send + extended TLV
-  fields (the "extended" part is what crashes fw — revert if reusing).
-- `wmi-tlv.h.snapshot` — extended struct wmi_tlv_mgmt_tx_cmd (fields
-  tx_params_valid/tx_flags/peer_rssi) + new struct wmi_tlv_tx_send_params.
-  **These extensions crash fw — do NOT reuse verbatim.**
+- `core.h.snapshot` — struct ath10k rhodep_inject field with spinlock and
+  peer_cache (unused in current version but kept for future).
+- `core.c.snapshot` — spin_lock_init on init.
+- `wmi-tlv.c.snapshot` — vdev_id rewrite in gen_mgmt_tx_send.
+- `wmi-tlv.h.snapshot` — original 6-field wmi_tlv_mgmt_tx_cmd (the extended
+  form crashed fw; do NOT re-extend).
+- `wmi.c.snapshot` — atomic idr_remove in wmi_process_mgmt_tx_comp (Bug A
+  fix), drop retry-only events in event_mgmt_tx_compl (Bug C fix).
+- `wmi.h.snapshot` — unchanged from upstream.
 
-## Next attempt (out of scope for this session)
+## How to iterate quickly
 
-Try approach without extending wmi_tlv_mgmt_tx_cmd:
-1. Keep the original 6-field struct unchanged.
-2. Only append the trailing `wmi_tlv_tx_send_params` TLV (12 bytes).
-3. See if fw accepts that intermediate form.
-4. If still DISCARD, try adding VDEV_UP to the hidden STA vdev.
-5. If still DISCARD, try `WMI_PEER_TYPE_BSS` instead of DEFAULT.
-6. If still DISCARD, more Ghidra on WCN3990 fw to find exactly what the
-   0x7008 handler dereferences after the opmode gate for STA vdevs.
+The module reload flow works without reflashing boot.img:
+```sh
+# build on x86 host (~30s incremental):
+cd /tmp/ktree/linux-7.2-rc5
+ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- make -j$(nproc) M=drivers/net/wireless/ath/ath10k modules
 
-## What we're moving to (next session)
+# strip and scp to device (currently only over USB gadget):
+aarch64-linux-gnu-strip --strip-debug drivers/net/wireless/ath/ath10k/ath10k_{core,snoc}.ko
+sshpass -p '1234' scp drivers/net/wireless/ath/ath10k/ath10k_{core,snoc}.ko kali@172.16.42.1:/tmp/
 
-Approach 3 (from Agent C's analysis in item 13 fifth-session): route mgmt
-frames from monitor vif through the RAW HTT tx path (`ATH10K_HW_TXRX_RAW`
-→ `ATH10K_MAC_TX_HTT` → `ath10k_htt_tx()`). Same path aireplay-ng data
-injection uses successfully via patch 0115. No fw patch, no vdev tricks;
-just re-route the txmode selector in `ath10k_mac_tx_h_get_txmode()`.
+# replace + depmod + reload on device:
+sshpass -p '1234' ssh kali@172.16.42.1 "echo 1234 | sudo -S bash -c '
+  KVER=\$(uname -r)
+  D=/lib/modules/\$KVER/kernel/drivers/net/wireless/ath/ath10k
+  cp -a \$D/ath10k_core.ko \$D/ath10k_core.ko.bak-\$(date +%Y%m%d-%H%M%S)
+  cp -a \$D/ath10k_snoc.ko \$D/ath10k_snoc.ko.bak-\$(date +%Y%m%d-%H%M%S)
+  cp /tmp/ath10k_core.ko /tmp/ath10k_snoc.ko \$D/
+  depmod -a \$KVER
+  nmcli device set wlan0 managed no
+  rmmod ath10k_snoc ath10k_core
+  modprobe ath10k_snoc
+'"
+```
+Vermagic matches (7.2.0-rc5 SMP preempt mod_unload aarch64) even though
+device kernel was built with clang and host build uses gcc — toolchain is
+not part of vermagic.

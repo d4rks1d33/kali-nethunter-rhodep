@@ -964,17 +964,19 @@ class RokuDriver(Driver):
         "up": "Up", "down": "Down", "left": "Left", "right": "Right",
         "ok": "Select",
         "vol_up": "VolumeUp", "vol_down": "VolumeDown",
-        "vol_mute": "VolumeMute",
-        "play_pause": "Play", "play": "Play", "pause": "Play",
-        "stop": "Back",       # Roku has no Stop; Back exits playback
-        "next": "Fwd",        # skip forward / next track
-        "prev": "Rev",        # skip back / prev track
-        "rewind": "Rev",      # seek backward (same ECP key as prev on Roku)
-        "fast_forward": "Fwd",# seek forward (same ECP key as next on Roku)
+        "vol_mute": "VolumeMute",    # was "Mute" (invalid) — correct is VolumeMute
+        "play_pause": "Play",        # Roku Play key is a toggle (play or pause)
+        "play": "Play", "pause": "Play",
+        "stop": "Back",              # Roku has no Stop; Back exits playback
+        # Roku ECP has no skip-track concept; Fwd/Rev are the only seek keys
+        "next": "Fwd",               # seek forward (closest to next)
+        "prev": "Rev",               # seek backward (closest to prev)
+        "rewind": "Rev",             # seek backward
+        "fast_forward": "Fwd",       # seek forward
         "ch_up": "ChannelUp", "ch_down": "ChannelDown",
         "menu": "Info",
-        "settings": "Info",   # closest Roku equivalent
-        "input": "InputTuner",# cycle input (Roku TV)
+        "settings": "Info",
+        "input": "InputTuner",       # antenna input (Roku TV)
     }
 
     def _post(self, path: str) -> str:
@@ -1031,24 +1033,27 @@ class SamsungDriver(Driver):
 
     KEYMAP = {
         "power":        "KEY_POWER",
-        "home":         "KEY_HOME",
+        "home":         "KEY_HOME",       # SmartHub home screen
         "back":         "KEY_RETURN",
         "up":           "KEY_UP",   "down":  "KEY_DOWN",
         "left":         "KEY_LEFT", "right": "KEY_RIGHT",
         "ok":           "KEY_ENTER",
         "vol_up":       "KEY_VOLUP", "vol_down": "KEY_VOLDOWN",
         "vol_mute":     "KEY_MUTE",
-        "play_pause":   "KEY_PLAYPAUSE",  # was KEY_PLAY (play-only); PLAYPAUSE is the toggle
+        # KEY_PLAYPAUSE does NOT exist on Samsung — send play or pause separately
+        "play_pause":   "KEY_PLAY",       # closest: play (no toggle key exists)
         "play":         "KEY_PLAY",
         "pause":        "KEY_PAUSE",
         "stop":         "KEY_STOP",
-        "next":         "KEY_NEXT",       # skip-track (was KEY_FF = seek-forward)
-        "prev":         "KEY_PREVIOUS",   # skip-track (was KEY_REWIND = seek-back)
+        # KEY_NEXT / KEY_PREVIOUS do NOT exist on Samsung — no skip-track keys
+        "next":         "KEY_FF",         # seek-forward is the closest available
+        "prev":         "KEY_REWIND",     # seek-backward is the closest available
         "rewind":       "KEY_REWIND",     # seek backward
         "fast_forward": "KEY_FF",         # seek forward
-        "ch_up":        "KEY_CHUP", "ch_down": "KEY_CHDOWN",
-        "menu":         "KEY_MENU",  "settings": "KEY_TOOLS",
-        "input":        "KEY_SOURCE",     # input / HDMI source switcher
+        "ch_up":        "KEY_CHUP",  "ch_down": "KEY_CHDOWN",
+        "menu":         "KEY_MENU",
+        "settings":     "KEY_HOME",       # SmartHub = closest to settings on Samsung
+        "input":        "KEY_SOURCE",     # input / HDMI source selector
         "0": "KEY_0", "1": "KEY_1", "2": "KEY_2", "3": "KEY_3",
         "4": "KEY_4", "5": "KEY_5", "6": "KEY_6", "7": "KEY_7",
         "8": "KEY_8", "9": "KEY_9",
@@ -1113,26 +1118,36 @@ class LGWebOSDriver(Driver):
         "cast_url": 1, "screenshot": 2, "input_switch": 2,
     }
 
+    # bscpylgtv method names (verified from chros73/bscpylgtv source).
+    # Button strings for button() are SCREAMING_SNAKE or single word (e.g. FASTFORWARD).
     KEYMAP = {
-        "power":        "power_off",
-        "home":         "home",  "back":  "back",
-        "up":           "up",    "down":  "down",
-        "left":         "left",  "right": "right",
-        "ok":           "ok",
-        "vol_up":       "volume_up", "vol_down":  "volume_down",
-        "vol_mute":     "set_mute",
-        "play_pause":   "play",          # was "pause" (always paused); LG "play" is a toggle
-        "play":         "play",
-        "pause":        "pause",
-        "stop":         "stop",
-        "next":         "channel_up",    # bscpylgtv: next track → channel_up (closest equivalent)
-        "prev":         "channel_down",  # same reasoning; skip-track not available
-        "rewind":       "rewind",        # seek backward
-        "fast_forward": "fast_forward",  # seek forward
-        "ch_up":        "channel_up",    "ch_down": "channel_down",
-        "menu":         "menu",
-        "settings":     "info",
-        "input":        "external_input",  # LG input source switcher
+        "power":        "power_off",        # method: power_off()
+        "home":         "home",             # button("HOME")
+        "back":         "back",             # button("BACK")
+        "up":           "up",               # button("UP")
+        "down":         "down",
+        "left":         "left",
+        "right":        "right",
+        "ok":           "ok",               # button("ENTER") via button()
+        "vol_up":       "volume_up",        # method: volume_up()
+        "vol_down":     "volume_down",
+        "vol_mute":     "set_mute",         # method: set_mute(True) — handled in send_key
+        # LG has no play_pause toggle method; "play" is the closest (WebOS toggles on some models)
+        "play_pause":   "play",
+        "play":         "play",             # method: play()
+        "pause":        "pause",            # method: pause()
+        "stop":         "stop",             # method: stop()
+        # LG has no skip-track concept; ch_up/down are the closest meaningful actions
+        "next":         "channel_up",
+        "prev":         "channel_down",
+        "rewind":       "rewind",           # method: rewind()
+        "fast_forward": "fast_forward",     # method: fast_forward()  (NOT "FASTFORWARD")
+        "ch_up":        "channel_up",       # method: channel_up()
+        "ch_down":      "channel_down",
+        "menu":         "menu",             # button("MENU")
+        "settings":     "info",             # button("INFO")
+        # LG input: no "external_input" method; use input_button() to show picker
+        "input":        "__input_button__", # special-cased in send_key()
         "0": "0", "1": "1", "2": "2", "3": "3", "4": "4",
         "5": "5", "6": "6", "7": "7", "8": "8", "9": "9",
     }
@@ -1167,6 +1182,20 @@ class LGWebOSDriver(Driver):
         except Exception as e:
             return "connect fail: " + str(e)
         try:
+            # Special cases
+            if name == "__input_button__":
+                await c.input_button()   # shows the input picker overlay
+                return "input picker shown"
+            if name == "set_mute":
+                # Toggle mute: check current state first
+                try:
+                    info = await c.get_audio()
+                    muted = info.get("mute", False) if info else False
+                    await c.set_mute(not muted)
+                    return "mute toggled"
+                except Exception:
+                    await c.set_mute(True)
+                    return "muted"
             fn = getattr(c, name, None)
             if fn is None:
                 await c.button(name)
@@ -1218,19 +1247,21 @@ class SonyDriver(Driver):
         "vol_up":       "AAAAAQAAAAEAAAASAw==",
         "vol_down":     "AAAAAQAAAAEAAAATAw==",
         "vol_mute":     "AAAAAQAAAAEAAAAUAw==",
-        "play_pause":   "AAAAAgAAAJcAAAAaAw==",  # Sony Play (acts as toggle)
+        # play_pause: Sony has no single toggle code; Play is closest (acts as toggle on most models)
+        "play_pause":   "AAAAAgAAAJcAAAAaAw==",  # Play
         "play":         "AAAAAgAAAJcAAAAaAw==",
         "pause":        "AAAAAgAAAJcAAAAZAw==",
         "stop":         "AAAAAgAAAJcAAAAYAw==",
-        "next":         "AAAAAgAAAJcAAAAcAw==",
-        "prev":         "AAAAAgAAAJcAAAAbAw==",
-        "rewind":       "AAAAAQAAAAEAAAAlAw==",   # Sony IRCC Rewind
-        "fast_forward": "AAAAAQAAAAEAAAAkAw==",   # Sony IRCC FastForward
+        "next":         "AAAAAgAAAJcAAAA9Aw==",  # Next track (verified)
+        "prev":         "AAAAAgAAAJcAAAA8Aw==",  # Previous track (verified)
+        # Rewind/FF: category 02/sub JcAAAA (0x97) = media transport group
+        "rewind":       "AAAAAgAAAJcAAAAlAw==",  # Rewind (RC5 0x25, media cat) — was WRONG
+        "fast_forward": "AAAAAgAAAJcAAAAkAw==",  # FastForward (RC5 0x24, media cat) — was WRONG
         "ch_up":        "AAAAAQAAAAEAAAAQAw==",
         "ch_down":      "AAAAAQAAAAEAAAARAw==",
         "menu":         "AAAAAgAAAJcAAAA2Aw==",
-        "settings":     "AAAAAgAAAMQAAABIAw==",   # Sony SyncMenu (closest to Settings)
-        "input":        "AAAAAQAAAAEAAAAlAw==",    # Sony Input (cycle sources)
+        "settings":     "AAAAAgAAAMQAAABIAw==",  # SyncMenu/Settings (widely verified)
+        "input":        "AAAAAQAAAAEAAAAlAw==",   # Input source cycle (category 01)
         "0": "AAAAAQAAAAEAAAAJAw==",
         "1": "AAAAAQAAAAEAAAAAAw==",
         "2": "AAAAAQAAAAEAAAABAw==",
@@ -1297,28 +1328,39 @@ class VizioDriver(Driver):
         "cast_url": 0, "screenshot": 0, "input_switch": 2,
     }
 
+    # pyvizio verified key names (from raman325/pyvizio const.py KEY_CODE["tv"]).
+    # Named methods: pow_toggle, vol_up/down, mute_toggle, play, pause, ch_up/down.
+    # Everything else uses vizio.remote("KEY_CODE") via the __remote__ prefix convention.
+    # Key codes: SEEK_FWD, SEEK_BACK, INPUT_NEXT, UP, DOWN, LEFT, RIGHT, OK, BACK, MENU,
+    #            HOME, CH_UP, CH_DOWN, POW_OFF/ON/TOGGLE, MUTE_ON/OFF/TOGGLE.
+    # NO digit key codes exist in pyvizio (SmartCast API does not expose them).
+    # NO next/previous track codes exist (SmartCast has no skip-track concept).
     KEYMAP = {
-        "power":        "pow_toggle",
-        "vol_up":       "vol_up",     "vol_down": "vol_down",
-        "vol_mute":     "mute_toggle",
-        "up":           "up",   "down":  "down",
-        "left":         "left", "right": "right",
-        "ok":           "ok",   "back":  "back",
-        "home":         "menu",           # Vizio: Home → Menu
-        "menu":         "menu",
-        "play":         "play",
-        "pause":        "pause",
-        "play_pause":   "pause",          # Vizio has no play/pause toggle; pause is closest
-        "stop":         "pause",          # Vizio has no dedicated stop
-        "next":         "next",
-        "prev":         "previous",
-        "rewind":       "rewind",
-        "fast_forward": "fast_forward",
-        "ch_up":        "ch_up",  "ch_down": "ch_down",
-        "input":        "input_next",     # cycle input sources
-        "0": "num_0", "1": "num_1", "2": "num_2", "3": "num_3",
-        "4": "num_4", "5": "num_5", "6": "num_6", "7": "num_7",
-        "8": "num_8", "9": "num_9",
+        "power":        "pow_toggle",       # method: pow_toggle()
+        "vol_up":       "vol_up",           # method: vol_up()
+        "vol_down":     "vol_down",
+        "vol_mute":     "mute_toggle",      # method: mute_toggle()
+        "up":           "r:UP",             # remote("UP")
+        "down":         "r:DOWN",
+        "left":         "r:LEFT",
+        "right":        "r:RIGHT",
+        "ok":           "r:OK",
+        "back":         "r:BACK",
+        "home":         "r:HOME",
+        "menu":         "r:MENU",
+        "play":         "play",             # method: play()
+        "pause":        "pause",            # method: pause()
+        "play_pause":   "pause",            # no toggle; pause is closest
+        "stop":         "pause",            # no stop key; pause is closest
+        # No skip-track keys in pyvizio at all
+        "next":         "r:SEEK_FWD",       # seek-forward is the only option
+        "prev":         "r:SEEK_BACK",      # seek-backward is the only option
+        "rewind":       "r:SEEK_BACK",      # remote("SEEK_BACK")
+        "fast_forward": "r:SEEK_FWD",       # remote("SEEK_FWD")
+        "ch_up":        "ch_up",            # method: ch_up()
+        "ch_down":      "ch_down",
+        "input":        "next_input",       # method: next_input() cycles sources
+        # No digit key codes in pyvizio (SmartCast API limitation)
     }
 
     _PENDING: dict[str, tuple] = {}
@@ -1355,11 +1397,15 @@ class VizioDriver(Driver):
                   auth_token=token, device_type="tv")
         fn = self.KEYMAP.get(key)
         if fn is None:
-            return "unknown key: " + key
+            return f"Vizio: no mapping for '{key}' (SmartCast has no digit/skip-track keys)"
         try:
+            # "r:CODE" → use vizio.remote("CODE") for raw key codes
+            if fn.startswith("r:"):
+                await v.remote(fn[2:])
+                return "remote " + fn[2:]
             method = getattr(v, fn, None)
             if method is None:
-                return "no vizio method for " + fn
+                return "no vizio method: " + fn
             await method()
             return "ok"
         except Exception as e:
@@ -1512,27 +1558,68 @@ class AppleTVDriver(Driver):
     is_official = False
     latency_ms = 80
     capabilities = {
-        "dpad": 2, "keyboard": 2, "power": 2, "volume": 2,
-        "media_keys": 2, "channel": 0, "launch_app": 2,
-        "cast_url": 1, "screenshot": 1, "input_switch": 0,
+        "dpad": 2, "keyboard": 1, "power": 2, "volume": 2,
+        "media_keys": 2, "channel": 0, "launch_app": 1,
+        "cast_url": 0, "screenshot": 0, "input_switch": 0,
+    }
+
+    # pyatv RemoteControl method names (verified from postlund/pyatv source).
+    # All methods are async and called on atv.remote_control.
+    KEYMAP = {
+        "power":        "home_hold",   # long-press home → power menu
+        "home":         "home",
+        "back":         "menu",        # menu = back on Apple TV
+        "up":           "up",
+        "down":         "down",
+        "left":         "left",
+        "right":        "right",
+        "ok":           "select",
+        "vol_up":       "volume_up",
+        "vol_down":     "volume_down",
+        # pyatv has no mute method; volume_down repeated is the only option
+        "vol_mute":     "volume_down",
+        "play_pause":   "play_pause",  # proper toggle method exists
+        "play":         "play",
+        "pause":        "pause",
+        "stop":         "stop",
+        "next":         "next",        # skip to next item
+        "prev":         "previous",    # skip to previous item
+        "rewind":       "skip_backward",   # seek backward
+        "fast_forward": "skip_forward",    # seek forward
+        "menu":         "top_menu",    # goes to top-level menu
+        "settings":     "top_menu",
     }
 
     async def pair(self, pin: str | None = None) -> str:
-        return ("Apple TV pairing needs the CLI wizard: run "
-                "`atvremote --id <id> --protocol companion pair` in a "
-                "terminal. Then this driver will pick up ~/.pyatv creds.")
+        return ("Apple TV pairing: run in terminal → "
+                "`atvremote --id <id> --protocol companion pair` "
+                "Credentials are stored in ~/.pyatv and auto-loaded.")
 
     async def send_key(self, key: str) -> str:
         try:
             import pyatv
         except ImportError:
-            return "pyatv not installed"
+            return "pyatv not installed: pip install pyatv"
+        method_name = self.KEYMAP.get(key)
+        if not method_name:
+            return f"Apple TV: no mapping for '{key}'"
         loop = asyncio.get_event_loop()
-        confs = await pyatv.scan(loop, hosts=[self.ip], timeout=4)
-        if not confs:
-            return "not found"
-        # Requires stored credentials in ~/.pyatv.
-        return "pyatv reachable; run atvremote for keys"
+        try:
+            confs = await pyatv.scan(loop, hosts=[self.ip], timeout=5)
+            if not confs:
+                return f"Apple TV not found at {self.ip}"
+            atv = await pyatv.connect(confs[0], loop)
+            try:
+                rc = atv.remote_control
+                method = getattr(rc, method_name, None)
+                if method is None:
+                    return f"pyatv: no remote_control.{method_name}"
+                await method()
+                return f"sent {method_name}"
+            finally:
+                atv.close()
+        except Exception as e:
+            return "err: " + str(e)
 
 
 # --------------------------------------------------------------- driver: Philips JointSPACE
@@ -1572,13 +1659,13 @@ class JointSpaceDriver(Driver):
         "vol_mute": "Mute",
         "play_pause":   "PlayPause",  "play": "Play",
         "pause":        "Pause",      "stop": "Stop",
-        "next":         "Next",            # skip track (was FastForward = seek)
-        "prev":         "Previous",        # skip track (was Rewind = seek)
+        "next":         "Next",            # skip track (verified: Next is correct)
+        "prev":         "Previous",        # skip track (verified: Previous is correct)
         "rewind":       "Rewind",          # seek backward
         "fast_forward": "FastForward",     # seek forward
         "ch_up":        "ChannelStepUp",  "ch_down": "ChannelStepDown",
         "menu":         "Options",
-        "settings":     "Setup",
+        "settings":     "Adjust",          # was "Setup" (invalid); Adjust = picture/settings menu
         "input":        "Source",          # Philips input/source switcher
         "0": "Digit0", "1": "Digit1", "2": "Digit2",
         "3": "Digit3", "4": "Digit4", "5": "Digit5",

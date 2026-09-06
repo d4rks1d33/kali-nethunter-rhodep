@@ -19,14 +19,12 @@ from __future__ import annotations
 
 import os
 import random
-import string
 import subprocess
 import tempfile
-import threading
 
 from gi.repository import Adw, GLib, Gtk
 
-from ..executor import run_async, which
+from ..executor import Process, run_async, which
 from ..module import NHModule, register
 from ..widgets import OutputView, toast
 
@@ -142,10 +140,9 @@ class WifiBeaconSpam(NHModule):
 
     def __init__(self, app_window):
         super().__init__(app_window)
-        self._proc: subprocess.Popen | None = None
+        self._proc: Process | None = None
         self._ssid_file: str | None = None
         self._running = False
-        self._lock = threading.Lock()
 
     # ── build ─────────────────────────────────────────────────────────────
 
@@ -305,9 +302,8 @@ class WifiBeaconSpam(NHModule):
     # ── start / stop ──────────────────────────────────────────────────────
 
     def _start(self) -> None:
-        with self._lock:
-            if self._running:
-                return
+        if self._running:
+            return
 
         mon = _get_monitor_iface()
         if not mon:
@@ -326,8 +322,9 @@ class WifiBeaconSpam(NHModule):
             toast(self.app_window, "No SSIDs to broadcast")
             return
 
-        # Write SSID file
+        # Write SSID file (must be world-readable so root process reads it)
         self._ssid_file = _make_ssid_file(ssids)
+        os.chmod(self._ssid_file, 0o644)
         mode_names = ["Funny SSIDs", "Rickroll", "Random", "Custom"]
         mode_name = mode_names[self.mode_combo.get_selected()]
 
@@ -336,63 +333,39 @@ class WifiBeaconSpam(NHModule):
             f"# backend: {os.path.basename(backend)}\n"
             f"# SSIDs: {', '.join(ssids[:3])}{'…' if len(ssids)>3 else ''}\n")
 
-        # mdk4 -b = beacon flood, -f = SSID file
-        # -s = speed (pkts/sec, default unlimited), channels 1-11 random
+        # mdk4 -b = beacon flood, -f = SSID file, -s = speed
         cmd = [backend, mon, "b", "-f", self._ssid_file, "-s", "100"]
 
-        with self._lock:
-            self._running = True
+        self._running = True
         self.start_btn.set_sensitive(False)
         self.stop_btn.set_sensitive(True)
 
-        def _run_proc():
-            try:
-                # Run as root (mdk4 needs raw socket)
-                from ..executor import run_async as _ra
-                proc = subprocess.Popen(
-                    ["sudo", "-n"] + cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True, bufsize=1)
-                with self._lock:
-                    self._proc = proc
-                for line in proc.stdout:
-                    GLib.idle_add(self.output.append, line)
-                proc.wait()
-            except Exception as e:
-                GLib.idle_add(self.output.append, f"[error] {e}\n")
-            finally:
-                self._cleanup()
-
-        threading.Thread(target=_run_proc, daemon=True).start()
+        # Use Process with root=True so it goes through the authorized
+        # DBus helper (like every other nethunter-pro module) instead of
+        # bare "sudo -n" which fails because kali has no NOPASSWD for mdk4.
+        self._proc = Process(
+            cmd,
+            on_line=lambda text: self.output.append(text),
+            on_done=lambda code: self._on_done(code),
+            root=True,
+        )
+        self._proc.start()
 
     def _stop(self) -> None:
-        with self._lock:
-            proc = self._proc
-        if proc:
-            try:
-                subprocess.run(["sudo", "-n", "kill", str(proc.pid)],
-                               capture_output=True)
-                proc.terminate()
-            except Exception:
-                pass
-        self._cleanup()
+        if self._proc:
+            self._proc.stop()
 
-    def _cleanup(self) -> None:
-        with self._lock:
-            self._running = False
-            self._proc = None
-            f = self._ssid_file
-            self._ssid_file = None
+    def _on_done(self, code: int) -> None:
+        self._running = False
+        self._proc = None
+        f = self._ssid_file
+        self._ssid_file = None
         if f and os.path.exists(f):
             try:
                 os.unlink(f)
             except Exception:
                 pass
-        GLib.idle_add(self._on_stopped)
-
-    def _on_stopped(self) -> None:
         self.start_btn.set_sensitive(True)
         self.stop_btn.set_sensitive(False)
-        self.output.append("# stopped\n")
+        self.output.append(f"# stopped (exit {code})\n")
         self._refresh_monitor_status()

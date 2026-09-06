@@ -1333,7 +1333,15 @@ struct ath10k {
 		u8 monitor_vdev_id; /* originating monitor vdev id */
 		u32 chanfreq;       /* frequency of the vdev_start */
 		u8 mac_addr[ETH_ALEN]; /* LAA MAC assigned to helper */
-		u8 last_peer[ETH_ALEN]; /* cache of last per-DA temp peer */
+		/* Cache of recently-created per-DA temp peers on the hidden
+		 * STA vdev. aireplay-ng --deauth -c CLIENT bounces between
+		 * addr1=CLIENT and addr1=BSSID, so we need at least 2 slots.
+		 * 8 gives room for a small number of concurrent targets
+		 * without hammering peer_create (which races fw asserts).
+		 */
+#define ATH10K_RHODEP_PEER_CACHE 8
+		u8 peer_cache[ATH10K_RHODEP_PEER_CACHE][ETH_ALEN];
+		u8 peer_cache_next; /* round-robin insertion index */
 		struct mutex lock;
 	} rhodep_inject;
 

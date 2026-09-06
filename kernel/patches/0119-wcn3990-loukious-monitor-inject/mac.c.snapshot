@@ -4311,17 +4311,49 @@ static int ath10k_mon_inject_peer_add(struct ath10k *ar, struct sk_buff *skb,
 		if (is_multicast_ether_addr(da))
 			return -1; /* no peer needed for broadcast */
 
+		/* If fw crashed / restarted, our vdev + peer state is stale.
+		 * Reset the flag so the mgmt-tx worker recreates the hidden
+		 * STA vdev from scratch on next frame.
+		 */
+		if (ar->state != ATH10K_STATE_ON) {
+			ath10k_info(ar,
+				    "rhodep: fw not in state=ON (%d), invalidating hidden STA vdev\n",
+				    ar->state);
+			mutex_lock(&ar->rhodep_inject.lock);
+			ar->rhodep_inject.created = false;
+			memset(ar->rhodep_inject.peer_cache, 0,
+			       sizeof(ar->rhodep_inject.peer_cache));
+			mutex_unlock(&ar->rhodep_inject.lock);
+			return -1;
+		}
+
 		vdev_id = ar->rhodep_inject.vdev_id;
 
-		/* Cache last-created peer: aireplay/mdk4 send bursts to the
-		 * same DA. Recreating the peer 64x/sec races the fw and
-		 * causes cmnos_thread.c:4005 assert.
+		/* Small cache of recently-created per-DA temp peers on the
+		 * hidden STA vdev. aireplay-ng --deauth -c CLIENT bounces
+		 * addr1 between CLIENT and BSSID (32 each per burst), so a
+		 * single-entry cache always misses and hammers peer_create
+		 * at 64 fps -- which races fw and asserts
+		 * cmnos_thread.c:4005:A. A tiny 8-slot cache trivially
+		 * absorbs typical injection targets.
 		 */
 		mutex_lock(&ar->rhodep_inject.lock);
-		if (ether_addr_equal(ar->rhodep_inject.last_peer, da)) {
-			mutex_unlock(&ar->rhodep_inject.lock);
-			ether_addr_copy(peer_addr_out, da);
-			return -2; /* peer exists, do not delete */
+		{
+			int i;
+			for (i = 0; i < ATH10K_RHODEP_PEER_CACHE; i++) {
+				if (ether_addr_equal(ar->rhodep_inject.peer_cache[i], da)) {
+					mutex_unlock(&ar->rhodep_inject.lock);
+					ether_addr_copy(peer_addr_out, da);
+					return -2; /* cached -- keep peer */
+				}
+			}
+			/* Reserve a slot now so parallel callers don't race
+			 * the same peer_create WMI cmd twice.
+			 */
+			i = ar->rhodep_inject.peer_cache_next;
+			ether_addr_copy(ar->rhodep_inject.peer_cache[i], da);
+			ar->rhodep_inject.peer_cache_next =
+				(i + 1) % ATH10K_RHODEP_PEER_CACHE;
 		}
 		mutex_unlock(&ar->rhodep_inject.lock);
 
@@ -4330,17 +4362,35 @@ static int ath10k_mon_inject_peer_add(struct ath10k *ar, struct sk_buff *skb,
 					    WMI_PEER_TYPE_DEFAULT);
 		mutex_unlock(&ar->conf_mutex);
 		if (rc && rc != -EEXIST) {
-			ath10k_dbg(ar, ATH10K_DBG_MAC,
-				   "rhodep raw peer_create %pM on hidden STA %u failed: %d\n",
-				   da, vdev_id, rc);
+			/* rollback: clear the cache slot we just claimed */
+			mutex_lock(&ar->rhodep_inject.lock);
+			{
+				int i;
+				for (i = 0; i < ATH10K_RHODEP_PEER_CACHE; i++)
+					if (ether_addr_equal(ar->rhodep_inject.peer_cache[i], da))
+						memset(ar->rhodep_inject.peer_cache[i], 0, ETH_ALEN);
+			}
+			/* -108 (ESHUTDOWN) means fw died and rebooted -- our
+			 * hidden STA vdev no longer exists in fw. Invalidate
+			 * so the mgmt-tx worker recreates it next round.
+			 */
+			if (rc == -ESHUTDOWN || rc == -ECOMM) {
+				ath10k_info(ar,
+					    "rhodep: fw down (rc=%d), invalidating hidden vdev\n",
+					    rc);
+				ar->rhodep_inject.created = false;
+				memset(ar->rhodep_inject.peer_cache, 0,
+				       sizeof(ar->rhodep_inject.peer_cache));
+			}
+			mutex_unlock(&ar->rhodep_inject.lock);
+			ath10k_warn(ar,
+				    "rhodep raw peer_create %pM on hidden STA %u failed: %d\n",
+				    da, vdev_id, rc);
 			return -1;
 		}
-		msleep(20);
-		mutex_lock(&ar->rhodep_inject.lock);
-		ether_addr_copy(ar->rhodep_inject.last_peer, da);
-		mutex_unlock(&ar->rhodep_inject.lock);
+		msleep(30);
 		ether_addr_copy(peer_addr_out, da);
-		return -2; /* peer created, but keep it -- burst optimization */
+		return -2; /* peer created, keep it (burst optimization) */
 	}
 
 	/* Legacy path (monitor vdev inject, pre-Loukious). Kept as fallback. */

@@ -684,6 +684,8 @@ class AndroidTVDriver(Driver):
 
     # Google's keycode strings match the ones the user's phone remote
     # sends. See androidtvremote2/const.py for the full list.
+    # Keys from the Flipper Zero ESP32 AndroidTV port (wlan_androidtv.h)
+    # plus standard androidtvremote2 keys.
     KEYMAP = {
         "power": "POWER", "home": "HOME", "back": "BACK",
         "up": "DPAD_UP", "down": "DPAD_DOWN",
@@ -694,9 +696,13 @@ class AndroidTVDriver(Driver):
         "play_pause": "MEDIA_PLAY_PAUSE",
         "play": "MEDIA_PLAY", "pause": "MEDIA_PAUSE",
         "stop": "MEDIA_STOP",
+        # next/prev = skip track; rewind/fast_forward = seek (Flipper: 89/90)
         "next": "MEDIA_NEXT", "prev": "MEDIA_PREVIOUS",
+        "rewind": "MEDIA_REWIND", "fast_forward": "MEDIA_FAST_FORWARD",
         "ch_up": "CHANNEL_UP", "ch_down": "CHANNEL_DOWN",
         "menu": "MENU", "settings": "SETTINGS",
+        # TV input source switcher (Flipper: KEYCODE_TV_INPUT = 178)
+        "input": "TV_INPUT",
         "0": "0", "1": "1", "2": "2", "3": "3", "4": "4",
         "5": "5", "6": "6", "7": "7", "8": "8", "9": "9",
     }
@@ -1832,7 +1838,8 @@ class TVRemote(NHModule):
     # is (row_id, key, label). Rows are drawn top-down.
     PAD_ROWS: list[list[tuple[str, str]]] = [
         [("power", "Power"), ("vol_mute", "Mute"),
-         ("home", "Home"),   ("back", "Back")],
+         ("home", "Home"),   ("back", "Back"),
+         ("input", "Input"), ("menu", "Menu")],   # Input = TV source switcher (Flipper: KEYCODE_TV_INPUT)
         [("vol_up", "Vol +"), ("ch_up", "Ch +"),
          ("vol_down", "Vol -"), ("ch_down", "Ch -")],
     ]
@@ -1951,10 +1958,13 @@ class TVRemote(NHModule):
                                row_spacing=6,
                                min_children_per_line=3,
                                max_children_per_line=5)
+        # Flipper layout: << (rewind) | ⏮ (prev) | ⏯ | ⏭ (next) | >> (ff)
+        # rewind/fast_forward = seek within track; prev/next = skip track
         for key, label in (
-            ("prev", "⏮"), ("play_pause", "⏯"),
-            ("stop", "⏹"), ("next", "⏭"),
-            ("menu", "Menu"),
+            ("rewind", "⏪"), ("prev", "⏮"),
+            ("play_pause", "⏯"),
+            ("next", "⏭"), ("fast_forward", "⏩"),
+            ("stop", "⏹"),
         ):
             b = Gtk.Button(label=label, valign=Gtk.Align.CENTER)
             b.connect("clicked", lambda _b, k=key: self._send(k))

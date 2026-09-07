@@ -144,30 +144,93 @@ mainline ath10k has NEVER exposed this command.
 
 ## Roadmap to fix
 
-Three possible avenues, in increasing effort:
+Four avenues, in increasing risk (session 16.14 multi-agent RE ruled
+out avenue 1 — see "Ruled out" below):
 
-1. **Reverse-engineer downstream qcacld-3.0's WMA layer** to find
-   the exact WMI cmd + parameters used by `wma_set_monitor_mode`.
-   Add the cmd to ath10k's WMI-TLV table. Call it from
-   `assign_vif_chanctx` for monitor vifs. Expected result: fw
-   mgmt-forwarder stays armed across band changes; `airodump-ng
-   --band abg` becomes reliable.
+### Avenue A (SHIPPED): userspace wrapper `rhodep-aireplay-settle`
 
-2. **Patch the WCN3990 fw directly.** We already know the fw is
-   patchable (the earlier session 5 experiment loaded a modified
-   `wlanmdsp.mbn`). Find the RT thread's `bss_entry` reset logic
-   and add an unconditional re-arm on the phymode-class transition
-   path.
+See `packages/rhodep-aireplay-settle/`. The wrapper intercepts
+`aireplay-ng` calls, does `iw set channel <adj>` + `sleep 1` + `iw set
+channel <target>` + `sleep 1` to force one more chanctx transition
+BEFORE the real aireplay opens its PF_PACKET socket. This catches the
+re-armed forwarder frames. Zero fw risk. Transparent to wifite /
+scripts / systemd. ~2 s overhead per invocation. Shipped 2026-09-07
+in commit `4ce9ef0` (item 16.13). Bypass via `/usr/sbin/aireplay-ng.real`.
 
-3. **Accept the limitation.** The manual `iw set channel` +
-   airodump-ng `--channel` workflow works reliably. Wifite users
-   can pass `-c <ch>` to fix a channel. This is the current
-   documented state.
+### Avenue B (TO INVESTIGATE): fw patch Priority 3 — NOP-out MMIO write inside DISARM
 
-Option 1 is the right long-term fix. It requires access to the
-qcacld-3.0 source tree (public on Google's Codelinaro), a couple of
-days of RE, and would benefit every WCN3990 device using ath10k
-mainline.
+Session 16.14 multi-agent RE identified the exact fw code path:
+
+- `wal_vdev_packet_filter_handle_vdev_migration_event` @ VA `0xb02065cc`
+  is the internal fw dispatcher for chanctx-migration events. It
+  checks two bits of the event mask and delegates:
+  - Bit 22 (ARM):    tail-jump to `0xb016add0` (HW filter → permissive `-1,-1`)
+  - Bit 23 (DISARM): tail-jump to `0xb016ad1c` (HW filter → restrictive handler_bitmap)
+- Chanctx transitions publish a bit-23 event → the DISARM handler runs
+  and re-programs the HW RX filter to the restrictive mask, silencing
+  mgmt frame delivery to userspace.
+
+**First attempt** (session 16.14): redirect the bit-23 tail-jump at
+`0xb02065f8` from `0xb016ad1c` (DISARM) to `0xb016add0` (ARM). Single
+byte flip: `92 → e8` at file offset `0x2465f8`. **Result**: fw loaded
+and driver bound but crashed within seconds at
+`cmnos_thread.c:4005:A RT:0xc08c`. Rolled back cleanly to pristine.
+Diagnosis: the ARM/DISARM handlers are not swap-safe; skipping DISARM's
+prologue/epilogue via redirecting jumps breaks a fw-internal invariant.
+
+**Priority 3 (recommended next attempt)**: neutralize the MMIO write
+INSIDE the DISARM handler while letting its prologue/epilogue run
+unchanged. Target instruction:
+
+- VA `0xb016ad88` (file offset `0x1aad88`)
+- Current: `if (!cmp.eq(r3.new, #0x1)) jump:t 0xb016ada0`
+  (skips the HW filter write when `soc+0x1410 != 1`)
+- Patch: transform this conditional jump into an **unconditional
+  jump** to `0xb016ada0` — the DISARM handler still runs its book-
+  keeping (updates `pdev->flags`, iterates handler bitmap, etc.) but
+  the specific instruction that writes the restrictive filter to the
+  MMIO register is skipped every time. Effect: HW filter stays at
+  whatever ARM last set it (permissive), while all other DISARM
+  side-effects execute normally → fw invariants preserved.
+
+This is what the multi-agent report from 16.14 called "Priority 3"
+and rated as safest of the three tried fw approaches. Requires:
+1. Static analysis of the 4-byte packet at `0xb016ad88` to confirm
+   packet-end bit + adjacent instructions.
+2. Compute correct Hexagon encoding for an unconditional jump to the
+   same target (`0xb016ada0` = current jump target).
+3. Byte-patch, flash, test the same reproducer (airodump + aireplay
+   two-window flow without wrapper).
+
+Rollback path is the same as first attempt (already validated):
+```sh
+sudo mount -o remount,rw /readonly/firmware
+sudo cp /root/wlanmdsp.mbn.pristine-* /readonly/firmware/image/wlanmdsp.mbn
+sudo sync && sudo reboot
+```
+
+### Avenue C (RULED OUT): send WMI_VDEV_PARAM_RX_FILTER after chanctx
+
+Session 16.14 multi-agent RE ruled this out definitively:
+
+- The symbol `wmi_vdev_param_rx_filter_promisc` does not exist in
+  qcacld-3.0. The premise was based on Loukious's public discussion
+  of monitor mode.
+- The actual `WMI_VDEV_PARAM_RX_FILTER` (0x64) is a **mesh drop**
+  filter — passing 1 would DROP FromDS frames, opposite of promisc.
+- The WCN3990 fw symbol table has NO handler for `rx_filter_promisc`,
+  `set_rx_filter`, or `pdev_set_promisc_mode`. The disasm has zero
+  immediate loads of the corresponding cmd IDs. Even if mainline
+  ath10k sent the cmd, the fw would silently drop it.
+
+### Avenue D (LAST RESORT): re-implement HTT monitor RX ring
+
+Bypass the WMI mgmt-forwarder entirely by directly reading from the
+fw's HTT RX ring for monitor mode. WCN3990 fw does have
+`wal_rx_setup_monitor_mode` (symbol present), used by qcacld/xiaomi
+for WCN3998 monitor. Would need to be plumbed through ath10k
+mainline's HTT layer. Large surgery. Only pursue if all fw patch
+attempts fail.
 
 ## Wider than "5 GHz airodump abg": also affects aireplay after ANY channel switch
 

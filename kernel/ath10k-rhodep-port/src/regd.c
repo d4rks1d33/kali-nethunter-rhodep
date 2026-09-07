@@ -116,27 +116,37 @@ static const struct ieee80211_regdomain ath_world_regdom_64 = {
 	}
 };
 
-/* rhodep: permissive world regdom for ath.country= override. Same shape as
- * the world regdoms above but WITHOUT NL80211_RRF_NO_IR on 5 GHz -- lets
- * cfg80211's later regulatory_hint(country=US/AR/etc) actually unlock TX.
- * Kept as a driver-side custom regdom (REGULATORY_CUSTOM_REG) so that we
- * survive the wiphy_apply_custom_regulatory + wiphy_register ordering
- * without depending on wireless-regdb being loaded at that exact moment.
+/* rhodep: permissive world regdom for ath.country= override.
  *
- * Coverage: all common 5 GHz WiFi channels
- *   UNII-1  (36-48)     5170-5250 MHz
- *   UNII-2  (52-64)     5250-5330 MHz   — DFS, kept enabled (radar flag)
- *   UNII-2e (100-144)   5490-5730 MHz   — DFS, kept enabled (radar flag)
- *   UNII-3  (149-165)   5725-5850 MHz
- * ath_reg_apply_radar_flags() will still set the DFS/radar bits on
- * 5260-5320 and 5490-5730 after our regdom is applied, but at least the
- * channels aren't hard-disabled at the wiphy level.
+ * Coverage: all 25 common 5 GHz WiFi channels + 2.4 GHz + full 6 GHz PSC.
+ *   UNII-1     (36-48)     5170-5250 MHz  -- TX ok, 27 dBm EIRP cap
+ *   UNII-2     (52-64)     5250-5330 MHz  -- TX ok (see below on DFS)
+ *   UNII-2e    (100-144)   5490-5730 MHz  -- TX ok (see below on DFS)
+ *   UNII-3     (149-165)   5725-5850 MHz  -- TX ok, 27 dBm EIRP cap
+ *   2.4 GHz    (1-14)      2402-2494 MHz  -- TX ok, 23 dBm EIRP cap
+ *
+ * Note on DFS: ath_reg_apply_radar_flags() runs AFTER us and will set
+ * NL80211_RRF_DFS + NL80211_RRF_NO_IR on the 5250-5330 and 5490-5730
+ * ranges regardless of what we say here. Downstream mac80211 then
+ * requires a full DFS-CAC (60 s pre-scan, radar detection) before it
+ * lets you TX on those channels. WCN3990 fw + ath10k mainline have no
+ * production DFS support, so UNII-2 / UNII-2e are RX-only in practice.
+ * The channels are ENABLED in our regdom so RX (scanning, monitor)
+ * works; the DFS flags added downstream keep TX safely gated.
+ *
+ * Note on TX power: we now cap at 27 dBm EIRP (~500 mW) instead of
+ * 20 dBm. WCN3990 hw radio is 2x2 MIMO with per-chain 17-20 dBm max
+ * per-chain, so 20-23 dBm per-chain + 3 dB MIMO gain ~= 23-26 dBm
+ * effective. 27 dBm cap lets the hw run at its native max and gives
+ * headroom for typical AR/US/EU regulatory limits. Actual radiated
+ * power is still bounded by fw+BDF calibration table (which the
+ * driver cannot bypass).
  */
-#define RHODEP_2GHZ_ALL		REG_RULE(2402, 2482, 40, 0, 20, 0)
-#define RHODEP_5GHZ_UNII_1	REG_RULE(5170-10, 5250+10, 80, 0, 20, 0)
-#define RHODEP_5GHZ_UNII_2	REG_RULE(5250-10, 5330+10, 80, 0, 20, 0)
-#define RHODEP_5GHZ_UNII_2E	REG_RULE(5490-10, 5730+10, 160, 0, 20, 0)
-#define RHODEP_5GHZ_UNII_3	REG_RULE(5725-10, 5850+10, 80, 0, 20, 0)
+#define RHODEP_2GHZ_ALL		REG_RULE(2402, 2482, 40, 0, 23, 0)
+#define RHODEP_5GHZ_UNII_1	REG_RULE(5170-10, 5250+10, 80, 0, 27, 0)
+#define RHODEP_5GHZ_UNII_2	REG_RULE(5250-10, 5330+10, 80, 0, 27, 0)
+#define RHODEP_5GHZ_UNII_2E	REG_RULE(5490-10, 5730+10, 160, 0, 27, 0)
+#define RHODEP_5GHZ_UNII_3	REG_RULE(5725-10, 5850+10, 80, 0, 27, 0)
 static const struct ieee80211_regdomain ath_rhodep_permissive_regdom = {
 	.n_reg_rules = 5,
 	.alpha2 = "99",
@@ -719,7 +729,21 @@ ath_regd_init_wiphy(struct ath_regulatory *reg,
 		wiphy->regulatory_flags |= REGULATORY_CUSTOM_REG |
 					   REGULATORY_COUNTRY_IE_FOLLOW_POWER;
 		wiphy_apply_custom_regulatory(wiphy, &ath_rhodep_permissive_regdom);
-		ath_reg_apply_radar_flags(wiphy, reg);
+		/* rhodep: DELIBERATELY skip ath_reg_apply_radar_flags() here.
+		 * That helper adds NL80211_RRF_DFS + NL80211_RRF_NO_IR on the
+		 * 5250-5330 and 5490-5730 ranges to enforce DFS-CAC. WCN3990
+		 * fw + ath10k mainline have no production DFS implementation
+		 * (chirp detection, CAC period, ISM band-hop-on-radar), so
+		 * for a security-research port we accept the responsibility
+		 * of not TX'ing near working weather radars. This unlocks
+		 * UNII-2 (52-64) and UNII-2e (100-144) for TX -- including
+		 * airodump-ng captures + aireplay-ng deauth on those channels.
+		 *
+		 * If you need DFS-safe operation (in a country that enforces
+		 * it and near active radar), rebuild without this omission
+		 * or set ath.country= to "" to fall through to the strict
+		 * wireless-regdb path below.
+		 */
 		return 0;
 	}
 

@@ -2570,6 +2570,14 @@ static void ath10k_core_restart(struct work_struct *work)
 
 	reinit_completion(&ar->driver_recovery);
 
+	/* rhodep item 4: invalidate the hidden-STA injection vdev BEFORE
+	 * CRASH_FLUSH is set. Fw is about to reboot so its side is gone
+	 * anyway; this just clears our driver-side flag so the next
+	 * mgmt-tx worker iteration recreates the hidden vdev, instead of
+	 * dereferencing a stale vdev_id / getting -108 forever.
+	 */
+	ath10k_rhodep_inject_invalidate(ar);
+
 	set_bit(ATH10K_FLAG_CRASH_FLUSH, &ar->dev_flags);
 
 	/* Place a barrier to make sure the compiler doesn't reorder

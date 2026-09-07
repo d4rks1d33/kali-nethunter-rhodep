@@ -102,6 +102,114 @@ ran. That's the duplicate event Bug A UAFs on. Fix: **drop the event
 entirely** if the low 2 bits are 0 but higher bits are set — it's a
 retry-info event, not a real completion.
 
+## 9th session — SOLVED: aireplay-ng -9 fully passes, directed phase 100%
+
+**Historic breakthrough**. This is the first known ath10k mainline port
+for WCN3990 where `aireplay-ng -9 wlan0mon` passes both broadcast AND
+directed phases, with response rates up to **30/30 (100%)** and
+measured round-trip pings (`Ping avg 30ms`) proving frames actually
+radiate AND replies come back.
+
+Test output (2026-09-06):
+```
+21:26:25  Injection is working!             ← broadcast phase PASS
+21:26:26  Found 18 APs
+
+21:26:26  Trying directed probe requests...
+21:26:26  1E:EA:14:2E:BF:52 - 'UTN Alarmas'      → 26/30: 86%
+21:26:28  8A:C2:27:A1:19:CC - 'WiFi Mateo 2.4G'  → 30/30: 100% (Ping avg 29.9ms)
+```
+
+Zero fw crashes, zero -108 errors, zero kernel oops. Deauth still works
+(581 status=0 in a 10-frame burst).
+
+### The key insight (multi-agent research)
+
+Loukious's original v1 tree (`android_kernel_xiaomi_sm8150`) worked on
+WCN3998 because that fw's `wal_send_mgmt` uses the self-peer at
+`vdev+0xc` as tx-peer for **any** addr1 unicast. **WCN3990 fw is
+STRICTER** — it DISCARDs unicast mgmt whose addr1 has no matching peer.
+
+Prior sessions tried to solve this with per-DA peer_create on the
+hidden STA vdev — which hit a DIFFERENT fw limit: `cmnos_thread.c:4005
+:A` asserts when peer_create runs on a peerless (never-VDEV_UP'd) STA
+vdev. Loukious never triggered this because he never does per-DA
+peer_create.
+
+**The fix**: change the hidden vdev from `WMI_VDEV_TYPE_STA` to
+`WMI_VDEV_TYPE_AP` + `VDEV_UP` with self-MAC as BSSID. AP vdevs:
+- Accept VDEV_UP without a partner peer.
+- Use the AP self-peer as **wildcard tx-peer** for ANY addr1 unicast.
+- No per-DA peer_create needed (removed the whole 90-line block).
+- Beacon-tx-offload not a problem because `bcn_intval=0` and no beacon
+  template is ever installed.
+
+But that alone triggered a NEW crash (`WLAN BE:0x4708a`) on the 4th
+frame of aireplay's directed burst — because aireplay's burst emits 4
+frames: probe-req (mgmt) + RTS (ctl, dropped by mac80211) + null-data
+(data) + auth (mgmt). Frames 1 and 4 go through WMI mgmt-tx with vdev
+rewrite to the hidden AP vdev, but frame 3 (null-data) goes through
+HTT with vdev_id=monitor(0), peerid=INVALID, addr1=arbitrary_BSSID.
+Fw's wal_tx on monitor vdev dereferences uninitialized bss_peer state
+from the sibling AP vdev and crashes.
+
+**Fix A**: silently drop non-mgmt frames on monitor vif in the driver
+BEFORE they reach HTT. mac80211 is happy (skb freed via
+`ieee80211_free_txskb`), fw never sees the offending descriptor. What
+we lose: aireplay's `-2/-3/-6/-7` arp-replay modes (which never worked
+unicast anyway per 0119 README) and the RTS+null-data legs of `-9`
+directed (irrelevant — mgmt legs alone drive the test to 100%).
+
+### Changes applied this session
+
+1. **Hidden vdev type: `WMI_VDEV_TYPE_STA` → `WMI_VDEV_TYPE_AP`** in
+   `ath10k_rhodep_ensure_inject_vdev`.
+2. **Added `VDEV_UP` with self-BSSID** after peer_create (msleep 50).
+3. **`hidden_ssid=true`** + dummy 0-length ssid (required by WARN_ON in
+   TLV builder) + `disable_hw_ack=true` (phantom AP).
+4. **Removed per-DA peer_create** entirely from
+   `ath10k_mon_inject_peer_add`. Self-peer is enough on AP vdev.
+5. **Fix A**: drop non-mgmt frames on monitor vif in `ath10k_mac_op_tx`
+   before they reach the HTT raw path.
+6. **Item 4 (fw restart)**: added
+   `ath10k_rhodep_inject_invalidate(ar)` called from
+   `ath10k_core_restart` BEFORE `set_bit(CRASH_FLUSH)`. Driver-side
+   only (spinlock, no WMI, no sleep). Clears `created` + peer_cache
+   so next mgmt-tx worker iteration recreates hidden vdev.
+7. **Item 5 (cosmetic)**: `mon_mac = inj_mac` in the fallback random
+   MAC path so the `helper vdev N ready (mac=%pM)` log shows a real
+   MAC instead of `(null)`.
+
+### Verified working after this session
+
+- `aireplay-ng -9 wlan0mon`: **"Injection is working!" + 100% directed**
+- `aireplay-ng --deauth 10 -a BSSID wlan0mon`: 581 status=0 in a burst
+- scapy broadcast injection: 100% radiation @ 20 fps
+- airodump-ng: full mgmt+beacon capture
+- Module reload without device reboot: works
+- fw crash + auto-recovery: `ath10k_rhodep_inject_invalidate` clears
+  state cleanly, hidden vdev recreated on next tx
+
+### Still open (much smaller now)
+
+1. **Data unicast injection (aireplay -2/-3/-6/-7)**: dropped in the
+   driver by Fix A. Would require routing the HTT raw path through the
+   hidden AP vdev too (Fix D in the multi-agent analysis, sketched but
+   not implemented). Not blocking the deauth/injection use case.
+2. **DKMS/patch export**: current form is snapshots; would need to be
+   diffed against upstream 7.2-rc5 and split into ordered `01xx-*.patch`
+   files if this is ever upstreamed.
+
+### Superseded — old known bugs from prior sessions
+
+- ~~`cmnos_thread.c:4005:A` on per-DA peer_create~~ — resolved by
+  switching to AP vdev + removing per-DA peer_create.
+- ~~`aireplay-ng -9 directed 0/30: 0%`~~ — resolved (100% now).
+- ~~Firmware asserts under sustained burst rate~~ — resolved by Fix A
+  (data frames no longer reach fw on monitor vif).
+
+---
+
 ## 8th session continued — restored per-DA peer_create + broadcast test PASSES
 
 After the initial oops was fixed we discovered `aireplay-ng -9` was

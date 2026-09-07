@@ -32,6 +32,13 @@ struct ath10k *ath10k_mac_create(size_t priv_size);
 void ath10k_mac_destroy(struct ath10k *ar);
 u32 ath10k_rhodep_inject_vdev_for_mon(struct ath10k *ar, u32 mon_vdev_id);
 void ath10k_rhodep_inject_teardown(struct ath10k *ar);
+
+/* rhodep item 4: driver-side-only invalidation for the fw-crash path.
+ * Does NOT issue any WMI commands (fw is dead/rebooting). Just clears
+ * the ->created flag and the peer_cache so the next mgmt-tx worker
+ * iteration recreates the hidden vdev from scratch.
+ */
+void ath10k_rhodep_inject_invalidate(struct ath10k *ar);
 int ath10k_mac_register(struct ath10k *ar);
 void ath10k_mac_unregister(struct ath10k *ar);
 struct ath10k_vif *ath10k_get_arvif(struct ath10k *ar, u32 vdev_id);

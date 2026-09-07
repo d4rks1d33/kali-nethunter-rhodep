@@ -4293,38 +4293,22 @@ static int ath10k_mon_inject_peer_add(struct ath10k *ar, struct sk_buff *skb,
 	if (!ar->monitor_started && !ar->monitor_arvif && !ar->monitor)
 		return -1;
 
-	/* rhodep: when the hidden STA vdev exists, create the temp peer for
-	 * the unicast target MAC there via RAW WMI (bypass ath10k_peer_create
-	 * wrapper which uses wait_for_peer_created -- PEER_MAP never fires
-	 * on the hidden STA vdev and it times out).
+	/* rhodep Experiment 1 (Sep 2026): NO per-DA peer_create.
 	 *
-	 * WCN3990 fw's wal_tx path DISCARDS unicast mgmt frames when addr1
-	 * has no matching peer entry on the vdev (empirically verified in
-	 * prior sessions; see 0119 README item 6). Without a per-DA peer:
-	 * 100% DISCARD for unicast. Broadcast has a separate fw fallback.
+	 * We now create the hidden vdev as WMI_VDEV_TYPE_AP + VDEV_UP with
+	 * the self-MAC as BSSID. AP vdevs use the AP self-peer at vdev+0xc
+	 * as the tx peer for ANY addr1 unicast, so we do not need per-DA
+	 * peers. This also avoids the cmnos_thread.c:4005:A assert that
+	 * hit us when we did peer_create on a peerless (never-UP'd) STA
+	 * vdev.
 	 *
-	 * Naive per-frame peer_create at aireplay burst rate (64 fps
-	 * alternating between two addr1 values) fills the fw cmnos
-	 * inter-thread pool and asserts cmnos_thread.c:4005:A -> panic.
-	 * Solved with an 8-slot LRU peer cache: peers created on demand,
-	 * kept across frames, evicted round-robin.
+	 * If fw crashed/restarted, invalidate so the mgmt-tx worker
+	 * recreates the hidden vdev on the next frame.
 	 */
 	if (ar->rhodep_inject.created) {
-		int rc, i, slot;
-		bool cached;
-		u8 hidden_vdev_id;
-
-		da = ieee80211_get_DA(hdr);
-		if (is_multicast_ether_addr(da))
-			return -1; /* no peer needed for broadcast */
-
-		/* If fw crashed/restarted, our vdev+peer state is stale.
-		 * Invalidate so the mgmt-tx worker recreates the hidden
-		 * STA vdev on the next frame.
-		 */
 		if (ar->state != ATH10K_STATE_ON) {
 			ath10k_info(ar,
-				    "rhodep: fw not in state=ON (%d), invalidating hidden STA vdev\n",
+				    "rhodep: fw not in state=ON (%d), invalidating hidden vdev\n",
 				    ar->state);
 			spin_lock_bh(&ar->rhodep_inject.lock);
 			ar->rhodep_inject.created = false;
@@ -4333,76 +4317,10 @@ static int ath10k_mon_inject_peer_add(struct ath10k *ar, struct sk_buff *skb,
 			spin_unlock_bh(&ar->rhodep_inject.lock);
 			return -1;
 		}
-
-		hidden_vdev_id = ar->rhodep_inject.vdev_id;
-
-		/* Cache lookup + slot reservation under spinlock (fast,
-		 * non-sleeping). If DA already cached, done. Otherwise
-		 * reserve the next round-robin slot NOW so parallel
-		 * callers with the same DA coalesce to one peer_create.
-		 *
-		 * NOTE: we deliberately do NOT peer_delete the evicted
-		 * peer. Snapshot version doesn't either -- WCN3990 fw
-		 * asserts cmnos_thread.c:4005:A on rapid peer_delete+
-		 * peer_create on a peerless (never VDEV_UP'd) STA vdev.
-		 * Stale peers accumulate in fw table until the hidden
-		 * vdev is torn down (channel change / driver unload),
-		 * which fully drops all peers implicitly.
+		/* Signal caller: "use hidden vdev, no peer setup or
+		 * teardown needed". peer_addr_out is unused in this path.
 		 */
-		spin_lock_bh(&ar->rhodep_inject.lock);
-		cached = false;
-		for (i = 0; i < ATH10K_RHODEP_PEER_CACHE; i++) {
-			if (ether_addr_equal(ar->rhodep_inject.peer_cache[i],
-					     da)) {
-				cached = true;
-				break;
-			}
-		}
-		if (cached) {
-			spin_unlock_bh(&ar->rhodep_inject.lock);
-			ether_addr_copy(peer_addr_out, da);
-			return -2; /* cache hit -- keep peer */
-		}
-		slot = ar->rhodep_inject.peer_cache_next;
-		ether_addr_copy(ar->rhodep_inject.peer_cache[slot], da);
-		ar->rhodep_inject.peer_cache_next =
-			(slot + 1) % ATH10K_RHODEP_PEER_CACHE;
-		spin_unlock_bh(&ar->rhodep_inject.lock);
-
-		mutex_lock(&ar->conf_mutex);
-		rc = ath10k_wmi_peer_create(ar, hidden_vdev_id, da,
-					    WMI_PEER_TYPE_DEFAULT);
-		mutex_unlock(&ar->conf_mutex);
-		if (rc && rc != -EEXIST) {
-			/* rollback: clear the cache slot we just claimed */
-			spin_lock_bh(&ar->rhodep_inject.lock);
-			for (i = 0; i < ATH10K_RHODEP_PEER_CACHE; i++)
-				if (ether_addr_equal(
-					    ar->rhodep_inject.peer_cache[i],
-					    da))
-					memset(ar->rhodep_inject.peer_cache[i],
-					       0, ETH_ALEN);
-			/* -ESHUTDOWN/-ECOMM means fw died and rebooted -- our
-			 * hidden STA vdev no longer exists. Invalidate so the
-			 * mgmt-tx worker recreates it next round.
-			 */
-			if (rc == -ESHUTDOWN || rc == -ECOMM) {
-				ath10k_info(ar,
-					    "rhodep: fw down (rc=%d), invalidating hidden vdev\n",
-					    rc);
-				ar->rhodep_inject.created = false;
-				memset(ar->rhodep_inject.peer_cache, 0,
-				       sizeof(ar->rhodep_inject.peer_cache));
-			}
-			spin_unlock_bh(&ar->rhodep_inject.lock);
-			ath10k_warn(ar,
-				    "rhodep raw peer_create %pM on hidden STA %u failed: %d\n",
-				    da, hidden_vdev_id, rc);
-			return -1;
-		}
-		msleep(30); /* let fw install the peer before we tx to it */
-		ether_addr_copy(peer_addr_out, da);
-		return -2; /* peer created, keep it (burst optimization) */
+		return -1; /* -1 = skip both add & del legacy paths */
 	}
 
 	/* Legacy path (monitor vdev inject, pre-Loukious). Kept as fallback. */
@@ -4550,6 +4468,7 @@ static int ath10k_rhodep_ensure_inject_vdev(struct ath10k *ar,
 		eth_random_addr(inj_mac);
 		inj_mac[0] |= 0x02;
 		inj_mac[0] &= ~0x01; /* unicast */
+		mon_mac = inj_mac;   /* item 5: avoid mac=(null) in the log below */
 		goto have_mac;
 	}
 	ether_addr_copy(inj_mac, mon_mac_in);
@@ -4558,10 +4477,32 @@ static int ath10k_rhodep_ensure_inject_vdev(struct ath10k *ar,
 	mon_mac = mon_mac_in;
 have_mac:
 
-	ath10k_warn(ar, "rhodep inject: creating STA vdev id=%d inj_mac=%pM freq=%u\n",
+	/* rhodep Experiment 1 (Sep 2026): use AP vdev type, not STA.
+	 *
+	 * Loukious's v1 (WCN3998) uses STA and never does per-DA
+	 * peer_create -- on WCN3998 fw's wal_send_mgmt uses the self-peer
+	 * at vdev+0xc as the tx peer for ANY addr1. But WCN3990 fw's
+	 * wal_tx unicast-mgmt path is STRICTER: it DISCARDs unicast when
+	 * addr1 has no matching peer.
+	 *
+	 * Trying to fix that with per-DA peer_create hits a different fw
+	 * limit: on a peerless (never VDEV_UP'd) STA vdev, any peer_create
+	 * asserts cmnos_thread.c:4005:A. Loukious never triggers this
+	 * because his design has ONE peer only.
+	 *
+	 * Fix: use WMI_VDEV_TYPE_AP + VDEV_UP with self-BSSID. AP vdevs
+	 * accept VDEV_UP without a partner peer, AP self-peer serves as
+	 * wildcard tx peer for ALL addr1 unicast, and beacon-tx-offload
+	 * is not a problem because we never install a beacon template
+	 * and keep bcn_intval=0.
+	 *
+	 * See kernel/patches/wip-rhodep-loukious-hidden-sta/README.md for
+	 * the full multi-agent analysis of why this is the right design.
+	 */
+	ath10k_warn(ar, "rhodep inject: creating AP vdev id=%d inj_mac=%pM freq=%u\n",
 		    vid, inj_mac, chanfreq);
 
-	ret = ath10k_wmi_vdev_create(ar, vid, WMI_VDEV_TYPE_STA,
+	ret = ath10k_wmi_vdev_create(ar, vid, WMI_VDEV_TYPE_AP,
 				     WMI_VDEV_SUBTYPE_NONE, inj_mac);
 	if (ret) {
 		ath10k_warn(ar, "rhodep inject: vdev_create failed: %d\n", ret);
@@ -4577,16 +4518,28 @@ have_mac:
 	arg.channel.max_power = 40;      /* 0.5 dBm units -> 20 dBm */
 	arg.channel.max_reg_power = 40;
 	arg.channel.max_antenna_gain = 0;
-	arg.bcn_intval = 0;
+	arg.bcn_intval = 0;   /* no beacons */
 	arg.dtim_period = 0;
+	/* AP vdev requires a non-null ssid pointer when hidden_ssid=true
+	 * (WARN_ON in ath10k_wmi_tlv_op_gen_vdev_start). Provide a dummy
+	 * 0-length SSID so the TLV builder accepts it. Since bcn_intval=0
+	 * no beacons ever go out anyway; the SSID field is unused.
+	 */
+	{
+		static const u8 dummy_ssid[1] = { 0 };
+		arg.ssid = (u8 *)dummy_ssid;
+		arg.ssid_len = 0;
+	}
+	arg.hidden_ssid = true;    /* extra safety: never expose an SSID */
+	arg.disable_hw_ack = true; /* phantom AP; suppress ACKs on rx */
 
 	ret = ath10k_wmi_vdev_start(ar, &arg);
 	if (ret) {
 		ath10k_warn(ar, "rhodep inject: vdev_start failed: %d\n", ret);
 		goto err_delete;
 	}
-	/* Loukious uses msleep(150); vdev_setup_sync waits for START_RESP
-	 * event that never fires reliably for the hidden STA vdev on WCN3990.
+	/* msleep(150); vdev_setup_sync waits for START_RESP event that
+	 * doesn't fire reliably for the hidden vdev on WCN3990.
 	 */
 	msleep(150);
 
@@ -4595,14 +4548,29 @@ have_mac:
 		ath10k_warn(ar, "rhodep inject: peer_create failed: %d\n", ret);
 		goto err_stop;
 	}
-	/* Loukious uses msleep(100); wait_for_peer_created times out because
-	 * peer_map event never fires for a peerless STA vdev on WCN3990.
+	/* msleep(100); wait_for_peer_created times out (peer_map event
+	 * never fires for the hidden vdev's self-peer on WCN3990).
 	 */
 	msleep(100);
 
-	/* Deliberately skip VDEV_UP: fw asserts on STA up without BSS peer.
-	 * The mgmt-tx handler only needs the vdev in STARTED + peer@vdev+0xc.
+	/* rhodep Experiment 1 (Sep 2026): VDEV_UP with self-BSSID.
+	 *
+	 * On AP vdevs the fw accepts VDEV_UP with an arbitrary BSSID and
+	 * no partner peer. Once UP, the fw's tx-scheduler classifies the
+	 * vdev as active-AP and uses the self-peer as bss_peer for ALL
+	 * mgmt/data tx. No per-DA peer_create needed; addr1 is respected
+	 * verbatim (spoofed SA/BSSID work).
+	 *
+	 * This is the piece that was missing when we ran as STA vdev.
 	 */
+	ret = ath10k_wmi_vdev_up(ar, vid, 0, inj_mac);
+	if (ret) {
+		ath10k_warn(ar, "rhodep inject: vdev_up failed: %d\n", ret);
+		/* peer_delete + fall through to err_stop */
+		ath10k_wmi_peer_delete(ar, vid, inj_mac);
+		goto err_stop;
+	}
+	msleep(50);
 
 	/* Publish atomically: reader in gen_mgmt_tx_send takes this same
 	 * spinlock to observe created + vdev_id consistently. Fill scalars
@@ -4680,6 +4648,29 @@ void ath10k_rhodep_inject_teardown(struct ath10k *ar)
 	msleep(100);
 	ar->free_vdev_map |= 1LL << vdev_id;
 	mutex_unlock(&ar->conf_mutex);
+}
+
+/* rhodep item 4: driver-side-only invalidation on fw crash.
+ * Called from ath10k_core_restart before CRASH_FLUSH is set. Fw is
+ * about to reboot so its hidden vdev is gone anyway; just clear our
+ * side so the next mgmt-tx worker iteration recreates it.
+ * Uses spinlock only (no WMI, no mutex, no msleep) so it is safe to
+ * call from the restart_work handler holding conf_mutex.
+ */
+void ath10k_rhodep_inject_invalidate(struct ath10k *ar)
+{
+	spin_lock_bh(&ar->rhodep_inject.lock);
+	if (ar->rhodep_inject.created) {
+		ath10k_info(ar,
+			    "rhodep: fw restart - invalidating hidden vdev %u\n",
+			    ar->rhodep_inject.vdev_id);
+		ar->free_vdev_map |= 1LL << ar->rhodep_inject.vdev_id;
+		ar->rhodep_inject.created = false;
+	}
+	memset(ar->rhodep_inject.peer_cache, 0,
+	       sizeof(ar->rhodep_inject.peer_cache));
+	ar->rhodep_inject.peer_cache_next = 0;
+	spin_unlock_bh(&ar->rhodep_inject.lock);
 }
 /* end rhodep Loukious hidden-STA port */
 
@@ -5215,6 +5206,29 @@ static void ath10k_mac_op_tx(struct ieee80211_hw *hw,
 	bool is_mgmt;
 	int ret;
 	u16 airtime;
+
+	/* rhodep Experiment 1 Fix A: monitor vif is only a valid injection
+	 * source for mgmt frames on WCN3990. mgmt frames route through the
+	 * WMI mgmt-tx-by-ref path and get vdev_id rewritten to the hidden
+	 * AP helper vdev in ath10k_wmi_tlv_op_gen_mgmt_tx_send. Any data
+	 * or control frame reaching us on a monitor vif ends up on the HTT
+	 * raw path with vdev_id=monitor(0), peerid=INVALID and addr1=
+	 * arbitrary_BSSID; fw asserts WLAN BE:0x4708a @ cmnos_thread.c:4005
+	 * on that combination when a sibling AP vdev is UP. Silently drop
+	 * non-mgmt frames instead of feeding fw a crash trigger.
+	 * aireplay-ng --deauth / -9 broadcast phase only use mgmt frames
+	 * so this doesn't hurt them. What we lose is aireplay's directed
+	 * burst RTS+null-data legs and the -2/-3/-6/-7 arp-replay modes
+	 * (which never worked unicast anyway per 0119 README).
+	 */
+	if (vif && vif->type == NL80211_IFTYPE_MONITOR) {
+		struct ieee80211_hdr *hdr = (void *)skb->data;
+
+		if (!ieee80211_is_mgmt(hdr->frame_control)) {
+			ieee80211_free_txskb(hw, skb);
+			return;
+		}
+	}
 
 	airtime = ath10k_mac_update_airtime(ar, txq, skb);
 	ath10k_mac_tx_h_fill_cb(ar, vif, txq, sta, skb, airtime);

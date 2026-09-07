@@ -89,7 +89,7 @@ that (a) rewrites current_rd, (b) makes runtime `iw reg set` also work,
 channels (UNII-1/2/2e/3). Verified: `aireplay-ng -9` on ch 149 gets
 "Injection is working!" with 7.9 ms ping RTT.
 
-Also verified `WiFi Mateo 5G` (target BSSID `8a:c2:27:a1:19:d0`)
+Also verified `Home-AP-5G` (target BSSID `AA:BB:CC:DD:EE:02`)
 capturable on ch 157 at -63 dBm.
 
 Item 16.8: **rhodep_inject_retune chanctx hook.** Multi-agent RE

@@ -78,7 +78,7 @@ iw phy | grep 5180
 iw dev wlan0mon set channel 149
 tcpdump -i wlan0mon -c 5 -e -n type mgt subtype beacon
   ...
-  6.0 Mb/s 5745 MHz 11a ... Beacon (UTNFRRO) ... CH: 149
+  6.0 Mb/s 5745 MHz 11a ... Beacon (Public-AP-A) ... CH: 149
 ```
 
 Aireplay injection test on 5 GHz UNII-3 (ch 149):
@@ -96,10 +96,10 @@ receive a specific target AP's 5 GHz beacon:
 
 ```
 tcpdump -i wlan0mon type mgt subtype beacon (ch 157)
-  5785 MHz 11a -63dBm  BSSID:8a:c2:27:a1:19:d0  Beacon (WiFi Mateo 5G)
+  5785 MHz 11a -63dBm  BSSID:AA:BB:CC:DD:EE:02  Beacon (Home-AP-5G)
 ```
 
-Same physical AP as `WiFi Mateo 2.4G` (BSSID 8a:c2:27:a1:19:cc on ch 6)
+Same physical AP as `Home-AP-2.4G` (BSSID AA:BB:CC:DD:EE:01 on ch 6)
 but the 5 GHz radio uses a different virtual MAC (last byte cc→d0).
 This confirms the WCN3990 radio is really tuning to 5 GHz and RX is
 working across UNII-1/UNII-2/UNII-3.

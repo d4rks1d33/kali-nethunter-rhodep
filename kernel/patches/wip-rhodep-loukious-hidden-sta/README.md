@@ -116,8 +116,8 @@ Test output (2026-09-06):
 21:26:26  Found 18 APs
 
 21:26:26  Trying directed probe requests...
-21:26:26  1E:EA:14:2E:BF:52 - 'UTN Alarmas'      → 26/30: 86%
-21:26:28  8A:C2:27:A1:19:CC - 'WiFi Mateo 2.4G'  → 30/30: 100% (Ping avg 29.9ms)
+21:26:26  AA:BB:CC:DD:EE:03 - 'Public-AP-B'      → 26/30: 86%
+21:26:28  AA:BB:CC:DD:EE:01 - 'Home-AP-2.4G'  → 30/30: 100% (Ping avg 29.9ms)
 ```
 
 Zero fw crashes, zero -108 errors, zero kernel oops. Deauth still works
@@ -226,7 +226,7 @@ we don't even take conf_mutex when the fw is dying.
 Test evidence (2026-09-06):
 ```
 === TEST 3: deauth WITHOUT -D (user's bug case) ===
-21:43:15  Waiting for beacon frame (BSSID: 8A:C2:27:A1:19:CC) on channel 11
+21:43:15  Waiting for beacon frame (BSSID: AA:BB:CC:DD:EE:01) on channel 11
 21:43:15  Sending 64 directed DeAuth (code 7). STMAC: [96:2F:EF:12:F8:F6]
 21:43:16  Sending 64 directed DeAuth (code 7). STMAC: [96:2F:EF:12:F8:F6]
 21:43:17  Sending 64 directed DeAuth (code 7). STMAC: [96:2F:EF:12:F8:F6]

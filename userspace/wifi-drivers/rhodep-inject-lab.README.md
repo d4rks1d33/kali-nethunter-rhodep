@@ -42,13 +42,13 @@ sudo rhodep-inject-lab witness <ch|freq>          # set up TP-Link as OTA witnes
 `<ch|freq>` accepts a channel number (11, 36, 149, …) or a raw MHz value
 (2462, 5745, …). The tool converts channel → freq automatically.
 
-## Example: deauth all clients of `WiFi Mateo 2.4G` (ch 11, BSSID 8a:c2:27:a1:19:cc)
+## Example: deauth all clients of `Home-AP-2.4G` (ch 11, BSSID AA:BB:CC:DD:EE:01)
 
 ```
-sudo rhodep-inject-lab deauth 11 ff:ff:ff:ff:ff:ff 8a:c2:27:a1:19:cc 40
+sudo rhodep-inject-lab deauth 11 ff:ff:ff:ff:ff:ff AA:BB:CC:DD:EE:01 40
 ```
 
-The frames go out with SA = `8a:c2:27:a1:19:cc` (the AP's MAC), which is what
+The frames go out with SA = `AA:BB:CC:DD:EE:01` (the AP's MAC), which is what
 clients honour. Confirmed on-air with a TP-Link in monitor: 130 deauths captured
 at -23 dBm, target client disconnected.
 

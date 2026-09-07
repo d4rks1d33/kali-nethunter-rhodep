@@ -3554,11 +3554,11 @@ def self_test():
 
     print("--- iw scan parser ---")
     sample = (
-        "BSS 8a:c2:27:a1:19:d0(on wlan0) -- associated\n"
+        "BSS aa:bb:cc:dd:ee:02(on wlan0) -- associated\n"
         "\tlast seen: 16 ms ago\n"
         "\tfreq: 5785.0\n"
         "\tsignal: -71.00 dBm\n"
-        "\tSSID: WiFi Mateo 5G\n"
+        "\tSSID: Home-AP-5G\n"
         "BSS c2:e1:be:d2:cf:30(on wlan0)\n"
         "\tfreq: 2442.0\n"
         "\tsignal: -69.00 dBm\n"
@@ -3573,7 +3573,7 @@ def self_test():
     check("age", aps[0].age == 16)
     check("hidden ssid", aps[2].ssid is None)
     check("_nomap detected", aps[1].nomap and not aps[0].nomap)
-    check("json shape", aps[0].as_json() == {"macAddress": "8a:c2:27:a1:19:d0",
+    check("json shape", aps[0].as_json() == {"macAddress": "aa:bb:cc:dd:ee:02",
                                              "signalStrength": -71,
                                              "frequency": 5785, "age": 16})
 

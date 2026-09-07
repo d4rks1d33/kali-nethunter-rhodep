@@ -27,7 +27,7 @@ earbuds rather than by argument. With all plugins loaded:
 	wpctl status
 	  Sinks:
 	      32. Speaker
-	  *   63. AirPods Pro de Mateo            [vol: 0.70]
+	  *   63. AirPods Pro (owner)            [vol: 0.70]
 
 	wpctl inspect 63
 	  api.bluez5.codec   = "sbc"

@@ -15,7 +15,7 @@ Verified end-to-end:
 - `aireplay-ng --deauth` disconnects real target clients OTA.
 - `airodump-ng` captures beacons, probes, auth, deauth mgmt frames.
 - `mdk4 b` (beacon flood), `scapy sendp`, `hcxdumptool` all function.
-- `WiFi Mateo 5G` (target BSSID `8a:c2:27:a1:19:d0`) captured
+- `Home-AP-5G` (target BSSID `AA:BB:CC:DD:EE:02`) captured
   passively at -63 dBm on ch 157.
 - Full aircrack-ng suite works from the phone's internal radio, no
   USB adapter required.

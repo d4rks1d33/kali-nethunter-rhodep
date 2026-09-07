@@ -18,8 +18,8 @@ airmon-ng start wlan0
 iw dev wlan0mon set channel 157
 sleep 3
 tcpdump -i wlan0mon -e -n 'type mgt subtype beacon'
-  5785 MHz 11a -63dBm  BSSID:8a:c2:27:a1:19:d0  Beacon (WiFi Mateo 5G)
-  5785 MHz 11a -65dBm  BSSID:8a:c2:27:a1:19:d0  Beacon (WiFi Mateo 5G)
+  5785 MHz 11a -63dBm  BSSID:AA:BB:CC:DD:EE:02  Beacon (Home-AP-5G)
+  5785 MHz 11a -65dBm  BSSID:AA:BB:CC:DD:EE:02  Beacon (Home-AP-5G)
   ...
 
 # Auto-hopping test (finds some 5 GHz APs but misses others):
@@ -241,11 +241,11 @@ frames. Reproducer with the phone already connected as a client:
 
 ```
 airmon-ng start wlan0
-airodump-ng wlan0mon      # hops channels 1..14, sees WiFi Mateo 2.4G ch 11
+airodump-ng wlan0mon      # hops channels 1..14, sees Home-AP-2.4G ch 11
                           # PWR -63dBm, 3+ beacons captured -- proof AP is nearby
                           # then quit with Ctrl-C
-aireplay-ng --deauth 20 -a 8A:C2:27:A1:19:CC wlan0mon
-  15:12:09  Waiting for beacon frame (BSSID: 8A:C2:27:A1:19:CC) on channel 11
+aireplay-ng --deauth 20 -a AA:BB:CC:DD:EE:01 wlan0mon
+  15:12:09  Waiting for beacon frame (BSSID: AA:BB:CC:DD:EE:01) on channel 11
   # <-- hangs forever. -D flag works around it.
 ```
 
@@ -263,7 +263,7 @@ sudo aireplay-ng --deauth 5 -a <BSSID> wlan0mon
 ```
 
 Verified 2026-09-07 on device (v132 kernel, user's Motorola actively
-connected to `WiFi Mateo 2.4G` on ch 11):
+connected to `Home-AP-2.4G` on ch 11):
 - Without `sleep 2`: hangs at "Waiting for beacon frame".
 - With `sleep 2`: 174 beacons captured in a 4 s tcpdump on ch 11
   right after the sleep, aireplay finds the beacon instantly, deauth
@@ -338,9 +338,9 @@ Manual 5 GHz capture works reliably (last verified 2026-09-06):
 === iw info ===
     channel 157 (5785 MHz), width: 20 MHz (no HT), center1: 5785 MHz
 === 5s tcpdump ===
-5785 MHz 11a -63dBm signal  BSSID:8a:c2:27:a1:19:d0  Beacon (WiFi Mateo 5G)
-5785 MHz 11a -68dBm signal  BSSID:8a:c2:27:a1:19:d0  Beacon (WiFi Mateo 5G)
-5785 MHz 11a -68dBm signal  BSSID:8a:c2:27:a1:19:d0  Beacon (WiFi Mateo 5G)
+5785 MHz 11a -63dBm signal  BSSID:AA:BB:CC:DD:EE:02  Beacon (Home-AP-5G)
+5785 MHz 11a -68dBm signal  BSSID:AA:BB:CC:DD:EE:02  Beacon (Home-AP-5G)
+5785 MHz 11a -68dBm signal  BSSID:AA:BB:CC:DD:EE:02  Beacon (Home-AP-5G)
 ```
 
 Aireplay -9 on 5 GHz works reliably (last verified 2026-09-06):
@@ -360,7 +360,7 @@ aireplay-ng -9 wlan0mon
 airodump-ng --band abg -f 800 wlan0mon
   # after 40 s:
   #   22 APs on 2.4 GHz (all consistently found)
-  #    2 APs on 5 GHz   (redprivada on ch 40, WiFi Mateo 5G sometimes)
+  #    2 APs on 5 GHz   (redprivada on ch 40, Home-AP-5G sometimes)
 ```
 
 Zero firmware crashes across all these tests.

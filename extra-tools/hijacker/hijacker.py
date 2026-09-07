@@ -926,17 +926,56 @@ class PMKID(Functions):
             t_secs = 30
 
         out_file = '/tmp/pmkid_capture.pcapng'
-        cmd = ['hcxdumptool', '-i', iface, '-o', out_file,
-               '--active_beacon', '--enable_status=15']
+        # hcxdumptool 7.x renamed most options.
+        #   -o          → -w  (write pcapng)
+        #   --active_beacon, --enable_status=15, --filterlist_ap,
+        #   --filtermode → removed. Filtering is now done through the
+        #     Berkeley Packet Filter (--bpfc/--bpf) — compile a filter
+        #     file for the target BSSID if the user supplied one.
+        # See https://github.com/ZerBea/hcxdumptool/blob/master/docs/upgrade_from_6.md
+        cmd = ['hcxdumptool', '-i', iface, '-w', out_file,
+               '--rds=1']   # rds=1 gives a friendly real-time display
         if bssid:
-            # Write filter file
-            with open('/tmp/pmkid_filter.txt', 'w') as f:
-                f.write(bssid.replace(':', '') + '\n')
-            cmd += ['--filterlist_ap=/tmp/pmkid_filter.txt', '--filtermode=2']
+            # Compile a BPF that only captures frames to/from that BSSID
+            # and write it as an input file for --bpf.
+            mac_flat = bssid.replace(':', '').lower()
+            bpf_file = '/tmp/pmkid_filter.bpf'
+            try:
+                compile_out = subprocess.check_output(
+                    ['hcxdumptool',
+                     f'--bpfc=wlan addr3 {mac_flat}'],
+                    text=True, timeout=5)
+                with open(bpf_file, 'w') as f:
+                    f.write(compile_out)
+                cmd += ['--bpf', bpf_file]
+            except Exception as exc:
+                self._log(f'[!] BPF compile failed ({exc}); '
+                          'capturing without filter')
+
+        # hcxdumptool 7.x insists on arming the interface itself: if it
+        # is *already* in monitor mode when the tool starts, it aborts
+        # with "failed to arm interface -- broken driver / shared
+        # interface". Detected on ath10k_snoc + wlan0mon. Work around it
+        # by dropping the interface back to managed briefly so
+        # hcxdumptool can take exclusive control; we don't restore it,
+        # because on capture-stop hcxdumptool leaves it in monitor mode
+        # (which is what the rest of the app wants anyway).
+        try:
+            iw_type = subprocess.check_output(
+                ['iw', 'dev', iface, 'info'],
+                text=True, timeout=3)
+            if 'type monitor' in iw_type:
+                self._log(f'[*] {iface} is monitor -- flipping to managed '
+                          'so hcxdumptool can rearm it (7.x quirk).')
+                for step in (['ip', 'link', 'set', iface, 'down'],
+                             ['iw', 'dev', iface, 'set', 'type', 'managed'],
+                             ['ip', 'link', 'set', iface, 'up']):
+                    subprocess.run(step, check=False, timeout=5)
+        except Exception as exc:
+            self._log(f'[!] Could not check/reset iface mode: {exc}')
 
         self._log(f'[*] hcxdumptool: {" ".join(cmd)}')
         self._log(f'[*] Capturing for {t_secs}s → {out_file}')
-        self._log('[!] Interface must be in monitor mode.')
 
         widget.set_label('Stop')
         self._proc = subprocess.Popen(

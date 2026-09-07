@@ -1,0 +1,135 @@
+From: Kali NetHunter rhodep port
+Subject: [PATCH] arm64: dts: qcom: rhodep: keep pmr735a L1 on for the modem
+
+pmr735a_l1 is declared in this device tree and referenced by nothing, so
+Linux never enables it. On the running device:
+
+	 regulator      use open bypass  opmode voltage current     min     max
+	    l1            0    0      0 unknown   576mV     0mA   576mV   648mV
+
+Zero users, zero open, off, and parked at the bottom of the declared
+range because no consumer votes a voltage. The stock tree holds the same
+rail on, at 600 mV, with a 62 mA load declared against it. From the
+extracted vendor device tree (blair, XT2225-1), verbatim:
+
+	rpm-regulator-ldoe1 {
+		compatible = "qcom,rpm-smd-regulator-resource";
+		qcom,resource-name = "ldoe";
+		qcom,resource-id = <0x01>;
+		qcom,regulator-type = <0x00>;
+		qcom,regulator-hw-type = "pmic5-ldo";
+		qcom,hpm-min-load = <0x2710>;
+		status = "okay";
+		proxy-supply = <0x5e>;
+
+		regulator-l1 {
+			compatible = "qcom,rpm-smd-regulator";
+			regulator-name = "pmr735a_l1";
+			qcom,set = <0x03>;
+			status = "okay";
+			regulator-min-microvolt = <0x8b290>;
+			regulator-max-microvolt = <0x9eb10>;
+			qcom,init-voltage = <0x927c0>;
+			qcom,proxy-consumer-enable;
+			qcom,proxy-consumer-current = <0xf230>;
+			phandle = <0x5e>;
+		};
+	};
+
+In decimal that is 570000..650000 uV, an initial voltage of 600000, and a
+proxy current of 62000 uA against an LDO whose high power mode threshold
+(qcom,hpm-min-load) is 10000 uA.
+
+The proxy-consumer properties are the vendor RPM regulator driver's way
+of expressing "somebody needs this rail, and it is not anybody the
+application processor can see". proxy-supply on the resource node points
+at the regulator's own phandle, and at probe the driver takes a consumer
+reference on itself: regulator_enable() plus regulator_set_load() with
+qcom,proxy-consumer-current. There is no AP-side consumer to hand that
+vote to, so the only thing that can want a 600 mV rail carrying tens of
+milliamps is off the AP -- the modem's RF front end. A rail at that
+voltage and that current is an RF/PLL supply, not a logic supply.
+
+pmr735a_l1 is the only proxy-enabled rail in the whole stock tree with no
+AP-side consumer node. Every other one -- pmr735a_s1_level (VDD_MX) and
+pmr735a_s2_level (VDD_CX) -- is claimed by a clock controller or by
+pil_modem, and mainline covers those through rpmpd.
+
+Mainline has no proxy-consumer concept, so the constraint itself has to
+say it:
+
+  regulator-always-on	  the core enables the rail at registration and
+			  never releases it, which is what the stock proxy
+			  does for the whole of the vendor kernel's life.
+			  Nothing on the AP will ever call regulator_enable()
+			  on this rail, so there is nothing else that can.
+
+  min == max == 600000	  pins qcom,init-voltage. With a range the core
+			  settles on the floor, which is how the rail came
+			  to read 576 mV; 600000 is an exact selector on the
+			  pm660_nldo660 range (320000 + 35 * 8000).
+
+  regulator-system-load	  the documented binding for "load present on this
+			  regulator that is not captured by any consumer
+			  request", which is precisely the 62 mA proxy.
+
+  regulator-allow-set-load  without it drms_uA_update() returns early and
+			  regulator-system-load is silently ignored, because
+			  of_get_regulation_constraints() sets
+			  REGULATOR_CHANGE_DRMS only for this property. The
+			  load is what puts the LDO in high power mode
+			  (hpm-min-load is 10 mA, the load is 62 mA), so
+			  dropping it would enable the rail in whatever mode
+			  RPM last left it in.
+
+Together these produce, from rpm_reg_write_active(), the same single RPM
+message the vendor's proxy produces on resource ldoe/1: swen=1, uv=600000,
+ma=62.
+
+regulator-boot-on is deliberately not added. It asserts that the
+bootloader left the rail enabled, and that has not been measured here --
+the rail reads disabled under mainline, but that is equally explained by
+Linux having turned it off as unused. regulator-always-on alone gets the
+rail to the same place without claiming something unverified.
+
+Honest scope. This was written while chasing the reset in
+docs/interconnect-sm6375-wip/GNSS-SM6375.md, where bringing up the GNSS
+measurement engine deasserts PS_HOLD within 100 ms and a cellid session
+runs indefinitely. It is a candidate, not a demonstrated fix, and there
+is a real argument against it: RPM aggregates requests per master, the
+modem is an RPM master in its own right, and it can vote ldoe/1 for
+itself without the AP's help. If the modem does vote for it, this patch
+changes nothing about the reset. What is not in doubt is the narrower
+claim -- the stock tree holds this rail and this port does not -- which
+is a real difference between the two trees regardless of what it turns
+out to explain, and it costs 4 lines and a rail that draws 62 mA when the
+modem is up.
+
+Signed-off-by: Kali NetHunter rhodep port <none@example.com>
+---
+ arch/arm64/boot/dts/qcom/sm6375-motorola-rhodep.dts | 12 ++++++++++--
+ 1 file changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm6375-motorola-rhodep.dts b/arch/arm64/boot/dts/qcom/sm6375-motorola-rhodep.dts
+--- a/arch/arm64/boot/dts/qcom/sm6375-motorola-rhodep.dts
++++ b/arch/arm64/boot/dts/qcom/sm6375-motorola-rhodep.dts
+@@ -337,9 +337,17 @@
+ 		 * S2 is VDD_CX
+ 		 */
+ 
++		/*
++		 * No AP consumer: the modem's RF front end is the load. The
++		 * vendor holds it with qcom,proxy-consumer-enable and
++		 * qcom,proxy-consumer-current = <62000>.
++		 */
+ 		pmr735a_l1: l1 {
+-			regulator-min-microvolt = <570000>;
+-			regulator-max-microvolt = <650000>;
++			regulator-min-microvolt = <600000>;
++			regulator-max-microvolt = <600000>;
++			regulator-always-on;
++			regulator-allow-set-load;
++			regulator-system-load = <62000>;
+ 		};
+ 
+ 		pmr735a_l2: l2 {

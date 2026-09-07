@@ -1,0 +1,56 @@
+From: rhodep port
+Subject: [PATCH] ath10k: allow raw TX on monitor vdev without global raw mode
+
+On WCN3990 (ath10k_snoc) the firmware does not advertise
+ATH10K_FW_FEATURE_RAW_MODE_SUPPORT in the firmware-5.bin feature flags,
+so ATH10K_FLAG_RAW_MODE is never set and ath10k_mac_tx() silently drops
+every frame sent through a monitor interface (the WARN_ON_ONCE + free path).
+
+The bit gating injection was always a host-driver-side guard, not a
+firmware limitation.  qcacld-3.0 (Qualcomm's downstream driver for the
+same chip and the same wlanmdsp.mbn) has no equivalent check and performs
+raw TX without issue.
+
+This patch takes the minimal surgical approach: if the frame is being
+sent through a monitor vdev (NL80211_IFTYPE_MONITOR), skip the global
+raw-mode flag check and let the HTT raw TX descriptor through.  Normal
+STA/AP traffic is unaffected; rx_decap_mode stays at NATIVE_WIFI.
+
+The companion change is patching firmware-5.bin to set bit 10
+(ATH10K_FW_FEATURE_RAW_MODE_SUPPORT) so that the driver correctly
+advertises raw-mode support when the ath10k_core module is loaded with
+frame_mode=0.  Without the kernel change, frame_mode=0 still requires
+the global flag for non-monitor TX paths.
+
+On-device usage after applying both changes:
+  ip link set wlan0 down
+  iw dev wlan0 set type monitor
+  iw reg set 00
+  ip link set wlan0 up
+  iw dev wlan0 set channel 6
+  # passive RX:  tcpdump -i wlan0 --immediate-mode
+  # TX injection: aireplay-ng / scapy / mdk4 on wlan0
+
+Signed-off-by: rhodep port <rhodep@postmarketos>
+---
+ drivers/net/wireless/ath/ath10k/mac.c | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/net/wireless/ath/ath10k/mac.c b/drivers/net/wireless/ath/ath10k/mac.c
+--- a/drivers/net/wireless/ath/ath10k/mac.c
++++ b/drivers/net/wireless/ath/ath10k/mac.c
+@@ -4084,8 +4084,12 @@ static int ath10k_mac_tx(struct ath10k *ar,
+ 	case ATH10K_HW_TXRX_RAW:
+ 		if (!test_bit(ATH10K_FLAG_RAW_MODE, &ar->dev_flags) &&
+-		    !(skb_cb->flags & ATH10K_SKB_F_RAW_TX)) {
++		    !(skb_cb->flags & ATH10K_SKB_F_RAW_TX) &&
++		    !(vif && vif->type == NL80211_IFTYPE_MONITOR)) {
+ 			WARN_ON_ONCE(1);
+ 			ieee80211_free_txskb(hw, skb);
+ 			return -EOPNOTSUPP;
+ 		}
++		/* Monitor vif: frame is a raw 802.11 frame from userspace
++		 * (aireplay-ng / scapy / mdk4).  Let the HTT raw TX
++		 * descriptor reach the firmware without a global raw-mode flag. */
+ 		break;
+ 	}

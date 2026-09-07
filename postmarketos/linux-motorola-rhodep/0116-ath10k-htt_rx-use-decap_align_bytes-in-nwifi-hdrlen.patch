@@ -1,0 +1,38 @@
+From: rhodep port
+Subject: [PATCH] ath10k: htt_rx: use hw decap_align_bytes in nwifi_hdrlen
+
+ath10k_htt_rx_nwifi_hdrlen() hard-codes a 4-byte alignment for the
+native-wifi 802.11 header length, while every other undecap helper in
+the same file uses ar->hw_params.decap_align_bytes.
+
+WCN3990 (ath10k_snoc) sets decap_align_bytes = 1 (core.c:731), meaning
+its firmware does not pad the nwifi header.  The 4-byte over-pull
+corrupts the LLC/SNAP bytes at the head of the payload, producing a
+malformed skb that mac80211 cannot parse (tcpdump reports
+"[|802.11_radio]").
+
+Replace the hard-coded 4 with ar->hw_params.decap_align_bytes.  For all
+existing PCIe/USB/SDIO devices that set decap_align_bytes = 4, the
+behaviour is identical.  For WCN3990 with decap_align_bytes = 1,
+round_up(len, 1) == len, matching the actual firmware output.
+
+Signed-off-by: rhodep port <rhodep@postmarketos>
+---
+ drivers/net/wireless/ath/ath10k/htt_rx.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/net/wireless/ath/ath10k/htt_rx.c b/drivers/net/wireless/ath/ath10k/htt_rx.c
+--- a/drivers/net/wireless/ath/ath10k/htt_rx.c
++++ b/drivers/net/wireless/ath/ath10k/htt_rx.c
+@@ -1414,8 +1414,9 @@ static int ath10k_htt_rx_nwifi_hdrlen(struct ath10k *ar,
+ 	int len = ieee80211_hdrlen(hdr->frame_control);
+ 
+ 	if (!test_bit(ATH10K_FW_FEATURE_NO_NWIFI_DECAP_4ADDR_PADDING,
+-		      ar->running_fw->fw_file.fw_features))
+-		len = round_up(len, 4);
++		      ar->running_fw->fw_file.fw_features))
++		len = round_up(len, ar->hw_params.decap_align_bytes);
++		/* WCN3990 has decap_align_bytes=1; other chips stay at 4 */
+ 
+ 	return len;
+ }

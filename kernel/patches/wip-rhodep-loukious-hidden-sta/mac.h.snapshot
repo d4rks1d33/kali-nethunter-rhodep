@@ -39,6 +39,14 @@ void ath10k_rhodep_inject_teardown(struct ath10k *ar);
  * iteration recreates the hidden vdev from scratch.
  */
 void ath10k_rhodep_inject_invalidate(struct ath10k *ar);
+
+/* rhodep item 7 (5 GHz RX): retune the hidden AP vdev to `new_freq` when
+ * mac80211 changes the monitor vif's chanctx. WCN3990 has ONE radio;
+ * without this, hidden AP vdev pins the pdev to its old freq, killing
+ * monitor RX after any 2.4G<->5G band swap. Called from the chanctx
+ * switch path under conf_mutex. Returns 0 on success or if not needed.
+ */
+int ath10k_rhodep_inject_retune(struct ath10k *ar, u32 new_freq);
 int ath10k_mac_register(struct ath10k *ar);
 void ath10k_mac_unregister(struct ath10k *ar);
 struct ath10k_vif *ath10k_get_arvif(struct ath10k *ar, u32 vdev_id);

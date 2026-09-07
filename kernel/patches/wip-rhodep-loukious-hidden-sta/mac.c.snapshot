@@ -4733,6 +4733,93 @@ u32 ath10k_rhodep_inject_vdev_for_mon(struct ath10k *ar, u32 mon_vdev_id)
  *         and routes to the monitor vdev (harmless).
  *   2. Under conf_mutex only: do the sleeping WMI teardown of the vdev.
  */
+/* rhodep: retune the hidden AP inject vdev to `new_freq` when the monitor
+ * vif changes channel. WCN3990 has ONE radio (one PDEV); if the hidden AP
+ * vdev is UP on 2.4 GHz and mac80211 moves the monitor vif to 5 GHz, the
+ * fw arbitrates in favor of the AP-typed vdev and pins the radio to 2.4
+ * GHz -> monitor RX gets ZERO packets on 5 GHz (airodump --band abg
+ * shows no 5 GHz APs). Fix: piggyback on the chanctx switch path
+ * (ath10k_mac_update_vif_chan) and vdev_down/restart/up the hidden vdev
+ * onto the same new freq the monitor just moved to.
+ *
+ * Uses the same in-place restart shape as ensure_inject_vdev's Fix (C),
+ * without the rate-limit -- this path is driven by mac80211 chanctx
+ * events, not by aireplay's burst, so it happens at most a few Hz.
+ *
+ * Called under conf_mutex; must NOT hold rhodep_inject.lock during the
+ * WMI calls.
+ */
+int ath10k_rhodep_inject_retune(struct ath10k *ar, u32 new_freq)
+{
+	struct wmi_vdev_start_request_arg rarg = {};
+	static const u8 dummy_ssid[1] = { 0 };
+	u8 vdev_id;
+	u8 mac[ETH_ALEN];
+	int ret;
+
+	lockdep_assert_held(&ar->conf_mutex);
+
+	if (!ar->rhodep_inject.created)
+		return 0;
+	if (ar->rhodep_inject.chanfreq == new_freq)
+		return 0;
+
+	vdev_id = ar->rhodep_inject.vdev_id;
+	ether_addr_copy(mac, ar->rhodep_inject.mac_addr);
+
+	ath10k_info(ar,
+		    "rhodep inject: chanctx retune %u->%u vdev=%u\n",
+		    ar->rhodep_inject.chanfreq, new_freq, vdev_id);
+
+	ret = ath10k_wmi_vdev_down(ar, vdev_id);
+	if (ret == -ESHUTDOWN)
+		return ret;
+	/* other errors: press on with restart */
+
+	reinit_completion(&ar->vdev_setup_done);
+	reinit_completion(&ar->vdev_delete_done);
+
+	rarg.vdev_id = vdev_id;
+	rarg.channel.freq = new_freq;
+	rarg.channel.band_center_freq1 = new_freq;
+	rarg.channel.band_center_freq2 = 0;
+	rarg.channel.mode = (new_freq < 4000) ? MODE_11G : MODE_11A;
+	rarg.channel.max_power = 40;
+	rarg.channel.max_reg_power = 40;
+	rarg.channel.max_antenna_gain = 0;
+	rarg.bcn_intval = 0;
+	rarg.dtim_period = 0;
+	rarg.ssid = (u8 *)dummy_ssid;
+	rarg.ssid_len = 0;
+	rarg.hidden_ssid = true;
+	rarg.disable_hw_ack = true;
+
+	ret = ath10k_wmi_vdev_restart(ar, &rarg);
+	if (ret) {
+		ath10k_warn(ar,
+			    "rhodep inject: chanctx vdev_restart %u failed: %d\n",
+			    new_freq, ret);
+		return ret;
+	}
+
+	(void)ath10k_vdev_setup_sync(ar);
+
+	ret = ath10k_wmi_vdev_up(ar, vdev_id, 0, mac);
+	if (ret) {
+		ath10k_warn(ar,
+			    "rhodep inject: chanctx vdev_up %u failed: %d\n",
+			    new_freq, ret);
+		return ret;
+	}
+
+	spin_lock_bh(&ar->rhodep_inject.lock);
+	ar->rhodep_inject.chanfreq = new_freq;
+	spin_unlock_bh(&ar->rhodep_inject.lock);
+	ar->rhodep_inject.last_chan_change = jiffies;
+	ar->rhodep_inject.consec_fail = 0;
+	return 0;
+}
+
 void ath10k_rhodep_inject_teardown(struct ath10k *ar)
 {
 	u8 vdev_id;
@@ -9488,6 +9575,19 @@ ath10k_mac_update_vif_chan(struct ath10k *ar,
 	}
 
 	ath10k_monitor_recalc(ar);
+
+	/* rhodep item 7 (5 GHz RX): if the hidden AP inject vdev exists,
+	 * it holds the pdev on its own freq. Retune it to whatever the
+	 * monitor vif was just moved to, otherwise the radio stays on the
+	 * old band and monitor RX gets 0 packets after any 2.4G<->5G
+	 * chanctx switch. See wip-rhodep-5ghz-unlock/README.md.
+	 */
+	if (ar->rhodep_inject.created && n_vifs >= 1 &&
+	    vifs[0].new_ctx && vifs[0].new_ctx->def.chan) {
+		u32 new_freq = vifs[0].new_ctx->def.chan->center_freq;
+
+		(void)ath10k_rhodep_inject_retune(ar, new_freq);
+	}
 }
 
 static int

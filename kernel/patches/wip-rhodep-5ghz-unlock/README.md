@@ -110,13 +110,49 @@ gracefully.
 
 ## Caveats
 
-- DFS channels (52-64, 100-144) remain disabled. Mainline ath10k
-  WCN3990 does not have production DFS support anyway.
+- DFS channels (52-64, 100-144) still marked `(no IR, radar detection)`
+  by ath_reg_apply_radar_flags. Mainline ath10k WCN3990 does not have
+  production DFS support anyway; RX is enabled, TX is gated.
 - TX power is regdb-capped (typically 17-20 dBm on 5 GHz). Not a
   regression.
 - Cosmetic: `iw reg get` still shows `country 00` global because we
   did not go through `regulatory_hint()` — it's the driver's custom
   regd. The per-phy regdom is what matters and it is US-compatible.
+
+## Known limitation: airodump-ng --band abg on 5 GHz is less consistent
+
+WCN3990 fw has a known-broken mgmt-forwarder state after certain 5 GHz
+<-> 2.4 GHz phymode-class transitions (MODE_11A vs MODE_11G). Symptom:
+after `iw set channel 157 (works)` then `iw set channel 6 (silence)`
+then `iw set channel 157 (works again)`, the middle step gets 0
+beacons on either band. Same class of bug as the QCA9880 rx-filter
+issue that mainline ath10k handles at BOOT via
+`ath10k_core_reset_rx_filter()` (create+delete dummy STA vdev).
+
+Attempted fixes (session 9 continuation):
+- **DOWN+UP bounce on monitor vdev** after VDEV_UP -> crashes fw at
+  `cmnos_thread.c:4005 RT:0x9e087` because monitor vdevs have no peer
+  to anchor the transition. **Reverted.**
+- **Dummy STA vdev create+delete+barrier** (same idiom as
+  `ath10k_core_reset_rx_filter`) -> crashes fw at `cmnos_thread.c:4005
+  RT:0xa8xxx` in a cascade (~1 crash per channel hop). WCN3990 fw is
+  stricter than QCA9880 and does not tolerate this idiom on channel
+  change. **Reverted.**
+
+Current behavior (as of commit 16.7):
+- `iw dev wlan0mon set channel <5G_ch>` + `sleep 3` + `tcpdump`: works
+  reliably from a fresh module load.
+- `airodump-ng --band abg`: finds SOME 5 GHz APs (typically strong,
+  nearby ones), but is less consistent than an external USB adapter
+  (TP-Link etc). Same-BSSID 5G AP may or may not appear in a given
+  scan depending on hop timing.
+- Aireplay `-9` on a manually-set 5 GHz channel: works with "Injection
+  is working!" and 100% response rates.
+- All existing 2.4 GHz functionality unchanged.
+
+If a future WMI TLV command is discovered that safely refreshes the
+mgmt-forwarder on channel change without crashing fw, this limitation
+could be lifted. For now this is a known trade-off.
 
 ## Files
 

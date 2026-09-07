@@ -245,7 +245,7 @@ file protection) ·
 | **NFC** | Samsung `sec-nfc` on i2c7. No mainline driver. |
 | **GPS — the *satellite* fix only** | **Asking for a satellite fix watchdog-resets the SoC in under a second**, reproducibly, with `ipa.ko` not loaded. It was never an indoors problem. The trigger is the GNSS *measurement engine* coming up, so `standalone` kills the phone while `cellid` — which never starts that engine — runs a session indefinitely. **Location itself is not in this table any more**: WiFi and cell-tower positioning work today through gpsd and geoclue, 22 m and 250 m measured, with no SIM — see "What works" and [`GPS-USERSPACE.md`](docs/GPS-USERSPACE.md). What is missing is a *satellite* fix, and with it anything that needs one: a position with no network coverage at all, sub-10 m accuracy, speed and heading. The same reproducer is still the fastest way to work on the LTE reset. [`GNSS-SM6375.md`](docs/interconnect-sm6375-wip/GNSS-SM6375.md) |
 | **Camera** | **Does not capture** — no photos, no video, no viewfinder. Only groundwork is done: the FAN53870 camera PMIC driver is written and running (all 7 LDOs registered, voltages verified against the chip's registers), and the rest is feasible because the ISP pipeline (`csid530` + `tfe530` + `tpg101`) is the *same silicon* mainline already drives on qcm2290, the 52 `gcc_camss_*` clocks are in mainline, and the 50 MP main sensor (Samsung S5KJN1) has a mainline driver. Still needed before any image: a `camss` entry for SM6375, the CSIPHY/CSID/TFE nodes and the sensor node. [`CAMERA-SENSORS-FEASIBILITY.md`](docs/CAMERA-SENSORS-FEASIBILITY.md) |
-| **Monitor mode + injection on the internal WiFi** | **Capture + injection work; hopping-during-inject and full TP-Link-parity in progress.** Capture: `mon0` alongside the STA sees beacons/probe/auth/assoc/deauth from overheard networks (8–14 BSSIDs per 20 s), wlan0 stays online (patch 0117). Injection: STA-vdev offchannel via `NL80211_CMD_FRAME` (`nl80211-mgmt-tx.py`) + patch 0118 (`AUTH_AND_DEAUTH_RANDOM_TA` ext-feature) — verified OTA, 130 deauths at -23 dBm with spoofed AP-BSSID SA, real client dropped. Pwnagotchi runs on the internal radio (`extra-tools/pwnagotchi/`, radio selector in the NetHunter Pro app), but is stuck one channel per run — channel-hopping requires monitors-only phy0 and the deauth path requires wlan0 up, mutually exclusive. Firmware IS patchable (secure boot not enforced) and the RE session mapped the `_wlan_mgmt_tx_send` allow-list gate (file offset `0x53660`, opmodes `{0,1,2,6}`) — first patch attempt didn't yet reach OTA because monitor-vif TX takes the HTT-raw path in the driver, not the WMI path we patched. Two clean next steps identified. Tool: `sudo rhodep-inject-lab`. See item 13. |
+| **Monitor mode + injection on the internal WiFi** | **DONE on 2.4 GHz, DONE on 5 GHz with a known scan-consistency limitation.** Full aircrack-ng suite works on `wlan0mon` (the internal WCN3990): `aireplay-ng -9` prints "Injection is working!" at 100% response rate on both bands, `--deauth` disconnects real clients OTA, `airodump-ng` captures beacons/mgmt frames, `mdk4`, `scapy sendp`, `hcxdumptool` all function. See `kernel/ath10k-rhodep-port/` for the driver port (Loukious hidden-AP-vdev technique, WCN3990-adapted). Verified end-to-end: `WiFi Mateo 5G` on ch 157 captured at -63 dBm; `aireplay-ng -9` on ch 149 reports "Injection is working!" with 7.9 ms ping RTT. Known limitation: `airodump-ng --band abg` sometimes misses 5 GHz APs during channel hopping because WCN3990 fw's mgmt-forwarder gets stuck on some 5G↔2.4G phymode transitions — workaround is `iw dev wlan0mon set channel <N>` manually or `airodump-ng --channel <N>` on a specific channel. Two attempted driver-side fixes both crashed fw (`cmnos_thread.c:4005 RT:0x9e087` and cascade), documented in `kernel/ath10k-rhodep-port/docs/5ghz-mgmt-forwarder-bug.md`. Ideally the fix is a WMI cmd sequence that safely re-arms the fw filter — future work. See items 16.1–16.8. |
 
 ## Bugs
 
@@ -3643,7 +3643,28 @@ already done.
     It is the least tractable item in this file. It is also the one that would
     change daily use the most, which is why it is here.
 
-13. **Monitor mode + injection on the internal WiFi — capture + injection work; channel-hopping-during-inject and firmware RE in progress.**
+13. **Monitor mode + injection on the internal WiFi — DONE on 2.4 GHz AND 5 GHz.** ✅
+
+    **Status as of session 9 (2026-09-06): the internal WCN3990 radio does
+    the full aircrack-ng suite** (`aireplay-ng -9` "Injection is working!"
+    at 100% response rate on both bands, `--deauth` OTA-verified,
+    `airodump-ng` captures beacons/mgmt, `mdk4`, `scapy sendp`,
+    `hcxdumptool`). See `kernel/ath10k-rhodep-port/README.md` for the
+    complete driver port and `kernel/ath10k-rhodep-port/docs/EVOLUTION.md`
+    for how sessions 1–9 got here. Session commits: items 16.1..16.8.
+
+    Known limitation: `airodump-ng --band abg` sometimes misses 5 GHz APs
+    during channel hopping (WCN3990 fw mgmt-forwarder gets stuck across
+    5G↔2.4G phymode transitions). Workaround: `iw dev wlan0mon set
+    channel <N>` manually or `airodump-ng --channel <N>` on a specific
+    channel. Two driver-side fixes attempted, both crashed fw — full
+    details in `kernel/ath10k-rhodep-port/docs/5ghz-mgmt-forwarder-bug.md`.
+
+    The rest of this section is the historical record of sessions 1–5 (the
+    "capture works, injection doesn't" era) kept intact for the archaeology.
+    Everything below refers to the state BEFORE session 7-9's breakthrough.
+
+    ---
 
     **Working today (verified OTA with external TP-Link witness):**
     - passive mgmt capture on wlan0 while it stays associated (patch 0117):

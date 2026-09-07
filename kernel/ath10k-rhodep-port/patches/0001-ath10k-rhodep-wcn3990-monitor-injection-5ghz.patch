@@ -1,0 +1,1470 @@
+From: rhodep port maintainers <rhodep@example.invalid>
+Subject: [PATCH] ath10k: WCN3990 monitor mode + injection + 5 GHz unlock (rhodep port)
+
+Full port of Loukious's hidden-STA-vdev injection technique to ath10k
+mainline for WCN3990 devices (Motorola Moto G82 5G / sm6375). Adds:
+
+  * WMI mgmt-forward hijack: monitor iface sees mgmt frames on WCN3990
+    which does not support the classic PDEV promisc mode WMI cmd.
+  * Hidden AP vdev (WMI_VDEV_TYPE_AP + VDEV_UP with self-BSSID) for TX.
+    Aircrack-ng full suite works: aireplay -9 'Injection is working!',
+    --deauth OTA, mdk4, scapy sendp, hcxdumptool.
+  * Status normalization + retry-event drop in mgmt-tx-compl handler.
+  * Atomic mgmt_pending_tx idr_remove + stale-entry GC + WMI HTC credit
+    recovery. Prevents -108 ESHUTDOWN avalanche after fw drops a compl.
+  * Chan-change throttle (rate-limit + fw-dead detect) + in-place
+    vdev_restart on aireplay's channel-scan bursts.
+  * 5 GHz TX/RX unlock via ath.country= module param on the parent
+    ath common driver: permissive custom regdom that opens UNII-1/2/3
+    without the NO_IR that ath_world_regdom_67_68_6A_6C hardcodes.
+  * rhodep_inject_retune chanctx hook: keeps the hidden AP vdev on the
+    same freq as the monitor vif so it does not pin the pdev radio to
+    the wrong band after 2.4G<->5G channel changes.
+  * Driver-side invalidate on ath10k_core_restart so fw recovery
+    cleanly rebuilds the hidden vdev on next mgmt-tx.
+
+See kernel/ath10k-rhodep-port/README.md for full architecture, wire
+protocol notes, verified test evidence and known limitations.
+
+Signed-off-by: rhodep port maintainers <rhodep@example.invalid>
+---
+diff -uprN pristine/drivers/net/wireless/ath/ath10k/core.c current/drivers/net/wireless/ath/ath10k/core.c
+--- pristine/drivers/net/wireless/ath/ath10k/core.c	2026-09-07 02:05:11.015546004 +0000
++++ current/drivers/net/wireless/ath/ath10k/core.c	2026-09-07 02:05:11.015546004 +0000
+@@ -2570,6 +2570,14 @@ static void ath10k_core_restart(struct w
+ 
+ 	reinit_completion(&ar->driver_recovery);
+ 
++	/* rhodep item 4: invalidate the hidden-STA injection vdev BEFORE
++	 * CRASH_FLUSH is set. Fw is about to reboot so its side is gone
++	 * anyway; this just clears our driver-side flag so the next
++	 * mgmt-tx worker iteration recreates the hidden vdev, instead of
++	 * dereferencing a stale vdev_id / getting -108 forever.
++	 */
++	ath10k_rhodep_inject_invalidate(ar);
++
+ 	set_bit(ATH10K_FLAG_CRASH_FLUSH, &ar->dev_flags);
+ 
+ 	/* Place a barrier to make sure the compiler doesn't reorder
+@@ -3706,6 +3714,7 @@ struct ath10k *ath10k_core_create(size_t
+ 
+ 	mutex_init(&ar->conf_mutex);
+ 	mutex_init(&ar->dump_mutex);
++	spin_lock_init(&ar->rhodep_inject.lock);
+ 	spin_lock_init(&ar->data_lock);
+ 
+ 	for (int ac = 0; ac < IEEE80211_NUM_ACS; ac++)
+diff -uprN pristine/drivers/net/wireless/ath/ath10k/core.h current/drivers/net/wireless/ath/ath10k/core.h
+--- pristine/drivers/net/wireless/ath/ath10k/core.h	2026-09-07 02:05:11.013546004 +0000
++++ current/drivers/net/wireless/ath/ath10k/core.h	2026-09-07 02:05:11.013546004 +0000
+@@ -1323,6 +1323,43 @@ struct ath10k {
+ 	s32 tx_power_2g_limit;
+ 	s32 tx_power_5g_limit;
+ 
++	/* rhodep: hidden STA vdev + self-peer created on-demand for
++	 * monitor-vif mgmt-tx injection. See mac.c ath10k_rhodep_ensure_inject_vdev.
++	 * Ported from Loukious v7 qcacld-3.0 monitor_sta_vdev_tx patch.
++	 */
++	struct {
++		bool created;
++		u8 vdev_id;         /* fw vdev id of the hidden helper */
++		u8 monitor_vdev_id; /* originating monitor vdev id */
++		u32 chanfreq;       /* frequency of the vdev_start */
++		u8 mac_addr[ETH_ALEN]; /* LAA MAC assigned to helper */
++		/* LRU cache of per-DA temp peers. Unused in the current AP
++		 * vdev design (self-peer is wildcard) but kept for backward
++		 * compat + potential future re-introduction with STA vdev.
++		 */
++#define ATH10K_RHODEP_PEER_CACHE 8
++		u8 peer_cache[ATH10K_RHODEP_PEER_CACHE][ETH_ALEN];
++		u8 peer_cache_next;
++		/* rhodep chan-change throttle + fw-dead detection. aireplay-ng
++		 * without -D hops 1..13 in ~20s. Without limiter each hop
++		 * would teardown+recreate the hidden AP vdev, saturating the
++		 * single WCN3990 HTC WMI credit and eventually tripping
++		 * ath10k_core_start_recovery -> CRASH_FLUSH -> -108 avalanche.
++		 * See wip-rhodep-loukious-hidden-sta/README.md for details.
++		 */
++		unsigned long last_chan_change; /* jiffies of last restart */
++		unsigned long last_fail;        /* jiffies of last -ESHUTDOWN */
++		u8 consec_fail;                 /* consecutive vdev-op fails */
++		/* SPINLOCK not mutex: gen_mgmt_tx_send is called from
++		 * ath10k_mgmt_over_wmi_tx_work via ath10k_wmi_cmd_send_nowait
++		 * which may hold spin_lock_bh(&ar->htc.tx_lock) or run in a
++		 * softirq path where mutex_lock would BUG_ON might_sleep.
++		 * Called from setup path (workqueue) via spin_lock_bh which
++		 * is safe.
++		 */
++		spinlock_t lock;
++	} rhodep_inject;
++
+ 	/* must be last */
+ 	u8 drv_priv[] __aligned(sizeof(void *));
+ };
+@@ -1337,6 +1374,7 @@ static inline bool ath10k_peer_stats_ena
+ }
+ 
+ extern unsigned int ath10k_frame_mode;
++extern unsigned int ath10k_mon_mgmt;
+ extern unsigned long ath10k_coredump_mask;
+ 
+ void ath10k_core_napi_sync_disable(struct ath10k *ar);
+diff -uprN pristine/drivers/net/wireless/ath/ath10k/mac.c current/drivers/net/wireless/ath/ath10k/mac.c
+--- pristine/drivers/net/wireless/ath/ath10k/mac.c	2026-09-07 02:05:11.010546003 +0000
++++ current/drivers/net/wireless/ath/ath10k/mac.c	2026-09-07 02:05:11.011546003 +0000
+@@ -1544,6 +1544,13 @@ static int ath10k_vdev_start_restart(str
+ 		arg.ssid_len = arvif->vif->cfg.ssid_len;
+ 	}
+ 
++	if (ath10k_mon_mgmt)
++		ath10k_info(ar,
++			    "rhodep vdev-start id=%d type=%d freq=%d cf1=%d mode=%d restart=%d\n",
++			    arg.vdev_id, arvif->vdev_type, arg.channel.freq,
++			    arg.channel.band_center_freq1, arg.channel.mode,
++			    restart);
++
+ 	ath10k_dbg(ar, ATH10K_DBG_MAC,
+ 		   "mac vdev %d start center_freq %d phymode %s\n",
+ 		   arg.vdev_id, arg.channel.freq,
+@@ -1554,6 +1561,10 @@ static int ath10k_vdev_start_restart(str
+ 	else
+ 		ret = ath10k_wmi_vdev_start(ar, &arg);
+ 
++	if (ath10k_mon_mgmt)
++		ath10k_info(ar, "rhodep vdev-start id=%d wmi ret=%d\n",
++			    arg.vdev_id, ret);
++
+ 	if (ret) {
+ 		ath10k_warn(ar, "failed to start WMI vdev %i: %d\n",
+ 			    arg.vdev_id, ret);
+@@ -1684,6 +1695,9 @@ static int ath10k_mac_setup_bcn_tmpl(str
+ 
+ 	ret = ath10k_wmi_bcn_tmpl(ar, arvif->vdev_id, offs.tim_offset, bcn, 0,
+ 				  0, NULL, 0);
++	if (ath10k_mon_mgmt)
++		ath10k_info(ar, "rhodep bcn-tmpl vdev=%d len=%d ret=%d\n",
++			    arvif->vdev_id, bcn->len, ret);
+ 	kfree_skb(bcn);
+ 
+ 	if (ret) {
+@@ -1835,6 +1849,9 @@ static void ath10k_control_beaconing(str
+ 
+ 	ret = ath10k_wmi_vdev_up(arvif->ar, arvif->vdev_id, arvif->aid,
+ 				 arvif->bssid);
++	if (ath10k_mon_mgmt)
++		ath10k_info(ar, "rhodep AP vdev-up id=%d bssid=%pM ret=%d\n",
++			    arvif->vdev_id, arvif->bssid, ret);
+ 	if (ret) {
+ 		ath10k_warn(ar, "failed to bring up vdev %d: %i\n",
+ 			    arvif->vdev_id, ret);
+@@ -3747,7 +3764,21 @@ ath10k_mac_tx_h_get_txmode(struct ath10k
+ 	if (IEEE80211_SKB_CB(skb)->flags & IEEE80211_TX_CTL_HW_80211_ENCAP)
+ 		return ATH10K_HW_TXRX_ETHERNET;
+ 
+-	if (!vif || vif->type == NL80211_IFTYPE_MONITOR)
++	/* rhodep: injecting from a monitor vif normally goes through the HTT raw
++	 * TX path, but WCN3990's WLAN.HL.3.3.2 firmware asserts (crashes) on a raw
++	 * HTT MSDU submitted on a peerless vdev. Management frames, however, have a
++	 * firmware-supported route: the WMI mgmt-tx-by-reference command. So for a
++	 * monitor vif, send mgmt frames (deauth/disassoc/auth/probe/action) via the
++	 * MGMT txmode/WMI path instead of raw HTT. Non-mgmt (data) injection has no
++	 * safe path on this firmware and is left on RAW (it will be dropped/unsafe).
++	 */
++	if (vif && vif->type == NL80211_IFTYPE_MONITOR) {
++		if (ath10k_mon_mgmt && ieee80211_is_mgmt(fc))
++			return ATH10K_HW_TXRX_MGMT;
++		return ATH10K_HW_TXRX_RAW;
++	}
++
++	if (!vif)
+ 		return ATH10K_HW_TXRX_RAW;
+ 
+ 	if (ieee80211_is_mgmt(fc))
+@@ -4083,11 +4114,14 @@ static int ath10k_mac_tx(struct ath10k *
+ 		break;
+ 	case ATH10K_HW_TXRX_RAW:
+ 		if (!test_bit(ATH10K_FLAG_RAW_MODE, &ar->dev_flags) &&
+-		    !(skb_cb->flags & ATH10K_SKB_F_RAW_TX)) {
++		    !(skb_cb->flags & ATH10K_SKB_F_RAW_TX) &&
++		    !(vif && vif->type == NL80211_IFTYPE_MONITOR)) {
+ 			WARN_ON_ONCE(1);
+ 			ieee80211_free_txskb(hw, skb);
+ 			return -EOPNOTSUPP;
+ 		}
++		/* Monitor vif: frame is a raw 802.11 frame from userspace.
++		 * Let the HTT raw TX descriptor reach the firmware. */
+ 	}
+ 
+ 	if (!noque_offchan && info->flags & IEEE80211_TX_CTL_TX_OFFCHAN) {
+@@ -4237,23 +4271,695 @@ void ath10k_mgmt_over_wmi_tx_purge(struc
+ 	}
+ }
+ 
++/* rhodep: WCN3990 firmware only radiates a mgmt frame if the target vdev has a
++ * peer/tx-context for the destination; a monitor vdev has none, so injected
++ * frames "complete" with status=1 and never hit the air. Mirror the driver's
++ * own offchannel trick (ath10k_offchan_tx_work): create a temporary peer for
++ * the frame's destination on the monitor vdev, send, then delete it. Returns
++ * the vdev_id a temp peer was created on (>=0, caller must delete), -2 if a
++ * per-DA peer was created/reused on the hidden STA vdev (caller MUST NOT
++ * delete; kept in LRU cache), or -1 if no peer was created at all.
++ */
++static int ath10k_mon_inject_peer_add(struct ath10k *ar, struct sk_buff *skb,
++				      u8 *peer_addr_out)
++{
++	struct ieee80211_hdr *hdr = (void *)skb->data;
++	struct ath10k_vif *arvif;
++	const u8 *da;
++	int vdev_id = -1;
++
++	if (!ath10k_mon_mgmt)
++		return -1;
++	if (!ar->monitor_started && !ar->monitor_arvif && !ar->monitor)
++		return -1;
++
++	/* rhodep Experiment 1 (Sep 2026): NO per-DA peer_create.
++	 *
++	 * We now create the hidden vdev as WMI_VDEV_TYPE_AP + VDEV_UP with
++	 * the self-MAC as BSSID. AP vdevs use the AP self-peer at vdev+0xc
++	 * as the tx peer for ANY addr1 unicast, so we do not need per-DA
++	 * peers. This also avoids the cmnos_thread.c:4005:A assert that
++	 * hit us when we did peer_create on a peerless (never-UP'd) STA
++	 * vdev.
++	 *
++	 * If fw crashed/restarted, invalidate so the mgmt-tx worker
++	 * recreates the hidden vdev on the next frame.
++	 */
++	if (ar->rhodep_inject.created) {
++		if (ar->state != ATH10K_STATE_ON) {
++			ath10k_info(ar,
++				    "rhodep: fw not in state=ON (%d), invalidating hidden vdev\n",
++				    ar->state);
++			spin_lock_bh(&ar->rhodep_inject.lock);
++			ar->rhodep_inject.created = false;
++			memset(ar->rhodep_inject.peer_cache, 0,
++			       sizeof(ar->rhodep_inject.peer_cache));
++			spin_unlock_bh(&ar->rhodep_inject.lock);
++			return -1;
++		}
++		/* Signal caller: "use hidden vdev, no peer setup or
++		 * teardown needed". peer_addr_out is unused in this path.
++		 */
++		return -1; /* -1 = skip both add & del legacy paths */
++	}
++
++	/* Legacy path (monitor vdev inject, pre-Loukious). Kept as fallback. */
++	if (ar->monitor_arvif)
++		vdev_id = ar->monitor_arvif->vdev_id;
++	else if (ar->monitor_started)
++		vdev_id = ar->monitor_vdev_id;
++	else
++		return -1;
++
++	da = ieee80211_get_DA(hdr);
++	if (is_multicast_ether_addr(da)) {
++		ath10k_info(ar, "rhodep inj: DA %pM is mcast, no peer (vdev %d)\n",
++			    da, vdev_id);
++		return -1;
++	}
++
++	mutex_lock(&ar->conf_mutex);
++	arvif = ath10k_get_arvif(ar, vdev_id);
++	if (!arvif) {
++		ath10k_info(ar, "rhodep inj: no arvif for vdev %d\n", vdev_id);
++		mutex_unlock(&ar->conf_mutex);
++		return -1;
++	}
++	if (ath10k_peer_find(ar, vdev_id, da)) {
++		ath10k_info(ar, "rhodep inj: peer %pM already on vdev %d\n",
++			    da, vdev_id);
++		mutex_unlock(&ar->conf_mutex);
++		return -1;
++	}
++	if (ath10k_peer_create(ar, arvif->vif, NULL, vdev_id, da,
++			       WMI_PEER_TYPE_DEFAULT)) {
++		ath10k_info(ar, "rhodep inj: peer_create %pM on vdev %d FAILED\n",
++			    da, vdev_id);
++		mutex_unlock(&ar->conf_mutex);
++		return -1;
++	}
++	ath10k_info(ar, "rhodep inj: temp peer %pM created on monitor vdev %d\n",
++		    da, vdev_id);
++	mutex_unlock(&ar->conf_mutex);
++
++	ether_addr_copy(peer_addr_out, da);
++	return vdev_id;
++}
++
++static void ath10k_mon_inject_peer_del(struct ath10k *ar, int vdev_id,
++				       const u8 *peer_addr)
++{
++	if (vdev_id < 0)
++		return;
++	mutex_lock(&ar->conf_mutex);
++	/* rhodep: hidden STA vdev has no arvif in ar->peers. Use raw WMI
++	 * to avoid ath10k_peer_delete waiting on PEER_UNMAP that never fires.
++	 */
++	if (ar->rhodep_inject.created &&
++	    vdev_id == (int)ar->rhodep_inject.vdev_id)
++		ath10k_wmi_peer_delete(ar, vdev_id, peer_addr);
++	else
++		ath10k_peer_delete(ar, vdev_id, peer_addr);
++	mutex_unlock(&ar->conf_mutex);
++}
++
++/* rhodep: Loukious hidden-STA-vdev port for WCN3990 monitor-mode injection.
++ * REACTIVATED after finding the missing piece: fw returns extended status
++ * words (bit 20 set with retry metadata) that need normalization via
++ * `status & 0x3`. Fix applied in wmi.c ath10k_wmi_event_mgmt_tx_compl.
++ * Original port worked but interpreted status=0x100000 as DISCARD when it
++ * was actually COMPLETE_OK.
++ *
++ * Reference: Loukious v7 patch monitor_sta_vdev_tx_v7,
++ * github.com/Loukious/android_kernel_xiaomi_sm8150 commit 65c6a05e.
++ */
++/* Find the highest unused vdev id (walking down, skipping monitor). */
++static int ath10k_rhodep_find_free_vdev(struct ath10k *ar, u8 mon_vdev_id)
++{
++	int i;
++	int max_vid = min_t(int, TARGET_TLV_NUM_VDEVS - 2,
++				 ar->max_num_vdevs - 1);
++
++	for (i = max_vid; i >= 0; i--) {
++		if ((u8)i == mon_vdev_id)
++			continue;
++		if (!(ar->free_vdev_map & (1LL << i)))
++			continue;
++		return i;
++	}
++	return -EBUSY;
++}
++
++/* Create the hidden STA vdev + self-peer if it doesn't exist for the
++ * requested channel. If it already exists at a different chanfreq, tear
++ * it down first. Called from the mgmt tx worker; must hold conf_mutex.
++ * mon_mac_in must be a valid MAC address of the monitor vif (used to
++ * derive the injection MAC).
++ */
++static int ath10k_rhodep_ensure_inject_vdev(struct ath10k *ar,
++					     u8 mon_vdev_id,
++					     u32 chanfreq,
++					     const u8 *mon_mac_in)
++{
++	struct wmi_vdev_start_request_arg arg = {};
++	const u8 *mon_mac = NULL;
++	u8 inj_mac[ETH_ALEN];
++	int vid, ret;
++
++	(void)mon_mac; /* unused since simplified MAC derivation */
++
++	lockdep_assert_held(&ar->conf_mutex);
++
++	if (ar->rhodep_inject.created) {
++		if (ar->rhodep_inject.chanfreq == chanfreq)
++			return 0;
++
++		/* rhodep chan-change throttle. aireplay-ng WITHOUT -D hops
++		 * channels 1..13 in ~20s looking for the AP beacon; each hop
++		 * used to teardown+recreate the hidden AP vdev (10 blocking
++		 * WMIs, 500ms-8s), saturating the single WCN3990 HTC WMI
++		 * credit and tripping ath10k_core_start_recovery ->
++		 * CRASH_FLUSH -> -108 avalanche. Three layers of defense:
++		 *
++		 * (A) Fw-dead early bailout: if we've been failing recently,
++		 *     just keep the stale vdev. Frames may go out on wrong
++		 *     hidden-vdev channel briefly but nothing crashes; the
++		 *     mon vif's mac80211-side chanctx has already been
++		 *     updated to the new radio channel by the caller path.
++		 *
++		 * (B) Rate-limit: only restart at most once per second. Folds
++		 *     a 13-hop burst into at most 1-2 restarts.
++		 *
++		 * (C) In-place restart: vdev_down -> vdev_restart(new_chan)
++		 *     -> vdev_up. 3 WMIs instead of 10, no peer churn, no
++		 *     3s wait_for_peer_deleted timeout, no 5s vdev_setup_sync
++		 *     timeout on the two known-broken sync events.
++		 */
++#define ATH10K_RHODEP_CHAN_MIN_INTERVAL_MS 1000
++#define ATH10K_RHODEP_FAIL_QUIESCE_MS      5000
++#define ATH10K_RHODEP_MAX_CONSEC_FAIL      3
++
++		/* (A) */
++		if (ar->rhodep_inject.consec_fail >= ATH10K_RHODEP_MAX_CONSEC_FAIL &&
++		    time_before(jiffies,
++				ar->rhodep_inject.last_fail +
++				msecs_to_jiffies(ATH10K_RHODEP_FAIL_QUIESCE_MS))) {
++			ath10k_dbg(ar, ATH10K_DBG_MAC,
++				   "rhodep inject: chan %u->%u ignored (fw quiesce)\n",
++				   ar->rhodep_inject.chanfreq, chanfreq);
++			return 0;
++		}
++
++		/* (B) */
++		if (ar->rhodep_inject.last_chan_change &&
++		    time_before(jiffies,
++				ar->rhodep_inject.last_chan_change +
++				msecs_to_jiffies(ATH10K_RHODEP_CHAN_MIN_INTERVAL_MS))) {
++			ath10k_dbg(ar, ATH10K_DBG_MAC,
++				   "rhodep inject: chan %u->%u ignored (rate-limit)\n",
++				   ar->rhodep_inject.chanfreq, chanfreq);
++			return 0;
++		}
++
++		/* (C) in-place restart */
++		ath10k_warn(ar,
++			    "rhodep inject: chan %u->%u, restarting in place vdev=%u\n",
++			    ar->rhodep_inject.chanfreq, chanfreq,
++			    ar->rhodep_inject.vdev_id);
++
++		ret = ath10k_wmi_vdev_down(ar, ar->rhodep_inject.vdev_id);
++		if (ret == -ESHUTDOWN)
++			goto chan_change_failed;
++		/* other errors: fw may already be down for this vdev; press on */
++
++		reinit_completion(&ar->vdev_setup_done);
++		reinit_completion(&ar->vdev_delete_done);
++
++		{
++			struct wmi_vdev_start_request_arg rarg = {};
++			static const u8 dummy_ssid_r[1] = { 0 };
++
++			rarg.vdev_id = ar->rhodep_inject.vdev_id;
++			rarg.channel.freq = chanfreq;
++			rarg.channel.band_center_freq1 = chanfreq;
++			rarg.channel.band_center_freq2 = 0;
++			rarg.channel.mode = (chanfreq < 4000) ? MODE_11G : MODE_11A;
++			rarg.channel.max_power = 40;
++			rarg.channel.max_reg_power = 40;
++			rarg.channel.max_antenna_gain = 0;
++			rarg.bcn_intval = 0;
++			rarg.dtim_period = 0;
++			rarg.ssid = (u8 *)dummy_ssid_r;
++			rarg.ssid_len = 0;
++			rarg.hidden_ssid = true;
++			rarg.disable_hw_ack = true;
++
++			ret = ath10k_wmi_vdev_restart(ar, &rarg);
++		}
++		if (ret) {
++			ath10k_warn(ar,
++				    "rhodep inject: vdev_restart failed: %d\n",
++				    ret);
++			goto chan_change_failed;
++		}
++
++		/* Best-effort; START_RESP is unreliable for hidden vdev */
++		(void)ath10k_vdev_setup_sync(ar);
++
++		ret = ath10k_wmi_vdev_up(ar, ar->rhodep_inject.vdev_id, 0,
++					 ar->rhodep_inject.mac_addr);
++		if (ret) {
++			ath10k_warn(ar,
++				    "rhodep inject: vdev_up after restart failed: %d\n",
++				    ret);
++			goto chan_change_failed;
++		}
++
++		spin_lock_bh(&ar->rhodep_inject.lock);
++		ar->rhodep_inject.chanfreq = chanfreq;
++		spin_unlock_bh(&ar->rhodep_inject.lock);
++		ar->rhodep_inject.last_chan_change = jiffies;
++		ar->rhodep_inject.consec_fail = 0;
++		return 0;
++
++chan_change_failed:
++		ar->rhodep_inject.last_fail = jiffies;
++		ar->rhodep_inject.consec_fail =
++			min_t(u8, ar->rhodep_inject.consec_fail + 1, 255);
++		/* Keep the stale vdev; fall through by returning success.
++		 * On -ESHUTDOWN the fw-restart path will invalidate ->created
++		 * via ath10k_rhodep_inject_invalidate.
++		 */
++		return 0;
++	}
++
++	vid = ath10k_rhodep_find_free_vdev(ar, mon_vdev_id);
++	if (vid < 0) {
++		ath10k_warn(ar, "rhodep inject: no free vdev slot\n");
++		return vid;
++	}
++
++	/* Derive inj MAC from monitor vif's MAC with LAA bit set, and
++	 * flip the low byte so it never collides with the monitor's own MAC
++	 * (which would confuse mac80211 rx-address filtering).
++	 */
++	if (!mon_mac_in || is_zero_ether_addr(mon_mac_in)) {
++		ath10k_warn(ar, "rhodep inject: invalid monitor MAC input (%pM), falling back to random\n",
++			    mon_mac_in);
++		/* Random LAA MAC as fallback -- fw needs a non-zero MAC. */
++		eth_random_addr(inj_mac);
++		inj_mac[0] |= 0x02;
++		inj_mac[0] &= ~0x01; /* unicast */
++		mon_mac = inj_mac;   /* item 5: avoid mac=(null) in the log below */
++		goto have_mac;
++	}
++	ether_addr_copy(inj_mac, mon_mac_in);
++	inj_mac[0] |= 0x02;   /* locally-administered */
++	inj_mac[5] ^= 0x01;   /* uniquify from monitor MAC */
++	mon_mac = mon_mac_in;
++have_mac:
++
++	/* rhodep Experiment 1 (Sep 2026): use AP vdev type, not STA.
++	 *
++	 * Loukious's v1 (WCN3998) uses STA and never does per-DA
++	 * peer_create -- on WCN3998 fw's wal_send_mgmt uses the self-peer
++	 * at vdev+0xc as the tx peer for ANY addr1. But WCN3990 fw's
++	 * wal_tx unicast-mgmt path is STRICTER: it DISCARDs unicast when
++	 * addr1 has no matching peer.
++	 *
++	 * Trying to fix that with per-DA peer_create hits a different fw
++	 * limit: on a peerless (never VDEV_UP'd) STA vdev, any peer_create
++	 * asserts cmnos_thread.c:4005:A. Loukious never triggers this
++	 * because his design has ONE peer only.
++	 *
++	 * Fix: use WMI_VDEV_TYPE_AP + VDEV_UP with self-BSSID. AP vdevs
++	 * accept VDEV_UP without a partner peer, AP self-peer serves as
++	 * wildcard tx peer for ALL addr1 unicast, and beacon-tx-offload
++	 * is not a problem because we never install a beacon template
++	 * and keep bcn_intval=0.
++	 *
++	 * See kernel/patches/wip-rhodep-loukious-hidden-sta/README.md for
++	 * the full multi-agent analysis of why this is the right design.
++	 */
++	ath10k_warn(ar, "rhodep inject: creating AP vdev id=%d inj_mac=%pM freq=%u\n",
++		    vid, inj_mac, chanfreq);
++
++	ret = ath10k_wmi_vdev_create(ar, vid, WMI_VDEV_TYPE_AP,
++				     WMI_VDEV_SUBTYPE_NONE, inj_mac);
++	if (ret) {
++		ath10k_warn(ar, "rhodep inject: vdev_create failed: %d\n", ret);
++		if (ret == -ESHUTDOWN) {
++			/* fw is dead / CRASH_FLUSH set. Track for the
++			 * (A) fw-dead early bailout in the chan-change branch.
++			 */
++			ar->rhodep_inject.last_fail = jiffies;
++			ar->rhodep_inject.consec_fail =
++				min_t(u8, ar->rhodep_inject.consec_fail + 1, 255);
++		}
++		return ret;
++	}
++	ar->free_vdev_map &= ~(1LL << vid);
++
++	arg.vdev_id = vid;
++	arg.channel.freq = chanfreq;
++	arg.channel.band_center_freq1 = chanfreq;
++	arg.channel.band_center_freq2 = 0;
++	arg.channel.mode = (chanfreq < 4000) ? MODE_11G : MODE_11A;
++	arg.channel.max_power = 40;      /* 0.5 dBm units -> 20 dBm */
++	arg.channel.max_reg_power = 40;
++	arg.channel.max_antenna_gain = 0;
++	arg.bcn_intval = 0;   /* no beacons */
++	arg.dtim_period = 0;
++	/* AP vdev requires a non-null ssid pointer when hidden_ssid=true
++	 * (WARN_ON in ath10k_wmi_tlv_op_gen_vdev_start). Provide a dummy
++	 * 0-length SSID so the TLV builder accepts it. Since bcn_intval=0
++	 * no beacons ever go out anyway; the SSID field is unused.
++	 */
++	{
++		static const u8 dummy_ssid[1] = { 0 };
++		arg.ssid = (u8 *)dummy_ssid;
++		arg.ssid_len = 0;
++	}
++	arg.hidden_ssid = true;    /* extra safety: never expose an SSID */
++	arg.disable_hw_ack = true; /* phantom AP; suppress ACKs on rx */
++
++	ret = ath10k_wmi_vdev_start(ar, &arg);
++	if (ret) {
++		ath10k_warn(ar, "rhodep inject: vdev_start failed: %d\n", ret);
++		goto err_delete;
++	}
++	/* msleep(150); vdev_setup_sync waits for START_RESP event that
++	 * doesn't fire reliably for the hidden vdev on WCN3990.
++	 */
++	msleep(150);
++
++	ret = ath10k_wmi_peer_create(ar, vid, inj_mac, WMI_PEER_TYPE_DEFAULT);
++	if (ret) {
++		ath10k_warn(ar, "rhodep inject: peer_create failed: %d\n", ret);
++		goto err_stop;
++	}
++	/* msleep(100); wait_for_peer_created times out (peer_map event
++	 * never fires for the hidden vdev's self-peer on WCN3990).
++	 */
++	msleep(100);
++
++	/* rhodep Experiment 1 (Sep 2026): VDEV_UP with self-BSSID.
++	 *
++	 * On AP vdevs the fw accepts VDEV_UP with an arbitrary BSSID and
++	 * no partner peer. Once UP, the fw's tx-scheduler classifies the
++	 * vdev as active-AP and uses the self-peer as bss_peer for ALL
++	 * mgmt/data tx. No per-DA peer_create needed; addr1 is respected
++	 * verbatim (spoofed SA/BSSID work).
++	 *
++	 * This is the piece that was missing when we ran as STA vdev.
++	 */
++	ret = ath10k_wmi_vdev_up(ar, vid, 0, inj_mac);
++	if (ret) {
++		ath10k_warn(ar, "rhodep inject: vdev_up failed: %d\n", ret);
++		/* peer_delete + fall through to err_stop */
++		ath10k_wmi_peer_delete(ar, vid, inj_mac);
++		goto err_stop;
++	}
++	msleep(50);
++
++	/* Publish atomically: reader in gen_mgmt_tx_send takes this same
++	 * spinlock to observe created + vdev_id consistently. Fill scalars
++	 * first, then flip the flag under the lock.
++	 */
++	spin_lock_bh(&ar->rhodep_inject.lock);
++	ar->rhodep_inject.vdev_id = vid;
++	ar->rhodep_inject.monitor_vdev_id = mon_vdev_id;
++	ar->rhodep_inject.chanfreq = chanfreq;
++	ether_addr_copy(ar->rhodep_inject.mac_addr, inj_mac);
++	ar->rhodep_inject.created = true;
++	spin_unlock_bh(&ar->rhodep_inject.lock);
++	ar->rhodep_inject.last_chan_change = jiffies;
++	ar->rhodep_inject.consec_fail = 0;
++	ath10k_warn(ar, "rhodep inject: helper vdev %d ready (mac=%pM)\n",
++		    vid, mon_mac);
++	return 0;
++
++err_stop:
++	ath10k_wmi_vdev_stop(ar, vid);
++	msleep(100);
++err_delete:
++	ath10k_wmi_vdev_delete(ar, vid);
++	ar->free_vdev_map |= 1LL << vid;
++	return ret;
++}
++
++/* Public: called from wmi-tlv.c to translate a monitor vdev_id to the
++ * hidden inject vdev_id, if the injector has been set up.
++ * Returns the vdev_id to use (either hidden or original), never fails.
++ */
++u32 ath10k_rhodep_inject_vdev_for_mon(struct ath10k *ar, u32 mon_vdev_id)
++{
++	u32 out;
++	spin_lock_bh(&ar->rhodep_inject.lock);
++	if (ar->rhodep_inject.created &&
++	    ar->rhodep_inject.monitor_vdev_id == mon_vdev_id)
++		out = ar->rhodep_inject.vdev_id;
++	else
++		out = mon_vdev_id;
++	spin_unlock_bh(&ar->rhodep_inject.lock);
++	return out;
++}
++
++/* Public: teardown helper for driver shutdown.
++ * MUST NOT hold rhodep_inject.lock (spinlock) across msleep/WMI blocking
++ * ops. Sequence:
++ *   1. Under spinlock: snapshot vdev_id/mac, clear ->created, release lock.
++ *      -> Any inflight reader in gen_mgmt_tx_send now sees created==false
++ *         and routes to the monitor vdev (harmless).
++ *   2. Under conf_mutex only: do the sleeping WMI teardown of the vdev.
++ */
++/* rhodep: retune the hidden AP inject vdev to `new_freq` when the monitor
++ * vif changes channel. WCN3990 has ONE radio (one PDEV); if the hidden AP
++ * vdev is UP on 2.4 GHz and mac80211 moves the monitor vif to 5 GHz, the
++ * fw arbitrates in favor of the AP-typed vdev and pins the radio to 2.4
++ * GHz -> monitor RX gets ZERO packets on 5 GHz (airodump --band abg
++ * shows no 5 GHz APs). Fix: piggyback on the chanctx switch path
++ * (ath10k_mac_update_vif_chan) and vdev_down/restart/up the hidden vdev
++ * onto the same new freq the monitor just moved to.
++ *
++ * Uses the same in-place restart shape as ensure_inject_vdev's Fix (C),
++ * without the rate-limit -- this path is driven by mac80211 chanctx
++ * events, not by aireplay's burst, so it happens at most a few Hz.
++ *
++ * Called under conf_mutex; must NOT hold rhodep_inject.lock during the
++ * WMI calls.
++ */
++int ath10k_rhodep_inject_retune(struct ath10k *ar, u32 new_freq)
++{
++	struct wmi_vdev_start_request_arg rarg = {};
++	static const u8 dummy_ssid[1] = { 0 };
++	u8 vdev_id;
++	u8 mac[ETH_ALEN];
++	int ret;
++
++	lockdep_assert_held(&ar->conf_mutex);
++
++	if (!ar->rhodep_inject.created)
++		return 0;
++	if (ar->rhodep_inject.chanfreq == new_freq)
++		return 0;
++
++	vdev_id = ar->rhodep_inject.vdev_id;
++	ether_addr_copy(mac, ar->rhodep_inject.mac_addr);
++
++	ath10k_info(ar,
++		    "rhodep inject: chanctx retune %u->%u vdev=%u\n",
++		    ar->rhodep_inject.chanfreq, new_freq, vdev_id);
++
++	ret = ath10k_wmi_vdev_down(ar, vdev_id);
++	if (ret == -ESHUTDOWN)
++		return ret;
++	/* other errors: press on with restart */
++
++	reinit_completion(&ar->vdev_setup_done);
++	reinit_completion(&ar->vdev_delete_done);
++
++	rarg.vdev_id = vdev_id;
++	rarg.channel.freq = new_freq;
++	rarg.channel.band_center_freq1 = new_freq;
++	rarg.channel.band_center_freq2 = 0;
++	rarg.channel.mode = (new_freq < 4000) ? MODE_11G : MODE_11A;
++	rarg.channel.max_power = 40;
++	rarg.channel.max_reg_power = 40;
++	rarg.channel.max_antenna_gain = 0;
++	rarg.bcn_intval = 0;
++	rarg.dtim_period = 0;
++	rarg.ssid = (u8 *)dummy_ssid;
++	rarg.ssid_len = 0;
++	rarg.hidden_ssid = true;
++	rarg.disable_hw_ack = true;
++
++	ret = ath10k_wmi_vdev_restart(ar, &rarg);
++	if (ret) {
++		ath10k_warn(ar,
++			    "rhodep inject: chanctx vdev_restart %u failed: %d\n",
++			    new_freq, ret);
++		return ret;
++	}
++
++	(void)ath10k_vdev_setup_sync(ar);
++
++	ret = ath10k_wmi_vdev_up(ar, vdev_id, 0, mac);
++	if (ret) {
++		ath10k_warn(ar,
++			    "rhodep inject: chanctx vdev_up %u failed: %d\n",
++			    new_freq, ret);
++		return ret;
++	}
++
++	spin_lock_bh(&ar->rhodep_inject.lock);
++	ar->rhodep_inject.chanfreq = new_freq;
++	spin_unlock_bh(&ar->rhodep_inject.lock);
++	ar->rhodep_inject.last_chan_change = jiffies;
++	ar->rhodep_inject.consec_fail = 0;
++	return 0;
++}
++
++void ath10k_rhodep_inject_teardown(struct ath10k *ar)
++{
++	u8 vdev_id;
++	u8 mac[ETH_ALEN];
++	bool did;
++
++	spin_lock_bh(&ar->rhodep_inject.lock);
++	did = ar->rhodep_inject.created;
++	if (did) {
++		vdev_id = ar->rhodep_inject.vdev_id;
++		ether_addr_copy(mac, ar->rhodep_inject.mac_addr);
++		ar->rhodep_inject.created = false;
++	}
++	spin_unlock_bh(&ar->rhodep_inject.lock);
++
++	if (!did)
++		return;
++
++	mutex_lock(&ar->conf_mutex);
++	ath10k_wmi_peer_delete(ar, vdev_id, mac);
++	msleep(100);
++	ath10k_wmi_vdev_stop(ar, vdev_id);
++	msleep(100);
++	ath10k_wmi_vdev_delete(ar, vdev_id);
++	msleep(100);
++	ar->free_vdev_map |= 1LL << vdev_id;
++	mutex_unlock(&ar->conf_mutex);
++}
++
++/* rhodep item 4: driver-side-only invalidation on fw crash.
++ * Called from ath10k_core_restart before CRASH_FLUSH is set. Fw is
++ * about to reboot so its hidden vdev is gone anyway; just clear our
++ * side so the next mgmt-tx worker iteration recreates it.
++ * Uses spinlock only (no WMI, no mutex, no msleep) so it is safe to
++ * call from the restart_work handler holding conf_mutex.
++ */
++void ath10k_rhodep_inject_invalidate(struct ath10k *ar)
++{
++	spin_lock_bh(&ar->rhodep_inject.lock);
++	if (ar->rhodep_inject.created) {
++		ath10k_info(ar,
++			    "rhodep: fw restart - invalidating hidden vdev %u\n",
++			    ar->rhodep_inject.vdev_id);
++		ar->free_vdev_map |= 1LL << ar->rhodep_inject.vdev_id;
++		ar->rhodep_inject.created = false;
++	}
++	memset(ar->rhodep_inject.peer_cache, 0,
++	       sizeof(ar->rhodep_inject.peer_cache));
++	ar->rhodep_inject.peer_cache_next = 0;
++	spin_unlock_bh(&ar->rhodep_inject.lock);
++}
++/* end rhodep Loukious hidden-STA port */
++
+ void ath10k_mgmt_over_wmi_tx_work(struct work_struct *work)
+ {
+ 	struct ath10k *ar = container_of(work, struct ath10k, wmi_mgmt_tx_work);
+ 	struct sk_buff *skb;
+ 	dma_addr_t paddr;
+ 	int ret;
++	int tmp_peer_vdev;
++	u8 tmp_peer_addr[ETH_ALEN];
++
++	/* NOTE: NO top-of-work GC of mgmt_pending_tx here. Earlier versions
++	 * of this port called ath10k_rhodep_mgmt_tx_gc_one() opportunistically
++	 * at the top of every burst, but that races the real completions
++	 * arriving via WMI events: a slot that finished 200ms ago (and was
++	 * removed by the compl handler) might match the GC's 300ms staleness
++	 * window if the compl handler hasn't yet been serviced, and the GC
++	 * would then double-remove + double-refund a credit, corrupting the
++	 * WMI HTC ring -> fw assert cmnos_thread.c:4005. The GC is only
++	 * invoked as a last-resort retry inside wmi-tlv.c when idr_alloc
++	 * returns -ENOSPC (which only happens when the IDR is genuinely
++	 * full).
++	 */
+ 
+ 	for (;;) {
+ 		skb = skb_dequeue(&ar->wmi_mgmt_tx_queue);
+ 		if (!skb)
+ 			break;
+ 
++		/* rhodep: for monitor-vif frames, ensure the hidden STA vdev
++		 * exists before we submit. The vdev_id rewrite happens later
++		 * inside wmi-tlv.c gen_mgmt_tx_send. Runs in workqueue context
++		 * so msleep() inside ensure_inject_vdev is safe.
++		 */
++		{
++			struct ath10k_skb_cb *cb = ATH10K_SKB_CB(skb);
++			if (cb->vif &&
++			    cb->vif->type == NL80211_IFTYPE_MONITOR) {
++				struct ath10k_vif *arvif =
++					(void *)cb->vif->drv_priv;
++				struct cfg80211_chan_def *cd = NULL;
++				u32 freq = 0;
++
++				ieee80211_iter_chan_contexts_atomic(ar->hw,
++					ath10k_mac_get_any_chandef_iter, &cd);
++				if (cd && cd->chan)
++					freq = cd->chan->center_freq;
++				if (!freq && ar->rx_channel)
++					freq = ar->rx_channel->center_freq;
++				if (!freq && ar->tgt_oper_chan)
++					freq = ar->tgt_oper_chan->center_freq;
++
++				if (freq &&
++				    ar->state == ATH10K_STATE_ON &&
++				    !test_bit(ATH10K_FLAG_CRASH_FLUSH,
++					      &ar->dev_flags)) {
++					/* ensure_inject_vdev sleeps (msleep +
++					 * blocking WMI). MUST NOT hold the
++					 * rhodep_inject.lock spinlock here.
++					 * conf_mutex serializes against
++					 * teardown; publish of the created
++					 * flag inside ensure_inject_vdev uses
++					 * the spinlock itself.
++					 *
++					 * Also skip entirely when fw is dead or
++					 * being reset -- otherwise we pile WMI
++					 * commands onto a dying fw and hit the
++					 * -108 avalanche described in wmi-tlv.h
++					 * around ath10k_mgmt_tx_pkt_addr.
++					 */
++					mutex_lock(&ar->conf_mutex);
++					ath10k_rhodep_ensure_inject_vdev(ar,
++						arvif->vdev_id, freq,
++						cb->vif->addr);
++					mutex_unlock(&ar->conf_mutex);
++				}
++			}
++		}
++
++		tmp_peer_vdev = ath10k_mon_inject_peer_add(ar, skb,
++							   tmp_peer_addr);
++
+ 		if (test_bit(ATH10K_FW_FEATURE_MGMT_TX_BY_REF,
+ 			     ar->running_fw->fw_file.fw_features)) {
+ 			paddr = dma_map_single(ar->dev, skb->data,
+ 					       skb->len, DMA_TO_DEVICE);
+ 			if (dma_mapping_error(ar->dev, paddr)) {
++				ath10k_mon_inject_peer_del(ar, tmp_peer_vdev,
++							   tmp_peer_addr);
+ 				ieee80211_free_txskb(ar->hw, skb);
+ 				continue;
+ 			}
+@@ -4268,7 +4974,16 @@ void ath10k_mgmt_over_wmi_tx_work(struct
+ 						 DMA_TO_DEVICE);
+ 				ieee80211_free_txskb(ar->hw, skb);
+ 			}
++			/* Give the fw a moment to consume the frame before we
++			 * tear the temp peer down, otherwise it races the tx.
++			 */
++			if (tmp_peer_vdev >= 0)
++				msleep(5);
++			ath10k_mon_inject_peer_del(ar, tmp_peer_vdev,
++						   tmp_peer_addr);
+ 		} else {
++			ath10k_mon_inject_peer_del(ar, tmp_peer_vdev,
++						   tmp_peer_addr);
+ 			ret = ath10k_wmi_mgmt_tx(ar, skb);
+ 			if (ret) {
+ 				ath10k_warn(ar, "failed to transmit management frame via WMI: %d\n",
+@@ -4700,6 +5415,29 @@ static void ath10k_mac_op_tx(struct ieee
+ 	int ret;
+ 	u16 airtime;
+ 
++	/* rhodep Experiment 1 Fix A: monitor vif is only a valid injection
++	 * source for mgmt frames on WCN3990. mgmt frames route through the
++	 * WMI mgmt-tx-by-ref path and get vdev_id rewritten to the hidden
++	 * AP helper vdev in ath10k_wmi_tlv_op_gen_mgmt_tx_send. Any data
++	 * or control frame reaching us on a monitor vif ends up on the HTT
++	 * raw path with vdev_id=monitor(0), peerid=INVALID and addr1=
++	 * arbitrary_BSSID; fw asserts WLAN BE:0x4708a @ cmnos_thread.c:4005
++	 * on that combination when a sibling AP vdev is UP. Silently drop
++	 * non-mgmt frames instead of feeding fw a crash trigger.
++	 * aireplay-ng --deauth / -9 broadcast phase only use mgmt frames
++	 * so this doesn't hurt them. What we lose is aireplay's directed
++	 * burst RTS+null-data legs and the -2/-3/-6/-7 arp-replay modes
++	 * (which never worked unicast anyway per 0119 README).
++	 */
++	if (vif && vif->type == NL80211_IFTYPE_MONITOR) {
++		struct ieee80211_hdr *hdr = (void *)skb->data;
++
++		if (!ieee80211_is_mgmt(hdr->frame_control)) {
++			ieee80211_free_txskb(hw, skb);
++			return;
++		}
++	}
++
+ 	airtime = ath10k_mac_update_airtime(ar, txq, skb);
+ 	ath10k_mac_tx_h_fill_cb(ar, vif, txq, sta, skb, airtime);
+ 
+@@ -8837,6 +9575,19 @@ ath10k_mac_update_vif_chan(struct ath10k
+ 	}
+ 
+ 	ath10k_monitor_recalc(ar);
++
++	/* rhodep item 7 (5 GHz RX): if the hidden AP inject vdev exists,
++	 * it holds the pdev on its own freq. Retune it to whatever the
++	 * monitor vif was just moved to, otherwise the radio stays on the
++	 * old band and monitor RX gets 0 packets after any 2.4G<->5G
++	 * chanctx switch. See wip-rhodep-5ghz-unlock/README.md.
++	 */
++	if (ar->rhodep_inject.created && n_vifs >= 1 &&
++	    vifs[0].new_ctx && vifs[0].new_ctx->def.chan) {
++		u32 new_freq = vifs[0].new_ctx->def.chan->center_freq;
++
++		(void)ath10k_rhodep_inject_retune(ar, new_freq);
++	}
+ }
+ 
+ static int
+@@ -10173,6 +10924,16 @@ int ath10k_mac_register(struct ath10k *a
+ 			      NL80211_EXT_FEATURE_SET_SCAN_DWELL);
+ 	wiphy_ext_feature_set(ar->hw->wiphy, NL80211_EXT_FEATURE_AQL);
+ 
++	/* rhodep: let cfg80211 accept a spoofed transmitter address (TA/addr2) on
++	 * auth/deauth frames sent via mgmt-tx. Needed to test whether the WCN3990
++	 * firmware honours an arbitrary addr2 on the offchannel STA-vdev TX path
++	 * (a deauth "from the AP" needs addr2 = the AP's BSSID). Whether the fw
++	 * actually keeps our addr2 or overwrites it with the vdev MAC is the thing
++	 * this lets us measure over the air.
++	 */
++	wiphy_ext_feature_set(ar->hw->wiphy,
++			      NL80211_EXT_FEATURE_AUTH_AND_DEAUTH_RANDOM_TA);
++
+ 	if (ar->hw_params.mcast_frame_registration)
+ 		wiphy_ext_feature_set(ar->hw->wiphy,
+ 				      NL80211_EXT_FEATURE_MULTICAST_REGISTRATIONS);
+diff -uprN pristine/drivers/net/wireless/ath/ath10k/mac.h current/drivers/net/wireless/ath/ath10k/mac.h
+--- pristine/drivers/net/wireless/ath/ath10k/mac.h	2026-09-07 02:05:11.008546003 +0000
++++ current/drivers/net/wireless/ath/ath10k/mac.h	2026-09-07 02:05:11.008546003 +0000
+@@ -30,6 +30,23 @@ struct rfc1042_hdr {
+ 
+ struct ath10k *ath10k_mac_create(size_t priv_size);
+ void ath10k_mac_destroy(struct ath10k *ar);
++u32 ath10k_rhodep_inject_vdev_for_mon(struct ath10k *ar, u32 mon_vdev_id);
++void ath10k_rhodep_inject_teardown(struct ath10k *ar);
++
++/* rhodep item 4: driver-side-only invalidation for the fw-crash path.
++ * Does NOT issue any WMI commands (fw is dead/rebooting). Just clears
++ * the ->created flag and the peer_cache so the next mgmt-tx worker
++ * iteration recreates the hidden vdev from scratch.
++ */
++void ath10k_rhodep_inject_invalidate(struct ath10k *ar);
++
++/* rhodep item 7 (5 GHz RX): retune the hidden AP vdev to `new_freq` when
++ * mac80211 changes the monitor vif's chanctx. WCN3990 has ONE radio;
++ * without this, hidden AP vdev pins the pdev to its old freq, killing
++ * monitor RX after any 2.4G<->5G band swap. Called from the chanctx
++ * switch path under conf_mutex. Returns 0 on success or if not needed.
++ */
++int ath10k_rhodep_inject_retune(struct ath10k *ar, u32 new_freq);
+ int ath10k_mac_register(struct ath10k *ar);
+ void ath10k_mac_unregister(struct ath10k *ar);
+ struct ath10k_vif *ath10k_get_arvif(struct ath10k *ar, u32 vdev_id);
+diff -uprN pristine/drivers/net/wireless/ath/ath10k/wmi-tlv.c current/drivers/net/wireless/ath/ath10k/wmi-tlv.c
+--- pristine/drivers/net/wireless/ath/ath10k/wmi-tlv.c	2026-09-07 02:05:11.024546004 +0000
++++ current/drivers/net/wireless/ath/ath10k/wmi-tlv.c	2026-09-07 02:05:11.024546004 +0000
+@@ -3059,6 +3059,66 @@ ath10k_wmi_tlv_op_cleanup_mgmt_tx_send(s
+ 	return 0;
+ }
+ 
++/* rhodep GC: reap mgmt_pending_tx entries older than MGMT_TX_STALE_JIFFIES
++ * because WCN3990 fw fails to send completion events for some frames
++ * (observed during aireplay-ng directed probe bursts: 4 frames every
++ * 200 ms per AP, fw drops ACK/CTS completions on the floor). Without GC
++ * the 50-entry IDR fills and every subsequent alloc returns -ENOSPC,
++ * which the driver reports up as -108 (ESHUTDOWN) permanently.
++ *
++ * Called under ar->data_lock. Frees the pkt_addr and the skb via
++ * ieee80211_free_txskb so the mac80211 tx-status accounting stays sane.
++ */
++#define ATH10K_RHODEP_MGMT_TX_STALE_JIFFIES msecs_to_jiffies(300)
++
++/* rhodep: release one WMI HTC credit that the fw failed to return.
++ * Mirrors what ath10k_htc_process_credit_report would have done for a
++ * real completion. WCN3990 has ONLY ONE HTC WMI credit; when the fw
++ * drops a mgmt-tx completion event (observed during aireplay-ng
++ * directed probe bursts), the credit is leaked forever. Without this,
++ * ath10k_wmi_cmd_send times out after 3s and calls
++ * ath10k_core_start_recovery, which sets CRASH_FLUSH and produces the
++ * "-108 avalanche" that breaks all subsequent tx until recovery.
++ */
++void ath10k_rhodep_wmi_credit_recover(struct ath10k *ar)
++{
++	struct ath10k_htc *htc = &ar->htc;
++	struct ath10k_htc_ep *ep = &htc->endpoint[ar->wmi.eid];
++
++	if (!ep->tx_credit_flow_enabled)
++		return;
++
++	spin_lock_bh(&htc->tx_lock);
++	ep->tx_credits += 1;
++	spin_unlock_bh(&htc->tx_lock);
++	wake_up(&ar->wmi.tx_credits_wq);
++}
++
++int ath10k_rhodep_mgmt_tx_gc_one(int id, void *ptr, void *data)
++{
++	struct ath10k_mgmt_tx_pkt_addr *pkt_addr = ptr;
++	struct ath10k *ar = data;
++	unsigned long now = jiffies;
++
++	if (!pkt_addr || !pkt_addr->vaddr)
++		return 0;
++
++	if (time_before(now, pkt_addr->alloc_jiffies +
++			     ATH10K_RHODEP_MGMT_TX_STALE_JIFFIES))
++		return 0;
++
++	/* stale: fw never completed this. drop it. */
++	idr_remove(&ar->wmi.mgmt_pending_tx, id);
++	dma_unmap_single(ar->dev, pkt_addr->paddr,
++			 ((struct sk_buff *)pkt_addr->vaddr)->len,
++			 DMA_TO_DEVICE);
++	ieee80211_free_txskb(ar->hw, pkt_addr->vaddr);
++	kfree(pkt_addr);
++	/* fw dropped completion => also dropped the credit report */
++	ath10k_rhodep_wmi_credit_recover(ar);
++	return 0;
++}
++
+ static int
+ ath10k_wmi_mgmt_tx_alloc_msdu_id(struct ath10k *ar, struct sk_buff *skb,
+ 				 dma_addr_t paddr)
+@@ -3073,12 +3133,29 @@ ath10k_wmi_mgmt_tx_alloc_msdu_id(struct
+ 
+ 	pkt_addr->vaddr = skb;
+ 	pkt_addr->paddr = paddr;
++	pkt_addr->alloc_jiffies = jiffies;
+ 
+ 	spin_lock_bh(&ar->data_lock);
+ 	ret = idr_alloc(&wmi->mgmt_pending_tx, pkt_addr, 0,
+ 			wmi->mgmt_max_num_pending_tx, GFP_ATOMIC);
++	if (ret == -ENOSPC) {
++		/* rhodep: run GC and retry once. Without this the IDR
++		 * stays full forever if fw drops completions.
++		 */
++		idr_for_each(&wmi->mgmt_pending_tx,
++			     ath10k_rhodep_mgmt_tx_gc_one, ar);
++		ret = idr_alloc(&wmi->mgmt_pending_tx, pkt_addr, 0,
++				wmi->mgmt_max_num_pending_tx, GFP_ATOMIC);
++		if (ret >= 0 && ath10k_mon_mgmt)
++			ath10k_info(ar,
++				    "rhodep: mgmt_pending_tx GC freed slot, got id=%d\n",
++				    ret);
++	}
+ 	spin_unlock_bh(&ar->data_lock);
+ 
++	if (ret < 0)
++		kfree(pkt_addr);
++
+ 	ath10k_dbg(ar, ATH10K_DBG_WMI, "wmi mgmt tx alloc msdu_id ret %d\n", ret);
+ 	return ret;
+ }
+@@ -3105,6 +3182,22 @@ ath10k_wmi_tlv_op_gen_mgmt_tx_send(struc
+ 	arvif = (void *)cb->vif->drv_priv;
+ 	vdev_id = arvif->vdev_id;
+ 
++	/* rhodep: for monitor vif frames, redirect to hidden STA vdev.
++	 * ath10k_rhodep_inject_vdev_for_mon returns the hidden STA vdev
++	 * if created, else falls back to the monitor vdev id (harmless).
++	 */
++	if (cb->vif->type == NL80211_IFTYPE_MONITOR) {
++		u32 mapped = ath10k_rhodep_inject_vdev_for_mon(ar, vdev_id);
++		if (mapped != vdev_id) {
++			ath10k_info(ar, "rhodep: mgmt-tx vdev %u -> hidden STA %u\n",
++				    vdev_id, mapped);
++			vdev_id = mapped;
++		} else {
++			ath10k_info(ar, "rhodep: mgmt-tx vdev %u (no hidden STA, using monitor)\n",
++				    vdev_id);
++		}
++	}
++
+ 	if (WARN_ON_ONCE(!ieee80211_is_mgmt(hdr->frame_control) &&
+ 			 (!(ieee80211_is_nullfunc(hdr->frame_control) ||
+ 			 ieee80211_is_qos_nullfunc(hdr->frame_control)))))
+diff -uprN pristine/drivers/net/wireless/ath/ath10k/wmi-tlv.h current/drivers/net/wireless/ath/ath10k/wmi-tlv.h
+--- pristine/drivers/net/wireless/ath/ath10k/wmi-tlv.h	2026-09-07 02:05:11.022546004 +0000
++++ current/drivers/net/wireless/ath/ath10k/wmi-tlv.h	2026-09-07 02:05:11.023546004 +0000
+@@ -1646,8 +1646,21 @@ struct wmi_tlv {
+ struct ath10k_mgmt_tx_pkt_addr {
+ 	void *vaddr;
+ 	dma_addr_t paddr;
++	/* rhodep: timestamp used by mgmt_pending_tx GC when the fw fails
++	 * to send a completion event (WCN3990 does this on directed
++	 * probe bursts). Without GC, the IDR fills and every subsequent
++	 * mgmt-tx returns -108 (ESHUTDOWN) forever.
++	 */
++	unsigned long alloc_jiffies;
+ };
+ 
++/* rhodep GC helpers exported for the mgmt_over_wmi_tx_work opportunistic
++ * sweep in mac.c. See wmi-tlv.c for the implementation and the WCN3990
++ * fw-drops-completion background.
++ */
++int ath10k_rhodep_mgmt_tx_gc_one(int id, void *ptr, void *data);
++void ath10k_rhodep_wmi_credit_recover(struct ath10k *ar);
++
+ struct chan_info_params {
+ 	u32 err_code;
+ 	u32 freq;
+diff -uprN pristine/drivers/net/wireless/ath/ath10k/wmi.c current/drivers/net/wireless/ath/ath10k/wmi.c
+--- pristine/drivers/net/wireless/ath/ath10k/wmi.c	2026-09-07 02:05:11.020546004 +0000
++++ current/drivers/net/wireless/ath/ath10k/wmi.c	2026-09-07 02:05:11.021546004 +0000
+@@ -26,6 +26,31 @@
+ #define ATH10K_WMI_BARRIER_TIMEOUT_HZ (3 * HZ)
+ #define ATH10K_WMI_DFS_CONF_TIMEOUT_HZ (HZ / 6)
+ 
++/* rhodep: WCN3990 (WLAN.HL.3.3.2) does not open a firmware RX filter for
++ * monitor mode (WMI_TLV_SERVICE_RX_PROMISC_ENABLE_SUPPORT is not advertised
++ * and there is no TLV pdev RX_FILTER command), so the classic ath10k monitor
++ * path yields no other-BSS frames. However the firmware DOES forward all
++ * overheard management frames (beacons, probe-resp, auth, deauth, ...) up via
++ * WMI_MGMT_RX_EVENTID. Stock ath10k unconditionally tags those with
++ * RX_FLAG_SKIP_MONITOR to avoid duplicating the HTT-delivered copies -- but on
++ * WCN3990 the HTT ring does not deliver mgmt at all (in-order RX + WMI mgmt
++ * path), so nothing is duplicated and the flag simply hides every neighbouring
++ * network from a monitor interface.
++ *
++ * When a monitor interface is up we therefore let these WMI mgmt frames reach
++ * monitor interfaces. This gives real passive 802.11 management-frame capture
++ * on the internal WiFi. It only takes effect while a monitor vdev/interface is
++ * active (ar->monitor_started / monitor_arvif / monitor), so normal STA/AP
++ * operation is untouched.
++ *
++ * mon_mgmt: 1 = deliver WMI mgmt to monitor when monitor is active (default),
++ *           0 = stock behaviour (always skip monitor for WMI mgmt).
++ */
++unsigned int ath10k_mon_mgmt = 1;
++module_param_named(mon_mgmt, ath10k_mon_mgmt, uint, 0644);
++MODULE_PARM_DESC(mon_mgmt,
++		 "deliver firmware WMI mgmt frames to monitor interfaces when a monitor vdev is active (1=on default, 0=stock)");
++
+ /* MAIN WMI cmd track */
+ static struct wmi_cmd_map wmi_cmd_map = {
+ 	.init_cmdid = WMI_INIT_CMDID,
+@@ -2435,15 +2460,31 @@ wmi_process_mgmt_tx_comp(struct ath10k *
+ 
+ 	spin_lock_bh(&ar->data_lock);
+ 
+-	pkt_addr = idr_find(&wmi->mgmt_pending_tx, param->desc_id);
++	/* rhodep: atomically CLAIM the entry via idr_remove so a duplicate
++	 * completion event for the same desc_id (WCN3990 fw emits pairs
++	 * DISCARD+INSPECT / COMPLETE+RETRY during bursts) cannot see the
++	 * same pkt_addr twice -> UAF of pkt_addr / freed skb.
++	 * Original code did idr_find above and idr_remove at 'out' below,
++	 * with a window where kfree(pkt_addr) already ran but idr still
++	 * pointed at the freed slab -> LDRB oops in IEEE80211_SKB_CB.
++	 */
++	pkt_addr = idr_remove(&wmi->mgmt_pending_tx, param->desc_id);
+ 	if (!pkt_addr) {
+ 		ath10k_warn(ar, "received mgmt tx completion for invalid msdu_id: %d\n",
+ 			    param->desc_id);
+-		ret = -ENOENT;
+-		goto out;
++		spin_unlock_bh(&ar->data_lock);
++		return -ENOENT;
+ 	}
+ 
+ 	msdu = pkt_addr->vaddr;
++	if (!msdu) {
++		ath10k_warn(ar, "mgmt tx completion desc_id %d has NULL vaddr (stale/recycled)\n",
++			    param->desc_id);
++		kfree(pkt_addr);
++		spin_unlock_bh(&ar->data_lock);
++		return -ENOENT;
++	}
++
+ 	dma_unmap_single(ar->dev, pkt_addr->paddr,
+ 			 msdu->len, DMA_TO_DEVICE);
+ 	info = IEEE80211_SKB_CB(msdu);
+@@ -2459,11 +2500,8 @@ wmi_process_mgmt_tx_comp(struct ath10k *
+ 	}
+ 
+ 	ieee80211_tx_status_irqsafe(ar->hw, msdu);
+-
+ 	ret = 0;
+ 
+-out:
+-	idr_remove(&wmi->mgmt_pending_tx, param->desc_id);
+ 	spin_unlock_bh(&ar->data_lock);
+ 	return ret;
+ }
+@@ -2484,11 +2522,65 @@ int ath10k_wmi_event_mgmt_tx_compl(struc
+ 	param.desc_id = __le32_to_cpu(arg.desc_id);
+ 	param.status = __le32_to_cpu(arg.status);
+ 
++	/* rhodep: normalize firmware extended status.
++	 *
++	 * WCN3990 fw sometimes returns an extended status word where the
++	 * standard WMI_MGMT_TX_COMP_STATUS_TYPE (0-3: OK/DISCARD/NO_ACK/INSPECT)
++	 * occupies the lower 2 bits and upper bits carry implementation-
++	 * specific metadata (e.g. bit 20 = retry/timing info). Ported from
++	 * Loukious v7 qcacld-3.0 monitor_sta_vdev_tx patch. Without this we
++	 * misread status=0x100000 as DISCARD when it's actually COMPLETE_OK
++	 * with retry metadata.
++	 */
++	if (param.status >= 4) {
++		u32 raw = param.status;
++		/* bit >0 alone with lower bits == 0 is a pure retry-info event
++		 * that duplicates a real completion the fw already sent (or
++		 * will send). Feeding it back into wmi_process_mgmt_tx_comp
++		 * causes idr_remove to be called twice with the same desc_id
++		 * (or the msdu to be freed twice) -> UAF / oops.
++		 */
++		if ((raw & 0x3) == 0 && (raw & ~0x3U)) {
++			if (ath10k_mon_mgmt)
++				ath10k_info(ar,
++					    "rhodep mgmt-tx-compl: drop duplicate/retry-only event raw=0x%x desc=%u\n",
++					    raw, param.desc_id);
++			return 0;
++		}
++		param.status = raw & 0x3;
++		if (ath10k_mon_mgmt)
++			ath10k_info(ar, "rhodep mgmt-tx-compl: ext status 0x%x -> %u\n",
++				    raw, param.status);
++	}
++
++	/* rhodep: WMI_MGMT_TX_COMP_TYPE semantics for injection:
++	 *   0 COMPLETE_OK  - radiated + ACKed (unicast) or radiated OK (bcast)
++	 *   1 DISCARD      - never on air (fw dropped before HW submission)
++	 *   2 NO_ACK       - radiated on air, no ACK received
++	 *   3 INSPECT      - radiated on air, fw wants host to inspect
++	 * For monitor injection (aircrack-ng --deauth etc) the frame's fate
++	 * on the wire matters more than ACK, so treat NO_ACK/INSPECT as
++	 * "radiated OK" for tx-status accounting. Only status=1 is a true
++	 * failure. Mirrors Loukious's semantics where he tracks all as
++	 * "sent" for stats but only marks DISCARD as a failure.
++	 */
++	if (ath10k_mon_mgmt && param.status == 3) {
++		/* INSPECT: frame radiated. Report as success to mac80211. */
++		param.status = 0;
++	}
++
+ 	if (test_bit(WMI_SERVICE_TX_DATA_ACK_RSSI, ar->wmi.svc_map))
+ 		param.ack_rssi = __le32_to_cpu(arg.ack_rssi);
+ 
+ 	wmi_process_mgmt_tx_comp(ar, &param);
+ 
++	/* rhodep diag: confirm the firmware actually completed a mgmt TX (status
++	 * 0 == transmitted OTA). Temporary, gated on mon_mgmt.
++	 */
++	if (ath10k_mon_mgmt)
++		ath10k_info(ar, "rhodep mgmt-tx-compl desc_id=%u status=%u\n",
++			    param.desc_id, param.status);
++
+ 	ath10k_dbg(ar, ATH10K_DBG_WMI, "wmi tlv evnt mgmt tx completion\n");
+ 
+ 	return 0;
+@@ -2620,6 +2712,19 @@ int ath10k_wmi_event_mgmt_rx(struct ath1
+ 	 */
+ 	status->flag |= RX_FLAG_SKIP_MONITOR;
+ 
++	/* rhodep: on WCN3990 the HTT ring never duplicates mgmt frames, so when a
++	 * monitor vdev is active let these WMI-delivered mgmt frames (including
++	 * other-BSS beacons/probe-resp) reach monitor interfaces.
++	 */
++	if (ath10k_mon_mgmt &&
++	    (ar->monitor_started || ar->monitor_arvif || ar->monitor)) {
++		status->flag &= ~RX_FLAG_SKIP_MONITOR;
++		ath10k_dbg(ar, ATH10K_DBG_MGMT,
++			   "mon mgmt-rx ta=%pM bssid=%pM stype=0x%02x freq=%d\n",
++			   hdr->addr2, hdr->addr3,
++			   (fc & IEEE80211_FCTL_STYPE) >> 4, status->freq);
++	}
++
+ 	ath10k_wmi_handle_wep_reauth(ar, skb, status);
+ 
+ 	if (ath10k_wmi_rx_is_decrypted(ar, hdr)) {
+diff -uprN pristine/drivers/net/wireless/ath/regd.c current/drivers/net/wireless/ath/regd.c
+--- pristine/drivers/net/wireless/ath/regd.c	2026-09-07 02:05:11.006546003 +0000
++++ current/drivers/net/wireless/ath/regd.c	2026-09-07 02:05:11.006546003 +0000
+@@ -17,6 +17,7 @@
+ #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+ 
+ #include <linux/kernel.h>
++#include <linux/moduleparam.h>
+ #include <linux/export.h>
+ #include <net/cfg80211.h>
+ #include <net/mac80211.h>
+@@ -25,6 +26,28 @@
+ 
+ static int __ath_regd_init(struct ath_regulatory *reg);
+ 
++/* rhodep: ath.country=XX module param.
++ *
++ * WCN3990 devices (and many other ath10k/ath9k boards) ship with an EEPROM
++ * regdomain of 0x6c (WORC_WORLD). ath_common maps that to the "00" world
++ * regdomain which flags every 5 GHz channel as NO_IR (passive-scan-only,
++ * TX blocked). `iw reg set XX` is silently rejected because
++ * CONFIG_ATH_REG_DYNAMIC_USER_REG_HINTS defaults to N in mainline distros.
++ *
++ * Setting ath.country=US at module load (or on the kernel cmdline) both
++ * (a) overrides the boot alpha2 during __ath_regd_init and (b) makes
++ * runtime USER hints acceptable regardless of the Kconfig -- so subsequent
++ * `iw reg set XX` also sticks.
++ *
++ * For pmOS/Kali NetHunter Pro on Motorola Moto G82 5G (rhodep), set this
++ * to "US" to unlock 5 GHz TX on UNII-1 (36-48) and UNII-3 (149-165); DFS
++ * channels remain gated by ath_reg_apply_radar_flags regardless.
++ */
++static char *ath_country;
++module_param_named(country, ath_country, charp, 0444);
++MODULE_PARM_DESC(country,
++	"Override EEPROM regdomain with an ISO 3166 alpha2 code (e.g. US, AR). Also enables runtime `iw reg set` hints on this ath instance.");
++
+ /*
+  * This is a set of common rules used by our world regulatory domains.
+  * We have 12 world regulatory domains. To save space we consolidate
+@@ -93,6 +116,39 @@ static const struct ieee80211_regdomain
+ 	}
+ };
+ 
++/* rhodep: permissive world regdom for ath.country= override. Same shape as
++ * the world regdoms above but WITHOUT NL80211_RRF_NO_IR on 5 GHz -- lets
++ * cfg80211's later regulatory_hint(country=US/AR/etc) actually unlock TX.
++ * Kept as a driver-side custom regdom (REGULATORY_CUSTOM_REG) so that we
++ * survive the wiphy_apply_custom_regulatory + wiphy_register ordering
++ * without depending on wireless-regdb being loaded at that exact moment.
++ *
++ * Coverage: all common 5 GHz WiFi channels
++ *   UNII-1  (36-48)     5170-5250 MHz
++ *   UNII-2  (52-64)     5250-5330 MHz   — DFS, kept enabled (radar flag)
++ *   UNII-2e (100-144)   5490-5730 MHz   — DFS, kept enabled (radar flag)
++ *   UNII-3  (149-165)   5725-5850 MHz
++ * ath_reg_apply_radar_flags() will still set the DFS/radar bits on
++ * 5260-5320 and 5490-5730 after our regdom is applied, but at least the
++ * channels aren't hard-disabled at the wiphy level.
++ */
++#define RHODEP_2GHZ_ALL		REG_RULE(2402, 2482, 40, 0, 20, 0)
++#define RHODEP_5GHZ_UNII_1	REG_RULE(5170-10, 5250+10, 80, 0, 20, 0)
++#define RHODEP_5GHZ_UNII_2	REG_RULE(5250-10, 5330+10, 80, 0, 20, 0)
++#define RHODEP_5GHZ_UNII_2E	REG_RULE(5490-10, 5730+10, 160, 0, 20, 0)
++#define RHODEP_5GHZ_UNII_3	REG_RULE(5725-10, 5850+10, 80, 0, 20, 0)
++static const struct ieee80211_regdomain ath_rhodep_permissive_regdom = {
++	.n_reg_rules = 5,
++	.alpha2 = "99",
++	.reg_rules = {
++		RHODEP_2GHZ_ALL,
++		RHODEP_5GHZ_UNII_1,
++		RHODEP_5GHZ_UNII_2,
++		RHODEP_5GHZ_UNII_2E,
++		RHODEP_5GHZ_UNII_3,
++	}
++};
++
+ /* Can be used by 0x66 and 0x69 */
+ static const struct ieee80211_regdomain ath_world_regdom_66_69 = {
+ 	.n_reg_rules = 3,
+@@ -188,7 +244,10 @@ static bool dynamic_country_user_possibl
+ 
+ static bool ath_reg_dyn_country_user_allow(struct ath_regulatory *reg)
+ {
+-	if (!IS_ENABLED(CONFIG_ATH_REG_DYNAMIC_USER_REG_HINTS))
++	/* rhodep: when the ath.country= param is set at load, honour runtime
++	 * user hints too regardless of CONFIG_ATH_REG_DYNAMIC_USER_REG_HINTS.
++	 */
++	if (!IS_ENABLED(CONFIG_ATH_REG_DYNAMIC_USER_REG_HINTS) && !ath_country)
+ 		return false;
+ 	if (!dynamic_country_user_possible(reg))
+ 		return false;
+@@ -640,6 +699,30 @@ ath_regd_init_wiphy(struct ath_regulator
+ 	const struct ieee80211_regdomain *regd;
+ 
+ 	wiphy->reg_notifier = reg_notifier;
++
++	/* rhodep: if ath.country=XX is set, use a permissive custom regdom
++	 * (no NL80211_RRF_NO_IR on 5 GHz UNII-1/UNII-3) so cfg80211's
++	 * subsequent user hints (`iw reg set XX` or a driver hint) actually
++	 * unlock TX. The default ath world regdoms above all hardcode
++	 * NO_IR on 5 GHz which is why setting country=US alone was not
++	 * enough: even with regpair=FCC3_FCCA the orig_flags on the wiphy
++	 * still carry NO_IR from wiphy_apply_custom_regulatory().
++	 *
++	 * We do NOT set REGULATORY_STRICT_REG here, so wireless-regdb hints
++	 * can further refine per-country CTL/EIRP after boot.
++	 */
++	if (ath_country && strlen(ath_country) >= 2 &&
++	    ath_regd_find_country_by_name(ath_country) != (u16)-1) {
++		printk(KERN_INFO
++		       "ath: country= override, using permissive custom regdom (%c%c)\n",
++		       ath_country[0], ath_country[1]);
++		wiphy->regulatory_flags |= REGULATORY_CUSTOM_REG |
++					   REGULATORY_COUNTRY_IE_FOLLOW_POWER;
++		wiphy_apply_custom_regulatory(wiphy, &ath_rhodep_permissive_regdom);
++		ath_reg_apply_radar_flags(wiphy, reg);
++		return 0;
++	}
++
+ 	wiphy->regulatory_flags |= REGULATORY_STRICT_REG |
+ 				   REGULATORY_CUSTOM_REG;
+ 
+@@ -690,6 +773,25 @@ static int __ath_regd_init(struct ath_re
+ 
+ 	ath_regd_sanitize(reg);
+ 
++	/* rhodep: honour ath.country=XX at boot. Rewrites current_rd to
++	 * COUNTRY_ERD_FLAG|CTRY_XX so the code path below picks the right
++	 * regpair and the wiphy gets set up with a non-NO_IR 5 GHz table.
++	 */
++	if (ath_country && strlen(ath_country) >= 2) {
++		u16 forced_cc = ath_regd_find_country_by_name(ath_country);
++
++		if (forced_cc != (u16)-1) {
++			printk(KERN_INFO
++			       "ath: country= override, using %c%c (was rd 0x%04x)\n",
++			       ath_country[0], ath_country[1], reg->current_rd);
++			reg->current_rd = COUNTRY_ERD_FLAG | forced_cc;
++		} else {
++			printk(KERN_WARNING
++			       "ath: country=%s not recognized, ignoring\n",
++			       ath_country);
++		}
++	}
++
+ 	printk(KERN_DEBUG "ath: EEPROM regdomain: 0x%0x\n", reg->current_rd);
+ 
+ 	if (!ath_regd_is_eeprom_valid(reg)) {

@@ -206,6 +206,15 @@ class MDK3():
             Functions.terminate_processes('mdk3', 'b')
 
 class APRow(Gtk.ListBoxRow):
+    # Class-level reference to the running app's Gtk.Builder.  Set once by
+    # Airodump.__init__ so that the per-row "Send to <tab>" menu items can
+    # reach across tabs to poke wps_bssid_entry / mdk4_target_entry / etc.
+    # This is a deliberate module-global instead of a per-instance argument
+    # because APRow is instantiated by scan results in a background thread,
+    # and threading that builder reference through the call chain adds
+    # nothing over just stashing it here at UI construction time.
+    builder = None
+
     def __init__(self, bssid, ch, sec, pwr, ssid, manufacturer):
         super(APRow, self).__init__()
         self.bssid = bssid
@@ -256,25 +265,80 @@ class APRow(Gtk.ListBoxRow):
         self.add(button)
 
     def ap_clicked(self, widget):
-        # Create context menu and items
+        # Context menu: Copy MAC + Deauth (in-place) + one "Send to <tab>"
+        # entry per attack module that expects a BSSID.  Each Send-to
+        # item populates the target tab's entry fields, then switches
+        # the notebook to that tab so the user is one click away from
+        # pressing the attack button.
         context_menu = Gtk.Menu()
+
         copy_mac = Gtk.MenuItem(label="Copy MAC")
-        deauth = Gtk.MenuItem(label="Deauth")
-        # watch = Gtk.MenuItem(label="Watch")
-
-        # Connect the menu items to callback functions
         copy_mac.connect("activate", self.copy_mac)
-        deauth.connect("activate", self.deauth)
-        # watch.connect("activate", self.watch)
-
-        # Add menu items to the context menu
         context_menu.append(copy_mac)
-        context_menu.append(deauth)
-        # context_menu.append(watch)
 
-        # Show all menu items
+        deauth = Gtk.MenuItem(label="Deauth (quick)")
+        deauth.connect("activate", self.deauth)
+        context_menu.append(deauth)
+
+        context_menu.append(Gtk.SeparatorMenuItem())
+
+        # Only offer the cross-tab items when the builder is wired up
+        # (i.e. we are running as part of the full app, not a unit test).
+        if APRow.builder is not None:
+            # Tab order in hijacker.ui (0-indexed):
+            #   0 airodump  1 aircrack  2 mdk3  3 wps  4 hashcat
+            #   5 mdk4      6 pmkid     7 eviltwin
+            for label, tab_id, populate in (
+                ("Send to WPS",       3, self._send_to_wps),
+                ("Send to MDK4",      5, self._send_to_mdk4),
+                ("Send to PMKID",     6, self._send_to_pmkid),
+                ("Send to Evil Twin", 7, self._send_to_eviltwin),
+            ):
+                item = Gtk.MenuItem(label=label)
+                # Capture loop vars via default args (Python closure gotcha).
+                item.connect("activate",
+                             lambda _w, tab=tab_id, fn=populate: (
+                                 fn(),
+                                 self._switch_tab(tab)))
+                context_menu.append(item)
+
         context_menu.show_all()
         context_menu.popup(None, None, None, None, 0, Gtk.get_current_event_time())
+
+    def _switch_tab(self, tab_index):
+        """Flip the main notebook to the given tab index.
+
+        Indices follow the current .ui ordering (airodump=0, aircrack=1,
+        mdk3=2, mdk4=3, wps=? ...).  The order in .ui is:
+          0 airodump, 1 aircrack, 2 mdk, 3 wps, 4 hashcat, 5 mdk4,
+          6 pmkid, 7 eviltwin.
+        If the user reorders tabs in the .ui, update this mapping too.
+        """
+        nb = APRow.builder.get_object("main_notebook")
+        if nb is not None:
+            nb.set_current_page(tab_index)
+
+    def _send_to_wps(self):
+        b = APRow.builder
+        e = b.get_object("wps_bssid_entry")
+        c = b.get_object("wps_ch_entry")
+        if e: e.set_text(self.bssid)
+        if c: c.set_text(str(self.ch))
+
+    def _send_to_mdk4(self):
+        e = APRow.builder.get_object("mdk4_target_entry")
+        if e: e.set_text(self.bssid)
+
+    def _send_to_pmkid(self):
+        e = APRow.builder.get_object("pmkid_bssid_entry")
+        if e: e.set_text(self.bssid)
+
+    def _send_to_eviltwin(self):
+        # Evil Twin doesn't want a BSSID, it wants an SSID to *impersonate*.
+        # Copy the SSID over so the user just presses Start.
+        e = APRow.builder.get_object("et_ssid_entry")
+        if e and self.ssid:
+            e.set_text(self.ssid)
 
     def copy_mac(self, widget):
         print(f'Copied to clipboard: {self.bssid}')
@@ -347,6 +411,13 @@ class Airodump(Functions):
     def __init__(self, builder):
         Functions.set_app_theme("Adwaita", True)
         self.builder = builder
+        # Publish the builder so APRow can reach across tabs to poke the
+        # target-entry fields of WPS / MDK4 / PMKID / Evil Twin from its
+        # "Send to <tab>" context menu.  Kept as a class attribute
+        # because scan results create APRow instances from a background
+        # thread and we do not want to plumb the builder through
+        # csv-parsing helpers.
+        APRow.builder = builder
         self.builder.get_object('btn_quit').connect('clicked', self.quit)
         self.btn_toggle = builder.get_object('btn_toggle')
         self.btn_toggle_img = builder.get_object('btn_toggle_img')

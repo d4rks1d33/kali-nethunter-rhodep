@@ -61,17 +61,59 @@ OGF_LINK_CTL = 0x01 << 10
 OGF_HOST_CTL = 0x03 << 10
 OGF_LE_CTL = 0x08 << 10
 
-# Common opcodes
+# Common opcodes -- Legacy Advertising (BT 4.0+)
 CMD_RESET = 0x0003 | OGF_HOST_CTL                        # 0x0C03
 CMD_LE_SET_ADVERTISING_PARAMETERS = 0x0006 | OGF_LE_CTL  # 0x2006
 CMD_LE_SET_ADVERTISING_DATA = 0x0008 | OGF_LE_CTL        # 0x2008
 CMD_LE_SET_SCAN_RESPONSE_DATA = 0x0009 | OGF_LE_CTL      # 0x2009
 CMD_LE_SET_ADVERTISE_ENABLE = 0x000A | OGF_LE_CTL        # 0x200A
+CMD_LE_READ_LOCAL_SUPPORTED_FEATURES = 0x0003 | OGF_LE_CTL   # 0x2003
+CMD_LE_SET_RANDOM_ADDRESS = 0x0005 | OGF_LE_CTL          # 0x2005
 
+# Extended Advertising (BT 5.0+). The QCA WCN6750 on SM6375 only
+# implements the Extended path -- Legacy commands come back with
+# Status: Success but the radio is silent on-air. Discovered by
+# comparing btmon captures against `hciconfig hciX leadv` which
+# also returns "status 12" (Invalid HCI Command Parameters) on
+# this chip. Any host must go through the Extended API here.
+CMD_LE_SET_EXT_ADV_SET_RANDOM_ADDR = 0x0035 | OGF_LE_CTL # 0x2035
+CMD_LE_SET_EXT_ADV_PARAMETERS = 0x0036 | OGF_LE_CTL      # 0x2036
+CMD_LE_SET_EXT_ADV_DATA = 0x0037 | OGF_LE_CTL            # 0x2037
+CMD_LE_SET_EXT_SCAN_RSP_DATA = 0x0038 | OGF_LE_CTL       # 0x2038
+CMD_LE_SET_EXT_ADV_ENABLE = 0x0039 | OGF_LE_CTL          # 0x2039
+CMD_LE_CLEAR_ADV_SETS = 0x003D | OGF_LE_CTL              # 0x203D
+
+# Legacy advertising types (Set_Advertising_Parameters)
 ADV_TYPE_IND = 0x00        # connectable + scannable
 ADV_TYPE_DIRECT = 0x01
 ADV_TYPE_SCAN_IND = 0x02   # scannable, not connectable
 ADV_TYPE_NONCONN_IND = 0x03  # not scannable, not connectable
+
+# Extended advertising event properties (Set_Extended_Advertising_Parameters).
+# These map the classic ADV_TYPE_* values into the Extended world by
+# combining the Connectable/Scannable/Directed/Legacy_PDUs bits per
+# Bluetooth Core spec Vol 4 Part E §7.8.53. "Legacy" is essential: it
+# tells the controller to emit the same-shape PDUs the old legacy scan
+# used to look for (ADV_IND / ADV_SCAN_IND / ADV_NONCONN_IND), so the
+# advertisement is visible to every BLE scanner in existence, not just
+# the ones that speak Extended.
+EXT_ADV_PROPS_LEGACY = 0x0010
+EXT_ADV_PROPS_CONNECTABLE = 0x0001
+EXT_ADV_PROPS_SCANNABLE = 0x0002
+EXT_ADV_PROPS_DIRECTED = 0x0004
+# Ready-made shapes that match the classic advertising types.
+EXT_ADV_PROPS_IND = (EXT_ADV_PROPS_LEGACY
+                     | EXT_ADV_PROPS_CONNECTABLE
+                     | EXT_ADV_PROPS_SCANNABLE)          # 0x0013
+EXT_ADV_PROPS_SCAN_IND = EXT_ADV_PROPS_LEGACY | EXT_ADV_PROPS_SCANNABLE  # 0x0012
+EXT_ADV_PROPS_NONCONN_IND = EXT_ADV_PROPS_LEGACY         # 0x0010
+
+# Data operation for Set_Extended_Advertising_Data / Scan_Response_Data
+EXT_ADV_DATA_OP_COMPLETE = 0x03
+
+# Own_Address_Type
+OWN_ADDR_PUBLIC = 0x00
+OWN_ADDR_RANDOM = 0x01
 
 _libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
 
@@ -217,6 +259,45 @@ class HciDevice:
         if status != 0:
             raise HciError(f"HCI command 0x{opcode:04X} failed with status 0x{status:02X}")
 
+    def command_with_data(
+        self, opcode: int, params: bytes = b"", timeout: float = 2.0
+    ) -> bytes:
+        """Same as :meth:`command` but returns the trailing payload of the
+        Command Complete event instead of just the status.
+
+        Some Extended Advertising commands return useful state -- e.g.
+        ``LE Set Extended Advertising Parameters`` (0x2036) returns the
+        actual TX power the controller decided to use. Callers can use
+        this to log what the radio really picked when they asked for
+        "no preference" (0x7F). Raises :class:`HciError` on non-zero
+        status, same as :meth:`_command_ok`.
+        """
+        if self._fd is None:
+            raise HciError("HCI device is not open")
+        self._send(_pack_command(opcode, params))
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise HciError(f"HCI command 0x{opcode:04X} timed out")
+            data = self._recv(min(remaining, 2.0))
+            if not data or data[0] != HCI_EVENT_PKT:
+                continue
+            evt = data[1]
+            if evt == EVT_HARDWARE_ERROR:
+                code = data[3] if len(data) >= 4 else 0
+                raise HciHardwareError(code)
+            if evt == EVT_COMMAND_COMPLETE and len(data) >= 6:
+                (cmd_op,) = struct.unpack("<H", data[4:6])
+                if cmd_op == opcode:
+                    status = data[6] if len(data) > 6 else 0
+                    if status != 0:
+                        raise HciError(
+                            f"HCI command 0x{opcode:04X} failed with "
+                            f"status 0x{status:02X}")
+                    return bytes(data[7:])
+            # ignore unrelated events
+
     # -- controller commands -------------------------------------------------
 
     def reset(self, retries: int = 5, delay: float = 0.3) -> None:
@@ -289,3 +370,161 @@ class HciDevice:
 
     def set_advertise_enable(self, enabled: bool) -> None:
         self._command_ok(CMD_LE_SET_ADVERTISE_ENABLE, struct.pack("<B", 1 if enabled else 0))
+
+    # -- Extended Advertising (BT 5.0+) --------------------------------------
+    # These are the *only* advertising commands the QCA WCN6750 firmware
+    # on the Moto G82 5G actually honours. See the module docstring at the
+    # top of engine.py for the discovery story.
+
+    def clear_advertising_sets(self) -> None:
+        """Delete every advertising set the controller currently holds.
+
+        Cheap belt-and-suspenders before configuring a new set: if a
+        previous session (bluetoothd, an earlier crash, another opencode
+        run) left a set behind, ``LE Set Extended Advertising Parameters``
+        will happily overwrite handle 0 but a stale enable on handle >0
+        can keep transmitting garbage. Clearing is safe when there is
+        nothing to clear (returns 0x00).
+        """
+        self._command_ok(CMD_LE_CLEAR_ADV_SETS)
+
+    def set_advertising_set_random_address(
+        self, handle: int, addr: bytes
+    ) -> None:
+        """Bind a random address to an advertising set.
+
+        Required whenever the set uses ``OWN_ADDR_RANDOM``. Address is
+        transmitted in little-endian byte order on the wire (LSB first),
+        so we accept ``addr`` in big-endian human order and reverse it
+        here to keep call sites readable ("C0:11:22:33:44:55" -> b"\\xc0\\x11...").
+        The Extended-set variant takes a handle (0..EA), unlike the
+        classic 0x2005 ``LE Set Random Address`` which is per-controller.
+        """
+        if len(addr) != 6:
+            raise ValueError("random address must be 6 bytes, got %d" % len(addr))
+        params = struct.pack("<B", handle & 0xFF) + addr[::-1]
+        self._command_ok(CMD_LE_SET_EXT_ADV_SET_RANDOM_ADDR, params)
+
+    def set_extended_advertising_parameters(
+        self,
+        handle: int = 0,
+        adv_event_props: int = EXT_ADV_PROPS_SCAN_IND,
+        prim_interval_min: int = 0x000020,   # 20 ms (0.625 ms units)
+        prim_interval_max: int = 0x000020,
+        prim_channel_map: int = 0x07,        # channels 37, 38, 39
+        own_addr_type: int = OWN_ADDR_RANDOM,
+        peer_addr_type: int = 0,
+        peer_addr: bytes = b"\x00" * 6,
+        adv_filter_policy: int = 0,
+        adv_tx_power: int = 0x7F,            # 0x7F = host has no preference
+        prim_adv_phy: int = 0x01,            # 1M PHY
+        sec_adv_max_skip: int = 0,
+        sec_adv_phy: int = 0x01,             # 1M PHY
+        adv_sid: int = 0,
+        scan_req_notify_enable: int = 0,
+    ) -> int:
+        """Configure an advertising set. Returns the selected TX power (dBm).
+
+        Layout is Bluetooth Core spec Vol 4 Part E §7.8.53. All the
+        multi-byte fields are little-endian on the wire. The controller
+        returns the actual selected TX power in the command-complete
+        event -- that's the only useful piece of state and we hand it
+        back so the caller can log it.
+
+        Primary advertising interval is in 0.625 ms units and is a
+        24-bit field packed as three little-endian bytes; we compute it
+        from the fixed-size ``<I`` int and slice the top byte off.
+        """
+        if len(peer_addr) != 6:
+            raise ValueError("peer_addr must be 6 bytes")
+        params = struct.pack(
+            "<BH",
+            handle & 0xFF,
+            adv_event_props & 0xFFFF,
+        )
+        # Primary advertising interval min/max are 3-byte little-endian.
+        params += (prim_interval_min & 0xFFFFFF).to_bytes(3, "little")
+        params += (prim_interval_max & 0xFFFFFF).to_bytes(3, "little")
+        params += struct.pack(
+            "<BBB6sBbBBBBB",
+            prim_channel_map & 0xFF,
+            own_addr_type & 0xFF,
+            peer_addr_type & 0xFF,
+            peer_addr[:6].ljust(6, b"\x00"),
+            adv_filter_policy & 0xFF,
+            adv_tx_power & 0xFF if adv_tx_power >= 0 else adv_tx_power,
+            prim_adv_phy & 0xFF,
+            sec_adv_max_skip & 0xFF,
+            sec_adv_phy & 0xFF,
+            adv_sid & 0xFF,
+            scan_req_notify_enable & 0xFF,
+        )
+        # We need the payload back to read the returned tx power byte.
+        payload = self.command_with_data(CMD_LE_SET_EXT_ADV_PARAMETERS, params)
+        return payload[0] if payload else 0
+
+    def set_extended_advertising_data(
+        self,
+        data: bytes,
+        handle: int = 0,
+        operation: int = EXT_ADV_DATA_OP_COMPLETE,
+        fragment_pref: int = 0x01,
+    ) -> None:
+        """Set the advertising payload for a set. Data <= 31 bytes for
+        legacy PDUs, up to 251 bytes for extended-only PDUs. We stay
+        within 31 because we emit legacy-shaped PDUs for compatibility
+        with every BLE scanner.
+        """
+        data = data[:31]
+        params = struct.pack("<BBBB",
+                             handle & 0xFF,
+                             operation & 0xFF,
+                             fragment_pref & 0xFF,
+                             len(data)) + data
+        self._command_ok(CMD_LE_SET_EXT_ADV_DATA, params)
+
+    def set_extended_scan_response_data(
+        self,
+        data: bytes,
+        handle: int = 0,
+        operation: int = EXT_ADV_DATA_OP_COMPLETE,
+        fragment_pref: int = 0x01,
+    ) -> None:
+        """Set the scan response payload. Empty (``b''``) is allowed and
+        common when the advertising type is ADV_NONCONN_IND -- but the
+        controller still wants the length byte, so we pass len=0.
+        """
+        data = data[:31]
+        params = struct.pack("<BBBB",
+                             handle & 0xFF,
+                             operation & 0xFF,
+                             fragment_pref & 0xFF,
+                             len(data)) + data
+        self._command_ok(CMD_LE_SET_EXT_SCAN_RSP_DATA, params)
+
+    def set_extended_advertise_enable(
+        self,
+        enabled: bool,
+        handle: int = 0,
+        duration_10ms: int = 0,   # 0 = advertise forever
+        max_events: int = 0,       # 0 = no limit
+    ) -> None:
+        """Start / stop advertising for a single set.
+
+        Multi-set enable/disable is possible per spec but we only ever
+        use handle 0, so the wire layout is fixed: enable(1) + numsets(1=1)
+        + handle(1) + duration(2 LE) + max_events(1).
+        Disable (``enabled=False``) with num_sets=0 stops every set.
+        """
+        if enabled:
+            params = struct.pack("<BBBHB",
+                                 0x01,
+                                 0x01,           # num_sets
+                                 handle & 0xFF,
+                                 duration_10ms & 0xFFFF,
+                                 max_events & 0xFF)
+        else:
+            # A zero-length "disable all" body is only legal when
+            # enable=0 AND num_sets=0. Everything else must specify sets.
+            params = struct.pack("<BB", 0x00, 0x00)
+        self._command_ok(CMD_LE_SET_EXT_ADV_ENABLE, params)

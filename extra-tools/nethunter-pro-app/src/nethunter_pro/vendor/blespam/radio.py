@@ -36,8 +36,12 @@ def _sh(cmd: str, timeout: float = 20.0) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
 
 
-def _sysctl(*args: str) -> None:
-    _sh(f"timeout 15 systemctl {' '.join(args)} 2>/dev/null || true")
+def _sysctl(*args: str) -> subprocess.CompletedProcess:
+    return _sh(f"timeout 15 systemctl {' '.join(args)}")
+
+
+def _bluetoothd_running() -> bool:
+    return _sh("pgrep -x bluetoothd").returncode == 0
 
 
 def _dev_name(dev_id: int) -> str:
@@ -70,11 +74,33 @@ def _wait_until_up(dev_id: int, timeout: float = 20.0) -> None:
 
 
 def _lock_bluetoothd() -> None:
-    """Mask the bluetooth unit and kill bluetoothd so nothing can re-take the
-    radio mid-session."""
-    _sysctl("mask", "bluetooth")
+    """Take bluetoothd out of the picture so nothing can re-open hci0 mid-session.
+
+    On systemd systems bluetoothd can come back via three paths:
+      1. bluetooth.service (Restart=on-failure)
+      2. dbus-org.bluez.service (D-Bus activation)
+      3. bluez.service (some distros ship both names)
+    Mask all three and stop them explicitly, then kill any lingering process.
+    Verify with pgrep before returning -- if it's still alive, systemd is
+    reviving it and we need to know.
+    """
+    # Stop first (before mask) so a pending job doesn't fight us
+    for unit in ("bluetooth", "bluetooth.socket",
+                 "dbus-org.bluez", "bluez"):
+        _sysctl("stop", unit)
+    for unit in ("bluetooth", "bluetooth.socket",
+                 "dbus-org.bluez", "bluez"):
+        _sysctl("mask", unit)
     _sh("pkill -9 bluetoothd 2>/dev/null || true")
-    time.sleep(1)
+    # Give systemd a moment to notice, then verify.
+    for _ in range(20):   # up to 4 s
+        time.sleep(0.2)
+        if not _bluetoothd_running():
+            return
+    raise RadioError(
+        "bluetoothd will not stay down (D-Bus activation is reviving it). "
+        "Try: systemctl mask dbus-org.bluez.service && systemctl daemon-reload"
+    )
 
 
 def prepare_radio(dev_id: int = 0) -> None:
@@ -117,7 +143,9 @@ def restore_radio(dev_id: int = 0) -> None:
     quickly (typical <2 s) or times out and we move on, and the app's
     close path is not held hostage either way.
     """
-    _sysctl("unmask", "bluetooth")
+    for unit in ("bluetooth", "bluetooth.socket",
+                 "dbus-org.bluez", "bluez"):
+        _sysctl("unmask", unit)
     _sysctl("stop", "bluetooth")
     _sh(f"hciconfig {_dev_name(dev_id)} up")
     time.sleep(0.5)

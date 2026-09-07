@@ -20,6 +20,7 @@ depends="
 "
 makedepends="devicepkg-dev"
 source="
+	ath-country.conf
 	ath10k-late.conf
 	ath10k-late.service
 	deviceinfo
@@ -81,11 +82,14 @@ package() {
 
 	install -Dm644 "$srcdir"/ath10k-late.conf \
 		"$pkgdir"/usr/lib/modprobe.d/ath10k-late.conf
+	install -Dm644 "$srcdir"/ath-country.conf \
+		"$pkgdir"/usr/lib/modprobe.d/ath-country.conf
 	install -Dm644 "$srcdir"/rhodep-modem-tmpfiles.conf \
 		"$pkgdir"/usr/lib/tmpfiles.d/rhodep-modem.conf
 }
 
 sha512sums="
+4e9e7d3e85d6aa5f479698517293974672a52903a5d80eb789951f3980c64a9708d57004bd88d2c1f8b58fe2374c45a7c5ed8d058ac50d1293843f0530074d81  ath-country.conf
 31a7ea3affe8fa2a0cdb1213bcaddaac05da784b0bd0c7c540d4ac9fd7be4580d0b476e1b3f66f9c7876c7d35e5ca17842263970efe8e9513c646cf8aef1d5ec  ath10k-late.conf
 db9b2db9c627ada1399de7d2b5656965faf8111af00e6ccb15719e60661f7f22e9d747f534c9c013381d53f79f3283595070bcba1f52a35f4caa9302b905ec5f  ath10k-late.service
 82140297972c53fcba0854b8c2ad917879130e89feb7084d4ecb7fc92393c8461e7437cf838cda962d3dd411873da99dacd6fc0519ec6d712e1ef580bd6219dd  deviceinfo

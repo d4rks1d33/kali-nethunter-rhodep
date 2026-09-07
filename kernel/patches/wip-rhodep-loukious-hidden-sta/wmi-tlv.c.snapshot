@@ -3059,6 +3059,66 @@ ath10k_wmi_tlv_op_cleanup_mgmt_tx_send(struct ath10k *ar,
 	return 0;
 }
 
+/* rhodep GC: reap mgmt_pending_tx entries older than MGMT_TX_STALE_JIFFIES
+ * because WCN3990 fw fails to send completion events for some frames
+ * (observed during aireplay-ng directed probe bursts: 4 frames every
+ * 200 ms per AP, fw drops ACK/CTS completions on the floor). Without GC
+ * the 50-entry IDR fills and every subsequent alloc returns -ENOSPC,
+ * which the driver reports up as -108 (ESHUTDOWN) permanently.
+ *
+ * Called under ar->data_lock. Frees the pkt_addr and the skb via
+ * ieee80211_free_txskb so the mac80211 tx-status accounting stays sane.
+ */
+#define ATH10K_RHODEP_MGMT_TX_STALE_JIFFIES msecs_to_jiffies(300)
+
+/* rhodep: release one WMI HTC credit that the fw failed to return.
+ * Mirrors what ath10k_htc_process_credit_report would have done for a
+ * real completion. WCN3990 has ONLY ONE HTC WMI credit; when the fw
+ * drops a mgmt-tx completion event (observed during aireplay-ng
+ * directed probe bursts), the credit is leaked forever. Without this,
+ * ath10k_wmi_cmd_send times out after 3s and calls
+ * ath10k_core_start_recovery, which sets CRASH_FLUSH and produces the
+ * "-108 avalanche" that breaks all subsequent tx until recovery.
+ */
+void ath10k_rhodep_wmi_credit_recover(struct ath10k *ar)
+{
+	struct ath10k_htc *htc = &ar->htc;
+	struct ath10k_htc_ep *ep = &htc->endpoint[ar->wmi.eid];
+
+	if (!ep->tx_credit_flow_enabled)
+		return;
+
+	spin_lock_bh(&htc->tx_lock);
+	ep->tx_credits += 1;
+	spin_unlock_bh(&htc->tx_lock);
+	wake_up(&ar->wmi.tx_credits_wq);
+}
+
+int ath10k_rhodep_mgmt_tx_gc_one(int id, void *ptr, void *data)
+{
+	struct ath10k_mgmt_tx_pkt_addr *pkt_addr = ptr;
+	struct ath10k *ar = data;
+	unsigned long now = jiffies;
+
+	if (!pkt_addr || !pkt_addr->vaddr)
+		return 0;
+
+	if (time_before(now, pkt_addr->alloc_jiffies +
+			     ATH10K_RHODEP_MGMT_TX_STALE_JIFFIES))
+		return 0;
+
+	/* stale: fw never completed this. drop it. */
+	idr_remove(&ar->wmi.mgmt_pending_tx, id);
+	dma_unmap_single(ar->dev, pkt_addr->paddr,
+			 ((struct sk_buff *)pkt_addr->vaddr)->len,
+			 DMA_TO_DEVICE);
+	ieee80211_free_txskb(ar->hw, pkt_addr->vaddr);
+	kfree(pkt_addr);
+	/* fw dropped completion => also dropped the credit report */
+	ath10k_rhodep_wmi_credit_recover(ar);
+	return 0;
+}
+
 static int
 ath10k_wmi_mgmt_tx_alloc_msdu_id(struct ath10k *ar, struct sk_buff *skb,
 				 dma_addr_t paddr)
@@ -3073,11 +3133,28 @@ ath10k_wmi_mgmt_tx_alloc_msdu_id(struct ath10k *ar, struct sk_buff *skb,
 
 	pkt_addr->vaddr = skb;
 	pkt_addr->paddr = paddr;
+	pkt_addr->alloc_jiffies = jiffies;
 
 	spin_lock_bh(&ar->data_lock);
 	ret = idr_alloc(&wmi->mgmt_pending_tx, pkt_addr, 0,
 			wmi->mgmt_max_num_pending_tx, GFP_ATOMIC);
+	if (ret == -ENOSPC) {
+		/* rhodep: run GC and retry once. Without this the IDR
+		 * stays full forever if fw drops completions.
+		 */
+		idr_for_each(&wmi->mgmt_pending_tx,
+			     ath10k_rhodep_mgmt_tx_gc_one, ar);
+		ret = idr_alloc(&wmi->mgmt_pending_tx, pkt_addr, 0,
+				wmi->mgmt_max_num_pending_tx, GFP_ATOMIC);
+		if (ret >= 0 && ath10k_mon_mgmt)
+			ath10k_info(ar,
+				    "rhodep: mgmt_pending_tx GC freed slot, got id=%d\n",
+				    ret);
+	}
 	spin_unlock_bh(&ar->data_lock);
+
+	if (ret < 0)
+		kfree(pkt_addr);
 
 	ath10k_dbg(ar, ATH10K_DBG_WMI, "wmi mgmt tx alloc msdu_id ret %d\n", ret);
 	return ret;

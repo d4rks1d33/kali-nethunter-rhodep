@@ -4276,8 +4276,9 @@ void ath10k_mgmt_over_wmi_tx_purge(struct ath10k *ar)
  * frames "complete" with status=1 and never hit the air. Mirror the driver's
  * own offchannel trick (ath10k_offchan_tx_work): create a temporary peer for
  * the frame's destination on the monitor vdev, send, then delete it. Returns
- * the vdev_id a temp peer was created on, or -1 if none (so the caller deletes
- * it after tx). Best-effort: any failure just falls through to the normal path.
+ * the vdev_id a temp peer was created on (>=0, caller must delete), -2 if a
+ * per-DA peer was created/reused on the hidden STA vdev (caller MUST NOT
+ * delete; kept in LRU cache), or -1 if no peer was created at all.
  */
 static int ath10k_mon_inject_peer_add(struct ath10k *ar, struct sk_buff *skb,
 				      u8 *peer_addr_out)
@@ -4292,25 +4293,35 @@ static int ath10k_mon_inject_peer_add(struct ath10k *ar, struct sk_buff *skb,
 	if (!ar->monitor_started && !ar->monitor_arvif && !ar->monitor)
 		return -1;
 
-	/* rhodep v2: The hidden STA vdev's self-peer (fw vdev+0xc) is
-	 * SUFFICIENT tx-context for WMI_MGMT_TX_SEND_CMDID (which is what
-	 * gen_mgmt_tx_send emits). fw's _wlan_send_mgmt_to_host on that
-	 * path uses the self-peer for tx and enqueues the raw 802.11 frame
-	 * verbatim -- it does NOT do addr1-based peer lookup.
+	/* rhodep: when the hidden STA vdev exists, create the temp peer for
+	 * the unicast target MAC there via RAW WMI (bypass ath10k_peer_create
+	 * wrapper which uses wait_for_peer_created -- PEER_MAP never fires
+	 * on the hidden STA vdev and it times out).
 	 *
-	 * PRIOR (WRONG) COMMENT said "unicast without per-DA peer = 100%
-	 * DISCARD"; that observation was confounded by other bugs (fw
-	 * already crashed, hidden vdev stale, etc). Loukious's qcacld-3.0
-	 * production port calls peer_create exactly ONCE (the self-peer at
-	 * setup) and sustains aireplay bursts fine.
+	 * WCN3990 fw's wal_tx path DISCARDS unicast mgmt frames when addr1
+	 * has no matching peer entry on the vdev (empirically verified in
+	 * prior sessions; see 0119 README item 6). Without a per-DA peer:
+	 * 100% DISCARD for unicast. Broadcast has a separate fw fallback.
 	 *
-	 * Calling peer_create per-DA at burst rate (aireplay 64 fps) fills
-	 * the fw's cmnos inter-thread message pool used to serialize
-	 * peer_create -> WAL thread. Pool exhaustion asserts
-	 * cmnos_thread.c:4005:A -> WLAN RT:0xf08d panic. Skip the whole
-	 * per-DA path; rely on the self-peer.
+	 * Naive per-frame peer_create at aireplay burst rate (64 fps
+	 * alternating between two addr1 values) fills the fw cmnos
+	 * inter-thread pool and asserts cmnos_thread.c:4005:A -> panic.
+	 * Solved with an 8-slot LRU peer cache: peers created on demand,
+	 * kept across frames, evicted round-robin.
 	 */
 	if (ar->rhodep_inject.created) {
+		int rc, i, slot;
+		bool cached;
+		u8 hidden_vdev_id;
+
+		da = ieee80211_get_DA(hdr);
+		if (is_multicast_ether_addr(da))
+			return -1; /* no peer needed for broadcast */
+
+		/* If fw crashed/restarted, our vdev+peer state is stale.
+		 * Invalidate so the mgmt-tx worker recreates the hidden
+		 * STA vdev on the next frame.
+		 */
 		if (ar->state != ATH10K_STATE_ON) {
 			ath10k_info(ar,
 				    "rhodep: fw not in state=ON (%d), invalidating hidden STA vdev\n",
@@ -4322,10 +4333,76 @@ static int ath10k_mon_inject_peer_add(struct ath10k *ar, struct sk_buff *skb,
 			spin_unlock_bh(&ar->rhodep_inject.lock);
 			return -1;
 		}
-		/* No peer needed. Return -2 = "peer exists (self-peer),
-		 * caller must NOT delete anything after tx".
+
+		hidden_vdev_id = ar->rhodep_inject.vdev_id;
+
+		/* Cache lookup + slot reservation under spinlock (fast,
+		 * non-sleeping). If DA already cached, done. Otherwise
+		 * reserve the next round-robin slot NOW so parallel
+		 * callers with the same DA coalesce to one peer_create.
+		 *
+		 * NOTE: we deliberately do NOT peer_delete the evicted
+		 * peer. Snapshot version doesn't either -- WCN3990 fw
+		 * asserts cmnos_thread.c:4005:A on rapid peer_delete+
+		 * peer_create on a peerless (never VDEV_UP'd) STA vdev.
+		 * Stale peers accumulate in fw table until the hidden
+		 * vdev is torn down (channel change / driver unload),
+		 * which fully drops all peers implicitly.
 		 */
-		return -1; /* skip both add & del paths for hidden STA */
+		spin_lock_bh(&ar->rhodep_inject.lock);
+		cached = false;
+		for (i = 0; i < ATH10K_RHODEP_PEER_CACHE; i++) {
+			if (ether_addr_equal(ar->rhodep_inject.peer_cache[i],
+					     da)) {
+				cached = true;
+				break;
+			}
+		}
+		if (cached) {
+			spin_unlock_bh(&ar->rhodep_inject.lock);
+			ether_addr_copy(peer_addr_out, da);
+			return -2; /* cache hit -- keep peer */
+		}
+		slot = ar->rhodep_inject.peer_cache_next;
+		ether_addr_copy(ar->rhodep_inject.peer_cache[slot], da);
+		ar->rhodep_inject.peer_cache_next =
+			(slot + 1) % ATH10K_RHODEP_PEER_CACHE;
+		spin_unlock_bh(&ar->rhodep_inject.lock);
+
+		mutex_lock(&ar->conf_mutex);
+		rc = ath10k_wmi_peer_create(ar, hidden_vdev_id, da,
+					    WMI_PEER_TYPE_DEFAULT);
+		mutex_unlock(&ar->conf_mutex);
+		if (rc && rc != -EEXIST) {
+			/* rollback: clear the cache slot we just claimed */
+			spin_lock_bh(&ar->rhodep_inject.lock);
+			for (i = 0; i < ATH10K_RHODEP_PEER_CACHE; i++)
+				if (ether_addr_equal(
+					    ar->rhodep_inject.peer_cache[i],
+					    da))
+					memset(ar->rhodep_inject.peer_cache[i],
+					       0, ETH_ALEN);
+			/* -ESHUTDOWN/-ECOMM means fw died and rebooted -- our
+			 * hidden STA vdev no longer exists. Invalidate so the
+			 * mgmt-tx worker recreates it next round.
+			 */
+			if (rc == -ESHUTDOWN || rc == -ECOMM) {
+				ath10k_info(ar,
+					    "rhodep: fw down (rc=%d), invalidating hidden vdev\n",
+					    rc);
+				ar->rhodep_inject.created = false;
+				memset(ar->rhodep_inject.peer_cache, 0,
+				       sizeof(ar->rhodep_inject.peer_cache));
+			}
+			spin_unlock_bh(&ar->rhodep_inject.lock);
+			ath10k_warn(ar,
+				    "rhodep raw peer_create %pM on hidden STA %u failed: %d\n",
+				    da, hidden_vdev_id, rc);
+			return -1;
+		}
+		msleep(30); /* let fw install the peer before we tx to it */
+		ether_addr_copy(peer_addr_out, da);
+		return -2; /* peer created, keep it (burst optimization) */
 	}
 
 	/* Legacy path (monitor vdev inject, pre-Loukious). Kept as fallback. */
@@ -4614,6 +4691,19 @@ void ath10k_mgmt_over_wmi_tx_work(struct work_struct *work)
 	int ret;
 	int tmp_peer_vdev;
 	u8 tmp_peer_addr[ETH_ALEN];
+
+	/* NOTE: NO top-of-work GC of mgmt_pending_tx here. Earlier versions
+	 * of this port called ath10k_rhodep_mgmt_tx_gc_one() opportunistically
+	 * at the top of every burst, but that races the real completions
+	 * arriving via WMI events: a slot that finished 200ms ago (and was
+	 * removed by the compl handler) might match the GC's 300ms staleness
+	 * window if the compl handler hasn't yet been serviced, and the GC
+	 * would then double-remove + double-refund a credit, corrupting the
+	 * WMI HTC ring -> fw assert cmnos_thread.c:4005. The GC is only
+	 * invoked as a last-resort retry inside wmi-tlv.c when idr_alloc
+	 * returns -ENOSPC (which only happens when the IDR is genuinely
+	 * full).
+	 */
 
 	for (;;) {
 		skb = skb_dequeue(&ar->wmi_mgmt_tx_queue);

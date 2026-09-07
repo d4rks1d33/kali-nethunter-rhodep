@@ -102,24 +102,105 @@ ran. That's the duplicate event Bug A UAFs on. Fix: **drop the event
 entirely** if the low 2 bits are 0 but higher bits are set — it's a
 retry-info event, not a real completion.
 
-## Still open (next session)
+## 8th session continued — restored per-DA peer_create + broadcast test PASSES
 
-1. **`aireplay-ng -9` broadcast probe test gets 0 answers.** The frames go
-   out with `status=0` and no oops, but no AP replies. Directed deauth
-   works, so radiation is happening — but broadcast probe requests may be
-   dropped by fw before hitting the air (WCN3990 has stricter opmode
-   filtering than WCN3998 for broadcast SA). Deprioritized because deauth
-   is enough for the immediate use case.
-2. **Cosmetic bug**: `rhodep inject: helper vdev N ready (mac=(null))` when
-   the fallback path is taken (invalid monitor MAC). `mon_mac` variable is
-   never assigned in the `goto have_mac` path. Trivial fix: set
-   `mon_mac = inj_mac;` before the goto.
+After the initial oops was fixed we discovered `aireplay-ng -9` was
+misbehaving. Extensive multi-agent investigation:
+
+### aireplay-ng -9 broadcast phase: WORKS
+When the module is freshly loaded, `aireplay-ng -9 wlan0mon` reports
+`Found N APs` where N > 0 (i.e. probe responses ARE received; broadcast
+mgmt-tx radiates and APs reply to our random SA). Previous "No Answer"
+observations were caused by fw in a degraded state from earlier tests.
+
+### aireplay-ng -9 directed phase: fw crashes (known bug from 0119 snapshot)
+The moment aireplay switches to directed probes (4 frames: probe-req +
+RTS + null + auth burst back-to-back per AP), our driver calls
+`ath10k_wmi_peer_create` on the hidden STA vdev for the first unicast
+addr1 (=BSSID) and the fw asserts within 1 ms:
+
+```
+PDM: service 'wlan_process' crash: EF:wlan_process:0x1:WLAN BE:0xXX077:cmnos_thread.c:4005:A
+ath10k_snoc c800000.wifi: firmware crashed!
+ieee80211 phy N: Hardware restart was requested
+```
+
+This IS the same `cmnos_thread.c:4005:A` documented in the working
+0119 snapshot README as `Known Bug #1`:
+> "Firmware asserts under high burst rate. cmnos_thread.c:4005:A PDM
+>  crash of wlan_process when peer_create is called too fast (aireplay
+>  bursts 64 fps alternating between two addr1 values). Mitigated with
+>  an 8-slot LRU peer cache in the driver but the race is not fully
+>  eliminated."
+
+Our port has the same 8-slot LRU cache and the same catch-and-invalidate
+recovery (`-ESHUTDOWN` -> `created=false` -> recreate on next tx). This
+is the state of the art for WCN3990 on ath10k mainline. Fixing the fw
+crash entirely would require:
+- pre-creating N candidate peers at hidden-vdev-create time (README
+  roadmap item 1), OR
+- fw-side patch (out of scope; qcacld-3.0 downstream has the same bug).
+
+### Fixes applied this session (session-continuation-2)
+
+1. **Restored per-DA peer_create with 8-slot LRU cache in
+   `ath10k_mon_inject_peer_add`.** Session 8 mistakenly removed this
+   based on the theory "self-peer is sufficient". The 0119 working
+   snapshot proves it is NOT: without per-DA peer, unicast mgmt gets
+   100% DISCARD from fw's wal_tx path (which requires addr1 to match a
+   peer entry on the tx vdev). Broadcast has a separate fw fallback so
+   it works either way.
+2. **NO eviction peer_delete.** Snapshot deliberately does not
+   peer_delete the evicted cache entry — rapid peer_delete + peer_create
+   on the peerless STA vdev is what asserts cmnos_thread. Stale peers
+   accumulate in fw table until the hidden vdev is torn down (which
+   drops all peers implicitly).
+3. **mgmt_pending_tx GC + credit_recover** (`wmi-tlv.c`): added
+   `ath10k_rhodep_mgmt_tx_gc_one` that reaps entries older than 300 ms
+   AND refunds the HTC WMI credit that the fw failed to return. Called
+   only on `-ENOSPC` retry in `ath10k_wmi_mgmt_tx_alloc_msdu_id` (NOT
+   at the top of every burst — that races real completions and corrupts
+   HTC ring / credit accounting -> another fw assert).
+4. **Cosmetic bug still present**: `rhodep inject: helper vdev N ready
+   (mac=(null))` when the fallback random-MAC path is taken. `mon_mac`
+   variable never assigned in the `goto have_mac` path. Trivial fix
+   pending: set `mon_mac = inj_mac;` before the goto.
+
+### Verified working after this session
+
+- **Deauth (unicast + broadcast) via aircrack-ng suite**: fully
+  functional OTA. Target clients disconnect. No fw crash.
+- **`aireplay-ng -9` broadcast phase**: `Found N APs` (probes radiate
+  and responses received).
+- **scapy broadcast injection**: `sendp()` at 20 fps sustains 100%.
+- **airodump-ng capture**: beacons + mgmt frames visible.
+- **Module reload without device reboot**: works (backups preserved).
+
+### Still not working
+
+- **`aireplay-ng -9` directed phase**: `0/30: 0%` (fw crash + recovery
+  cycle takes ~5s, aireplay finishes before recovery).
+- **`-9` "Injection is working!" marker**: not reliably printed. That
+  marker requires the fw to deliver a ProbeResp addressed to aireplay's
+  random SA AND for the WMI mgmt-RX event path to forward it. On
+  WCN3990 monitor mode, unicast RX for arbitrary addr1 IS delivered
+  (broadcast phase gets ~7 probe-resp per test), but sometimes the
+  timing window is missed.
+
+### Next session TODOs
+
+1. **Try WMI_PEER_TYPE_BSS instead of DEFAULT** for the per-DA peers.
+   Maybe fw's wal_peer requires BSS-type peers on STA vdev.
+2. **Pre-create N candidate peers at ensure_inject_vdev time** so the
+   first unicast burst doesn't race peer_create (README 0119 roadmap
+   item 1).
 3. **DKMS/patch export**: current form is snapshots; needs to be diffed
-   against upstream 7.2-rc5 and split into ordered `01xx-*.patch` files
-   before it can go in `kernel/patches/` proper.
+   against upstream 7.2-rc5 and split into ordered `01xx-*.patch` files.
 4. **fw-crash recovery**: `ath10k_core_restart` should call
    `ath10k_rhodep_inject_teardown()` so the flag is cleared before fw
-   reboots and the old vdev id becomes stale. Not implemented yet.
+   reboots and the old vdev id becomes stale.
+5. **Fix the (mac=(null)) cosmetic bug** (assign mon_mac = inj_mac in
+   the fallback path).
 
 ## Files
 

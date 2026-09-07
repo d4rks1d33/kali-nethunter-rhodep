@@ -1333,9 +1333,11 @@ struct ath10k {
 		u8 monitor_vdev_id; /* originating monitor vdev id */
 		u32 chanfreq;       /* frequency of the vdev_start */
 		u8 mac_addr[ETH_ALEN]; /* LAA MAC assigned to helper */
-		/* Peer cache is unused now (v2 removed per-DA peer_create)
-		 * but the struct fields are kept for backward compat with
-		 * possible future re-introduction.
+		/* LRU cache of per-DA temp peers created on the hidden
+		 * STA vdev. Required to survive aireplay bursts (64 fps
+		 * alternating addr1): naive per-frame peer_create asserts
+		 * cmnos_thread.c:4005:A in the fw's cmnos inter-thread
+		 * message pool. 8 slots absorb realistic patterns.
 		 */
 #define ATH10K_RHODEP_PEER_CACHE 8
 		u8 peer_cache[ATH10K_RHODEP_PEER_CACHE][ETH_ALEN];

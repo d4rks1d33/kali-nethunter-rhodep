@@ -1646,7 +1646,20 @@ struct wmi_tlv {
 struct ath10k_mgmt_tx_pkt_addr {
 	void *vaddr;
 	dma_addr_t paddr;
+	/* rhodep: timestamp used by mgmt_pending_tx GC when the fw fails
+	 * to send a completion event (WCN3990 does this on directed
+	 * probe bursts). Without GC, the IDR fills and every subsequent
+	 * mgmt-tx returns -108 (ESHUTDOWN) forever.
+	 */
+	unsigned long alloc_jiffies;
 };
+
+/* rhodep GC helpers exported for the mgmt_over_wmi_tx_work opportunistic
+ * sweep in mac.c. See wmi-tlv.c for the implementation and the WCN3990
+ * fw-drops-completion background.
+ */
+int ath10k_rhodep_mgmt_tx_gc_one(int id, void *ptr, void *data);
+void ath10k_rhodep_wmi_credit_recover(struct ath10k *ar);
 
 struct chan_info_params {
 	u32 err_code;

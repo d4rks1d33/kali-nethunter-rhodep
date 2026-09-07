@@ -311,9 +311,15 @@ class WifiBeaconSpam(NHModule):
                   "No monitor interface — tap Start Monitor first")
             return
 
-        # Pick backend: prefer mdk4, fall back to mdk3
-        backend = which("mdk4") or which("mdk3")
-        if not backend:
+        # Pick backend: prefer mdk4, fall back to mdk3.  executor.which()
+        # only returns a bool ("is on PATH?"), not the resolved path -- so
+        # we keep the tool name as the argv[0] and let the shell PATH in
+        # the helper resolve it at exec time.
+        if which("mdk4"):
+            backend = "mdk4"
+        elif which("mdk3"):
+            backend = "mdk3"
+        else:
             toast(self.app_window, "mdk4/mdk3 not found")
             return
 

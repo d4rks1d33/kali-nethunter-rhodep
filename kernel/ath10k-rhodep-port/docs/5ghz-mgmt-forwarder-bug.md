@@ -169,7 +169,55 @@ qcacld-3.0 source tree (public on Google's Codelinaro), a couple of
 days of RE, and would benefit every WCN3990 device using ath10k
 mainline.
 
+## Wider than "5 GHz airodump abg": also affects aireplay after ANY channel switch
+
+Update 2026-09-07: this bug also fires on 2.4 GHz-only workflows, not just
+5G↔2.4G. The trigger is any `iw set channel` (or airodump's hopping) that
+leaves the fw mid-retune when the userspace command tool starts consuming
+frames. Reproducer with the phone already connected as a client:
+
+```
+airmon-ng start wlan0
+airodump-ng wlan0mon      # hops channels 1..14, sees WiFi Mateo 2.4G ch 11
+                          # PWR -63dBm, 3+ beacons captured -- proof AP is nearby
+                          # then quit with Ctrl-C
+aireplay-ng --deauth 20 -a 8A:C2:27:A1:19:CC wlan0mon
+  15:12:09  Waiting for beacon frame (BSSID: 8A:C2:27:A1:19:CC) on channel 11
+  # <-- hangs forever. -D flag works around it.
+```
+
+Because airodump leaves wlan0mon on the last channel it hopped through
+(here e.g. ch 4 or ch 10), aireplay does its own `iw set channel 11` and
+IMMEDIATELY starts polling for beacons. Fw is still in the middle of the
+retune -- the mgmt-forwarder needs ~1-2 s to re-arm on the new channel.
+
+**Workaround**: separate the `iw set channel` from the aireplay start:
+```sh
+sudo iw dev wlan0mon set channel 11
+sleep 2                                    # <-- KEY: let fw settle
+sudo aireplay-ng --deauth 5 -a <BSSID> wlan0mon
+# no -D needed, "Waiting for beacon frame" resolves in <1 s, deauth flows.
+```
+
+Verified 2026-09-07 on device (v132 kernel, user's Motorola actively
+connected to `WiFi Mateo 2.4G` on ch 11):
+- Without `sleep 2`: hangs at "Waiting for beacon frame".
+- With `sleep 2`: 174 beacons captured in a 4 s tcpdump on ch 11
+  right after the sleep, aireplay finds the beacon instantly, deauth
+  frames go out immediately.
+
+`-D` continues to be the "just make it work" answer for users who don't
+want to think about it. Both approaches produce equivalent OTA effect.
+
 ## Workarounds for end users
+
+### Aireplay after any channel switch: settle first
+```sh
+sudo iw dev wlan0mon set channel <N>
+sleep 2
+sudo aireplay-ng --deauth <N> -a <BSSID> wlan0mon
+```
+Or use `-D` to skip the beacon-scan phase entirely.
 
 ### Airodump on a specific channel
 

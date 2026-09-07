@@ -4433,22 +4433,124 @@ static int ath10k_rhodep_ensure_inject_vdev(struct ath10k *ar,
 	if (ar->rhodep_inject.created) {
 		if (ar->rhodep_inject.chanfreq == chanfreq)
 			return 0;
-		ath10k_warn(ar, "rhodep inject: chan changed %u->%u, recreating\n",
-			    ar->rhodep_inject.chanfreq, chanfreq);
-		ath10k_wmi_peer_delete(ar, ar->rhodep_inject.vdev_id,
-				       ar->rhodep_inject.mac_addr);
-		ath10k_wait_for_peer_deleted(ar, ar->rhodep_inject.vdev_id,
-					     ar->rhodep_inject.mac_addr);
+
+		/* rhodep chan-change throttle. aireplay-ng WITHOUT -D hops
+		 * channels 1..13 in ~20s looking for the AP beacon; each hop
+		 * used to teardown+recreate the hidden AP vdev (10 blocking
+		 * WMIs, 500ms-8s), saturating the single WCN3990 HTC WMI
+		 * credit and tripping ath10k_core_start_recovery ->
+		 * CRASH_FLUSH -> -108 avalanche. Three layers of defense:
+		 *
+		 * (A) Fw-dead early bailout: if we've been failing recently,
+		 *     just keep the stale vdev. Frames may go out on wrong
+		 *     hidden-vdev channel briefly but nothing crashes; the
+		 *     mon vif's mac80211-side chanctx has already been
+		 *     updated to the new radio channel by the caller path.
+		 *
+		 * (B) Rate-limit: only restart at most once per second. Folds
+		 *     a 13-hop burst into at most 1-2 restarts.
+		 *
+		 * (C) In-place restart: vdev_down -> vdev_restart(new_chan)
+		 *     -> vdev_up. 3 WMIs instead of 10, no peer churn, no
+		 *     3s wait_for_peer_deleted timeout, no 5s vdev_setup_sync
+		 *     timeout on the two known-broken sync events.
+		 */
+#define ATH10K_RHODEP_CHAN_MIN_INTERVAL_MS 1000
+#define ATH10K_RHODEP_FAIL_QUIESCE_MS      5000
+#define ATH10K_RHODEP_MAX_CONSEC_FAIL      3
+
+		/* (A) */
+		if (ar->rhodep_inject.consec_fail >= ATH10K_RHODEP_MAX_CONSEC_FAIL &&
+		    time_before(jiffies,
+				ar->rhodep_inject.last_fail +
+				msecs_to_jiffies(ATH10K_RHODEP_FAIL_QUIESCE_MS))) {
+			ath10k_dbg(ar, ATH10K_DBG_MAC,
+				   "rhodep inject: chan %u->%u ignored (fw quiesce)\n",
+				   ar->rhodep_inject.chanfreq, chanfreq);
+			return 0;
+		}
+
+		/* (B) */
+		if (ar->rhodep_inject.last_chan_change &&
+		    time_before(jiffies,
+				ar->rhodep_inject.last_chan_change +
+				msecs_to_jiffies(ATH10K_RHODEP_CHAN_MIN_INTERVAL_MS))) {
+			ath10k_dbg(ar, ATH10K_DBG_MAC,
+				   "rhodep inject: chan %u->%u ignored (rate-limit)\n",
+				   ar->rhodep_inject.chanfreq, chanfreq);
+			return 0;
+		}
+
+		/* (C) in-place restart */
+		ath10k_warn(ar,
+			    "rhodep inject: chan %u->%u, restarting in place vdev=%u\n",
+			    ar->rhodep_inject.chanfreq, chanfreq,
+			    ar->rhodep_inject.vdev_id);
+
+		ret = ath10k_wmi_vdev_down(ar, ar->rhodep_inject.vdev_id);
+		if (ret == -ESHUTDOWN)
+			goto chan_change_failed;
+		/* other errors: fw may already be down for this vdev; press on */
+
 		reinit_completion(&ar->vdev_setup_done);
 		reinit_completion(&ar->vdev_delete_done);
-		ath10k_wmi_vdev_stop(ar, ar->rhodep_inject.vdev_id);
-		ath10k_vdev_setup_sync(ar);
-		ath10k_wmi_vdev_delete(ar, ar->rhodep_inject.vdev_id);
-		msleep(50);
-		ar->free_vdev_map |= 1LL << ar->rhodep_inject.vdev_id;
+
+		{
+			struct wmi_vdev_start_request_arg rarg = {};
+			static const u8 dummy_ssid_r[1] = { 0 };
+
+			rarg.vdev_id = ar->rhodep_inject.vdev_id;
+			rarg.channel.freq = chanfreq;
+			rarg.channel.band_center_freq1 = chanfreq;
+			rarg.channel.band_center_freq2 = 0;
+			rarg.channel.mode = (chanfreq < 4000) ? MODE_11G : MODE_11A;
+			rarg.channel.max_power = 40;
+			rarg.channel.max_reg_power = 40;
+			rarg.channel.max_antenna_gain = 0;
+			rarg.bcn_intval = 0;
+			rarg.dtim_period = 0;
+			rarg.ssid = (u8 *)dummy_ssid_r;
+			rarg.ssid_len = 0;
+			rarg.hidden_ssid = true;
+			rarg.disable_hw_ack = true;
+
+			ret = ath10k_wmi_vdev_restart(ar, &rarg);
+		}
+		if (ret) {
+			ath10k_warn(ar,
+				    "rhodep inject: vdev_restart failed: %d\n",
+				    ret);
+			goto chan_change_failed;
+		}
+
+		/* Best-effort; START_RESP is unreliable for hidden vdev */
+		(void)ath10k_vdev_setup_sync(ar);
+
+		ret = ath10k_wmi_vdev_up(ar, ar->rhodep_inject.vdev_id, 0,
+					 ar->rhodep_inject.mac_addr);
+		if (ret) {
+			ath10k_warn(ar,
+				    "rhodep inject: vdev_up after restart failed: %d\n",
+				    ret);
+			goto chan_change_failed;
+		}
+
 		spin_lock_bh(&ar->rhodep_inject.lock);
-		ar->rhodep_inject.created = false;
+		ar->rhodep_inject.chanfreq = chanfreq;
 		spin_unlock_bh(&ar->rhodep_inject.lock);
+		ar->rhodep_inject.last_chan_change = jiffies;
+		ar->rhodep_inject.consec_fail = 0;
+		return 0;
+
+chan_change_failed:
+		ar->rhodep_inject.last_fail = jiffies;
+		ar->rhodep_inject.consec_fail =
+			min_t(u8, ar->rhodep_inject.consec_fail + 1, 255);
+		/* Keep the stale vdev; fall through by returning success.
+		 * On -ESHUTDOWN the fw-restart path will invalidate ->created
+		 * via ath10k_rhodep_inject_invalidate.
+		 */
+		return 0;
 	}
 
 	vid = ath10k_rhodep_find_free_vdev(ar, mon_vdev_id);
@@ -4506,6 +4608,14 @@ have_mac:
 				     WMI_VDEV_SUBTYPE_NONE, inj_mac);
 	if (ret) {
 		ath10k_warn(ar, "rhodep inject: vdev_create failed: %d\n", ret);
+		if (ret == -ESHUTDOWN) {
+			/* fw is dead / CRASH_FLUSH set. Track for the
+			 * (A) fw-dead early bailout in the chan-change branch.
+			 */
+			ar->rhodep_inject.last_fail = jiffies;
+			ar->rhodep_inject.consec_fail =
+				min_t(u8, ar->rhodep_inject.consec_fail + 1, 255);
+		}
 		return ret;
 	}
 	ar->free_vdev_map &= ~(1LL << vid);
@@ -4583,6 +4693,8 @@ have_mac:
 	ether_addr_copy(ar->rhodep_inject.mac_addr, inj_mac);
 	ar->rhodep_inject.created = true;
 	spin_unlock_bh(&ar->rhodep_inject.lock);
+	ar->rhodep_inject.last_chan_change = jiffies;
+	ar->rhodep_inject.consec_fail = 0;
 	ath10k_warn(ar, "rhodep inject: helper vdev %d ready (mac=%pM)\n",
 		    vid, mon_mac);
 	return 0;
@@ -4724,7 +4836,10 @@ void ath10k_mgmt_over_wmi_tx_work(struct work_struct *work)
 				if (!freq && ar->tgt_oper_chan)
 					freq = ar->tgt_oper_chan->center_freq;
 
-				if (freq) {
+				if (freq &&
+				    ar->state == ATH10K_STATE_ON &&
+				    !test_bit(ATH10K_FLAG_CRASH_FLUSH,
+					      &ar->dev_flags)) {
 					/* ensure_inject_vdev sleeps (msleep +
 					 * blocking WMI). MUST NOT hold the
 					 * rhodep_inject.lock spinlock here.
@@ -4732,6 +4847,12 @@ void ath10k_mgmt_over_wmi_tx_work(struct work_struct *work)
 					 * teardown; publish of the created
 					 * flag inside ensure_inject_vdev uses
 					 * the spinlock itself.
+					 *
+					 * Also skip entirely when fw is dead or
+					 * being reset -- otherwise we pile WMI
+					 * commands onto a dying fw and hit the
+					 * -108 avalanche described in wmi-tlv.h
+					 * around ath10k_mgmt_tx_pkt_addr.
 					 */
 					mutex_lock(&ar->conf_mutex);
 					ath10k_rhodep_ensure_inject_vdev(ar,

@@ -190,6 +190,51 @@ directed (irrelevant — mgmt legs alone drive the test to 100%).
 - fw crash + auto-recovery: `ath10k_rhodep_inject_invalidate` clears
   state cleanly, hidden vdev recreated on next tx
 
+### Session 9 continuation: fixed channel-scan race in aireplay --deauth without -D
+
+User reported:
+```
+aireplay-ng --deauth 0 -a BSSID -c CLIENT wlan0mon
+  Waiting for beacon frame (BSSID: ...) on channel 2
+  read failed: Network is down
+  No such BSSID available.
+```
+
+Root cause: aireplay WITHOUT `-D` scans channels 1..13 looking for the
+AP beacon. Each `iw set channel` on wlan0mon caused our chan-change
+branch in `ath10k_rhodep_ensure_inject_vdev` to teardown+recreate the
+hidden AP vdev — 10 blocking WMI commands, 500ms-8s each. Over 13
+channels that saturates WCN3990's single HTC WMI credit, times out
+after 3s, triggers `ath10k_core_start_recovery`, sets `CRASH_FLUSH`,
+and every subsequent WMI cmd returns -108 (ESHUTDOWN) forever.
+
+Fix: three layers of defense in `ensure_inject_vdev` chan-change branch:
+- **(A) Fw-dead early bailout**: if consec_fail >= 3 in last 5s, skip
+  everything — keep the stale vdev. Frames may go out on the wrong
+  hidden-vdev channel briefly but nothing crashes.
+- **(B) Rate-limit**: only restart at most once per second. Folds
+  aireplay's 13-hop burst into at most 1-2 restarts.
+- **(C) In-place `vdev_restart`**: use vdev_down -> vdev_restart(new_chan)
+  -> vdev_up (3 WMIs, no peer churn) instead of the old delete+recreate
+  path (10 WMIs, includes the two known-broken sync events that eat
+  5s + 3s of conf_mutex each).
+
+Also added `ATH10K_STATE_ON && !CRASH_FLUSH` pre-check in
+`ath10k_mgmt_over_wmi_tx_work` before calling ensure_inject_vdev, so
+we don't even take conf_mutex when the fw is dying.
+
+Test evidence (2026-09-06):
+```
+=== TEST 3: deauth WITHOUT -D (user's bug case) ===
+21:43:15  Waiting for beacon frame (BSSID: 8A:C2:27:A1:19:CC) on channel 11
+21:43:15  Sending 64 directed DeAuth (code 7). STMAC: [96:2F:EF:12:F8:F6]
+21:43:16  Sending 64 directed DeAuth (code 7). STMAC: [96:2F:EF:12:F8:F6]
+21:43:17  Sending 64 directed DeAuth (code 7). STMAC: [96:2F:EF:12:F8:F6]
+
+fw crashes count: 0
+-108 count: 0
+```
+
 ### Still open (much smaller now)
 
 1. **Data unicast injection (aireplay -2/-3/-6/-7)**: dropped in the

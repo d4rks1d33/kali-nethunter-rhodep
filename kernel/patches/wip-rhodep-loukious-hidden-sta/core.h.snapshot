@@ -1333,15 +1333,23 @@ struct ath10k {
 		u8 monitor_vdev_id; /* originating monitor vdev id */
 		u32 chanfreq;       /* frequency of the vdev_start */
 		u8 mac_addr[ETH_ALEN]; /* LAA MAC assigned to helper */
-		/* LRU cache of per-DA temp peers created on the hidden
-		 * STA vdev. Required to survive aireplay bursts (64 fps
-		 * alternating addr1): naive per-frame peer_create asserts
-		 * cmnos_thread.c:4005:A in the fw's cmnos inter-thread
-		 * message pool. 8 slots absorb realistic patterns.
+		/* LRU cache of per-DA temp peers. Unused in the current AP
+		 * vdev design (self-peer is wildcard) but kept for backward
+		 * compat + potential future re-introduction with STA vdev.
 		 */
 #define ATH10K_RHODEP_PEER_CACHE 8
 		u8 peer_cache[ATH10K_RHODEP_PEER_CACHE][ETH_ALEN];
 		u8 peer_cache_next;
+		/* rhodep chan-change throttle + fw-dead detection. aireplay-ng
+		 * without -D hops 1..13 in ~20s. Without limiter each hop
+		 * would teardown+recreate the hidden AP vdev, saturating the
+		 * single WCN3990 HTC WMI credit and eventually tripping
+		 * ath10k_core_start_recovery -> CRASH_FLUSH -> -108 avalanche.
+		 * See wip-rhodep-loukious-hidden-sta/README.md for details.
+		 */
+		unsigned long last_chan_change; /* jiffies of last restart */
+		unsigned long last_fail;        /* jiffies of last -ESHUTDOWN */
+		u8 consec_fail;                 /* consecutive vdev-op fails */
 		/* SPINLOCK not mutex: gen_mgmt_tx_send is called from
 		 * ath10k_mgmt_over_wmi_tx_work via ath10k_wmi_cmd_send_nowait
 		 * which may hold spin_lock_bh(&ar->htc.tx_lock) or run in a

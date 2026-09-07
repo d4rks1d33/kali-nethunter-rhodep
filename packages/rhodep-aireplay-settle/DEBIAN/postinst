@@ -1,0 +1,35 @@
+#!/bin/sh
+# rhodep-aireplay-settle postinst
+#
+# root's PATH on Debian/Kali is /usr/sbin:/usr/bin:/sbin:/bin -- does NOT
+# include /usr/local/sbin. So we can't just drop a wrapper there and expect
+# `aireplay-ng` to hit it under sudo. Instead:
+#   1. Move /usr/sbin/aireplay-ng aside to /usr/sbin/aireplay-ng.real
+#   2. Symlink /usr/sbin/aireplay-ng -> /usr/local/sbin/aireplay-ng-settle
+# Everything that types `aireplay-ng` (sudo, systemd, wifite, custom scripts)
+# now hits the wrapper. `aireplay-ng.real` bypasses it for debugging.
+
+set -e
+
+REAL=/usr/sbin/aireplay-ng
+REAL_SAVED=/usr/sbin/aireplay-ng.real
+WRAPPER=/usr/local/sbin/aireplay-ng-settle
+
+chmod +x "$WRAPPER"
+
+# Save the real binary the first time (idempotent).
+if [ -e "$REAL" ] && [ ! -L "$REAL" ] && [ ! -e "$REAL_SAVED" ]; then
+    # /usr/sbin/aireplay-ng is a real file, not a symlink to us
+    if head -c 4 "$REAL" | grep -qE '^#!/'; then
+        echo "rhodep-aireplay-settle: $REAL is already a shell script; refusing to overwrite" >&2
+        exit 0
+    fi
+    mv "$REAL" "$REAL_SAVED"
+    echo "rhodep-aireplay-settle: saved $REAL -> $REAL_SAVED"
+fi
+
+# Symlink /usr/sbin/aireplay-ng -> wrapper
+ln -sf "$WRAPPER" "$REAL"
+echo "rhodep-aireplay-settle: $REAL -> $WRAPPER"
+
+exit 0

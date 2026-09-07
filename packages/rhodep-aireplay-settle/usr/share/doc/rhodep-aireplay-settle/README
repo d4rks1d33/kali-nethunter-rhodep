@@ -1,0 +1,41 @@
+rhodep-aireplay-settle
+======================
+
+Wrapper around /usr/sbin/aireplay-ng that pre-settles the WCN3990 monitor
+vdev before exec'ing the real binary. Works around a firmware bug where
+the mgmt-forwarder goes silent after any chanctx transition.
+
+See kernel/ath10k-rhodep-port/docs/5ghz-mgmt-forwarder-bug.md for the
+full analysis.
+
+Layout
+------
+    /usr/local/sbin/aireplay-ng-settle   the wrapper shell script
+    /usr/sbin/aireplay-ng                symlink -> the wrapper
+    /usr/sbin/aireplay-ng.real           the original aircrack-ng binary
+
+On any invocation:
+  1. wrapper parses -i, -c/--channel and positional iface arg
+  2. falls back to `iw dev wlan0mon info` to read current channel
+  3. iw set channel to an adjacent channel (forces fw chanctx transition)
+  4. sleep 1
+  5. iw set channel back to target
+  6. sleep 1
+  7. exec /usr/sbin/aireplay-ng.real with original argv
+Total overhead: ~2 seconds per invocation.
+
+Bypass
+------
+For debugging or one-off use of the real binary:
+    sudo /usr/sbin/aireplay-ng.real ...
+
+Uninstall
+---------
+    sudo dpkg -r rhodep-aireplay-settle
+The prerm removes the symlink and restores the original binary.
+
+Why not fix the driver
+----------------------
+Two attempts crashed the firmware at cmnos_thread.c:4005. WMI cmd needed
+(wmi_vdev_param_rx_filter_promisc) is UNSUPPORTED in mainline ath10k
+WMI-TLV table. Fw-level architectural limitation of WCN3990.

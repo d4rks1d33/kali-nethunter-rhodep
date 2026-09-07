@@ -1,0 +1,71 @@
+#!/bin/sh
+# rhodep-aireplay-settle wrapper.
+#
+# WCN3990 fw's monitor mgmt-forwarder occasionally goes silent after a chanctx
+# transition (airodump start, iw set channel, mac80211-driven retune). Every
+# PF_PACKET listener on wlan0mon then sees zero beacons until the next
+# transition re-primes the fw's admission slot. aireplay-ng --deauth calls
+# wait_for_beacon (10-s hardcoded timeout) as its first step and hangs at
+# 'Waiting for beacon frame' with no way to know it's fw-side.
+#
+# Workaround (empirically verified on device): force one more channel-set
+# right before aireplay's socket opens, then sleep so the fw settles.
+# Exec'ing the real aireplay-ng at the end guarantees its PF_PACKET socket
+# opens AFTER the settle, catching the re-armed frames.
+#
+# See ath10k-rhodep-port/docs/5ghz-mgmt-forwarder-bug.md for the full RE.
+
+set -e
+
+REAL=/usr/sbin/aireplay-ng.real
+if [ ! -x "$REAL" ]; then
+    echo "rhodep-aireplay-settle: /usr/sbin/aireplay-ng.real missing; falling through" >&2
+    exec /usr/sbin/aireplay-ng "$@"
+fi
+
+IFACE=""
+CH=""
+prev=""
+
+for a in "$@"; do
+    case "$prev" in
+        -c|--channel) CH="$a" ;;
+        -i)           IFACE="$a" ;;
+    esac
+    case "$a" in
+        wlan*mon|mon[0-9]|wlan[0-9]) IFACE="$a" ;;
+    esac
+    prev="$a"
+done
+
+# fall back to wlan0mon if not named and it exists
+if [ -z "$IFACE" ] && [ -e /sys/class/net/wlan0mon ]; then
+    IFACE=wlan0mon
+fi
+
+# If we don't know the iface or iw is missing, exec straight
+if [ -z "$IFACE" ] || ! command -v iw >/dev/null 2>&1; then
+    exec "$REAL" "$@"
+fi
+
+# Pull channel from iw if not given
+if [ -z "$CH" ]; then
+    CH=$(iw dev "$IFACE" info 2>/dev/null \
+         | awk '/^\tchannel/ {print $2; exit}')
+fi
+
+if [ -z "$CH" ]; then
+    exec "$REAL" "$@"
+fi
+
+# Force fw chanctx transition by briefly setting adjacent channel and back.
+# mac80211 short-circuits same-channel sets, so a direct re-set is a no-op.
+ADJ=$((CH + 1))
+[ "$ADJ" = "15" ]  && ADJ=1
+[ "$ADJ" = "170" ] && ADJ=165
+iw dev "$IFACE" set channel "$ADJ" 2>/dev/null || true
+sleep 1
+iw dev "$IFACE" set channel "$CH"  2>/dev/null || true
+sleep 1
+
+exec "$REAL" "$@"

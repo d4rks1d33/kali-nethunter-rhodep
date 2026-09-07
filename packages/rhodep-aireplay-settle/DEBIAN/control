@@ -1,0 +1,30 @@
+Package: rhodep-aireplay-settle
+Version: 2
+Architecture: arm64
+Maintainer: rhodep port
+Priority: optional
+Section: net
+Depends: aircrack-ng, iw
+Description: Wrap aireplay-ng with an iw set-channel + settle before exec
+ WCN3990 firmware serializes monitor RX frames through a single mgmt-forwarder
+ upcall that occasionally goes quiet after a chanctx transition (e.g. after
+ airodump-ng started, after any iw set channel). External adapters like the
+ TP-Link RTL8812AU do NOT have this bug because they push raw RX at hardware
+ level to every PF_PACKET listener independently. There is no ath10k mainline
+ WMI command to re-arm the fw forwarder; two attempts to patch this driver-
+ side both crashed the firmware at cmnos_thread.c:4005 (see kernel/ath10k-
+ rhodep-port/docs/5ghz-mgmt-forwarder-bug.md).
+ .
+ This package installs /usr/local/sbin/aireplay-ng as a wrapper that:
+   1. Parses the target BSSID / channel from argv (or the fixed channel of
+      wlan0mon if -c/--channel is absent).
+   2. Runs `iw dev <iface> set channel <N>` explicitly to force the fw to
+      re-run its chanctx transition.
+   3. Sleeps 2 s so the fw mgmt-forwarder settles before aireplay-ng's
+      wait_for_beacon loop starts.
+   4. exec's the real /usr/bin/aireplay-ng with the original argv.
+ .
+ Once installed and with /usr/local/sbin in PATH ahead of /usr/bin (which
+ systemd, sudo and Kali's default PATH already do), the natural
+ airodump-ng + aireplay-ng two-window workflow works on the internal
+ WCN3990 radio the same way it does on TP-Link adapters.

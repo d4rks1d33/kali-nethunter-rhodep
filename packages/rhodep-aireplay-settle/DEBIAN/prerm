@@ -1,0 +1,24 @@
+#!/bin/sh
+# Restore /usr/sbin/aireplay-ng from the .real backup.
+set -e
+
+REAL=/usr/sbin/aireplay-ng
+REAL_SAVED=/usr/sbin/aireplay-ng.real
+
+# Remove our symlink first
+if [ -L "$REAL" ]; then
+    rm -f "$REAL"
+fi
+
+# Restore the real binary
+if [ -e "$REAL_SAVED" ]; then
+    if [ ! -e "$REAL" ]; then
+        mv "$REAL_SAVED" "$REAL"
+        echo "rhodep-aireplay-settle: restored real aireplay-ng"
+    else
+        # A different aireplay-ng was installed on top of ours (unlikely)
+        rm -f "$REAL_SAVED"
+    fi
+fi
+
+exit 0

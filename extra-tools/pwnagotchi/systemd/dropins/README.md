@@ -2,10 +2,10 @@
 
 The pwnagotchi units ship configured for the **external** TP-Link radio
 (`wlan1mon`, `rtw_8821au`/`RTL8811AU`). To switch to the **internal** WCN3990
-radio (`wlan0`/`wlan0mon`) — where wlan0 STA is dropped and wlan0mon does channel-
-hopping capture, and deauth/associate are routed through
-`rhodep-inject-lab` — install the `20-radio-internal.conf` drop-in to BOTH the
-bettercap and pwngrid units:
+radio (`wlan0`/`wlan0mon`) — where wlan0 STA is dropped and `wlan0mon` does
+capture + channel-hopping + injection the vanilla evilsocket/pwnagotchi way
+— install the `20-radio-internal.conf` drop-in to BOTH the bettercap and
+pwngrid units:
 
 ```sh
 sudo install -Dm0644 20-radio-internal.conf \
@@ -19,9 +19,6 @@ Also edit `/etc/pwnagotchi/config.toml`:
 
 ```toml
 main.iface = "wlan0mon"
-
-[main.plugins.rhodep_internal_inject]
-enabled = true
 ```
 
 Then start pwnagotchi as usual (same unit name — the NetHunter Pro toggle
@@ -31,8 +28,15 @@ works unchanged):
 sudo systemctl start rhodep-pwnagotchi.service
 ```
 
-To go back to the external adapter: remove both drop-ins, revert `main.iface`
-to `wlan1mon`, and disable the plugin. `systemctl daemon-reload` after.
+To go back to the external adapter: remove both drop-ins and revert
+`main.iface` to `wlan1mon`. `systemctl daemon-reload` after.
 
 Automating this from the NetHunter Pro app is the same pattern already used
 for the manual/auto mode drop-in (`10-mode.conf`).
+
+Historical note: earlier revisions of this port shipped a
+`rhodep_internal_inject.py` pwnagotchi plugin that monkey-patched
+`agent.deauth`/`agent.associate` to bypass a WCN3990 firmware limitation on
+raw radiotap TX from a monitor vdev. The rhodep ath10k patches fixed that
+upstream of pwnagotchi, so the plugin file is removed by `install.sh` on
+upgrade.

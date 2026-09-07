@@ -79,8 +79,9 @@ class Pwnagotchi(NHModule):
             "Internal (wlan0/wlan0mon) — drops WiFi, no adapter needed",
         ]))
         self.radio.set_subtitle(
-            "Internal uses the phone's own radio (wlan0mon + STA-offchannel deauth); "
-            "wlan0 STA is dropped for the run and restored on stop.")
+            "Internal uses the phone's own radio (wlan0mon, native mgmt-tx via "
+            "the rhodep ath10k patches). wlan0 STA is dropped for the run and "
+            "restored on stop.")
         self.radio.connect("notify::selected", self._on_radio)
         g.add(self.radio)
         box.append(g)
@@ -426,19 +427,23 @@ print("OK deleted %d uploaded and %d unusable, freed %d KB" % (up, bad, freed //
             toast(self.app_window, "Restart pwnagotchi to apply the radio change")
 
     def _set_radio_in_unit(self) -> None:
-        # Radio = external (wlan1) or internal (wlan0/wlan0mon). Same drop-in pattern
-        # as the mode switch, but written to the bettercap AND pwngrid units and
-        # driving the RHODEP_PWN_RADIO env var. Also flips config.toml's iface +
-        # mon_*_cmd + the rhodep_internal_inject plugin toggle so pwnagotchi and
-        # the launchers all agree. See extra-tools/pwnagotchi/README.md
-        # "Internal-radio (wlan0/wlan0mon) mode" for the moving parts.
+        # Radio = external (wlan1) or internal (wlan0/wlan0mon). Same drop-in
+        # pattern as the mode switch, but written to the bettercap AND pwngrid
+        # units and driving the RHODEP_PWN_RADIO env var, plus a config.toml
+        # rewrite so pwnagotchi's main.iface / mon_*_cmd agree with whichever
+        # launcher the drop-in selects. Both radios use the vanilla evilsocket
+        # deauth/assoc path since the rhodep ath10k patches -- no plugin
+        # toggling needed here. If a previous install left a stale
+        # rhodep_internal_inject section around, strip it out so it cannot
+        # keep monkey-patching agent.deauth() next time pwnagotchi is
+        # started. See extra-tools/pwnagotchi/README.md for the moving parts.
         internal = (self.radio.get_selected() == 1)
         radio_units = ("rhodep-pwn-bettercap.service",
                        "rhodep-pwngrid-peer.service")
         if internal:
-            # Install/refresh the drop-in on BOTH units, and rewrite the four
-            # config.toml keys via a tiny python one-liner that preserves the
-            # rest of the file.
+            iface_val   = '"wlan0mon"'
+            mon_start   = '"/usr/local/sbin/rhodep-pwn-monstart-dispatch"'
+            mon_stop    = '"/usr/local/sbin/rhodep-pwn-monstop-dispatch"'
             dropin = ("[Service]\n"
                       "Environment=RHODEP_PWN_RADIO=internal\n")
             drop_cmd = " && ".join(
@@ -447,7 +452,21 @@ print("OK deleted %d uploaded and %d unusable, freed %d KB" % (up, bad, freed //
                 % (u, GLib.shell_quote(dropin), u)
                 for u in radio_units
             )
-            cfg_cmd = r'''python3 - <<'PY'
+        else:
+            iface_val   = '"wlan1mon"'
+            mon_start   = '"/usr/local/sbin/rhodep-pwn-monstart"'
+            mon_stop    = '"/usr/local/sbin/rhodep-pwn-monstop"'
+            drop_cmd = " ; ".join(
+                "rm -f /etc/systemd/system/%s.d/20-radio.conf ; "
+                "rmdir /etc/systemd/system/%s.d 2>/dev/null || true"
+                % (u, u) for u in radio_units
+            )
+        # NOTE: this python-inside-python script has literal `%s`/`%r` markers
+        # used by the *inner* interpreter for format(); doubled here as `%%s`
+        # so the *outer* % on the enclosing string only substitutes the
+        # explicit three placeholders (iface / mon_start_cmd / mon_stop_cmd).
+        # Also `<<'PY'` (quoted) so the shell does not expand $ / backticks.
+        cfg_cmd = r'''python3 - <<'PY'
 import re, os, tempfile
 p = "/etc/pwnagotchi/config.toml"
 try:
@@ -456,73 +475,31 @@ except FileNotFoundError:
     txt = "[main]\n"
 def replace_or_add(key, val, block="main"):
     global txt
-    # match `key = "..."` under the [block] section (or anywhere at top-level)
     pat = re.compile(r'^\s*' + re.escape(key) + r'\s*=.*$', re.M)
-    line = "%s = %s" % (key, val)
+    line = "%%s = %%s" %% (key, val)
     if pat.search(txt):
         txt = pat.sub(line, txt, count=1)
     else:
-        # insert under [block] header if present, else append
-        if ("[%s]" % block) in txt:
-            txt = txt.replace("[%s]\n" % block, "[%s]\n%s\n" % (block, line), 1)
+        if ("[%%s]" %% block) in txt:
+            txt = txt.replace("[%%s]\n" %% block, "[%%s]\n%%s\n" %% (block, line), 1)
         else:
-            txt += "\n[%s]\n%s\n" % (block, line)
-replace_or_add("iface", '"wlan0mon"')
-replace_or_add("mon_start_cmd", '"/usr/local/sbin/rhodep-pwn-monstart-dispatch"')
-replace_or_add("mon_stop_cmd",  '"/usr/local/sbin/rhodep-pwn-monstop-dispatch"')
-# enable the plugin section
-if "[main.plugins.rhodep_internal_inject]" not in txt:
-    txt += ("\n[main.plugins.rhodep_internal_inject]\n"
-            "enabled = true\n"
-            "inject_lab = \"/usr/local/sbin/rhodep-inject-lab\"\n")
-else:
-    txt = re.sub(
-        r'(\[main\.plugins\.rhodep_internal_inject\][^\[]*?)enabled\s*=\s*\w+',
-        r'\1enabled = true',
-        txt, count=1, flags=re.S)
+            txt += "\n[%%s]\n%%s\n" %% (block, line)
+replace_or_add("iface", %r)
+replace_or_add("mon_start_cmd", %r)
+replace_or_add("mon_stop_cmd",  %r)
+# Strip the obsolete rhodep_internal_inject plugin section if a previous
+# install left it behind. The section runs from its header to (but not
+# including) the next [...] table header, or the end of file.
+txt = re.sub(
+    r'\n?\[main\.plugins\.rhodep_internal_inject\][^\[]*',
+    '',
+    txt, flags=re.S)
 fd, tmp = tempfile.mkstemp(dir=os.path.dirname(p))
 with os.fdopen(fd, "w") as f: f.write(txt)
 os.replace(tmp, p)
-PY'''
-            script = drop_cmd + " && " + cfg_cmd + " && systemctl daemon-reload"
-        else:
-            # External (shipped default): remove the drop-ins and revert
-            # config.toml to wlan1mon + external monstart/monstop, disable the
-            # internal-inject plugin.
-            drop_cmd = " && ".join(
-                "rm -f /etc/systemd/system/%s.d/20-radio.conf ; "
-                "rmdir /etc/systemd/system/%s.d 2>/dev/null || true"
-                % (u, u) for u in radio_units
-            )
-            cfg_cmd = r'''python3 - <<'PY'
-import re, os, tempfile
-p = "/etc/pwnagotchi/config.toml"
-try:
-    txt = open(p).read()
-except FileNotFoundError:
-    txt = "[main]\n"
-def replace_or_add(key, val):
-    global txt
-    pat = re.compile(r'^\s*' + re.escape(key) + r'\s*=.*$', re.M)
-    line = "%s = %s" % (key, val)
-    if pat.search(txt):
-        txt = pat.sub(line, txt, count=1)
-    else:
-        txt += "\n" + line + "\n"
-replace_or_add("iface", '"wlan1mon"')
-replace_or_add("mon_start_cmd", '"/usr/local/sbin/rhodep-pwn-monstart"')
-replace_or_add("mon_stop_cmd",  '"/usr/local/sbin/rhodep-pwn-monstop"')
-# disable the plugin
-if "[main.plugins.rhodep_internal_inject]" in txt:
-    txt = re.sub(
-        r'(\[main\.plugins\.rhodep_internal_inject\][^\[]*?)enabled\s*=\s*\w+',
-        r'\1enabled = false',
-        txt, count=1, flags=re.S)
-fd, tmp = tempfile.mkstemp(dir=os.path.dirname(p))
-with os.fdopen(fd, "w") as f: f.write(txt)
-os.replace(tmp, p)
-PY'''
-            script = drop_cmd + " ; " + cfg_cmd + " && systemctl daemon-reload"
+PY''' % (iface_val, mon_start, mon_stop)
+        joiner = " && " if internal else " ; "
+        script = drop_cmd + joiner + cfg_cmd + " && systemctl daemon-reload"
         run_async(["sh", "-c", script], lambda _r: None, root=True, timeout=30)
 
     # -------------------------------------------------------------- config

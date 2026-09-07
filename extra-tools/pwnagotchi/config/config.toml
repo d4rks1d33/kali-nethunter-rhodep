@@ -37,15 +37,14 @@ main.mon_start_cmd = "/usr/local/sbin/rhodep-pwn-monstart-dispatch"
 main.mon_stop_cmd  = "/usr/local/sbin/rhodep-pwn-monstop-dispatch"
 main.no_restart = false
 
-# Custom plugin dir + the internal-radio deauth interceptor (rhodep_internal_inject).
-# The plugin is DISABLED by default here; the internal-radio drop-in flips it on
-# by adding a [main.plugins.rhodep_internal_inject] enabled=true snippet, so
-# external-mode runs are unaffected.
+# Custom plugin dir kept around so the user can drop their own plugins in
+# without editing this file. The port used to ship a `rhodep_internal_inject`
+# plugin that rerouted agent.deauth/agent.associate through a userland
+# injector to dodge a firmware bug in raw radiotap TX on the WCN3990 monitor
+# vdev. The rhodep kernel work has since made that bug moot, so pwnagotchi
+# runs the vanilla evilsocket path on both radios and nothing custom is
+# needed. install.sh removes the stale plugin file on upgrade.
 main.custom_plugins = "/etc/pwnagotchi/custom-plugins"
-
-[main.plugins.rhodep_internal_inject]
-enabled = false
-inject_lab = "/usr/local/sbin/rhodep-inject-lab"
 
 # This is a phone, not a Pi with a Waveshare e-ink hat. No display; use the web
 # UI instead (http://<phone>:8080, or over usb0 at 172.16.42.1:8080).

@@ -87,12 +87,14 @@ for s in rhodep-pwn-monstart rhodep-pwn-monstop \
 	install -m 0755 "$here/bin/$s" "/usr/local/sbin/$s"
 done
 
-# Custom plugin: intercepts agent.deauth/.associate when we're on the internal
-# radio, so bettercap never sends raw radiotap TX to a WCN3990 monitor vdev
-# (that path crashes the firmware). Ships enabled by default in the internal
-# radio drop-in; harmless (no-op unless the operator flips personality.deauth).
-install -m 0644 "$here/plugins/rhodep_internal_inject.py" \
-	/etc/pwnagotchi/custom-plugins/rhodep_internal_inject.py
+# Historical: the port used to ship a rhodep_internal_inject plugin that
+# monkey-patched agent.deauth/agent.associate to reroute injection through a
+# userland tool because raw radiotap TX from a WCN3990 monitor vdev crashed
+# the firmware. The rhodep kernel work fixed that upstream of pwnagotchi, so
+# the plugin is obsolete and both radios now use the vanilla evilsocket
+# code path. We actively remove the file on upgrade so a stale copy left
+# behind by an older install cannot silently keep hooking agent.deauth().
+rm -f /etc/pwnagotchi/custom-plugins/rhodep_internal_inject.py
 
 # config.toml is the user override merged over default.toml. main.name is pinned
 # to the current hostname on purpose: pwnagotchi reboots the machine if it does

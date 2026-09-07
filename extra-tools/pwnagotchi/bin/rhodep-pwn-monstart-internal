@@ -18,17 +18,14 @@
 # 2. Once wlan0mon is created monitors-only, ath10k adds a real WMI_VDEV_TYPE_MONITOR
 #    vdev (ath10k sets WANT_MONITOR_VIF), and bettercap's SetInterfaceChannel
 #    (nl80211 direct, ~250 ms/hop) drives normal vdev_restart cycles that WCN3990
-#    handles fine (same primitive as CSA). No monitor-vdev TX is used -- that
-#    would crash the firmware; deauth/assoc are redirected to the STA-offchannel
-#    injector by the pwnagotchi plugin, but that runs from wlan0 -- so wlan0 has
-#    to be *recreated as a managed STA* short-term for each injection burst. To
-#    keep things simple we instead route deauth from a plugin that shells out to
-#    rhodep-inject-lab which, when wlan0 is deleted, will re-add it internally
-#    for its own TX and remove it after. That's the plugin's problem, not this
-#    script's.
-# 3. Pre-check that patches 0117 + 0118 are actually live in the running kernel
-#    (mon_mgmt param + AUTH_AND_DEAUTH_RANDOM_TA ext-feature). If either is
-#    missing this whole setup is silent-but-broken, so bail loudly.
+#    handles fine (same primitive as CSA). The rhodep kernel work now also
+#    supports mgmt-tx from the monitor vdev, so pwnagotchi/bettercap send
+#    deauth/assoc frames the vanilla way -- no monkey-patched agent, no
+#    userland injector, no rhodep_internal_inject plugin. Both radios run
+#    the same evilsocket code path.
+# 3. Pre-check that the running kernel exposes /sys/module/ath10k_core/
+#    parameters/mon_mgmt (delivery of WMI mgmt-rx to the monitor). Without it
+#    the capture path is silent-but-broken, so bail loudly.
 #
 # Env:
 #   PWN_COUNTRY   regulatory domain, default 00
@@ -38,7 +35,6 @@
 set -e
 
 STA_IFACE=wlan0
-PHY=phy0
 MON_IFACE=${PWN_MON_IFACE:-wlan0mon}
 COUNTRY=${PWN_COUNTRY:-00}
 STATE_DIR=/run/rhodep-pwn-internal
@@ -46,23 +42,33 @@ STATE_FILE=$STATE_DIR/state
 
 log() { echo "rhodep-pwn-monstart-internal: $*"; }
 
-# --- preflight: the two kernel bits we NEED ---------------------------------
+# Discover which phy hosts wlan0. ath10k_snoc renames the phy every time the
+# module is (re)loaded -- after a firmware crash + modprobe cycle it can be
+# phy1, phy33, phy36, etc. Assuming phy0 fails immediately on a chip that has
+# ever crashed, so look up the real phy via sysfs. Fall back to whatever the
+# monitor iface (if pre-existing) reports, then to phy0 as a last resort.
+PHY=$(basename "$(readlink -f "/sys/class/net/$STA_IFACE/phy80211" 2>/dev/null)" 2>/dev/null)
+if [ -z "$PHY" ] || [ "$PHY" = "." ]; then
+	PHY=$(basename "$(readlink -f "/sys/class/net/$MON_IFACE/phy80211" 2>/dev/null)" 2>/dev/null)
+fi
+if [ -z "$PHY" ] || [ "$PHY" = "." ]; then
+	# Neither iface exists yet -- pick the first ath10k phy from `iw dev`.
+	PHY=$(iw phy 2>/dev/null | awk '/^Wiphy phy/ { print $2; exit }')
+fi
+[ -z "$PHY" ] && PHY=phy0
+log "using $PHY for $STA_IFACE / $MON_IFACE"
+
+# --- preflight: capture only works if the running kernel delivers WMI mgmt-rx
+# frames to the monitor vdev (rhodep ath10k patch). Force mon_mgmt=1 -- it is
+# the default in the rhodep tree, but a distro kernel without that knob at all
+# means we would be capturing nothing.
 if [ ! -w /sys/module/ath10k_core/parameters/mon_mgmt ]; then
 	log "FATAL: /sys/module/ath10k_core/parameters/mon_mgmt not found"
-	log "  the running kernel appears to lack patch 0117 (mgmt-rx delivery to monitor)"
-	log "  install a kernel built with the rhodep patches and try again"
+	log "  the running kernel does not have the rhodep ath10k mgmt-rx delivery"
+	log "  patch; install a kernel built with the rhodep patches and try again"
 	exit 2
 fi
-# force mon_mgmt=1 (default) — capture won't work otherwise
 echo 1 > /sys/module/ath10k_core/parameters/mon_mgmt 2>/dev/null || true
-
-# patch 0118 gives us random-TA on auth/deauth via mgmt-tx (needed by the plugin
-# to send spoofed deauths). Test by inspecting iw phy0 info for the ext-feature.
-if ! iw phy $PHY info 2>/dev/null | grep -q "AUTH_AND_DEAUTH_RANDOM_TA"; then
-	log "WARNING: phy0 does not advertise AUTH_AND_DEAUTH_RANDOM_TA (patch 0118)"
-	log "  deauth injection will not spoof the AP's MAC; clients will ignore our frames"
-	log "  proceeding anyway (capture still works)"
-fi
 
 # --- fast path: already set up ---------------------------------------------
 if iw dev "$MON_IFACE" info 2>/dev/null | grep -q "type monitor"; then

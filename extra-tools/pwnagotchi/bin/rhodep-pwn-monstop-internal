@@ -12,11 +12,22 @@
 set -e
 
 STA_IFACE=wlan0
-PHY=phy0
 MON_IFACE=${PWN_MON_IFACE:-wlan0mon}
 STATE_FILE=/run/rhodep-pwn-internal/state
 
 log() { echo "rhodep-pwn-monstop-internal: $*"; }
+
+# Discover the phy that hosts wlan0mon (or wlan0 if the run already ended).
+# See the mirror of this block in rhodep-pwn-monstart-internal for why phy0
+# is not safe to hardcode after a firmware-crash-triggered modprobe cycle.
+PHY=$(basename "$(readlink -f "/sys/class/net/$MON_IFACE/phy80211" 2>/dev/null)" 2>/dev/null)
+if [ -z "$PHY" ] || [ "$PHY" = "." ]; then
+	PHY=$(basename "$(readlink -f "/sys/class/net/$STA_IFACE/phy80211" 2>/dev/null)" 2>/dev/null)
+fi
+if [ -z "$PHY" ] || [ "$PHY" = "." ]; then
+	PHY=$(iw phy 2>/dev/null | awk '/^Wiphy phy/ { print $2; exit }')
+fi
+[ -z "$PHY" ] && PHY=phy0
 
 # --- 1) remove wlan0mon ---------------------------------------------------------
 if iw dev "$MON_IFACE" info >/dev/null 2>&1; then

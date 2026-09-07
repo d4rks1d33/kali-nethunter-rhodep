@@ -175,28 +175,20 @@ NetHunter Pro toggle off) restores wlan0 and NetworkManager reassociates.
 
 **What the internal mode can and can't do vs the external one:**
 
-|                        | external (wlan1) | internal (wlan0/wlan0mon)                    |
-| ---                    | ---              | ---                                      |
-| Passive capture        | full             | full (patch 0117, `mon_mgmt=1`)          |
-| Channel hopping        | full             | full (wlan0mon monitors-only, real retune)   |
-| Deauth injection       | bettercap raw    | STA offchannel via `rhodep-inject-lab`   |
-| Assoc injection        | bettercap raw    | limited (see below)                      |
-| WiFi stays up          | yes              | **no** (wlan0 deleted while running)     |
-| Adapter required       | TP-Link          | none                                     |
+|                        | external (wlan1) | internal (wlan0/wlan0mon)              |
+| ---                    | ---              | ---                                    |
+| Passive capture        | full             | full                                   |
+| Channel hopping        | full             | full (monitors-only, real retune)      |
+| Deauth injection       | bettercap raw    | bettercap raw (rhodep ath10k patches)  |
+| Assoc injection        | bettercap raw    | bettercap raw (rhodep ath10k patches)  |
+| WiFi stays up          | yes              | **no** (wlan0 deleted while running)   |
+| Adapter required       | TP-Link          | none                                   |
 
-Deauth on the internal radio goes through the STA offchannel mgmt-tx path
-(`nl80211-mgmt-tx.py` + `rhodep-inject-lab`) instead of bettercap's raw
-radiotap injection — because raw TX on a monitor vdev **crashes the WCN3990
-firmware**. A pwnagotchi plugin (`rhodep_internal_inject.py`) monkey-patches
-`agent.deauth`/`agent.associate` before those bettercap commands are ever sent,
-so bettercap only ever does capture + channel hopping. Verified: deauth with
-spoofed addr2 works on-air, target clients disconnect. Assoc injection is
-implemented as a targeted probe-request (cfg80211 doesn't allow arbitrary
-addr2 spoofing on assoc frames, so full-fidelity assoc emulation isn't
-possible without more work).
-
-Rate is lower than bettercap's raw ~128-frame bursts (offchannel serializes on
-tx-completion, ~ms per frame) — enough to knock a client, but slower.
+Both radios run the vanilla evilsocket/pwnagotchi agent path. There is no
+wrapper plugin, no userland injector, and no monkey-patching of
+`agent.deauth`/`agent.associate` -- the rhodep ath10k patches make raw
+radiotap TX from the monitor vdev work natively on the WCN3990, so
+`bettercap` handles both capture and injection the way upstream expects.
 
 ### How to enable
 
@@ -211,11 +203,10 @@ sudo systemctl daemon-reload
 sudoedit /etc/pwnagotchi/config.toml    # under [main]: iface = "wlan0mon"
                                         # and: mon_start_cmd = "/usr/local/sbin/rhodep-pwn-monstart-dispatch"
                                         # and: mon_stop_cmd = "/usr/local/sbin/rhodep-pwn-monstop-dispatch"
-                                        # under [main.plugins.rhodep_internal_inject]: enabled = true
 sudo systemctl start rhodep-pwnagotchi.service
 ```
 
-**Go back to external:** remove both `20-radio.conf` drop-ins, revert the four
+**Go back to external:** remove both `20-radio.conf` drop-ins, revert the three
 config keys, `daemon-reload`, re-`start`.
 
 The NetHunter Pro app writes/removes these drop-ins for you (same pattern it
@@ -223,20 +214,17 @@ already uses for the manual/auto mode `10-mode.conf`).
 
 ### Requirements
 
-- Kernel patches **0117 + 0118** in the running kernel (top-level README item
-  13). `rhodep-pwn-monstart-internal` refuses to start if `mon_mgmt` isn't
-  there and warns loudly if `AUTH_AND_DEAUTH_RANDOM_TA` isn't advertised.
-- `/usr/local/sbin/rhodep-inject-lab` + `/usr/local/sbin/nl80211-mgmt-tx.py`
-  installed (they come with `userspace/wifi-drivers/install.sh`).
+- The running kernel must expose `/sys/module/ath10k_core/parameters/mon_mgmt`
+  (the rhodep ath10k patch that delivers WMI mgmt frames to the monitor
+  vdev). `rhodep-pwn-monstart-internal` refuses to start if it is missing.
 
 ### Extra pieces (installed by install.sh)
 
 ```
-bin/rhodep-pwn-monstart-internal      wlan0 STA -> gone, wlan0mon up on phy0
+bin/rhodep-pwn-monstart-internal      wlan0 STA -> gone, wlan0mon up on the ath10k phy
 bin/rhodep-pwn-monstop-internal       wlan0mon -> gone, wlan0 STA recreated + reconnected
 bin/rhodep-pwn-monstart-dispatch      picks -monstart or -monstart-internal by RHODEP_PWN_RADIO
 bin/rhodep-pwn-monstop-dispatch       symmetric dispatch on stop
 bin/rhodep-pwn-pwngrid-launcher       pwngrid on the right iface (wlan1mon or wlan0mon)
-plugins/rhodep_internal_inject.py     intercepts agent.deauth/.associate -> rhodep-inject-lab
 systemd/dropins/20-radio-internal.conf  drop-in template that sets RHODEP_PWN_RADIO=internal
 ```

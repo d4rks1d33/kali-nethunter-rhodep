@@ -8,14 +8,12 @@
 #                        Full raw injection via bettercap; the current shipped
 #                        setup.
 #   internal          — INTERNAL WCN3990 wlan0 -> wlan0mon (rhodep-pwn-monstart-internal).
-#                        Bettercap does capture + channel-hopping ONLY.
-#                        Injection (deauth/assoc) is intercepted by the
-#                        rhodep_internal_inject.py pwnagotchi plugin and routed
-#                        through nl80211-mgmt-tx.py (STA offchannel path). We do
-#                        NOT let bettercap try to inject on wlan0mon -- that would
-#                        crash the WCN3990 firmware; the plugin replaces
-#                        agent.deauth/.associate before those bettercap commands
-#                        are ever sent.
+#                        Same code path as the external radio: the rhodep
+#                        ath10k patches make bettercap's raw injection work
+#                        on the monitor vdev, so pwnagotchi runs its vanilla
+#                        deauth/assoc pipeline. No wrapper plugin, no
+#                        userland injector -- both radios use the shipped
+#                        evilsocket/pwnagotchi code path unmodified.
 #
 # Selected via /etc/systemd/system/rhodep-pwn-bettercap.service.d/20-radio.conf
 # (Environment=RHODEP_PWN_RADIO=internal), which the NetHunter Pro app writes

@@ -76,10 +76,10 @@ class Pwnagotchi(NHModule):
         self.radio = Adw.ComboRow(title="Radio")
         self.radio.set_model(Gtk.StringList.new([
             "External (TP-Link wlan1) — full raw injection, needs adapter",
-            "Internal (wlan0/mon0) — drops WiFi, no adapter needed",
+            "Internal (wlan0/wlan0mon) — drops WiFi, no adapter needed",
         ]))
         self.radio.set_subtitle(
-            "Internal uses the phone's own radio (mon0 + STA-offchannel deauth); "
+            "Internal uses the phone's own radio (wlan0mon + STA-offchannel deauth); "
             "wlan0 STA is dropped for the run and restored on stop.")
         self.radio.connect("notify::selected", self._on_radio)
         g.add(self.radio)
@@ -426,12 +426,12 @@ print("OK deleted %d uploaded and %d unusable, freed %d KB" % (up, bad, freed //
             toast(self.app_window, "Restart pwnagotchi to apply the radio change")
 
     def _set_radio_in_unit(self) -> None:
-        # Radio = external (wlan1) or internal (wlan0/mon0). Same drop-in pattern
+        # Radio = external (wlan1) or internal (wlan0/wlan0mon). Same drop-in pattern
         # as the mode switch, but written to the bettercap AND pwngrid units and
         # driving the RHODEP_PWN_RADIO env var. Also flips config.toml's iface +
         # mon_*_cmd + the rhodep_internal_inject plugin toggle so pwnagotchi and
         # the launchers all agree. See extra-tools/pwnagotchi/README.md
-        # "Internal-radio (wlan0/mon0) mode" for the moving parts.
+        # "Internal-radio (wlan0/wlan0mon) mode" for the moving parts.
         internal = (self.radio.get_selected() == 1)
         radio_units = ("rhodep-pwn-bettercap.service",
                        "rhodep-pwngrid-peer.service")
@@ -467,7 +467,7 @@ def replace_or_add(key, val, block="main"):
             txt = txt.replace("[%s]\n" % block, "[%s]\n%s\n" % (block, line), 1)
         else:
             txt += "\n[%s]\n%s\n" % (block, line)
-replace_or_add("iface", '"mon0"')
+replace_or_add("iface", '"wlan0mon"')
 replace_or_add("mon_start_cmd", '"/usr/local/sbin/rhodep-pwn-monstart-dispatch"')
 replace_or_add("mon_stop_cmd",  '"/usr/local/sbin/rhodep-pwn-monstop-dispatch"')
 # enable the plugin section

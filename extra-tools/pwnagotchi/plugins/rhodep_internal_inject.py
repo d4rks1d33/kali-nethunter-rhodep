@@ -9,7 +9,7 @@ Why this plugin exists
 On this device (Motorola rhodep, ath10k_snoc / WCN3990), bettercap's normal
 injection path — pcap.WritePacketData on a monitor pcap handle, i.e. raw
 radiotap TX on a monitor vdev — **crashes the WCN3990 firmware on the first
-frame**. So when pwnagotchi is running against the INTERNAL radio (mon0), we
+frame**. So when pwnagotchi is running against the INTERNAL radio (wlan0mon), we
 must NEVER let `wifi.deauth`/`wifi.assoc` reach bettercap.
 
 Instead: mgmt-frame injection on WCN3990 works over the STA vdev's OFFCHANNEL
@@ -85,7 +85,7 @@ class RhodepInternalInject(plugins.Plugin):
         self._agent = agent
 
         # Guard: if the shipped rhodep-inject-lab isn't there, do NOT patch —
-        # let pwnagotchi run its normal path (which on WCN3990 mon0 would
+        # let pwnagotchi run its normal path (which on WCN3990 wlan0mon would
         # crash the firmware, but that's on the operator for enabling this
         # plugin without the injector installed).
         if not os.path.isfile(self._inject_lab):

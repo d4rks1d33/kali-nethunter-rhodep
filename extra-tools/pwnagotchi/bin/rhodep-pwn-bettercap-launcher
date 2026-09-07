@@ -7,12 +7,12 @@
 #   external (default) — TP-Link wlan1 -> wlan1mon (rhodep-pwn-monstart).
 #                        Full raw injection via bettercap; the current shipped
 #                        setup.
-#   internal          — INTERNAL WCN3990 wlan0 -> mon0 (rhodep-pwn-monstart-internal).
+#   internal          — INTERNAL WCN3990 wlan0 -> wlan0mon (rhodep-pwn-monstart-internal).
 #                        Bettercap does capture + channel-hopping ONLY.
 #                        Injection (deauth/assoc) is intercepted by the
 #                        rhodep_internal_inject.py pwnagotchi plugin and routed
 #                        through nl80211-mgmt-tx.py (STA offchannel path). We do
-#                        NOT let bettercap try to inject on mon0 -- that would
+#                        NOT let bettercap try to inject on wlan0mon -- that would
 #                        crash the WCN3990 firmware; the plugin replaces
 #                        agent.deauth/.associate before those bettercap commands
 #                        are ever sent.
@@ -27,7 +27,7 @@ CAPLET=${PWN_CAPLET:-pwnagotchi-manual}   # manual = no auto-deauth by default
 
 case "$RADIO" in
 	internal)
-		MON_IFACE=${PWN_MON_IFACE:-mon0}
+		MON_IFACE=${PWN_MON_IFACE:-wlan0mon}
 		MONSTART=/usr/local/sbin/rhodep-pwn-monstart-internal
 		;;
 	external|"")

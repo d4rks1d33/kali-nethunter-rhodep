@@ -8,7 +8,7 @@ After=rhodep-pwn-bettercap.service
 [Service]
 Type=simple
 # The launcher waits for the monitor iface the bettercap service brought up
-# (wlan1mon for external, mon0 for internal) and execs pwngrid on it.
+# (wlan1mon for external, wlan0mon for internal) and execs pwngrid on it.
 Environment=RHODEP_PWN_RADIO=external
 ExecStart=/usr/local/sbin/rhodep-pwn-pwngrid-launcher
 Restart=always

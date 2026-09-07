@@ -2,7 +2,7 @@
 
 The pwnagotchi units ship configured for the **external** TP-Link radio
 (`wlan1mon`, `rtw_8821au`/`RTL8811AU`). To switch to the **internal** WCN3990
-radio (`wlan0`/`mon0`) — where wlan0 STA is dropped and mon0 does channel-
+radio (`wlan0`/`wlan0mon`) — where wlan0 STA is dropped and wlan0mon does channel-
 hopping capture, and deauth/associate are routed through
 `rhodep-inject-lab` — install the `20-radio-internal.conf` drop-in to BOTH the
 bettercap and pwngrid units:
@@ -18,7 +18,7 @@ sudo systemctl daemon-reload
 Also edit `/etc/pwnagotchi/config.toml`:
 
 ```toml
-main.iface = "mon0"
+main.iface = "wlan0mon"
 
 [main.plugins.rhodep_internal_inject]
 enabled = true

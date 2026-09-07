@@ -1,7 +1,7 @@
 # rhodep: pwnagotchi on the Moto G82.
 #
 # Overrides pwnagotchi/defaults.toml. This template ships the EXTERNAL radio
-# (TP-Link wlan1mon) as the default; the INTERNAL WCN3990 radio (wlan0 + mon0)
+# (TP-Link wlan1mon) as the default; the INTERNAL WCN3990 radio (wlan0 + wlan0mon)
 # is opt-in via a systemd drop-in that sets RHODEP_PWN_RADIO=internal on the
 # bettercap + pwngrid units — the NetHunter Pro app writes that drop-in when
 # the user picks the internal radio in the pwnagotchi screen.
@@ -10,7 +10,7 @@
 # rhodep-pwn-pwngrid-launcher pick the right iface / monstart / monstop for the
 # selected radio, so main.iface below only matters as a *default* for the
 # pwnagotchi agent itself — if you switch to internal via drop-in, also set
-# main.iface = "mon0" in this file (or in a conf.d snippet), otherwise the
+# main.iface = "wlan0mon" in this file (or in a conf.d snippet), otherwise the
 # agent will send `wifi.interface wlan1mon` over bettercap's REST and confuse
 # things.
 
@@ -25,7 +25,7 @@ main.lang = "en"
 
 # A distinct name, not "wlan0mon": rhodep-pwn-monstart renames the external
 # adapter to exactly this, so nothing can confuse it with the internal wlan0.
-# For the INTERNAL radio, set main.iface = "mon0" via a conf.d override.
+# For the INTERNAL radio, set main.iface = "wlan0mon" via a conf.d override.
 main.iface = "wlan1mon"
 
 # By the time pwnagotchi runs, the bettercap service has already brought up

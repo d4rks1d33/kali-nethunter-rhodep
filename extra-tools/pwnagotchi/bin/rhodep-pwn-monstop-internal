@@ -1,10 +1,10 @@
 #!/bin/sh
-# rhodep-pwn-monstop-internal: tear down mon0 on the INTERNAL radio and put
+# rhodep-pwn-monstop-internal: tear down wlan0mon on the INTERNAL radio and put
 # wlan0 STA back so NetworkManager can reassociate. Runs from
 # rhodep-pwn-bettercap.service's ExecStopPost when RHODEP_PWN_RADIO=internal.
 #
 # Idempotent, symmetric with rhodep-pwn-monstart-internal:
-#   - remove mon0 if it exists
+#   - remove wlan0mon if it exists
 #   - recreate wlan0 as type managed if it's gone
 #   - unblock rfkill / hand wlan0 back to NM
 #   - reactivate the connection we saved in /run/rhodep-pwn-internal/state
@@ -13,12 +13,12 @@ set -e
 
 STA_IFACE=wlan0
 PHY=phy0
-MON_IFACE=${PWN_MON_IFACE:-mon0}
+MON_IFACE=${PWN_MON_IFACE:-wlan0mon}
 STATE_FILE=/run/rhodep-pwn-internal/state
 
 log() { echo "rhodep-pwn-monstop-internal: $*"; }
 
-# --- 1) remove mon0 ---------------------------------------------------------
+# --- 1) remove wlan0mon ---------------------------------------------------------
 if iw dev "$MON_IFACE" info >/dev/null 2>&1; then
 	ip link set "$MON_IFACE" down 2>/dev/null || true
 	iw dev "$MON_IFACE" del 2>/dev/null || true

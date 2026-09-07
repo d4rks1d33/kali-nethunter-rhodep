@@ -1,12 +1,12 @@
 #!/bin/sh
 # rhodep-pwn-pwngrid-launcher: pwngrid on the monitor iface the bettercap
-# service brought up (wlan1mon for external radio, mon0 for internal radio).
+# service brought up (wlan1mon for external radio, wlan0mon for internal radio).
 # Selection driven by the same RHODEP_PWN_RADIO env var, and the same drop-in.
 set -e
 
 RADIO=${RHODEP_PWN_RADIO:-external}
 case "$RADIO" in
-	internal) IFACE=${PWN_MON_IFACE:-mon0} ;;
+	internal) IFACE=${PWN_MON_IFACE:-wlan0mon} ;;
 	external|"") IFACE=${PWN_MON_IFACE:-wlan1mon} ;;
 	*) echo "rhodep-pwn-pwngrid-launcher: bad RHODEP_PWN_RADIO=$RADIO" >&2; exit 2 ;;
 esac

@@ -18,9 +18,9 @@ auto-mode run, e.g.
 **Two radios supported, one at a time**: the shipped default is the **external
 TP-Link (`wlan1mon`)** exactly as described below. There is now an **opt-in
 "internal radio" mode** that runs pwnagotchi on the phone's own WCN3990 radio
-(`wlan0` gone, `mon0` doing channel-hopping capture, deauth/associate routed
+(`wlan0` gone, `wlan0mon` doing channel-hopping capture, deauth/associate routed
 through the STA offchannel injector). It's opt-in via a systemd drop-in — see
-"Internal-radio (wlan0/mon0) mode" below.
+"Internal-radio (wlan0/wlan0mon) mode" below.
 
 ## Default (external): it uses wlan1, never wlan0
 
@@ -162,23 +162,23 @@ pwnagotchi update.
   extra-tool, optional, and lives entirely under /opt/pwnagotchi,
   /usr/local/sbin and /etc/pwnagotchi.
 
-## Internal-radio (wlan0/mon0) mode — opt-in
+## Internal-radio (wlan0/wlan0mon) mode — opt-in
 
 Runs pwnagotchi on the phone's own WCN3990 radio, no external adapter needed.
 
 **Trade-off you must accept:** wlan0 STA is deleted for the duration of the run,
 so you lose WiFi. The chanctx model of ath10k requires monitors-only for
-channel-hopping to actually retune the radio; if wlan0 STA is up, mon0 is
+channel-hopping to actually retune the radio; if wlan0 STA is up, wlan0mon is
 locked to the STA's channel (silently). We tear wlan0 down completely at start
 and put it back at stop. `systemctl stop rhodep-pwn-bettercap.service` (or the
 NetHunter Pro toggle off) restores wlan0 and NetworkManager reassociates.
 
 **What the internal mode can and can't do vs the external one:**
 
-|                        | external (wlan1) | internal (wlan0/mon0)                    |
+|                        | external (wlan1) | internal (wlan0/wlan0mon)                    |
 | ---                    | ---              | ---                                      |
 | Passive capture        | full             | full (patch 0117, `mon_mgmt=1`)          |
-| Channel hopping        | full             | full (mon0 monitors-only, real retune)   |
+| Channel hopping        | full             | full (wlan0mon monitors-only, real retune)   |
 | Deauth injection       | bettercap raw    | STA offchannel via `rhodep-inject-lab`   |
 | Assoc injection        | bettercap raw    | limited (see below)                      |
 | WiFi stays up          | yes              | **no** (wlan0 deleted while running)     |
@@ -208,7 +208,7 @@ sudo install -Dm0644 /path/to/repo/extra-tools/pwnagotchi/systemd/dropins/20-rad
 sudo install -Dm0644 /path/to/repo/extra-tools/pwnagotchi/systemd/dropins/20-radio-internal.conf \
     /etc/systemd/system/rhodep-pwngrid-peer.service.d/20-radio.conf
 sudo systemctl daemon-reload
-sudoedit /etc/pwnagotchi/config.toml    # under [main]: iface = "mon0"
+sudoedit /etc/pwnagotchi/config.toml    # under [main]: iface = "wlan0mon"
                                         # and: mon_start_cmd = "/usr/local/sbin/rhodep-pwn-monstart-dispatch"
                                         # and: mon_stop_cmd = "/usr/local/sbin/rhodep-pwn-monstop-dispatch"
                                         # under [main.plugins.rhodep_internal_inject]: enabled = true
@@ -232,11 +232,11 @@ already uses for the manual/auto mode `10-mode.conf`).
 ### Extra pieces (installed by install.sh)
 
 ```
-bin/rhodep-pwn-monstart-internal      wlan0 STA -> gone, mon0 up on phy0
-bin/rhodep-pwn-monstop-internal       mon0 -> gone, wlan0 STA recreated + reconnected
+bin/rhodep-pwn-monstart-internal      wlan0 STA -> gone, wlan0mon up on phy0
+bin/rhodep-pwn-monstop-internal       wlan0mon -> gone, wlan0 STA recreated + reconnected
 bin/rhodep-pwn-monstart-dispatch      picks -monstart or -monstart-internal by RHODEP_PWN_RADIO
 bin/rhodep-pwn-monstop-dispatch       symmetric dispatch on stop
-bin/rhodep-pwn-pwngrid-launcher       pwngrid on the right iface (wlan1mon or mon0)
+bin/rhodep-pwn-pwngrid-launcher       pwngrid on the right iface (wlan1mon or wlan0mon)
 plugins/rhodep_internal_inject.py     intercepts agent.deauth/.associate -> rhodep-inject-lab
 systemd/dropins/20-radio-internal.conf  drop-in template that sets RHODEP_PWN_RADIO=internal
 ```

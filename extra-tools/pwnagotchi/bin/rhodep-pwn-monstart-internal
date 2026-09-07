@@ -1,5 +1,5 @@
 #!/bin/sh
-# rhodep-pwn-monstart-internal: bring up mon0 on the INTERNAL WCN3990 radio for
+# rhodep-pwn-monstart-internal: bring up wlan0mon on the INTERNAL WCN3990 radio for
 # pwnagotchi (channel-hopping capture on wlan0 / ath10k_snoc). Opt-in variant of
 # rhodep-pwn-monstart; the wlan1 (TP-Link) path is unchanged and still the
 # default. Selection is driven by the launcher via RHODEP_PWN_RADIO=internal.
@@ -10,12 +10,12 @@
 #    the duration of the run. Reason (confirmed by code + tests):
 #    ieee80211_add_virtual_monitor() only creates a proper monitor sdata (with
 #    its own chanctx) when local->open_count == 0 && local->monitors == 0
-#    (net/mac80211/iface.c). If wlan0 STA is up when mon0 is opened, mon0 gets
+#    (net/mac80211/iface.c). If wlan0 STA is up when wlan0mon is opened, wlan0mon gets
 #    NO chanctx of its own -- it becomes a passive radiotap sink locked to the
-#    STA's channel, and 'iw dev mon0 set channel N' silently no-ops on the
+#    STA's channel, and 'iw dev wlan0mon set channel N' silently no-ops on the
 #    radio. Channel hopping only actually retunes the radio in a monitors-only
 #    config. Losing WiFi during the run is the accepted trade-off (documented).
-# 2. Once mon0 is created monitors-only, ath10k adds a real WMI_VDEV_TYPE_MONITOR
+# 2. Once wlan0mon is created monitors-only, ath10k adds a real WMI_VDEV_TYPE_MONITOR
 #    vdev (ath10k sets WANT_MONITOR_VIF), and bettercap's SetInterfaceChannel
 #    (nl80211 direct, ~250 ms/hop) drives normal vdev_restart cycles that WCN3990
 #    handles fine (same primitive as CSA). No monitor-vdev TX is used -- that
@@ -32,14 +32,14 @@
 #
 # Env:
 #   PWN_COUNTRY   regulatory domain, default 00
-#   PWN_MON_IFACE monitor iface name, default mon0
-# Exit 0 on success (mon0 up, type=monitor, phy0 monitors-only), non-zero on
+#   PWN_MON_IFACE monitor iface name, default wlan0mon
+# Exit 0 on success (wlan0mon up, type=monitor, phy0 monitors-only), non-zero on
 # any hard failure. The launcher inspects the exit code.
 set -e
 
 STA_IFACE=wlan0
 PHY=phy0
-MON_IFACE=${PWN_MON_IFACE:-mon0}
+MON_IFACE=${PWN_MON_IFACE:-wlan0mon}
 COUNTRY=${PWN_COUNTRY:-00}
 STATE_DIR=/run/rhodep-pwn-internal
 STATE_FILE=$STATE_DIR/state
@@ -66,7 +66,7 @@ fi
 
 # --- fast path: already set up ---------------------------------------------
 if iw dev "$MON_IFACE" info 2>/dev/null | grep -q "type monitor"; then
-	# verify wlan0 is really gone (otherwise mon0 has no chanctx)
+	# verify wlan0 is really gone (otherwise wlan0mon has no chanctx)
 	if ! ip link show "$STA_IFACE" >/dev/null 2>&1; then
 		log "$MON_IFACE already up and $STA_IFACE deleted — nothing to do"
 		exit 0
@@ -106,11 +106,11 @@ fi
 pkill -9 -f "wpa_supplicant.*-i${STA_IFACE}" 2>/dev/null || true
 pkill -9 -f "wpa_supplicant.*-i ${STA_IFACE}" 2>/dev/null || true
 
-# --- 2) delete wlan0 STA and any lingering vifs on phy0 (except mon0) ------
+# --- 2) delete wlan0 STA and any lingering vifs on phy0 (except wlan0mon) ------
 ip link set "$STA_IFACE" down 2>/dev/null || true
 iw dev "$STA_IFACE" del 2>/dev/null || true
 # remove stray p2p-device / other vifs on phy0 so ieee80211_add_virtual_monitor()
-# sees open_count==0 when we open mon0
+# sees open_count==0 when we open wlan0mon
 for dev in $(iw dev 2>/dev/null | awk '/Interface/{i=$2} /wdev/{w=$2} /type/{t=$2; if(i && t!="monitor") print i}'); do
 	case "$dev" in
 		"$MON_IFACE"|"") continue ;;
@@ -128,7 +128,7 @@ for w in $(iw dev 2>/dev/null | awk -v p="$PHY" '/^phy#/{cur=$0; sub(/phy#/,"",c
 done
 sleep 1
 
-# --- 3) set regdomain and create mon0 ---------------------------------------
+# --- 3) set regdomain and create wlan0mon ---------------------------------------
 iw reg set "$COUNTRY" 2>/dev/null || true
 if ! iw phy "$PHY" interface add "$MON_IFACE" type monitor 2>/dev/null; then
 	log "FATAL: could not add $MON_IFACE on $PHY"

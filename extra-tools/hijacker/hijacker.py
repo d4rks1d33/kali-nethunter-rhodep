@@ -317,10 +317,18 @@ class APRow(Gtk.ListBoxRow):
             ):
                 item = Gtk.MenuItem(label=label)
                 # Capture loop vars via default args (Python closure gotcha).
-                item.connect("activate",
-                             lambda _w, tab=tab_id, fn=populate: (
-                                 fn(),
-                                 self._switch_tab(tab)))
+                # Wrapped in try/except so a bad target-entry lookup does
+                # not kill the whole app -- Gtk signal handlers that raise
+                # cause SIGABRT on Gtk3, not a nice traceback.
+                def _handler(_w, tab=tab_id, fn=populate):
+                    try:
+                        fn()
+                        self._switch_tab(tab)
+                    except Exception as exc:
+                        import traceback
+                        print(f'[send-to] tab {tab} failed: {exc}')
+                        traceback.print_exc()
+                item.connect("activate", _handler)
                 context_menu.append(item)
 
         context_menu.show_all()
@@ -375,15 +383,45 @@ class APRow(Gtk.ListBoxRow):
         next click, and so ``stop_all_deauths`` can walk every active
         flood in one shot.
 
-        The channel is locked with ``iwconfig`` before the flood starts
+        The channel is locked with ``iw`` before the flood starts
         because airodump keeps hopping channels while it scans, and
         aireplay silently drops frames when the radio wanders off.
+
+        Everything is wrapped in a wide try/except so an unexpected
+        error (missing tool, config read failure, weird channel value
+        pulled from the airodump CSV) shows up as a printed message
+        instead of taking the whole GUI down with SIGABRT from an
+        unhandled exception inside a Gtk signal handler.
         """
-        key = self.bssid.upper()
+        try:
+            self._deauth_impl()
+        except Exception as exc:
+            import traceback
+            print(f'[deauth] EXCEPTION on {self.bssid}: {exc}')
+            traceback.print_exc()
+
+    def _deauth_impl(self):
+        # Sanitise the fields we lift straight from the airodump CSV.
+        # `channel` in particular can be an empty string when airodump
+        # has not yet locked onto the AP, or something like " 6 " with
+        # whitespace, both of which crash iw.
+        bssid = (self.bssid or '').strip()
+        if not bssid:
+            print('[deauth] no BSSID; ignoring click')
+            return
+        try:
+            channel = int(str(self.ch).strip())
+        except (ValueError, TypeError):
+            print(f'[deauth] non-numeric channel {self.ch!r}; skipping '
+                  'channel-lock (aireplay may still work if airodump has '
+                  'converged on the AP).')
+            channel = None
+
+        key = bssid.upper()
         proc = APRow._deauth_procs.get(key)
         if proc is not None:
             # Toggle-off: kill the running flood.
-            print(f'[deauth] stop {self.bssid}')
+            print(f'[deauth] stop {bssid}')
             try:
                 proc.terminate()
                 try:
@@ -391,23 +429,52 @@ class APRow(Gtk.ListBoxRow):
                 except subprocess.TimeoutExpired:
                     proc.kill()
             except Exception as exc:
-                print(f'[deauth] terminate failed for {self.bssid}: {exc}')
+                print(f'[deauth] terminate failed for {bssid}: {exc}')
             APRow._deauth_procs.pop(key, None)
             return
 
         # Toggle-on: lock the channel, then spawn an infinite flood.
-        iface = Functions.read_config()['interface']
-        print(f'[deauth] start on {self.bssid} ch {self.ch} via {iface}')
-        # iwconfig is best-effort; on modern kernels `iw` is preferred
-        # but iwconfig is still shipped by wireless-tools and just works
-        # for setting a single channel on an already-monitor iface.
-        subprocess.run(['iwconfig', iface, 'channel', str(self.ch)],
-                       check=False)
-        proc = subprocess.Popen(
-            ['aireplay-ng', '-0', '0', '-a', self.bssid, iface],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        try:
+            iface = Functions.read_config()['interface']
+        except Exception as exc:
+            print(f'[deauth] cannot read interface from config: {exc}')
+            return
+        if not iface:
+            print('[deauth] no interface configured (Config -> Interface)')
+            return
+
+        print(f'[deauth] start on {bssid} ch {channel} via {iface}')
+
+        # Resolve tools via shutil.which so a missing binary is a clean
+        # error instead of Popen raising FileNotFoundError up into the
+        # Gtk signal handler.
+        aireplay = shutil.which('aireplay-ng')
+        if not aireplay:
+            print('[deauth] aireplay-ng not found in PATH')
+            return
+        iw_bin = shutil.which('iw')
+
+        if channel is not None and iw_bin:
+            # Prefer `iw dev <if> set channel N` -- it works on every
+            # cfg80211 driver, unlike the old iwconfig channel path
+            # which is silently a no-op on some kernels.
+            r = subprocess.run(
+                [iw_bin, 'dev', iface, 'set', 'channel', str(channel)],
+                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                text=True)
+            if r.returncode != 0:
+                print(f'[deauth] channel lock ({channel}) failed: '
+                      f'{r.stderr.strip()}; continuing anyway')
+
+        try:
+            proc = subprocess.Popen(
+                [aireplay, '-0', '0', '-a', bssid, iface],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except OSError as exc:
+            print(f'[deauth] cannot spawn aireplay-ng: {exc}')
+            return
         APRow._deauth_procs[key] = proc
 
     @classmethod

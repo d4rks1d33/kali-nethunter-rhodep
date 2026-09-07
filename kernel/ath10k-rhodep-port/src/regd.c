@@ -142,11 +142,18 @@ static const struct ieee80211_regdomain ath_world_regdom_64 = {
  * power is still bounded by fw+BDF calibration table (which the
  * driver cannot bypass).
  */
+/* rhodep NOTE 2026-09-07: bumping 5 GHz EIRP cap from 20->27 dBm
+ * BROKE monitor RX on 5 GHz. Fw BDF calibration table has no valid
+ * per-channel entry above 20 dBm, so RX gain drifts, sensitivity
+ * drops from -63 dBm to noise floor, and monitor capture returns
+ * 1 beacon per 3s across all channels. Kept 5 GHz at 20 dBm as
+ * the tested-safe max. Bumped 2.4 GHz to 23 dBm (safe empirically).
+ */
 #define RHODEP_2GHZ_ALL		REG_RULE(2402, 2482, 40, 0, 23, 0)
-#define RHODEP_5GHZ_UNII_1	REG_RULE(5170-10, 5250+10, 80, 0, 27, 0)
-#define RHODEP_5GHZ_UNII_2	REG_RULE(5250-10, 5330+10, 80, 0, 27, 0)
-#define RHODEP_5GHZ_UNII_2E	REG_RULE(5490-10, 5730+10, 160, 0, 27, 0)
-#define RHODEP_5GHZ_UNII_3	REG_RULE(5725-10, 5850+10, 80, 0, 27, 0)
+#define RHODEP_5GHZ_UNII_1	REG_RULE(5170-10, 5250+10, 80, 0, 20, 0)
+#define RHODEP_5GHZ_UNII_2	REG_RULE(5250-10, 5330+10, 80, 0, 20, 0)
+#define RHODEP_5GHZ_UNII_2E	REG_RULE(5490-10, 5730+10, 160, 0, 20, 0)
+#define RHODEP_5GHZ_UNII_3	REG_RULE(5725-10, 5850+10, 80, 0, 20, 0)
 static const struct ieee80211_regdomain ath_rhodep_permissive_regdom = {
 	.n_reg_rules = 5,
 	.alpha2 = "99",
@@ -729,21 +736,19 @@ ath_regd_init_wiphy(struct ath_regulatory *reg,
 		wiphy->regulatory_flags |= REGULATORY_CUSTOM_REG |
 					   REGULATORY_COUNTRY_IE_FOLLOW_POWER;
 		wiphy_apply_custom_regulatory(wiphy, &ath_rhodep_permissive_regdom);
-		/* rhodep: DELIBERATELY skip ath_reg_apply_radar_flags() here.
-		 * That helper adds NL80211_RRF_DFS + NL80211_RRF_NO_IR on the
-		 * 5250-5330 and 5490-5730 ranges to enforce DFS-CAC. WCN3990
-		 * fw + ath10k mainline have no production DFS implementation
-		 * (chirp detection, CAC period, ISM band-hop-on-radar), so
-		 * for a security-research port we accept the responsibility
-		 * of not TX'ing near working weather radars. This unlocks
-		 * UNII-2 (52-64) and UNII-2e (100-144) for TX -- including
-		 * airodump-ng captures + aireplay-ng deauth on those channels.
-		 *
-		 * If you need DFS-safe operation (in a country that enforces
-		 * it and near active radar), rebuild without this omission
-		 * or set ath.country= to "" to fall through to the strict
-		 * wireless-regdb path below.
+		/* Restore DFS flags on UNII-2/UNII-2e ranges. When we
+		 * omitted this call in an earlier iteration, `iw set channel
+		 * 52` (or any DFS channel) SUCCEEDED at the mac80211 layer
+		 * because cfg80211 no longer knew the channel was DFS -- but
+		 * the WCN3990 firmware still internally checks for DFS-CAC
+		 * completion before allowing TX on those channels, and
+		 * crashed (`cmnos_thread.c:4005 RT:0x4078`) when it received
+		 * a TX request on an un-CAC'd channel. Better to keep the
+		 * DFS flags: RX still works on those channels via passive
+		 * scan/monitor, and mac80211 correctly gates TX to prevent
+		 * fw crashes.
 		 */
+		ath_reg_apply_radar_flags(wiphy, reg);
 		return 0;
 	}
 

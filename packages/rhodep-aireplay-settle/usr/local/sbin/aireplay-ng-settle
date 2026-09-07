@@ -58,11 +58,40 @@ if [ -z "$CH" ]; then
     exec "$REAL" "$@"
 fi
 
-# Force fw chanctx transition by briefly setting adjacent channel and back.
+# Force fw chanctx transition by briefly setting a nearby VALID channel and back.
 # mac80211 short-circuits same-channel sets, so a direct re-set is a no-op.
-ADJ=$((CH + 1))
-[ "$ADJ" = "15" ]  && ADJ=1
-[ "$ADJ" = "170" ] && ADJ=165
+# Pick an adjacent VALID channel from the same band -- otherwise iw set channel
+# fails silently and the fw stays put or worse falls to a 2.4G default.
+case "$CH" in
+    # 2.4 GHz: any 1-13, ping-pong with a nearby one
+    1)                       ADJ=6 ;;
+    2|3|4|5|6|7|8|9|10|11)   ADJ=$((CH + 1)) ;;
+    12|13)                   ADJ=6 ;;
+    # 5 GHz UNII-1: 36 40 44 48
+    36)                      ADJ=40 ;;
+    40)                      ADJ=44 ;;
+    44)                      ADJ=48 ;;
+    48)                      ADJ=44 ;;
+    # 5 GHz UNII-2: 52 56 60 64 (DFS but valid channels)
+    52)                      ADJ=56 ;;
+    56)                      ADJ=60 ;;
+    60)                      ADJ=64 ;;
+    64)                      ADJ=60 ;;
+    # 5 GHz UNII-2e: 100..144 in steps of 4
+    100|104|108|112|116|120|124|128|132|136|140)
+                             ADJ=$((CH + 4)) ;;
+    144)                     ADJ=140 ;;
+    # 5 GHz UNII-3: 149 153 157 161 165
+    149)                     ADJ=153 ;;
+    153)                     ADJ=157 ;;
+    157)                     ADJ=161 ;;
+    161)                     ADJ=165 ;;
+    165)                     ADJ=161 ;;
+    # 5 GHz UNII-4: 169+ (rarely enabled)
+    169|173|177)             ADJ=165 ;;
+    *)                       ADJ="$CH" ;;   # unknown: just re-set the same
+esac
+
 iw dev "$IFACE" set channel "$ADJ" 2>/dev/null || true
 sleep 1
 iw dev "$IFACE" set channel "$CH"  2>/dev/null || true

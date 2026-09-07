@@ -142,18 +142,27 @@ static const struct ieee80211_regdomain ath_world_regdom_64 = {
  * power is still bounded by fw+BDF calibration table (which the
  * driver cannot bypass).
  */
-/* rhodep NOTE 2026-09-07: bumping 5 GHz EIRP cap from 20->27 dBm
- * BROKE monitor RX on 5 GHz. Fw BDF calibration table has no valid
- * per-channel entry above 20 dBm, so RX gain drifts, sensitivity
- * drops from -63 dBm to noise floor, and monitor capture returns
- * 1 beacon per 3s across all channels. Kept 5 GHz at 20 dBm as
- * the tested-safe max. Bumped 2.4 GHz to 23 dBm (safe empirically).
+/* rhodep NOTE 2026-09-07: TX power caps.
+ *
+ * History:
+ *   16.14 tried 5 GHz 27 dBm cap and it BROKE monitor RX on all bands
+ *     (fw BDF has no per-channel calibration above ~23 dBm; sensitivity
+ *     drops from -63 dBm to noise floor, captures 1 beacon per 3s).
+ *   16.15 reverted to 20 dBm on 5 GHz.
+ *   16.16 tries 23 dBm on 5 GHz -- one step up, matching the 2.4 GHz
+ *     value that has been safe since 16.14. If RX degrades again this
+ *     needs another revert to 20.
+ *
+ * WCN3990 hw is 2x2 MIMO with per-chain ~17-20 dBm typical max, so 23
+ * dBm EIRP is roughly per-chain-max + 3 dB MIMO gain, i.e. the native
+ * hw ceiling. Above that the fw scales up power via digital gain
+ * without a valid RX-side calibration point -> desense.
  */
 #define RHODEP_2GHZ_ALL		REG_RULE(2402, 2482, 40, 0, 23, 0)
-#define RHODEP_5GHZ_UNII_1	REG_RULE(5170-10, 5250+10, 80, 0, 20, 0)
-#define RHODEP_5GHZ_UNII_2	REG_RULE(5250-10, 5330+10, 80, 0, 20, 0)
-#define RHODEP_5GHZ_UNII_2E	REG_RULE(5490-10, 5730+10, 160, 0, 20, 0)
-#define RHODEP_5GHZ_UNII_3	REG_RULE(5725-10, 5850+10, 80, 0, 20, 0)
+#define RHODEP_5GHZ_UNII_1	REG_RULE(5170-10, 5250+10, 80, 0, 23, 0)
+#define RHODEP_5GHZ_UNII_2	REG_RULE(5250-10, 5330+10, 80, 0, 23, 0)
+#define RHODEP_5GHZ_UNII_2E	REG_RULE(5490-10, 5730+10, 160, 0, 23, 0)
+#define RHODEP_5GHZ_UNII_3	REG_RULE(5725-10, 5850+10, 80, 0, 23, 0)
 static const struct ieee80211_regdomain ath_rhodep_permissive_regdom = {
 	.n_reg_rules = 5,
 	.alpha2 = "99",

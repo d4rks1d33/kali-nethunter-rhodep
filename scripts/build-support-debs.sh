@@ -3,9 +3,9 @@
 # Requires: fakeroot, dpkg-deb. Run from the repo root.
 set -e
 cd "$(dirname "$0")/../packages"
-for pkg in rhodep-modem-support rhodep-usb-otg rhodep-battery-jeita \
-           rhodep-phosh-wifi-guard rhodep-gpu-opencl rhodep-gpu-vulkan \
-           rhodep-gnss; do
+for pkg in rhodep-modem-support rhodep-usb-otg rhodep-flashlight \
+           rhodep-battery-jeita rhodep-phosh-wifi-guard rhodep-gpu-opencl \
+           rhodep-gpu-vulkan rhodep-gnss; do
     ver=$(grep '^Version:' "$pkg/DEBIAN/control" | awk '{print $2}')
     out="../${pkg}_${ver}_arm64.deb"
     echo "Building $out"

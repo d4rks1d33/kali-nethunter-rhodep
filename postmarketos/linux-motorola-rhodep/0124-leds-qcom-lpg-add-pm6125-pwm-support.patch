@@ -1,0 +1,59 @@
+From: Kali NetHunter rhodep port
+Subject: [PATCH] leds: rgb: qcom-lpg: add PM6125 PWM support
+
+The rear camera flash on rhodep (Moto G82 5G) is not a plain enable-GPIO
+LED. The vendor drives it as a PWM current source on PM6125 GPIO8 in the
+"func1" alternate function, fed by the PM6125's single-channel LPG/PWM
+block at SPMI base 0xb300, plus a strobe/enable on tlmm 49. With only the
+tlmm 49 enable driven (as a gpio-led), the LED gets an initial pulse and
+then the current source settles to zero -- it lights up and dies after a
+second.
+
+The PM6125 LPG block is a simple one-channel PWM with no LUT and no
+TRILED, identical in structure to the pm8916-pwm already supported; only
+the register base differs (0xb300 vs 0xbc00). Add a matching
+qcom,pm6125-pwm compatible so the LPG driver registers a pwmchip that the
+flash LED can consume via pwm-leds.
+
+--- a/drivers/leds/rgb/leds-qcom-lpg.c	2026-09-23 17:24:38.851281002 +0000
++++ b/drivers/leds/rgb/leds-qcom-lpg.c	2026-09-23 17:24:46.882281006 +0000
+@@ -1667,6 +1667,13 @@
+ 	},
+ };
+ 
++static const struct lpg_data pm6125_pwm_data = {
++	.num_channels = 1,
++	.channels = (const struct lpg_channel_data[]) {
++		{ .base = 0xb300 },
++	},
++};
++
+ static const struct lpg_data pm8916_pwm_data = {
+ 	.num_channels = 1,
+ 	.channels = (const struct lpg_channel_data[]) {
+@@ -1820,6 +1827,7 @@
+ };
+ 
+ static const struct of_device_id lpg_of_table[] = {
++	{ .compatible = "qcom,pm6125-pwm", .data = &pm6125_pwm_data },
+ 	{ .compatible = "qcom,pm660l-lpg", .data = &pm660l_lpg_data },
+ 	{ .compatible = "qcom,pm8150b-lpg", .data = &pm8150b_lpg_data },
+ 	{ .compatible = "qcom,pm8150l-lpg", .data = &pm8150l_lpg_data },
+--- a/Documentation/devicetree/bindings/leds/leds-qcom-lpg.yaml	2026-09-23 17:24:38.853281002 +0000
++++ b/Documentation/devicetree/bindings/leds/leds-qcom-lpg.yaml	2026-09-23 17:25:36.328110001 +0000
+@@ -23,6 +23,7 @@
+   compatible:
+     oneOf:
+       - enum:
++          - qcom,pm6125-pwm
+           - qcom,pm660l-lpg
+           - qcom,pm8150b-lpg
+           - qcom,pm8150l-lpg
+@@ -150,6 +151,7 @@
+         compatible:
+           contains:
+             enum:
++              - qcom,pm6125-pwm
+               - qcom,pm660l-lpg
+               - qcom,pm8150b-lpg
+               - qcom,pm8150l-lpg

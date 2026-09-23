@@ -1,0 +1,17 @@
+[Unit]
+Description=rhodep: hold the camera-flash enable (tlmm 49) so the torch can be lit
+Documentation=file:///usr/share/doc/rhodep-flashlight/README
+After=multi-user.target
+Wants=multi-user.target
+
+[Service]
+# gpioset runs in the foreground and keeps the gpio request open; killing it
+# releases the enable. RemainAfterExit is NOT set on purpose -- the process must
+# stay alive to hold the line.
+Type=exec
+ExecStart=/usr/local/sbin/rhodep-flash-enable
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

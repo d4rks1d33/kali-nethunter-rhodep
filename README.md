@@ -752,8 +752,11 @@ debos/
   binwrap/            wrappers to run debos/systemd-nspawn inside a container
 packages/
   rhodep-modem-support/    .deb source: modem/ADSP/CDSP + internal WiFi bring-up
-  rhodep-usb-otg/          .deb source: USB-C charge/OTG control (SGM41542 VBUS)
-  rhodep-battery-jeita/    .deb source: cold-side (<0C) battery protection
+   rhodep-usb-otg/          .deb source: USB-C charge/OTG control (SGM41542 VBUS)
+   rhodep-flashlight/       .deb source: hold the camera-flash enable (tlmm 49)
+                            low for the session so the pwm-leds torch (PM6125 PWM
+                            on GPIO8) can be lit from KDE Plasma's flashlight button
+   rhodep-battery-jeita/    .deb source: cold-side (<0C) battery protection
   rhodep-rtl8188eus-fix/   TP-Link RTL8188EUS (wlan1) monitor+inject: patch the
                            realtek-rtl8188eus-dkms driver so it builds on 7.2
   rhodep-phosh-wifi-guard/ .deb source: keep Phosh alive across WiFi-auditing
@@ -1017,7 +1020,7 @@ Everything under `packages/` and `userspace/` is **rootfs**, not boot image —
 none of it is in this `.img`. To get the userspace side onto a device see
 "Building the Kali rootfs (debos)" and the per-component `install.sh` scripts.
 
-## The 103 applied patches (`kernel/patches/`, applied in this order)
+## The 105 applied patches (`kernel/patches/`, applied in this order)
 
 The order below is the aport's `source=` order, which is what `patch` sees; it
 is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
@@ -1111,8 +1114,10 @@ is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
 0089 regulator-fan53870-declare-low-ldo-supply  LDO1/2 had no supply_name
 0090 rhodep-camera-pmic-input-supply     PM6125 S6 feeds the low LDO group
 0091 rhodep-drop-absent-microphones      AMIC1/2 and the VA DMICs are not fitted
-0092 rhodep-add-the-flash-led-as-a-torch  tlmm 49 as a gpio-led; see nice-to-have
-                                       9, the flash also wants a PM6125 PWM
+0092 rhodep-add-the-flash-led-as-a-torch  first cut: tlmm 49 as a gpio-led.
+                                       Superseded by 0124+0125 (the flash also
+                                       needs a PM6125 PWM); 0092's node is
+                                       replaced by the pwm-leds torch there
 0093 rhodep-expose-gpu-770-840          the speed bin (fuse = 177) allows both;
                                        the table had stopped at NOM
 0094 nt37701-selectable-refresh-rate     the panel is 120 Hz and only 60 was
@@ -1190,6 +1195,17 @@ is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
                                          VBUS is the charger's) -- see docs/usb-
                                          typec.md and Known-limitations. `otg`
                                          stays the way host mode is entered
+0124 leds-qcom-lpg-add-pm6125-pwm-support  teach leds-qcom-lpg about the PM6125's
+                                         one-channel LPG/PWM at SPMI 0xb300
+                                         (qcom,pm6125-pwm), so it registers a
+                                         pwmchip -- the camera flash needs it
+0125 arm64-dts-qcom-rhodep-drive-flash-via-pm6125-pwm  the rear flash lit up then
+                                         died after ~1s as a plain gpio-led on
+                                         tlmm 49; that pin is only the enable, the
+                                         sustained current is a PWM source on
+                                         PM6125 GPIO8 (func1). Replace it with a
+                                         pwm-leds torch on the PM6125 PWM (20 kHz)
+                                         and hog tlmm 49 high as the enable
 ```
 
 0062 and 0063 are kept but neither changes the glitched lines they were written
@@ -1846,7 +1862,7 @@ WiFi.
 ```
 sudo systemctl mask droid-juicer.service        # hangs the boot without Android
 sudo systemctl mask systemd-repart.service
-sudo dpkg -i rhodep-usb-otg_*.deb rhodep-battery-jeita_*.deb rhodep-modem-support_*.deb
+sudo dpkg -i rhodep-usb-otg_*.deb rhodep-battery-jeita_*.deb rhodep-modem-support_*.deb rhodep-flashlight_*.deb
 ```
 
 ---
@@ -3297,7 +3313,11 @@ already done.
    across runtime suspend, which would also stop the port burning power to hold
    the slave up.
 
-9. **A flashlight toggle** -- and the flash is needed for the camera anyway.
+9. ~~**A flashlight toggle**~~ **DONE** -- the flashlight tile in Plasma's quick
+   settings now lights the rear flash and it stays lit (patches 0124 + 0125 and
+   `packages/rhodep-flashlight`). The write-up below is kept because the reason
+   it was hard -- a PWM current source plus a held enable, and an earlier wrong
+   conclusion that the SPMI arbiter blocked it -- is the useful part.
 
    The good news is that this looks cheap, because the flash on this board is
    **not** an i2c LED driver chip. The vendor describes it as a plain GPIO:
@@ -3353,47 +3373,42 @@ already done.
    mode it asks for at most 150 mA, about 12% duty. That is why it stays lit
    there and not here.
 
-   So the current comes from the PWM, and that is where this dead-ends.
-   **Tried, and it is blocked in the secure firmware, not in the kernel.** The
-   whole path was built and driven on the device:
+   So the current comes from the PWM. **This is now done and the flashlight
+   button works** (patches 0124 + 0125, `packages/rhodep-flashlight`). An
+   earlier attempt concluded the LPG block was walled off by the SPMI arbiter
+   (`disallowed SPMI write to sid=0, addr=0xB3xx`) and gave up; that turned out
+   to be wrong on a clean boot -- with the node placed under the PM6125's second
+   SPMI USID (`pmic@1`, PPID 0xB3 there) the writes go through, no `disallowed
+   SPMI write` for 0xB3xx appears in dmesg, and the PWM applies a real ~39 us
+   period. What was actually missing was the enable handling, below.
 
-   - `qcom,pm6125-pwm` was added to `drivers/leds/rgb/leds-qcom-lpg.c`
-     (one channel, `.base = 0xb300`, modelled on `pm8916_pwm_data`) plus the
-     pm6125.dtsi node, gpio8 muxed to `func1`, and a `pwm-leds` torch on
-     `<&pm6125_pwm 0 50000>`. The LED class appears, the PWM chip registers,
-     and `white:torch` shows up.
-   - It also needed a driver fix that is worth recording: the PM6125 PWM block
-     reports `LPG_SUBTYPE_REG = 0x1`, which no case in `lpg_apply_freq()`
-     handles, so it fell into the default and wrote `BIT(4)` (the LPG size bit)
-     instead of `BIT(2)` (PWM). Measured `base=0xb300 subtype=0x1`, period
-     saturating to 2953125000 ns. 0x1 is the older/basic QPNP PWM subtype and
-     belongs on the `LPG_SUBTYPE_PWM` path (the driver already *reads* it back
-     with `BIT(2)` in `lpg_pwm_get_state`).
+   The working shape:
 
-   - **But every write to the LPG block is rejected by the SPMI arbiter**:
+   - **Patch 0124** adds `qcom,pm6125-pwm` to `drivers/leds/rgb/leds-qcom-lpg.c`
+     (one channel, `.base = 0xb300`, modelled on `pm8916_pwm_data`) so the LPG
+     driver registers a pwmchip.
+   - **Patch 0125** adds the `pwm@b300` node under `pmic@1`, muxes PM6125 gpio8
+     to `func1` (the LPG driver does not touch pinctrl, so the pinctrl-0 sits on
+     the pwm node and the driver core applies it), and replaces the gpio-led
+     with a `pwm-leds` torch on `<&pm6125_pwm 0 50000>` (20 kHz, the vendor's
+     period; the LPG rounds it to ~39 us). `white:torch` appears with `color`
+     and `max_brightness`, which is exactly what Plasma's flashlight tile matches
+     (`*:torch` over udev, then writes `max_brightness` on).
+   - **The enable is the subtle part.** The analog flash driver IC hangs off
+     VBAT (there is no flash regulator to turn on) and needs tlmm 49 held
+     asserted the *whole* time it is lit. A one-shot level write is not enough:
+     measured on the device, the LED dies a second after lighting the moment the
+     gpio request is released, even with the pin still reading low and the PWM
+     still at 100%. `pwm-leds`' own `enable-gpios` does exactly that one-shot
+     write, so it does not keep the LED on. Instead `packages/rhodep-flashlight`
+     runs `gpioset` in the foreground for the session (resolving the TLMM
+     gpiochip by its `500000.pinctrl` label, since the number is not stable
+     across boots), holding tlmm 49 low. With the enable held, toggling the PWM
+     -- which is all Plasma's button does -- turns the torch cleanly on and off.
 
-	spmi spmi-0: disallowed SPMI write to sid=0, addr=0xB341
-	spmi spmi-0: disallowed SPMI write to sid=0, addr=0xB343
-	... 0xB342 0xB344 0xB346 0xB347
-
-     The arbiter (v5) only lets a master write a peripheral it *owns*
-     (`bus->apid_data[apid].write_ee != pmic_arb->ee` in
-     `drivers/spmi/spmi-pmic-arb.c`), and that ownership table is programmed by
-     XBL/TrustZone at boot -- the kernel only reads it. The PM6125's regulators
-     (PPID 0x14) and GPIOs (0xC0) are owned by the AP and write fine; the LPG
-     block (PPID 0xB3) is not, so its registers can never be programmed from
-     Linux. Consistent with this, the vendor DT leaves `qcom,pwms@b300` at
-     `status = "disabled"` -- stock never drove it over SPMI from the AP either.
-     And tlmm 49 alone (`gpio-leds`) only produces an occasional stray flash:
-     the LED driver IC needs the PWM to actually light, and the PWM is walled
-     off.
-
-   So this is a **secure-firmware ownership limitation, not a missing driver**,
-   the same class of wall as the watchdog reset. The reverted work is not
-   wasted: the `qcom,pm6125-pwm` support (with the subtype-0x1 fix) is correct
-   and upstreamable for any board where the AP *does* own the LPG. It is not
-   carried here because on rhodep it can only register an inert PWM chip.
-   Patch 0092 stays as the plain `gpio-leds` node, which at least claims the pin.
+   Net result: the flashlight tile in Plasma's quick settings lights the rear
+   LED and it stays lit until toggled off. The `qcom,pm6125-pwm` driver support
+   is also generic and upstreamable.
 
 10. **NFC — reads cards; card emulation blocked at the RF listen front-end.**
     Reading works (patches 0101-0105, `userspace/nfc/rhodep-nfc read`). Card

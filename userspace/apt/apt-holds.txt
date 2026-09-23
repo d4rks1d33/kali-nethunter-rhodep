@@ -4,6 +4,7 @@ alsa-utils
 bluez
 firmware-atheros
 firmware-motorola-rhodep
+gpiod
 gstreamer1.0-pipewire
 iio-sensor-proxy
 kali-menu
@@ -44,6 +45,7 @@ qmlkonsole
 qrtr-tools
 realtek-rtl8188eus-dkms
 rhodep-battery-jeita
+rhodep-flashlight
 rhodep-gnss
 rhodep-gpu-opencl
 rhodep-gpu-vulkan

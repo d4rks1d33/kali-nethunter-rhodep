@@ -47,6 +47,10 @@
 #   wlr-randr       the Wayland output tool the NFC bring-up leaned on; held
 #                   alongside neard so the NFC work does not regress on an
 #                   upgrade. Both are behavioural holds, not deletion.
+#   gpiod           rhodep-flashlight's rhodep-flash-enable runs gpioset (from
+#                   this package) in the foreground to hold the camera-flash
+#                   enable line low; without it the service cannot start and the
+#                   flashlight button toggles the PWM onto a LED that never lights
 #
 # The modem, wifi, kernel and firmware holds predate audio and are kept.
 #
@@ -171,6 +175,18 @@ install -D -m 0644 "$here/apply-holds.sh" /usr/share/doc/rhodep-apt/apply-holds.
 /usr/local/sbin/rhodep-protect-files register usb-otg-conf 0644 \
 	/usr/lib/systemd/system/otg-default-charge.service 2>/dev/null || true
 
+# rhodep-flashlight is the same local-.deb case: it holds the camera-flash
+# enable (tlmm 49) low for the session so the pwm-leds "white:torch" node can
+# actually be lit (a one-shot level write dies a second later; the pin must stay
+# actively requested, which this service's foreground gpioset does). Losing
+# /usr/local/sbin/rhodep-flash-enable means the flashlight button toggles the
+# PWM but the LED never comes on, on a package that still looks installed. So it
+# gets the file layer too.
+/usr/local/sbin/rhodep-protect-files register flashlight 0755 \
+	/usr/local/sbin/rhodep-flash-enable 2>/dev/null || true
+/usr/local/sbin/rhodep-protect-files register flashlight-conf 0644 \
+	/usr/lib/systemd/system/rhodep-flashlight.service 2>/dev/null || true
+
 # rhodep-gnss is the same case as the packages above: a .deb built in this repo,
 # present only in /var/lib/dpkg/status with no repo and no cached archive, so a
 # hold stops an upgrade and dpkg's Protected stops removal, but nothing stops
@@ -250,6 +266,8 @@ install -D -m 0644 "$here/apply-holds.sh" /usr/share/doc/rhodep-apt/apply-holds.
 	rhodep-modem-fw.service ath10k-late.service readonly-firmware.mount 2>/dev/null || true
 /usr/local/sbin/rhodep-protect-files register-units usb-otg \
 	otg-default-charge.service 2>/dev/null || true
+/usr/local/sbin/rhodep-protect-files register-units flashlight \
+	rhodep-flashlight.service 2>/dev/null || true
 # The enabled set the rhodep-gnss postinst leaves behind: the daemon, the shared
 # qmi-proxy it needs up before anything forks its own, and the xtra timer. NOT
 # rhodep-cell-db.timer -- the package ships it disabled on purpose, since a

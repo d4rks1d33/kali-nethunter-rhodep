@@ -1,0 +1,113 @@
+From: Kali NetHunter rhodep port
+Subject: [PATCH] arm64: dts: qcom: rhodep: drive the camera flash via PM6125 PWM
+
+The rear flash lit up and died after ~1s because it was wired as a plain
+gpio-led on tlmm 49 (patch 0092). tlmm 49 is only the analog flash driver
+IC's enable; the sustained current comes from a PWM current source on
+PM6125 GPIO8 (func1), fed by the PM6125 LPG/PWM at SPMI 0xb300. There is no
+flash regulator (the IC hangs off VBAT), so lighting it needs the enable
+held asserted AND the PWM running.
+
+Two findings from bring-up drove the final shape:
+  - the enable must be actively held low the whole time -- a one-shot
+    gpiod_set_value (what pwm-leds' enable-gpios does) lets the LED die a
+    second later, while a persistently requested gpio keeps it lit;
+  - the PWM alone (with the enable held) toggles the LED cleanly on/off.
+
+So pwm-leds here owns only the PWM (channel 0, period 50000 ns / 20 kHz,
+the value the vendor hardcodes; the LPG rounds it to ~39 us), which is what
+KDE Plasma's flashlight button drives -- it writes max_brightness to
+/sys/class/leds/*:torch. The tlmm 49 enable is held low for the session by
+the rhodep-flashlight service (packages/rhodep-flashlight) rather than by
+this node. Add the pwm@b300 node under the PM6125's second SPMI USID
+(pmic@1, left empty by mainline pm6125.dtsi) and route the PWM to the PMIC
+GPIO8 pad via its func1 pinctrl (applied by the driver core on the pwm@b300
+device, since the LPG driver does not touch pinctrl). Depends on the
+companion patch adding qcom,pm6125-pwm to leds-qcom-lpg.
+
+--- a/arch/arm64/boot/dts/qcom/sm6375-motorola-rhodep.dts	2026-09-23 17:26:18.520849006 +0000
++++ b/arch/arm64/boot/dts/qcom/sm6375-motorola-rhodep.dts	2026-09-23 18:46:07.865812013 +0000
+@@ -17,6 +17,7 @@
+ #include <dt-bindings/interconnect/qcom,sm6375.h>
+ #include <dt-bindings/input/input.h>
+ #include <dt-bindings/leds/common.h>
++#include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
+ #include <dt-bindings/power/qcom-rpmpd.h>
+ #include <dt-bindings/clock/qcom,dsi-phy-28nm.h>
+ #include <dt-bindings/clock/qcom,sm6375-dispcc.h>
+@@ -314,22 +315,26 @@
+ 	};
+ 
+ 	/*
+-	 * The rear camera flash. The vendor drives it as a plain GPIO --
+-	 * flash-type = <CAM_FLASH_TYPE_GPIO> on tlmm 49 -- rather than through
+-	 * an i2c LED controller, so in mainline terms it is a gpio-led and
+-	 * nothing more. Confirmed on the device before this node existed:
+-	 * tlmm 49 was unclaimed, and driving it blinks the LED.
++	 * The rear camera flash. It is NOT a plain enable-GPIO LED: the vendor
++	 * drives it as a PWM current source on PM6125 GPIO8 (func1), fed by the
++	 * PM6125 single-channel LPG/PWM at SPMI 0xb300, plus an enable on tlmm 49
++	 * that the analog flash driver IC needs held asserted the whole time it
++	 * is lit (a static level is not enough -- the pin must stay actively
++	 * requested low, which pwm-leds' one-shot gpiod_set_value does not do, so
++	 * the LED died a second after lighting). The rhodep-flashlight service
++	 * holds tlmm 49 low for the duration; pwm-leds here only owns the PWM,
++	 * so KDE Plasma's flashlight button (which writes max_brightness to
++	 * /sys/class/leds/*:torch) toggles the current cleanly. period is the
++	 * 50000 ns / 20 kHz the vendor hardcodes (the LPG rounds it to ~39 us).
+ 	 *
+-	 * Exposed as a torch rather than a camera flash on purpose. A strobe
+-	 * synchronised to an exposure needs the v4l2-flash class and a camera
+-	 * that captures, and neither exists here yet; a flashlight only needs
+-	 * to turn on and stay on.
++	 * Exposed as a torch (a flashlight only has to turn on and stay on).
+ 	 */
+-	leds {
+-		compatible = "gpio-leds";
++	pwmleds {
++		compatible = "pwm-leds";
+ 
+ 		led-torch {
+-			gpios = <&tlmm 49 GPIO_ACTIVE_HIGH>;
++			pwms = <&pm6125_pwm 0 50000>;	/* 20 kHz, from the vendor */
++			max-brightness = <255>;
+ 			function = LED_FUNCTION_TORCH;
+ 			color = <LED_COLOR_ID_WHITE>;
+ 			default-state = "off";
+@@ -1925,3 +1930,36 @@
+ 		};
+ 	};
+ };
++
++/*
++ * Camera flash PWM current source. The PM6125's single-channel LPG/PWM
++ * block lives at SPMI 0xb300 on the second SPMI USID (pmic@1); mainline's
++ * pm6125.dtsi leaves that node empty. qcom,pm6125-pwm is added to the
++ * leds-qcom-lpg driver in the companion patch. Its output only reaches the
++ * PMIC GPIO8 pad once that pad is muxed to "func1"; the LPG driver does not
++ * touch pinctrl, so the pinctrl-0 here is applied by the driver core when
++ * the pwm@b300 device is bound.
++ */
++&spmi_bus {
++	pmic@1 {
++		pm6125_pwm: pwm@b300 {
++			compatible = "qcom,pm6125-pwm";
++			reg = <0xb300>;
++			#pwm-cells = <2>;
++			pinctrl-names = "default";
++			pinctrl-0 = <&camera_flash_pwm_default>;
++		};
++	};
++};
++
++&pm6125_gpios {
++	camera_flash_pwm_default: camera-flash-pwm-default-state {
++		pins = "gpio8";
++		function = "func1";		/* PWM alternate function */
++		input-disable;
++		output-low;
++		bias-disable;
++		power-source = <0>;
++		qcom,drive-strength = <PMIC_GPIO_STRENGTH_LOW>;
++	};
++};

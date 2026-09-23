@@ -1,0 +1,52 @@
+#!/bin/sh
+# rhodep: hold the camera-flash enable line (tlmm 49) asserted low for as long
+# as this process runs.
+#
+# Why this exists: the rear flash is an analog current-driver IC. It needs TWO
+# things to stay lit -- a PWM current source on PM6125 GPIO8 (owned by the
+# pwm-leds "white:torch" node, which KDE Plasma's flashlight button drives) AND
+# its enable on tlmm 49 held asserted the whole time. A one-shot level write is
+# not enough: measured on the device, the moment the gpio request is released
+# the LED dies even though the pin still reads low and the PWM is still at 100%.
+# The pin must stay *actively requested*. So this runs gpioset in the
+# foreground, which keeps the request open until the process is killed.
+#
+# The systemd unit keeps it running for the whole session; the flashlight
+# button then only toggles the PWM (brightness on the torch LED), which turns
+# the light cleanly on and off with the enable permanently held.
+#
+# The tlmm gpiochip number is not stable across boots, so resolve it from the
+# chip label (500000.pinctrl) instead of hardcoding /dev/gpiochipN.
+
+set -e
+
+TLMM_LABEL="500000.pinctrl"
+FLASH_ENABLE_LINE=49
+FLASH_ENABLE_VALUE=0	# active-low enable: 0 = asserted
+
+# Find the /dev/gpiochipN whose label is the SoC TLMM.
+find_tlmm_chip() {
+	for c in /dev/gpiochip*; do
+		[ -e "$c" ] || continue
+		if gpioinfo "$(basename "$c")" 2>/dev/null | head -1 | grep -q "$TLMM_LABEL"; then
+			basename "$c"
+			return 0
+		fi
+	done
+	# Fallback: let gpiodetect report the label -> chip mapping.
+	gpiodetect 2>/dev/null | awk -v l="$TLMM_LABEL" '$0 ~ l {print $1; exit}'
+}
+
+CHIP=$(find_tlmm_chip)
+if [ -z "$CHIP" ]; then
+	echo "rhodep-flash-enable: cannot find the TLMM gpiochip ($TLMM_LABEL)" >&2
+	exit 1
+fi
+
+echo "rhodep-flash-enable: holding $CHIP line $FLASH_ENABLE_LINE = $FLASH_ENABLE_VALUE (flash enable)" >&2
+
+# gpioset (libgpiod v2) holds the line for the lifetime of the process. Run it
+# in the foreground so systemd tracks it and the request stays open.
+exec gpioset --consumer rhodep-flash-enable \
+	--chip "$CHIP" \
+	"$FLASH_ENABLE_LINE=$FLASH_ENABLE_VALUE"

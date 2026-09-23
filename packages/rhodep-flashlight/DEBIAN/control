@@ -1,0 +1,13 @@
+Package: rhodep-flashlight
+Version: 1
+Architecture: arm64
+Maintainer: rhodep port
+Depends: gpiod
+Description: Camera-flash torch enable for Motorola rhodep
+ The rear flash is an analog current-driver IC that needs its enable on
+ tlmm 49 held asserted for as long as it is lit -- a one-shot level write is
+ not enough (the LED dies a second later when the gpio request is released).
+ This service holds tlmm 49 low for the session. The light itself is the
+ pwm-leds "white:torch" node (PWM current source on PM6125 GPIO8), which KDE
+ Plasma's flashlight button toggles. With the enable held, the button turns
+ the torch cleanly on and off.

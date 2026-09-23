@@ -46,28 +46,47 @@ and watch.
 1. **DIAG generic command interface** — DONE. `0x00` version, `0x0c` version no.,
    `0x7c` extended build id. These are the safe pokes that prove the CMD path.
 
-2. **FTM subsystem reachability** — NEXT. FTM is DIAG command `0x4B` (SUBSYS_CMD)
-   with subsystem id `0x0B` (FTM = 11), then a 2-byte FTM command id and a body.
-   The request frame is:
+2. **FTM subsystem reachability** — **DONE, FTM answers (measured 2026-09-23).**
+   FTM is DIAG command `0x4B` (SUBSYS_CMD) with subsystem id `0x0B` (FTM = 11),
+   then a 2-byte FTM command id and a body:
 
-       4B 0B <ftm_cmd_lo> <ftm_cmd_hi> <len_lo> <len_hi> <body...>
+       4B 0B <ftm_cmd_lo> <ftm_cmd_hi> <body...>
 
-   The first thing to send is a **read-only** FTM command and see whether the
-   modem answers, errors, or ignores it. Candidates, least invasive first:
-   - `FTM_GET_STATE` / a version/query sub-command — asks, changes nothing;
-   - a mode query. Do NOT send set-frequency, PA-enable or TX sub-commands here.
+   First the CMD path was validated with apps-level requests, which answer on the
+   QRTR socket the request is sent from (node 0, the modem's CMD port, which moves
+   per boot — look it up by service 0x1001 instance 1):
+   - `00` → 58-byte version response (`Sep 17 2024 ... strait.g`);
+   - `7c` → extended build id `MPSS.HI.4.3.4-00494-MANNAR_GEN_PACK-1.24452.133`.
 
-   Three outcomes, all informative:
-   - a well-formed FTM response → the FTM interface is open, go to rung 3;
-   - a DIAG "bad subsys" / "not supported" (`0x13`, `0x14` …) → FTM is refused on
-     this build from the AP, which is a real answer and bounds the project;
-   - silence → the sub-command id is wrong or gated; try the next candidate.
+   Then the SUBSYS dispatch and FTM itself, all replies on the same CMD socket:
 
-   INFERENCE: production Motorola builds often leave FTM reachable because the
-   factory calibration line uses exactly this path, but they may require the
-   modem to be in an FTM/offline operating mode first (DMS "set operating mode =
-   FTM" over QMI, or the diag `MODE` command). That is the most likely reason a
-   naive FTM poke returns nothing, and it is the first thing to vary.
+   | request      | reply                         | reading |
+   |--------------|-------------------------------|---------|
+   | `4b 32 00`   | `15 4b 32 00`                 | subsys 0x32 dispatch is live; `0x15` = BAD_LEN |
+   | `4b 0b 00 00`| (silence)                     | FTM cmd 0 dropped |
+   | `4b 0b 01 00`| `14 4b 0b 01 00` + 14 zero bytes (20 B) | FTM cmd 1 answered with a status/echo |
+   | `4b 0b 02 00`| `4b 0b 02 00` (clean echo, 7 B)| FTM cmd 2 **accepted, no error byte** |
+   | `4b 0b 03 00`| (silence)                     | dropped |
+   | `4b 0b 04 00`| `13 4b 0b 04 00`              | `0x13` = BAD_CMD, cmd 4 not implemented |
+
+   So the FTM subsystem is reachable from the AP on this fused build — the factory
+   calibration path is open. The leading byte is a DIAG status: `0x13` BAD_CMD,
+   `0x14` (status/partial), `0x15` BAD_LEN; a clean echo with no status byte
+   (cmd 2) is an accept. The reply comes back on the CMD socket, not DATA, for
+   these — the `--match-prefix` DATA path was added for the log-stream case but
+   was not needed here.
+
+   Tooling: `rhodep-diag-server.py --restart-modem --cmd <hex> --cmd-after N`.
+   `--restart-modem` is required because the modem binds diag to whoever connected
+   first; it is safe as long as LTE is not attached. Each probe is one modem
+   restart (~18 s), so the next step is a sweep mode that sends many FTM command
+   ids after a single handshake.
+
+   INFERENCE / still open: the RF-bearing FTM commands (set mode, tune, IQ) are
+   at specific higher ids and take a structured request body; several likely
+   require the modem in an offline/FTM **operating mode** first (DMS "set
+   operating mode = FTM" over QMI, or the diag MODE command). The low ids probed
+   here are FTM's own control/dispatch, not the RF driver yet.
 
 3. **RF driver / transceiver query (still read-only)** — once FTM answers, the RF
    sub-commands that *read* state: current band, PLL/LO lock, RX gain state, the

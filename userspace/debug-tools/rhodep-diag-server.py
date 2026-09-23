@@ -244,6 +244,20 @@ def main():
                          "0x00 is version, 0x0c verno, 0x7c extended build id")
     ap.add_argument("--cmd-after", type=float, default=8.0,
                     help="seconds to wait for the handshake before sending")
+    ap.add_argument("--ftm-sweep", metavar="LO-HI", default=None,
+                    help="after the handshake, send FTM (4b 0b) requests for "
+                         "every command id in the range LO-HI (decimal) to the "
+                         "modem CMD service and print each reply. One handshake "
+                         "for the whole sweep, so it maps the FTM command space "
+                         "in a single modem restart instead of one per id.")
+    ap.add_argument("--match-prefix", metavar="HEX", default=None,
+                    help="also treat any packet on ANY diag socket whose payload "
+                         "starts with these bytes as a response to --cmd, and "
+                         "print it in full (untruncated). A SUBSYS command's "
+                         "reply (e.g. FTM, 4b0b...) comes back on the DATA "
+                         "service mixed into the log stream, not on the socket "
+                         "the request was sent from, so the plain --cmd recv "
+                         "misses it. Set this to the command's leading bytes.")
     ap.add_argument("--dump", metavar="FILE",
                     help="append every DATA packet from the modem to FILE, "
                          "raw, fsync'd per packet. This is what survives the "
@@ -378,7 +392,10 @@ def main():
                 % (last_eq, nr))
 
     cmd_sock = None
-    cmd_deadline = time.time() + args.cmd_after if args.cmd else None
+    cmd_deadline = time.time() + args.cmd_after \
+        if (args.cmd or args.ftm_sweep) else None
+    match_prefix = bytes.fromhex(args.match_prefix.replace("0x", "")) \
+        if args.match_prefix else None
 
     seen = before
     end = time.time() + args.seconds
@@ -410,6 +427,13 @@ def main():
                 % (INSTANCES[inst], addr, len(data),
                    data.hex() if INSTANCES[inst] == "CNTL"
                    else data[:64].hex()))
+            # A SUBSYS command reply (FTM etc.) echoes the command's leading
+            # bytes and arrives here on DATA, not on cmd_sock. Print it whole.
+            if match_prefix and data[:len(match_prefix)] == match_prefix:
+                say("=== MATCH (cmd reply) on %s from %s: %d bytes ===\n%s"
+                    % (INSTANCES[inst], addr, len(data), data.hex()))
+                say("   as text: %s" % "".join(chr(c) if 32 <= c < 127 else "."
+                                               for c in data))
             # The modem concatenates several control packets into one
             # datagram -- the 4020, 3692 and 2888 byte reads are all
             # multi-packet -- and this used to parse only the first, so
@@ -477,6 +501,50 @@ def main():
             where = modem_cmd_port()
             if not where:
                 say("the modem is not publishing its CMD service; no handshake?")
+            elif args.ftm_sweep:
+                say("modem CMD service at node %d port %d" % where)
+                lo, hi = (int(x) for x in args.ftm_sweep.split("-"))
+
+                def fresh_cmd_sock():
+                    sk = socket.socket(socket.AF_QIPCRTR, socket.SOCK_DGRAM)
+                    sk.settimeout(0.4)
+                    return sk
+
+                ss = fresh_cmd_sock()
+                for cid in range(lo, hi + 1):
+                    req = bytes([0x4b, 0x0b]) + struct.pack("<H", cid)
+                    # A command the modem dislikes resets the QRTR connection
+                    # (ECONNRESET), which poisons the socket for every id after
+                    # it. Re-resolve the port and make a fresh socket on any
+                    # error so one bad id does not blank the rest of the sweep.
+                    try:
+                        ss.sendto(req, where)
+                    except OSError as e:
+                        say("FTM cmd %3d (0x%02x): send reset (%s), resocket"
+                            % (cid, cid, e.errno))
+                        ss.close()
+                        w = modem_cmd_port()
+                        if w:
+                            where = w
+                        ss = fresh_cmd_sock()
+                        continue
+                    try:
+                        d, _ = ss.recvfrom(4096)
+                        txt = "".join(chr(c) if 32 <= c < 127 else "." for c in d)
+                        say("FTM cmd %3d (0x%02x): %2d B  %s  |%s|"
+                            % (cid, cid, len(d), d.hex(), txt))
+                    except socket.timeout:
+                        say("FTM cmd %3d (0x%02x): --- no reply" % (cid, cid))
+                    except OSError as e:
+                        say("FTM cmd %3d (0x%02x): recv reset (%s), resocket"
+                            % (cid, cid, e.errno))
+                        ss.close()
+                        w = modem_cmd_port()
+                        if w:
+                            where = w
+                        ss = fresh_cmd_sock()
+                    time.sleep(0.05)
+                say("FTM sweep %d-%d done" % (lo, hi))
             else:
                 say("modem CMD service at node %d port %d" % where)
                 req = bytes.fromhex(args.cmd.replace("0x", ""))

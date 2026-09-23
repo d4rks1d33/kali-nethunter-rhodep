@@ -1004,7 +1004,7 @@ Everything under `packages/` and `userspace/` is **rootfs**, not boot image —
 none of it is in this `.img`. To get the userspace side onto a device see
 "Building the Kali rootfs (debos)" and the per-component `install.sh` scripts.
 
-## The 97 applied patches (`kernel/patches/`, applied in this order)
+## The 103 applied patches (`kernel/patches/`, applied in this order)
 
 The order below is the aport's `source=` order, which is what `patch` sees; it
 is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
@@ -1158,6 +1158,21 @@ is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
                                          give each core a capacity-dmips-mhz, so
                                          the scheduler/EAS steers UI threads onto
                                          the big cores instead of a flat 8-way SMP
+0115 ath10k-allow-raw-tx-on-monitor-vdev-for-WCN3990  raw TX on the monitor vdev
+                                         so injection works on WCN3990
+0116 ath10k-htt_rx-use-decap_align_bytes-in-nwifi-hdrlen  fix nwifi hdrlen in the
+                                         HTT RX decap path
+0117 ath10k-deliver-wmi-mgmt-to-monitor-on-WCN3990  hand WMI mgmt frames to the
+                                         monitor interface on WCN3990
+0118 ath10k-advertise-AUTH_AND_DEAUTH_RANDOM_TA-ext-feature  advertise the random
+                                         TA ext feature for deauth
+0122 ath10k-rhodep-wcn3990-monitor-injection-5ghz  monitor-mode injection on the
+                                         internal WCN3990 across 2.4 and 5 GHz
+0123 arm64-dts-qcom-rhodep-bind-typec-tusb320  bind the SGM7220 (a TUSB320 clone)
+                                         at i2c 0x47 with extcon-usbc-tusb320 and
+                                         wire its usb-c-connector to the dwc3 role
+                                         switch, so Type-C role/orientation is
+                                         detected instead of poked by hand
 ```
 
 0062 and 0063 are kept but neither changes the glitched lines they were written

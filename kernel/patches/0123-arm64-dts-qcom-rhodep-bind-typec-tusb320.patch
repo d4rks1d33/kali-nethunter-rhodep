@@ -1,0 +1,86 @@
+From: Kali NetHunter rhodep port
+Subject: [PATCH] arm64: dts: qcom: rhodep: bind the Type-C controller (TUSB320)
+
+The single USB-C port has no Type-C driver, so role selection is done by
+hand: the rhodep-usb-otg package pokes the SGM41542 charger's OTG_CONFIG bit
+over i2c and flips the dwc3 role switch from a script. It works but is manual
+and does not react to the cable.
+
+The port controller is an SGM7220, which is a register-level clone of the TI
+TUSB320, and mainline already drives that with extcon-usbc-tusb320. Confirmed
+on the device before adding the node: on the charger i2c bus (bus 3 here),
+address 0x47 answers, registers 0x00-0x07 read back the ASCII string "TUSB320"
+and register 0x09 reports a live attached-state with a cable-orientation bit.
+
+Add the "ti,tusb320" node at 0x47 with its IRQ on tlmm 11 (vendor sgm7220.dtsi
+intr_gpio), and a usb-c-connector whose OF-graph endpoint links to the dwc3
+role switch. The dwc3 node was already prepared for this (dr_mode = "otg",
+usb-role-switch, role-switch-default-mode = "peripheral"); this adds the
+matching port endpoint so the connector resolves to it. With this the
+controller reports orientation and CC role and sets host/device on the dwc3
+automatically, which is what the manual OTG script was standing in for.
+
+The default role stays "peripheral" so the USB gadget (and SSH over it) still
+comes up on a plain cable; host mode engages when a host cable/OTG adapter is
+detected.
+--- a/arch/arm64/boot/dts/qcom/sm6375-motorola-rhodep.dts	2026-09-23 16:08:14.941395005 +0000
++++ b/arch/arm64/boot/dts/qcom/sm6375-motorola-rhodep.dts	2026-09-23 16:08:37.227592002 +0000
+@@ -691,6 +691,39 @@
+ 		monitored-battery = <&battery>;
+ 		input-current-limit-microamp = <1000000>;
+ 	};
++
++	/*
++	 * SGM7220 Type-C port controller. Confirmed on the device to be a
++	 * register-level clone of the TI TUSB320: i2c bus 3 (this bus), address
++	 * 0x47, registers 0x00-0x07 read back the ASCII id "TUSB320", and
++	 * register 0x09 reports a live attached-state/orientation. Mainline
++	 * drives it with extcon-usbc-tusb320 (compatible "ti,tusb320").
++	 *
++	 * It reports cable orientation and the CC role, and through the
++	 * usb-c-connector graph below it flips the dwc3 role switch
++	 * automatically, replacing the manual OTG_CONFIG poke in
++	 * packages/rhodep-usb-otg. IRQ is tlmm 11 (vendor sgm7220.dtsi
++	 * intr_gpio = <&tlmm 11 0x0>), active-low.
++	 */
++	typec@47 {
++		compatible = "ti,tusb320";
++		reg = <0x47>;
++		interrupts-extended = <&tlmm 11 IRQ_TYPE_EDGE_FALLING>;
++
++		connector {
++			compatible = "usb-c-connector";
++			label = "USB-C";
++			data-role = "dual";
++			power-role = "dual";
++			try-role = "sink";
++
++			port {
++				tusb320_hs_ep: endpoint {
++					remote-endpoint = <&dwc3_hs_ep>;
++				};
++			};
++		};
++	};
+ };
+ 
+ &i2c10 {
+@@ -1193,6 +1226,18 @@
+ 	 */
+ 	usb-role-switch;
+ 	role-switch-default-mode = "peripheral";
++
++	/*
++	 * Graph link back to the Type-C connector on the SGM7220/TUSB320. The
++	 * connector's fwnode_usb_role_switch_get() resolves through this port to
++	 * this dwc3 role switch, so the Type-C controller can set host/device
++	 * automatically on cable orientation and CC role.
++	 */
++	port {
++		dwc3_hs_ep: endpoint {
++			remote-endpoint = <&tusb320_hs_ep>;
++		};
++	};
+ };
+ 
+ &usb_1_hsphy {

@@ -709,8 +709,21 @@ The README there covers, one section per directory:
   is neither a surveyed WiFi neighbourhood nor a known cell. The shipped
   configuration disables geoclue's `[modem-gps]` source deliberately — it would
   ask ModemManager to start an unassisted GNSS session, which is the reset.
-- Single USB-C port + no mainline Type-C driver → charge vs OTG is not automatic
-  (manual `otg on|off`, defaults to charging). See `packages/rhodep-usb-otg`.
+- Single USB-C port → charge vs OTG is **not** automatic (manual `otg on|off`,
+  defaults to charging). See `packages/rhodep-usb-otg`. Patch 0123 binds the
+  port controller (an SGM7220, a register-level TUSB320 clone at i2c 0x47) with
+  `extcon-usbc-tusb320`, and it does light up `/sys/class/typec/port0` and report
+  cable **orientation** correctly — but it cannot drive the role switch by itself
+  on this board, for two hardware reasons found by testing: (1) the controller's
+  CC lines do not sense the OTG adapter — in DRP it reads "not attached" (reg 0x09
+  stays 0x30) and its IRQ never fires; (2) VBUS is not the TUSB320's to give — it
+  comes from the **SGM41542 charger's** OTG boost (reg 0x01 bit 0x20), which
+  nothing in the Type-C path toggles. Forcing `role=host` **and** poking that
+  charger bit by hand does enumerate a host device (verified: a TP-Link AC600
+  RTL8811AU came up and `rtw_8821au` loaded), which is exactly what `otg on` does.
+  So 0123 is kept for orientation + the typec infrastructure, but the manual `otg`
+  workaround remains the way host mode is entered. Details in
+  [`docs/usb-typec.md`](docs/usb-typec.md).
 - **Docker can fail to start after an out-of-band kernel/module bump** with
   `iptables ... CHAIN_ADD failed ... chain PREROUTING` — a stale `/lib/modules`
   `.ko` set that no longer matches the flashed boot image (a `=y`-vs-`=m` netfilter
@@ -1171,8 +1184,12 @@ is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
 0123 arm64-dts-qcom-rhodep-bind-typec-tusb320  bind the SGM7220 (a TUSB320 clone)
                                          at i2c 0x47 with extcon-usbc-tusb320 and
                                          wire its usb-c-connector to the dwc3 role
-                                         switch, so Type-C role/orientation is
-                                         detected instead of poked by hand
+                                         switch. Gives cable orientation + the
+                                         typec sysfs node; does NOT auto-switch
+                                         host/device on this board (CC not sensed,
+                                         VBUS is the charger's) -- see docs/usb-
+                                         typec.md and Known-limitations. `otg`
+                                         stays the way host mode is entered
 ```
 
 0062 and 0063 are kept but neither changes the glitched lines they were written

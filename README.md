@@ -426,6 +426,23 @@ it takes the ADSP and audio down with it until a reboot.
    engine, while the Q6 running software is demonstrably fine. Read
    `docs/watchdog-ipa-lte-wip/HANDOFF.md` first.
 
+   **Confirmed again 2026-09-23, and it sharpens "real attach".** With `ipa.ko`
+   loaded and the modem forced to `allowed=4g` (`mmcli -m 0 --set-allowed-modes=4g`),
+   the radio does the full LTE RF job: a `--3gpp-scan` returns the live cell list
+   (`CLARO AR (lte, forbidden)`, `Movistar (lte, available)`,
+   `PERSONAL (lte, current)`), so scan/measurement on LTE is not what trips it.
+   The phone stayed up the whole time (20 → 23 min, no reset) because the test
+   SIM was a dead prepaid that the network refused with
+   `no-suitable-cells-in-location-area` — i.e. it selected and measured LTE but
+   never completed the attach. On the owner's live SIM (with credit) the reset
+   *does* fire the moment 4G connects. So the boundary is now tight: LTE
+   selection + scan + measurement is safe; the reset is bound to the **completed
+   attach / bearer activation**, the point where the modem lights the LTE data
+   engine (the same class of trigger as the GNSS measurement engine above). A
+   dead SIM cannot reproduce it; reproducing it needs a SIM that actually
+   attaches. This rules the AP-side RF/QMI path further out and points squarely
+   at the modem's data-engine bring-up under IPA.
+
    Already bisected, on the device, one reboot per row: it is not the
    indications (an empty event mask still resets), not the optional start TLVs,
    not `QMI_LOC_START` as a message (`qmicli` sends it and survives, because it

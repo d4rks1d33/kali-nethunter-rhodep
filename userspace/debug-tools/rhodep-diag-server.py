@@ -250,6 +250,19 @@ def main():
                          "modem CMD service and print each reply. One handshake "
                          "for the whole sweep, so it maps the FTM command space "
                          "in a single modem restart instead of one per id.")
+    ap.add_argument("--rftest-sweep", metavar="CMDID:LO-HI", default=None,
+                    help="RF-test probe: for FTM ftm_cmd_id CMDID (hex, e.g. 03), "
+                         "send 4b 0b <CMDID16> <sub16> 0000 (empty TLV list) for "
+                         "every sub-command in LO-HI, to find which sub-command "
+                         "the RF-test dispatcher accepts (RADIO_CONFIG / RX_MEASURE"
+                         " / IQ_CAPTURE / COMMAND_CAPABILITY ...). One socket per "
+                         "sub so replies stay correlated.")
+    ap.add_argument("--set-ftm-after", action="store_true",
+                    help="after the DIAG handshake completes (which needs the "
+                         "modem restart), put the modem in Factory Test Mode via "
+                         "QMI DMS set-operating-mode=factory-test, then run the "
+                         "sweep. Keeps FTM and a fresh handshake together, since "
+                         "the SSR sometimes resets the operating mode to online.")
     ap.add_argument("--ftm-l2", metavar="SEL:LO-HI", default=None,
                     help="level-2 sweep: for FTM dispatcher SEL (decimal), send "
                          "4b 0b <SEL16> <cmd_id16> <len16=0> for every cmd_id in "
@@ -397,9 +410,52 @@ def main():
             say("  modem log ranges: last_equip=%d num_ranges=%d"
                 % (last_eq, nr))
 
+    def set_operating_mode(mode, why):
+        """QMI DMS SET_OPERATING_MODE over a raw QRTR socket (no QMUX).
+        mode: 0 online, 2 factory-test, 3 offline."""
+        DMS_SVC = 2
+        lk = socket.socket(socket.AF_QIPCRTR, socket.SOCK_DGRAM)
+        node, _ = lk.getsockname()
+        lk.sendto(struct.pack("<IIIII", 10, DMS_SVC, 0, 0, 0),
+                  (node, QRTR_PORT_CTRL))
+        lk.settimeout(2.0)
+        dms = None
+        end_l = time.time() + 2.0
+        while time.time() < end_l:
+            try:
+                d, _ = lk.recvfrom(4096)
+            except socket.timeout:
+                break
+            if len(d) >= 20:
+                cmd, svc, inst, dn, dp = struct.unpack_from("<IIIII", d, 0)
+                if cmd == 4 and svc == DMS_SVC:
+                    dms = (dn, dp)
+                    break
+        lk.close()
+        if not dms:
+            say("  DMS service not found; cannot set operating mode")
+            return False
+        # QMI SDU: flags(0) txn(1) msgid(0x002E) len(4) TLV{01, len1, mode}
+        qmi = bytes([0x00, 0x01, 0x00, 0x2E, 0x00, 0x04, 0x00,
+                     0x01, 0x01, 0x00, mode])
+        ds = socket.socket(socket.AF_QIPCRTR, socket.SOCK_DGRAM)
+        ds.settimeout(2.0)
+        try:
+            ds.sendto(qmi, dms)
+            r, _ = ds.recvfrom(1024)
+            say("  DMS set operating mode=%d (%s): reply %s" % (mode, why, r.hex()))
+            ok = True
+        except (socket.timeout, OSError) as e:
+            say("  DMS set operating mode=%d failed: %s" % (mode, e))
+            ok = False
+        finally:
+            ds.close()
+        return ok
+
     cmd_sock = None
     cmd_deadline = time.time() + args.cmd_after \
-        if (args.cmd or args.ftm_sweep or args.ftm_l2) else None
+        if (args.cmd or args.ftm_sweep or args.ftm_l2 or args.rftest_sweep) \
+        else None
     match_prefix = bytes.fromhex(args.match_prefix.replace("0x", "")) \
         if args.match_prefix else None
 
@@ -504,9 +560,44 @@ def main():
                                 say("  could not send %s: %s" % (nm, e))
         if cmd_deadline and time.time() > cmd_deadline:
             cmd_deadline = None
+            if args.set_ftm_after:
+                say("putting the modem in Factory Test Mode now (post-handshake)")
+                set_operating_mode(2, "factory-test")
+                time.sleep(1.0)
             where = modem_cmd_port()
             if not where:
                 say("the modem is not publishing its CMD service; no handshake?")
+            elif args.rftest_sweep:
+                say("modem CMD service at node %d port %d" % where)
+                cidpart, rng = args.rftest_sweep.split(":")
+                cmdid = int(cidpart, 16)
+                lo, hi = (int(x) for x in rng.split("-"))
+                say("RF-test sweep: ftm_cmd_id 0x%02x, sub-command %d-%d"
+                    % (cmdid, lo, hi))
+                for sub in range(lo, hi + 1):
+                    # 4b 0b <cmdid16> <sub16> <num_tlv16=0>
+                    req = bytes([0x4b, 0x0b]) + struct.pack("<HHH", cmdid, sub, 0)
+                    sk = socket.socket(socket.AF_QIPCRTR, socket.SOCK_DGRAM)
+                    sk.settimeout(0.5)
+                    try:
+                        sk.sendto(req, where)
+                        d, _ = sk.recvfrom(8192)
+                        txt = "".join(chr(c) if 32 <= c < 127 else "." for c in d)
+                        flag = "" if d[:1] == b"\x13" else "  <<<"
+                        say("  cmd 0x%02x sub %3d: %3d B  %s  |%s|%s"
+                            % (cmdid, sub, len(d), d.hex()[:120], txt[:60], flag))
+                    except socket.timeout:
+                        say("  cmd 0x%02x sub %3d: --- no reply" % (cmdid, sub))
+                    except OSError as e:
+                        say("  cmd 0x%02x sub %3d: reset (errno %s)"
+                            % (cmdid, sub, e.errno))
+                        w = modem_cmd_port()
+                        if w:
+                            where = w
+                    finally:
+                        sk.close()
+                    time.sleep(0.1)
+                say("RF-test sweep done")
             elif args.ftm_l2:
                 say("modem CMD service at node %d port %d" % where)
                 selpart, rng = args.ftm_l2.split(":")

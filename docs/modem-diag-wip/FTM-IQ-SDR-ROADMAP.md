@@ -212,6 +212,37 @@ Still expected: a large IQ buffer comes back through the FTM memshare loan
 (client-id 1, 5 MiB), which this port already implements
 (`userspace/modem/memshare-daemon.c`), not as a big inline DIAG reply.
 
+### Live RF-test probing on top of the blob evidence (2026-09-24)
+
+Coordinating FTM mode with the DIAG handshake was the practical blocker: FTM
+commands only answer after the handshake (which needs a modem restart), and the
+restart's SSR sometimes drops the operating mode back to online. Solved in
+`rhodep-diag-server.py` with `--set-ftm-after`: do the restart for the handshake,
+then set factory-test over QMI DMS from inside the tool (raw QRTR, msg 0x2E, the
+DMS reply `0201002e0007 0002 0400 0000 0000` = result 0), then sweep. FTM + a
+fresh handshake now hold together.
+
+With that, `--rftest-sweep CMDID:LO-HI` sends `4b 0b <cmdid16> <sub16> <num_tlv=0>`
+across sub-commands. Two candidate dispatchers were compared:
+
+- **ftm_cmd_id 0x03 (FTM_RF):** every sub-command 0-15 returns the *same*
+  `14 4b0b0300 <sub> .. a79eae9c` — a uniform status 0x14 with a constant magic,
+  i.e. it does NOT discriminate sub-commands. Not the RF-test dispatcher (or it
+  needs a different entry shape).
+- **ftm_cmd_id 0x27 (FTM_LTE):** sub-commands behave *differently* from each
+  other — sub 0, 5, 6 return a clean `4b0b2700 <sub> 0000` echo (accepted with an
+  empty TLV list), sub 1-4 return status 0x14 (recognised but need TLVs), sub
+  7-15 are absent. This is a real dispatcher that decodes the sub-command.
+
+So the RF-test path on this build is the per-technology cmd_id (0x27 for LTE),
+not the generic FTM_RF, and the accepted empty-TLV sub-commands (0, 5, 6) are the
+ones to identify — one is almost certainly COMMAND_CAPABILITY, which enumerates
+the rest. The status-0x14 subs (1-4) are the ones that take a TLV body
+(RADIO_CONFIG / RX_MEASURE / IQ_CAPTURE need CENTER_FREQ, NUM_OF_SAMPLES, ...).
+Next: read COMMAND_CAPABILITY's reply to name the sub-commands, then build a
+RADIO_CONFIG (tune) + RX_MEASURE/IQ_CAPTURE TLV request using the field-ids
+already extracted (blob-analysis/rftest_tlv_IQ_CAPTURE_ids.txt).
+
 4. **RX tune + measurement** — set the receiver to a frequency and read back
    RSSI / an FFT bin / a power measurement. Still no TX. This is where "does the
    RX chain actually retune off the cellular bands" gets answered. The transceiver

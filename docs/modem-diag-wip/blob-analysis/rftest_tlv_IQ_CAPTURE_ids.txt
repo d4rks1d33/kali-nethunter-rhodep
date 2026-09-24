@@ -1,0 +1,97 @@
+FTM RF-TEST : RX_MEASURE / IQ_CAPTURE  TLV field-id table (FACT)
+Source: char* array @ 0xc906c720 (seg23). field_id = array index.
+Module: ftm_rf_test_rx_measure.c / ftm_rf_test_iq_capture.c
+Log tag [FTM.RFTEST][RX_MEASURE] and [FTM.RFTEST][IQ_CAPTURE]
+
+field_id  name                                  ptr_va
+  0       UNASSIGNED                            0xc906c720
+  1       RX_CARRIER                            0xc906c724
+  2       RFM_DEVICE                            0xc906c728
+  3       EXPECTED_AGC                          0xc906c72c
+  4       RX_AGC                                0xc906c730
+  5       LNA_GS                                0xc906c734
+  6       SIG_PATH                              0xc906c738
+  7       RX_MODE                               0xc906c73c
+  8       RX_SLOT                               0xc906c740
+  9       NUM_OF_BURST                          0xc906c744
+  10      SENSITIVITY                           0xc906c748
+  11      CTON                                  0xc906c74c
+  12      PEAK FREQ                             0xc906c750
+  13      FETCH_IQ                              0xc906c754
+  14      NUM_OF_SAMPLES                        0xc906c758
+  15      IQ_DATA_FORMAT                        0xc906c75c
+  16      SAMP_FREQ                             0xc906c760
+  17      OVERRIDE_LNA                          0xc906c764
+  18      RX_GAIN_CTL_TYPE                      0xc906c768
+  19      NO_TONE_SENSITIVITY                   0xc906c76c
+  20      NO_TONE_SENSITIVITY_SPUR_NUM          0xc906c770
+  21      NO_TONE_SENSITIVITY_SPUR_FERQ_OFFSET  0xc906c774
+  22      NO_TONE_SENSITIVITY_SPUR_LEVEL        0xc906c778
+  23      BEAM_ID                               0xc906c77c
+  24      TIME_US                               0xc906c780
+  25      SUB_FRAME_CONFIG                      0xc906c784
+  26      NUM_AVERAGES                          0xc906c788
+  27      RX_AGC_MIN                            0xc906c78c
+  28      RX_AGC_MAX                            0xc906c790
+  29      RX_AGC_STDDEV                         0xc906c794
+  30      CTON_MIN                              0xc906c798
+  31      CTON_MAX                              0xc906c79c
+  32      CTON_STDDEV                           0xc906c7a0
+  33      SENSITIVITY_MIN                       0xc906c7a4
+  34      SENSITIVITY_MAX                       0xc906c7a8
+  35      SENSITIVITY_STDDEV                    0xc906c7ac
+  36      NO_TONE_SENSITIVITY_MIN               0xc906c7b0
+  37      NO_TONE_SENSITIVITY_MAX               0xc906c7b4
+  38      NO_TONE_SENSITIVITY_STDDEV            0xc906c7b8
+  39      IQ_CAPTURE_TYPE                       0xc906c7bc
+  40      MEAS_FREQUENCY_ERROR                  0xc906c7c0
+  41      INPUT_CW_TONE_FREQUENCY               0xc906c7c4
+  42      RX_FREQUENCY_ERROR                    0xc906c7c8
+  43      APPLY_FREQUENCY_ERROR_TX              0xc906c7cc
+  44      NUM_OF_CAPTURES                       0xc906c7d0
+  45      IQ_SAMPLE_DEBUG_INFO_0                0xc906c7d4
+  46      IQ_SAMPLE_DEBUG_INFO_1                0xc906c7d8
+  47      IQ_SAMPLE_DEBUG_INFO_2                0xc906c7dc
+  48      SUB_TECH                              0xc906c7e0
+  49      RSB_FREQ                              0xc906c7e4
+  50      RSB_PWR_DBC                           0xc906c7e8
+  51      RSB_MEAS_INT                          0xc906c7ec
+  52      MEAS_TYPE                             0xc906c7f0
+  53      NUM_OF_TONES                          0xc906c7f4
+  54      MULTI_TONES_SENSITIVITY               0xc906c7f8
+  55      MULTI_TONES_PEAK_FREQ                 0xc906c7fc
+  56      MULTI_TONES_CTON                      0xc906c800
+  57      WAVE_TYPE                             0xc906c804
+  58      RB_OFFSET                             0xc906c808
+  59      MEAS_BER                              0xc906c80c
+  60      XPORT_BLKS_ERR                        0xc906c810
+  61      XPORT_BLKS_TOT                        0xc906c814
+  62      WAVE_ACTION                           0xc906c818
+  63      AGC_DBFS                              0xc906c81c
+  64      WVFM_IMMED_TRIGGER                    0xc906c820
+  65      DROOP_COMPENSATION                    0xc906c824
+  66      RX_IF_BACKOFF                         0xc906c828
+  67      RX_AGC_OUTER_LOOP                     0xc906c82c
+  68      DL_WAVEFORM_TYPE                      0xc906c830
+  69      WBEE_DBFS10                           0xc906c834
+  70      FFTEE_DBFS10                          0xc906c838
+  71      POWER_MODE_TYPE                       0xc906c83c
+  72      PATH_SWITCH                           0xc906c840
+  73      PATH_STATE                            0xc906c844
+  74      GAIN_DELTA                            0xc906c848
+
+Total: 75 fields (0..74)
+
+Key IQ-capture fields:
+  id=1   RX_CARRIER
+  id=4   RX_AGC
+  id=7   RX_MODE
+  id=10  SENSITIVITY
+  id=13  FETCH_IQ
+  id=14  NUM_OF_SAMPLES
+  id=15  IQ_DATA_FORMAT
+  id=16  SAMP_FREQ
+  id=17  OVERRIDE_LNA
+  id=18  RX_GAIN_CTL_TYPE
+  id=39  IQ_CAPTURE_TYPE
+  id=44  NUM_OF_CAPTURES

@@ -510,40 +510,38 @@ def main():
                     sk.settimeout(0.4)
                     return sk
 
-                ss = fresh_cmd_sock()
+                # A fresh socket per id, on purpose. A command the modem
+                # dislikes resets the QRTR connection (ECONNRESET); on a shared
+                # socket the reply to the *next* id then arrives on a poisoned
+                # socket and the whole sweep slips by one. One socket per id
+                # keeps every request/reply pair correlated -- slower, correct.
                 for cid in range(lo, hi + 1):
                     req = bytes([0x4b, 0x0b]) + struct.pack("<H", cid)
-                    # A command the modem dislikes resets the QRTR connection
-                    # (ECONNRESET), which poisons the socket for every id after
-                    # it. Re-resolve the port and make a fresh socket on any
-                    # error so one bad id does not blank the rest of the sweep.
+                    ss = fresh_cmd_sock()
                     try:
                         ss.sendto(req, where)
-                    except OSError as e:
-                        say("FTM cmd %3d (0x%02x): send reset (%s), resocket"
-                            % (cid, cid, e.errno))
-                        ss.close()
-                        w = modem_cmd_port()
-                        if w:
-                            where = w
-                        ss = fresh_cmd_sock()
-                        continue
-                    try:
                         d, _ = ss.recvfrom(4096)
+                        # verify the reply echoes this id (byte 2..3 after the
+                        # 4b 0b, or after a 1-byte status + 4b 0b)
+                        echo = None
+                        if len(d) >= 4 and d[0] == 0x4b and d[1] == 0x0b:
+                            echo = d[2] | (d[3] << 8)
+                        elif len(d) >= 5 and d[1] == 0x4b and d[2] == 0x0b:
+                            echo = d[3] | (d[4] << 8)
+                        tag = "" if echo == cid else " (echo=0x%x!)" % (echo or 0)
                         txt = "".join(chr(c) if 32 <= c < 127 else "." for c in d)
-                        say("FTM cmd %3d (0x%02x): %2d B  %s  |%s|"
-                            % (cid, cid, len(d), d.hex(), txt))
+                        say("FTM 0x%02x: %2d B  %s  |%s|%s"
+                            % (cid, len(d), d.hex(), txt, tag))
                     except socket.timeout:
-                        say("FTM cmd %3d (0x%02x): --- no reply" % (cid, cid))
+                        say("FTM 0x%02x: --- no reply" % cid)
                     except OSError as e:
-                        say("FTM cmd %3d (0x%02x): recv reset (%s), resocket"
-                            % (cid, cid, e.errno))
-                        ss.close()
+                        say("FTM 0x%02x: reset (errno %s)" % (cid, e.errno))
                         w = modem_cmd_port()
                         if w:
                             where = w
-                        ss = fresh_cmd_sock()
-                    time.sleep(0.05)
+                    finally:
+                        ss.close()
+                    time.sleep(0.08)
                 say("FTM sweep %d-%d done" % (lo, hi))
             else:
                 say("modem CMD service at node %d port %d" % where)

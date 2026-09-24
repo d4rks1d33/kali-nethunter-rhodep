@@ -88,10 +88,54 @@ and watch.
    operating mode = FTM" over QMI, or the diag MODE command). The low ids probed
    here are FTM's own control/dispatch, not the RF driver yet.
 
-3. **RF driver / transceiver query (still read-only)** — once FTM answers, the RF
-   sub-commands that *read* state: current band, PLL/LO lock, RX gain state, the
-   gain-index tables we already see logged as `CC:: Taps of gain indexes`. This
-   builds the register/parameter map of the transceiver without transmitting.
+3. **RF driver / transceiver query (still read-only)** — IN PROGRESS.
+
+   **Entering FTM mode — DONE (measured 2026-09-23).** The modem is put in
+   Factory Test Mode over QMI DMS, not DIAG:
+
+       sudo systemctl stop ModemManager           # so MM does not fight it
+       sudo qmicli -d qrtr://0 --dms-set-operating-mode=factory-test
+       sudo qmicli -d qrtr://0 --dms-get-operating-mode   # -> 'factory-test'
+       # ... FTM work ...
+       sudo qmicli -d qrtr://0 --dms-set-operating-mode=online
+       sudo systemctl start ModemManager
+
+   It is reversible and does not persist across a reboot (only
+   persistent-low-power(6) would). Notably, the diag `--restart-modem` SSR does
+   NOT knock it back to online — the mode survives the subsystem restart — so the
+   working recipe is: set factory-test, then run the diag server with
+   `--restart-modem` to get a fresh DIAG handshake while already in FTM.
+
+   **Key finding: FTM commands need the DIAG control handshake, not merely FTM
+   mode.** Without the handshake (feature-mask + DIAGID + masks, which only
+   completes on a modem restart) the FTM subsystem answers apps-level commands
+   like 0x00 but drops 4b 0b requests. With the handshake, the whole low command
+   space responds.
+
+   **FTM command map, FTM mode + handshake, one socket per id so every
+   request/reply is correlated** (`--ftm-sweep`, reply status byte: `0x13`
+   BAD_CMD, `0x14` status, clean `4b0b XX 00` echo = accepted; a payload after
+   the echo = data):
+
+   | FTM cmd | reply | reading |
+   |---------|-------|---------|
+   | 0x02 | `4b0b0200` | accepted, empty |
+   | 0x07 | `4b0b0700` + `00 00 00 03` | data |
+   | 0x09 | `4b0b0900` | accepted, empty |
+   | 0x0d | `4b0b0d00` + `01 10 00 00 00 00 00 00` | structured data |
+   | 0x10 | `4b0b1000` + `03 10 00 03 00 00 01 00` | data, some bytes vary run-to-run |
+   | 0x11 | `4b0b1100` | accepted, empty |
+   | 0x14 | `4b0b1400` + `00 03 00 00 10 00 01 00 ...` | data |
+   | 0x1b | `4b0b1b00` + `00 00 00 03 00 00 01 00` | data |
+   | 0x01,0x03,0x12,0x15 | `14 4b0b XX00 ...` | recognised, status 0x14 |
+   | 0x04-0x06,0x08,0x0a,0x0b,0x0c,0x0e,0x0f,0x13,0x16-0x1a,0x1c | `13 4b0b XX00` | BAD_CMD, not implemented |
+
+   The commands returning data (0x07, 0x0d, 0x10, 0x14, 0x1b) are the read-only
+   query candidates; the run-to-run variation in 0x10 means it reflects live
+   transceiver state. Next: name them against SCAT/QCSuper's FTM tables and the
+   old CLO `ftm_*` headers (FTM_COMMON vs per-tech dispatch), then find the
+   set-mode / tune / IQ-capture commands, which take structured request bodies
+   rather than the bare 4-byte header swept here.
 
 4. **RX tune + measurement** — set the receiver to a frequency and read back
    RSSI / an FFT bin / a power measurement. Still no TX. This is where "does the

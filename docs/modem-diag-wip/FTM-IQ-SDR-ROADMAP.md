@@ -519,17 +519,52 @@ open detail: where/how the TECH_ENTER DIAG response (SSID 0x17, subsys FTM) is
 delivered back over QRTR — likely a different port/instance than the CMD service
 we send to, or it needs the DIAG response routing that a real diag client sets up.
 
+### The response-routing detail, pinned down (2026-09-24)
+
+Traced the response path in the decompressed code
+(`blob-analysis/diag_response_routing.md`), correcting two guesses:
+- the handle @0x06 is NOT a response channel — it is a generic FTM context handle
+  (`0xd8062414` → `0xc0988ef4`, a framekey/refcount allocator); handle 0 is fine
+  and changing it does nothing to the response;
+- the DIAG response goes through the standard Qualcomm pipeline
+  `diagpkt_subsys_alloc(SSID 0x17)` → `diagpkt_commit` → diagbuffer drain →
+  `diagcomm_io_transmit` → QRTR sendto, out the **DIAG_DATA** channel (the inst-2
+  service the AP serves), NOT back on the CMD client socket. `diagpkt_subsys_alloc`
+  only reserves a buffer; the destination is decided at drain time.
+
+The gate: `diagcomm_io_transmit` is **`allow_flow`-gated**
+(`diagcomm_io_transmit: allow_flow=%d, channel_type=%d, ...`), and allow_flow is
+set only after the control handshake puts the DATA channel in Tx/real-time mode
+(`diagpkt_process_ctrl_msg: Tx Mode=%d for stream_id=%d`). apps commands (0x00,
+0x7c) return a short in-tick response that we catch; a subsys command's response
+is committed for **async drain by the DATA thread**, so if allow_flow is not set
+for our peer it stays in the buffer and never arrives.
+
+Live: sending TECH_ENTER from a client socket AND from the served DATA (inst-2)
+socket (`--from-data`), and dumping all DATA for 3-4 s, still shows no subsys
+response — only the F3 log/telemetry stream (which does drain, so the DATA channel
+is open for logs). So logs flow but the subsys command response does not, which
+points squarely at allow_flow/Tx-mode not being set for command responses by our
+handshake (the DIAGMODE we send sets real_time=1 but evidently not the exact
+Tx-mode/stream_id the drain checks).
+
+**Next session, concrete:** get `allow_flow=1` for the DATA channel — replay the
+exact control-message sequence a real diag client sends (feature mask + the
+Tx-mode/real-time control with the right stream_id) and confirm via the F3 string
+`diagcomm_io_transmit: allow_flow=1`. Once a subsys response drains, TECH_ENTER's
+8-byte status appears on the DATA socket, and then RADIO_CONFIG → IQ_CAPTURE run
+with the byte-level packets already worked out.
+
 ### Honest conclusion for this line of work
 
-The SDR ladder is complete except for this final plumbing detail. The whole
-protocol is decoded from the decompressed firmware — packet wrapper, TECH_ENTER
-sub_command 0x0d, TECH=1=LTE, the field-id model for tune and IQ capture, the
-0x14 state gate, and the memshare delivery path. The command is sent in the
-correct shape and accepted; what is not yet observed is its response, a QRTR
-delivery-routing question rather than a protocol unknown. Tooling
-(`rhodep-diag-server.py` with `--raw`, `--raw-seq`, `--iq-hunt`) and the full
-byte-level command sequence are in place for the next session to resolve the
-response routing and then run tech-enter → RADIO_CONFIG → IQ_CAPTURE.
+The SDR ladder is complete except for this final plumbing detail, now fully
+characterised. The whole FTM protocol is decoded from the decompressed firmware —
+packet wrapper, TECH_ENTER sub_command 0x0d, TECH=1=LTE, the tune/IQ field model,
+the 0x14 state gate, and the response pipeline. The command is sent correctly and
+accepted; the only remaining step is flipping `allow_flow` on the DATA channel so
+the subsys response drains to the socket we serve — a diag control-handshake
+detail, not a protocol unknown. Tooling (`--raw`, `--raw-seq`, `--iq-hunt`,
+`--from-data`) and the full byte-level sequence are ready for it.
 Everything reusable is in place: the DIAG transport and tooling
 (`rhodep-diag-server.py` with sweep/l2/rftest/cap/tech-enter-hunt modes), the
 full firmware-derived TLV field model, the dispatcher id, F3 routing, and the
@@ -558,8 +593,9 @@ front-end and the LTE-attach watchdog.
 | RADIO_CONFIG/IQ_CAPTURE sub_command | candidates 0-3, second table @0xca789780 |
 | TECH=LTE value | 1 (FACT, two ways) |
 | 0x14 gate | per-tech state byte @0xca7897b0 == 0x7 -> error; TECH_ENTER clears it (FACT) |
-| TECH_ENTER live | sent correctly + accepted (no 0x14); response not yet observed (QRTR delivery routing) |
-| tune → IQ capture | protocol fully decoded; blocked only on where the DIAG response comes back |
+| TECH_ENTER live | sent correctly + accepted (no 0x14); subsys response needs allow_flow on DATA |
+| response routing | DECODED: subsys rsp drains out DIAG_DATA (inst 2), allow_flow-gated by the Tx/RT control handshake |
+| tune → IQ capture | protocol fully decoded; last step = set allow_flow=1 so the response drains |
 | IQ samples out via memshare | infra already in the port (5 MiB FTM loan) |
 | arbitrary RX / TX | future |
 

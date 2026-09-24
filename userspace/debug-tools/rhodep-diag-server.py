@@ -261,6 +261,10 @@ def main():
                          "(so per-client state like 'tech entered' is kept), "
                          "printing each reply and any FTM F3 in between. For the "
                          "tech-enter -> radio-config -> iq-capture sequence.")
+    ap.add_argument("--from-data", action="store_true",
+                    help="with --raw, send the command FROM the served DATA (inst 2) "
+                         "socket instead of a fresh client socket, so the modem may "
+                         "route the subsys response back to that endpoint.")
     ap.add_argument("--raw", metavar="HEX", default=None,
                     help="send this exact raw DIAG payload (hex) to the modem CMD "
                          "service and print the full reply (CMD socket + non-log "
@@ -805,8 +809,12 @@ def main():
                 say("modem CMD service at node %d port %d" % where)
                 req = bytes.fromhex(args.raw.replace(" ", "").replace("0x", ""))
                 say("RAW request: %s" % req.hex())
-                sk = socket.socket(socket.AF_QIPCRTR, socket.SOCK_DGRAM)
-                sk.settimeout(3.0)
+                if args.from_data and 2 in socks:
+                    sk = socks[2]
+                    say("  (sending FROM the served DATA inst-2 socket)")
+                else:
+                    sk = socket.socket(socket.AF_QIPCRTR, socket.SOCK_DGRAM)
+                    sk.settimeout(3.0)
                 try:
                     sk.sendto(req, where)
                     end_r = time.time() + 4.0
@@ -853,8 +861,12 @@ def main():
                 say("RF-test one: cmd 0x%02x sub 0x%02x ntlv %d tlv %s"
                     % (cmdid, sub, ntlv, tlv.hex()))
                 say("  request: %s" % req.hex())
-                sk = socket.socket(socket.AF_QIPCRTR, socket.SOCK_DGRAM)
-                sk.settimeout(3.0)
+                if args.from_data and 2 in socks:
+                    sk = socks[2]   # the served DATA socket
+                    say("  (sending FROM the served DATA inst-2 socket)")
+                else:
+                    sk = socket.socket(socket.AF_QIPCRTR, socket.SOCK_DGRAM)
+                    sk.settimeout(3.0)
                 try:
                     sk.sendto(req, where)
                     # Listen on BOTH the cmd socket (inline echo/status) AND the
@@ -907,7 +919,8 @@ def main():
                 except OSError as e:
                     say("  send/recv error: %s" % e)
                 finally:
-                    sk.close()
+                    if not (args.from_data and 2 in socks):
+                        sk.close()
                 say("RF-test one done")
             elif args.rftest_sweep:
                 say("modem CMD service at node %d port %d" % where)

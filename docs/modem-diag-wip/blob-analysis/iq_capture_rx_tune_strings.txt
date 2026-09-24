@@ -1,0 +1,82 @@
+IQ-CAPTURE / RX-TUNE / RF-TEST related strings with vaddr
+
+0xc3569058  nr_rx_ctl_iq_capt.c
+0xc356949d  ftm_rf_debug_load_unity_dpd.cpp
+0xc35694bd  ftm_rf_debug_device_cal.cpp
+0xc35694d9  ftm_rf_debug_tx_measure_adv.cpp
+0xc35694f9  ftm_rf_debug_idc_cal.cpp
+0xc3569512  ftm_rf_debug_therm_read.cpp
+0xc356952e  ftm_rf_debug_vdpd_conversion.cpp
+0xc356954f  ftm_rf_debug_vdpd_cal.cpp
+0xc3569569  ftm_rf_debug_rx_measure.cpp
+0xc3569585  ftm_rf_debug_rx_override.cpp
+0xc3569621  ftm_rf_test_control.c
+0xc3569637  ftm_rf_test_radio_config.c
+0xc3569652  ftm_rf_test_rx_measure.c
+0xc356966b  ftm_rf_test_wait_trigger.c
+0xc3569686  ftm_rf_test_iq_capture.c
+0xc356969f  ftm_rf_test_tx_measure.c
+0xc356a3db  ftm_rf_debug_tx_measure.cpp
+0xc356a434  ftm_rf_test_irat_config.c
+0xc356e7c7  nr5g_ml1_iq_capture.c
+0xc356e7dd  nr5g_ml1_iq_capture_stm.c
+0xc356e7f7  nr5g_ml1_iq_log.c
+0xc379794c  RX_TUNE_CMD
+0xc37998cb  RX_TUNE_COMP_DELAY_CMD
+0xc379a6e4  RX_TUNE_BUF_TIMER_P
+0xc379a6f8  RX_TUNE_BUF_TIMER_S
+0xc379b936  RX_TUNE_COMP_CMD
+0xc37a3198  [SHANK] nrfw_rx_iq_capture .... enter
+0xc37a31cb  [SHANK] nrfw_rx_iq_capture .... before send
+0xc37a3204  [SHANK] nrfw_rx_iq_capture .... after cnf
+0xc37a323b  [SHANK] nrfw_rx_iq_capture .... exit
+0xc37be564  ftm_rf_debug_set_dpd_debug_mode.cpp
+0xc37beed5  ftm_rf_debug_tx_override.c
+0xc37bef2d  ftm_rf_debug_tech_enter_exit.c
+0xc37bf2ba  ftm_rf_debug_load_dpd.cpp
+0xc37c040b  ftm_rf_test_command_capability.c
+0xc37c0771  ftm_rf_test_msim_config.c
+0xc37c080f  ftm_rf_test_tx_control.c
+0xc37c08f4  [FTM.RFTEST][IQ_CAPTURE][UNPACK]:[%2d][%3d][ %12s ][ %12d ]
+0xc37c0949  [FTM.RFTEST][IQ_CAPTURE][REPACK]: [%2d][%3d][ %12s ][ %4d ][ 0x%8x ]
+0xc37c098e  [FTM.RFTEST][IQ_CAPTURE][REPACK]: [ %12s ] NOT PACKED
+0xc37c09c4  [FTM.RFTEST][IQ_CAPTURE][REPACK]: Swapped location of elements %d and %d
+0xc37cf068  Assertion (rx_tune_table_array[table_idx].handle_id < RFLM_HANDLE_COUNTS) failed
+0xc391c008  Assertion (rx_tune_params != NULL) failed
+0xc3ff7b3a  NR5G_ML1_IQ_CAPTURE_ABORT_CNF
+0xc3ffd084  NR5G_ML1_IQ_CAPTURE_STM[0]
+0xc3ffd09f  NR5G_ML1_IQ_CAPTURE_STM[1]
+0xc3ffd0ba  NR5G_ML1_IQ_CAPTURE_INACTIVE
+0xc3ffd0d7  NR5G_ML1_IQ_CAPTURE_OBJECT_WAIT
+0xc3ffd0f7  NR5G_ML1_IQ_CAPTURE_ACTIVE
+0xc3ffd112  NR5G_ML1_IQ_CAPTURE_LOGGING
+0xc3ffd12e  NR5G_ML1_IQ_CAPTURE_DIAG_REQ
+0xc3ffd14b  NR5G_ML1_IQ_CAPTURE_STOP_REQ
+0xc3ffd168  NR5G_ML1_IQ_CAPTURE_START_REQ
+0xc3ffd1a1  NR5G_ML1_IQ_CAPTURE_ABORT_REQ
+0xc3ffd1bf  NR5G_ML1_IQ_CAPTURE_INTERNAL_TRIGGER_REQ
+0xc3ffd1e8  NR5G_ML1_IQ_CAPTURE_MAC_METRICS_REQ
+0xc3ffd20c  NR5G_ML1_IQ_CAPTURE_TTI_WP_LOG_REQ
+0xc3ffd22f  NR5G_ML1_IQ_CAPTURE_IQ_LOG_REQ
+0xc3ffd24e  NR5G_ML1_IQ_CAPTURE_NB_LOG_REQ
+0xc3ffd26d  NR5G_ML1_IQ_CAPTURE_TTI_WP_LOG_CNF
+0xc3ffd290  NR5G_ML1_IQ_CAPTURE_IQ_LOG_CNF
+0xc3ffd2af  NR5G_ML1_IQ_CAPTURE_NB_LOG_CNF
+0xc3ffd2ce  NR5G_ML1_IQ_CAPTURE_LOGGING_DONE_IND
+0xc3ffd2f3  NR5G_ML1_IQ_CAPTURE_SM_NB_LOG_REQ
+0xc3ffd315  NR5G_ML1_IQ_CAPTURE_SLEEP_START_IND
+0xc3ffd339  NR5G_ML1_IQ_CAPTURE_SLEEP_STOP_IND
+0xc3ffd35c  NR5G_ML1_IQ_CAPTURE_MAC_METRICS_FILTER_INIT_REQ
+0xc3fff2a3  dlm2_ta_iq_capture
+0xc3fff348  iq_capture_mac_metrics
+0xc3fff3f0  ulrm_iq_capture
+0xc40096af  srch_iq_capture
+0xc400db60  RX_TUNED
+0xc401ba3a  sleep_iq_capture
+0xc401bc7f  iq_capture
+0xc4056b6b  LTE_ML1_SM_CONN_CGI_CSWITCH_RX_TUNE_DONE_IND
+0xc405ae4f  LTE_ML1_RFMGR_WAKEUP_RX_TUNED_IND
+0xc407e1b4  LTE_ML1_DLM_RX_TUNE_CNF
+0xc414b5ae  IQ_CAPTURE
+0xc414b959  FETCH_IQ
+0xc414baea  IQ_CAPTURE_TYPE

@@ -157,18 +157,60 @@ and watch.
      returns live-looking bytes (`00 fe dc fb cf c9`). This looks like a
      parameter/table read, the closest thing to HW telemetry found so far.
 
-   **Conclusion of the live probing.** The low selectors answer but behave like
+   **   Conclusion of the live probing.** The low selectors answer but behave like
    echo/parameter-read handlers, not the classic per-technology RF dispatch.
    Identifying which selector is set-mode / tune / IQ-capture is not resolvable by
-   blind probing — the numbers are proprietary to this firmware. The reliable
-   source is the modem image itself, which is now backed up for offline analysis:
-   `research/modem-blob/modem-blob-rhodep.tgz` (see its README) carries the split
-   MBN; the DIAG/FTM dispatch tables live in the `modem.b26` Hexagon segment.
-   That extraction is the next real step, cross-checked against these live
-   results. IQ capture, when its command is found, will almost certainly deposit
-   samples in the FTM memshare loan (client-id 1, 5 MiB) which this port already
-   implements (`userspace/modem/memshare-daemon.c`) — a large inline reply is not
-   how Qualcomm returns IQ.
+   blind probing — the numbers are proprietary to this firmware. So the modem
+   image was pulled and reverse-engineered offline (next section).
+
+### Blob extraction — the FTM table is real and IQ capture exists (2026-09-24)
+
+The modem MBN was reassembled into an ELF and disassembled with
+`llvm-objdump 18 --triple=hexagon`. Full write-up and data in
+`docs/modem-diag-wip/blob-analysis/` (REPORT.md + the raw tables). Backup blob:
+`research/modem-blob/modem-blob-rhodep.tgz`.
+
+What it establishes:
+
+- **The FTM subsystem table is real.** `DIAG_SUBSYS_FTM = 0x0B` is registered
+  with **75 entries** at vaddr `0xc37bd1e8` (segment b21, rodata). Each entry is
+  `{u16 selector_lo, u16 selector_hi, u32 dispatch_ptr}`. Cross-check: the five
+  selectors that answered live (7, 13, 16, 20, 27) are all in the table, and
+  0x07 is in FTM only, so this is the right table. The 74 real selector values
+  are in `blob-analysis/ftm_subsys_0x0B_selector_table.txt`.
+
+- **The per-selector handlers cannot be read statically.** Every `dispatch_ptr`
+  is the same value `0xd8150ed8`, a region that is not in any PT_LOAD — the FTM
+  handlers are relocated into it at boot. So the second-level `ftm_cmd_id`
+  decode is not disassemblable from the static image; it has to be probed live.
+
+- **IQ capture is present in this firmware.** Confirmed by module names and log
+  strings: `ftm_rf_test_iq_capture.c`, `nr5g_ml1_iq_capture.c` (+ `_stm`,
+  `_log`), a full `NR5G_ML1_IQ_CAPTURE_STM` state machine
+  (`START/STOP/ABORT_REQ`, `INACTIVE/WAIT`), and `[FTM.RFTEST][IQ_CAPTURE]
+  [UNPACK|REPACK]` pack/unpack logging. RX tune too: `RX_TUNE_CMD`,
+  `RX_TUNE_COMP_CMD`, `nrfw_rx_iq_capture` trace points.
+
+- **The RF-test command is TLV-based, and the parameter names are extracted.**
+  The IQ/RF-test payload carries named TLVs (full list in
+  `blob-analysis/ftm_rftest_tlv_param_names.txt`). The ones that matter:
+  - capture: `IQ_CAPTURE`, `FETCH_IQ`, `NUM_OF_SAMPLES`, `IQ_DATA_FORMAT`,
+    `SAMP_FREQ`, `IQ_GAIN`, `PEAK FREQ`;
+  - tune: `TECH_MODE`, `RX_MODE`, `RX_CARRIER`, `CENTER_FREQ`, `BWP_CENTER_FREQ`,
+    `BANDWIDTH`, `CC_BANDWIDTH`, `FREQUENCY`, `INTER_FREQ`;
+  - gain/AGC: `RX_AGC`, `RX_AGC_MIN/MAX`, `RX_GAIN_CTL_TYPE`, `MIXER_GAIN`.
+
+So the RX-capture recipe is now shaped by real firmware evidence: select a
+technology dispatcher, `TECH_MODE` + `RX_MODE`, tune with `CENTER_FREQ` /
+`BANDWIDTH` (+ `RX_CARRIER`), then `IQ_CAPTURE` with `NUM_OF_SAMPLES` /
+`SAMP_FREQ` / `IQ_DATA_FORMAT`, and `FETCH_IQ` to pull the samples. The exact
+selector and second-level command number for RF-test still have to be found by
+live probing (handlers are runtime-relocated), but the parameter model is no
+longer guesswork.
+
+Still expected: a large IQ buffer comes back through the FTM memshare loan
+(client-id 1, 5 MiB), which this port already implements
+(`userspace/modem/memshare-daemon.c`), not as a big inline DIAG reply.
 
 4. **RX tune + measurement** — set the receiver to a frequency and read back
    RSSI / an FFT bin / a power measurement. Still no TX. This is where "does the

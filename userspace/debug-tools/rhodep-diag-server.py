@@ -250,6 +250,12 @@ def main():
                          "modem CMD service and print each reply. One handshake "
                          "for the whole sweep, so it maps the FTM command space "
                          "in a single modem restart instead of one per id.")
+    ap.add_argument("--ftm-l2", metavar="SEL:LO-HI", default=None,
+                    help="level-2 sweep: for FTM dispatcher SEL (decimal), send "
+                         "4b 0b <SEL16> <cmd_id16> <len16=0> for every cmd_id in "
+                         "LO-HI, i.e. probe the per-technology command space "
+                         "inside one dispatcher. SEL is the selector the level-1 "
+                         "sweep found alive (e.g. one that returned data).")
     ap.add_argument("--match-prefix", metavar="HEX", default=None,
                     help="also treat any packet on ANY diag socket whose payload "
                          "starts with these bytes as a response to --cmd, and "
@@ -393,7 +399,7 @@ def main():
 
     cmd_sock = None
     cmd_deadline = time.time() + args.cmd_after \
-        if (args.cmd or args.ftm_sweep) else None
+        if (args.cmd or args.ftm_sweep or args.ftm_l2) else None
     match_prefix = bytes.fromhex(args.match_prefix.replace("0x", "")) \
         if args.match_prefix else None
 
@@ -501,6 +507,39 @@ def main():
             where = modem_cmd_port()
             if not where:
                 say("the modem is not publishing its CMD service; no handshake?")
+            elif args.ftm_l2:
+                say("modem CMD service at node %d port %d" % where)
+                selpart, rng = args.ftm_l2.split(":")
+                sel = int(selpart)
+                lo, hi = (int(x) for x in rng.split("-"))
+                say("FTM level-2 sweep on selector %d (0x%02x), cmd_id %d-%d"
+                    % (sel, sel, lo, hi))
+                for cid in range(lo, hi + 1):
+                    # 4b 0b <sel16> <cmd_id16> <len16=0>
+                    req = bytes([0x4b, 0x0b]) + struct.pack("<HHH", sel, cid, 0)
+                    sk = socket.socket(socket.AF_QIPCRTR, socket.SOCK_DGRAM)
+                    sk.settimeout(0.4)
+                    try:
+                        sk.sendto(req, where)
+                        d, _ = sk.recvfrom(4096)
+                        txt = "".join(chr(c) if 32 <= c < 127 else "." for c in d)
+                        # a BAD_CMD reply is 13 4b0b <sel16>; anything else that
+                        # is longer or does not start 0x13 is interesting
+                        flag = "" if (d[:1] == b"\x13") else "  <<<"
+                        say("  sel %d cmd_id 0x%02x: %2d B  %s  |%s|%s"
+                            % (sel, cid, len(d), d.hex(), txt, flag))
+                    except socket.timeout:
+                        say("  sel %d cmd_id 0x%02x: --- no reply" % (sel, cid))
+                    except OSError as e:
+                        say("  sel %d cmd_id 0x%02x: reset (errno %s)"
+                            % (sel, cid, e.errno))
+                        w = modem_cmd_port()
+                        if w:
+                            where = w
+                    finally:
+                        sk.close()
+                    time.sleep(0.08)
+                say("FTM level-2 sweep done")
             elif args.ftm_sweep:
                 say("modem CMD service at node %d port %d" % where)
                 lo, hi = (int(x) for x in args.ftm_sweep.split("-"))

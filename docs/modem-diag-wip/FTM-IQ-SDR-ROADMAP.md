@@ -132,10 +132,43 @@ and watch.
 
    The commands returning data (0x07, 0x0d, 0x10, 0x14, 0x1b) are the read-only
    query candidates; the run-to-run variation in 0x10 means it reflects live
-   transceiver state. Next: name them against SCAT/QCSuper's FTM tables and the
-   old CLO `ftm_*` headers (FTM_COMMON vs per-tech dispatch), then find the
-   set-mode / tune / IQ-capture commands, which take structured request bodies
-   rather than the bare 4-byte header swept here.
+   transceiver state.
+
+   **Correction on the structure (from cross-referencing the protocol).** The
+   `4b 0b <cmd16>` byte I first called the "FTM command" is really the FTM
+   **dispatcher selector** (which technology/handler), and the FTM packet is two
+   levels deep:
+
+       4b 0b <selector16> <ftm_cmd_id16> <len16> <payload...>
+
+   So the level-1 sweep above enumerated *which dispatchers exist*, with an
+   implicit inner cmd_id 0. `0x13` = no dispatcher registered there; a data reply
+   = a live dispatcher. The canonical selector numbers (FTM_COMMON≈100,
+   FTM_LTE_C≈39, FTM_1X≈13, …) are build-dependent and did NOT line up cleanly
+   with this firmware, so they cannot be assumed.
+
+   **Level-2 sweep (`--ftm-l2 SEL:LO-HI`), measured in FTM mode + handshake:**
+   - selector 13: every inner cmd_id returns `4b0b0d00 0110 <cmd_id> 00 ...`,
+     i.e. it echoes the cmd_id behind a fixed `0110` with no per-command
+     behaviour — an ack/echo handler, not a rich dispatcher. cmd_id 0x0a is the
+     one exception (27 B, longer).
+   - selector 16: same shape (`0210 <cmd_id> ...`) but with a varying return
+     byte — `01` for cmd_id 0x02-0x09, `04` for 0x0b-0x18 — and cmd_id 0x0a
+     returns live-looking bytes (`00 fe dc fb cf c9`). This looks like a
+     parameter/table read, the closest thing to HW telemetry found so far.
+
+   **Conclusion of the live probing.** The low selectors answer but behave like
+   echo/parameter-read handlers, not the classic per-technology RF dispatch.
+   Identifying which selector is set-mode / tune / IQ-capture is not resolvable by
+   blind probing — the numbers are proprietary to this firmware. The reliable
+   source is the modem image itself, which is now backed up for offline analysis:
+   `research/modem-blob/modem-blob-rhodep.tgz` (see its README) carries the split
+   MBN; the DIAG/FTM dispatch tables live in the `modem.b26` Hexagon segment.
+   That extraction is the next real step, cross-checked against these live
+   results. IQ capture, when its command is found, will almost certainly deposit
+   samples in the FTM memshare loan (client-id 1, 5 MiB) which this port already
+   implements (`userspace/modem/memshare-daemon.c`) — a large inline reply is not
+   how Qualcomm returns IQ.
 
 4. **RX tune + measurement** — set the receiver to a frequency and read back
    RSSI / an FFT bin / a power measurement. Still no TX. This is where "does the

@@ -266,13 +266,35 @@ Live probing this round, with the coordinated FTM+handshake tool:
   needs a mode entered (`ftm_rf_debug_tech_enter_exit.c`) before RADIO_CONFIG /
   RX_MEASURE / IQ_CAPTURE will run.
 
-**Next, as a focused fuzzing session (not blind):** sweep COMMAND_CAPABILITY
-across sub_command numbers on both 0x03 and 0x27 sending `QUERY_COMMAND=0xFFFFFFFF`
-(num_tlv=1) and watch for a reply carrying a CMD_MASK (a value + `0x%8x` pointer
-shape, not a bare echo). Once CMD_MASK is read, the whole enum is known; then do
+**COMMAND_CAPABILITY hunt run (2026-09-24).** Swept sub_command on 0x03 and 0x27
+with a `QUERY_COMMAND=0xFFFFFFFF` TLV (`--cap-sweep`):
+- 0x03: every sub returns the same status-0x14 echo of the request — it does not
+  decode the sub_command (needs a mode entered, or a different entry shape);
+- 0x27: subs 0/5/6 now accept the TLV with a **clean status** (no 0x14) and echo
+  it, subs 1-4 stay 0x14, 7+ absent. So under 0x27 the 0/5/6 subs take a
+  QUERY_COMMAND TLV without error — the best COMMAND_CAPABILITY candidates.
+
+The CMD_MASK did not come back inline in those echoes. But two non-log DATA
+packets appeared right after the RF-test commands, starting `60xx 0200` (not the
+`79/92/99` F3 log shapes), carrying `20 01 04 02 0000 a0000000 0a <10 bytes>`:
+`01 02 03 04 05 06 07 08 09 0a` in one and `24 28 2c 30 90 95 99 9d a1 a5` in the
+other. That is not a CMD_MASK — it is the RF gain-index tap tables (the same data
+the `CC:: Taps of gain indexes` log prints), i.e. the commands are provoking real
+RF-driver activity, and the structured replies come on the DATA service, not the
+CMD socket. The COMMAND_CAPABILITY REPACK format is `[%3d][%12s][%lld][0x%8x]`,
+so its CMD_MASK likely returns as a value+pointer on DATA too, which is why the
+inline CMD-socket echo does not show it.
+
+Live logs of this round are saved for offline correlation:
+`research/modem-blob/live-logs/` (cap03, cap27, rft27, ...).
+
+**Next, a focused pass (best given to an RE agent with the logs):** correlate the
+`60xx 0200` DATA packets with the exact sub_command that triggered them, decode
+the RF-test REPACK TLV framing on DATA to read the CMD_MASK, and identify which
+0x27 sub is COMMAND_CAPABILITY. Once CMD_MASK is read the enum is known; then
 tech-enter (group 16: SUB/TECH/SCENARIO) → RADIO_CONFIG tune → IQ_CAPTURE with
 the extracted field-ids. Everything up to the enum is done; this last unknown is
-bounded and has a firmware-provided answer.
+bounded and has a firmware-provided answer that comes back on DATA.
 
 ### Summary of the SDR ladder status
 

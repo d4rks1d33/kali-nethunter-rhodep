@@ -258,6 +258,13 @@ def main():
                          "--dump, writes the raw reply bytes to that file.")
     ap.add_argument("--rftest-ntlv", type=int, default=0,
                     help="num_tlv value to put in the --rftest-one header")
+    ap.add_argument("--cap-sweep", metavar="CMDID:LO-HI", default=None,
+                    help="COMMAND_CAPABILITY hunt: for FTM ftm_cmd_id CMDID (hex), "
+                         "send each sub-command LO-HI with num_tlv=1 and a "
+                         "QUERY_COMMAND TLV (field_id 1, u32 0xFFFFFFFF), looking "
+                         "for the sub that answers with a CMD_MASK (a reply longer "
+                         "than the bare header echo). Flags replies that carry "
+                         "extra bytes past the echoed request.")
     ap.add_argument("--rftest-sweep", metavar="CMDID:LO-HI", default=None,
                     help="RF-test probe: for FTM ftm_cmd_id CMDID (hex, e.g. 03), "
                          "send 4b 0b <CMDID16> <sub16> 0000 (empty TLV list) for "
@@ -463,7 +470,7 @@ def main():
     cmd_sock = None
     cmd_deadline = time.time() + args.cmd_after \
         if (args.cmd or args.ftm_sweep or args.ftm_l2 or args.rftest_sweep
-            or args.rftest_one) \
+            or args.rftest_one or args.cap_sweep) \
         else None
     match_prefix = bytes.fromhex(args.match_prefix.replace("0x", "")) \
         if args.match_prefix else None
@@ -576,6 +583,41 @@ def main():
             where = modem_cmd_port()
             if not where:
                 say("the modem is not publishing its CMD service; no handshake?")
+            elif args.cap_sweep:
+                say("modem CMD service at node %d port %d" % where)
+                cidpart, rng = args.cap_sweep.split(":")
+                cmdid = int(cidpart, 16)
+                lo, hi = (int(x) for x in rng.split("-"))
+                # QUERY_COMMAND TLV: field_id=1, len=4, value=0xFFFFFFFF
+                qtlv = struct.pack("<HH", 1, 4) + struct.pack("<I", 0xFFFFFFFF)
+                say("CMD_CAPABILITY hunt on ftm_cmd_id 0x%02x, sub %d-%d, QUERY_COMMAND=0xffffffff"
+                    % (cmdid, lo, hi))
+                for sub in range(lo, hi + 1):
+                    req = bytes([0x4b, 0x0b]) + struct.pack("<HHH", cmdid, sub, 1) + qtlv
+                    sk = socket.socket(socket.AF_QIPCRTR, socket.SOCK_DGRAM)
+                    sk.settimeout(0.6)
+                    try:
+                        sk.sendto(req, where)
+                        d, _ = sk.recvfrom(8192)
+                        # the reply echoes our request bytes after a status byte;
+                        # a CMD_MASK adds a value+pointer TLV, so a reply longer
+                        # than (1 status + len(req)) carries extra data.
+                        extra = len(d) - (1 + len(req))
+                        txt = "".join(chr(c) if 32 <= c < 127 else "." for c in d)
+                        flag = "  <<< EXTRA %d B" % extra if extra > 2 else ""
+                        say("  0x%02x sub %3d: %3d B  %s  |%s|%s"
+                            % (cmdid, sub, len(d), d.hex()[:140], txt[:50], flag))
+                    except socket.timeout:
+                        say("  0x%02x sub %3d: --- no reply" % (cmdid, sub))
+                    except OSError as e:
+                        say("  0x%02x sub %3d: reset (errno %s)" % (cmdid, sub, e.errno))
+                        w = modem_cmd_port()
+                        if w:
+                            where = w
+                    finally:
+                        sk.close()
+                    time.sleep(0.1)
+                say("CMD_CAPABILITY hunt done")
             elif args.rftest_one:
                 say("modem CMD service at node %d port %d" % where)
                 parts = args.rftest_one.split(":")

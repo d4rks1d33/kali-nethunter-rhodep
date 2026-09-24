@@ -286,15 +286,43 @@ so its CMD_MASK likely returns as a value+pointer on DATA too, which is why the
 inline CMD-socket echo does not show it.
 
 Live logs of this round are saved for offline correlation:
-`research/modem-blob/live-logs/` (cap03, cap27, rft27, ...).
+`research/modem-blob/live-logs/` (cap03, cap27, rft27, d27s0/5/6, DECODE.md).
 
-**Next, a focused pass (best given to an RE agent with the logs):** correlate the
-`60xx 0200` DATA packets with the exact sub_command that triggered them, decode
-the RF-test REPACK TLV framing on DATA to read the CMD_MASK, and identify which
-0x27 sub is COMMAND_CAPABILITY. Once CMD_MASK is read the enum is known; then
-tech-enter (group 16: SUB/TECH/SCENARIO) → RADIO_CONFIG tune → IQ_CAPTURE with
-the extracted field-ids. Everything up to the enum is done; this last unknown is
-bounded and has a firmware-provided answer that comes back on DATA.
+**Correction (2026-09-24, second live pass + decode).** Capturing the DATA
+socket per command and decoding it (`live-logs/DECODE.md`) showed the ~16 KB
+`60xx` "REPACK" packets are NOT the command reply — they are background RF/cal
+telemetry (RxDCO restore, WLAN/WCN), identical across sub 0/5/6, timestamped
+*before* the command, with a constant pointer/size and field_ids 0x0120/0x0121,
+not the group-22 CMD_MASK (field_id 3). Proven three ways (timing, invariance,
+content). The real reply to a 0x27 sub-command is the CMD-socket echo, clean, no
+CMD_MASK TLV. So:
+
+- **CMD_MASK is still UNKNOWN** — it is not in these captures.
+- **0x27 is FTM_LTE, and on this build its sub-commands only echo** (they do not
+  carry the RF-test REPACK). Not one `[FTM.RFTEST]`/`REPACK` string appears in any
+  capture, which suggests the RF-test F3/response path is not routed onto this
+  channel yet, OR the multi-tech RF-test lives under the generic dispatcher.
+- The generic multi-tech RF-test framework (RADIO_CONFIG / RX_MEASURE /
+  IQ_CAPTURE / COMMAND_CAPABILITY) most likely hangs off **FTM_RF = 0x03**, whose
+  sub-commands so far echo uniformly with status 0x14 — consistent with needing a
+  technology entered first, or a different sub-header.
+
+**Two concrete things to try next, both bounded:**
+1. On 0x03, read the CMD-socket reply (not DATA) across sub 0-15 with
+   QUERY_COMMAND, looking for field_id 3 in the *echo tail*; and try a tech-enter
+   first (`ftm_rf_debug_tech_enter_exit`, group 16 SUB/TECH/SCENARIO) before the
+   RF-test sub-commands, since 0x03's uniform 0x14 looks like "no mode entered".
+2. Check whether the RF-test F3 response stream needs its own log mask / a
+   different QRTR instance to be routed to the AP — no `[FTM.RFTEST]` text is
+   reaching us, so the structured reply may simply not be delivered on the
+   channel we serve. This is a routing question, answerable by enabling the RF
+   subsystem's SSID range in the msg mask and re-checking.
+
+Everything up to the enum is still solid (transport, FTM mode, dispatch table,
+TLV model + field-ids, dispatcher identification). The open item is narrowed to:
+get the RF-test framework to answer with its REPACK (right cmd_id + mode +
+routing), which the decode pass turned from "read the 16 KB blob" into these two
+specific checks.
 
 ### Summary of the SDR ladder status
 
@@ -304,9 +332,9 @@ bounded and has a firmware-provided answer that comes back on DATA.
 | FTM mode | DONE (QMI DMS factory-test, coordinated with handshake) |
 | FTM dispatch table | DONE (extracted + validated, 74 selectors) |
 | RF-test command model | DONE (TLV structure + all field-ids extracted) |
-| RF-test dispatcher id | DONE (0x27 LTE discriminates; 0x03 is the multi-tech generic) |
-| sub_command enum | IN PROGRESS (not static; read via COMMAND_CAPABILITY CMD_MASK) |
-| tech-enter → tune → IQ capture | NEXT (field model ready, needs the enum) |
+| RF-test dispatcher id | PARTIAL (0x27=FTM_LTE echoes; multi-tech RF-test likely under 0x03, needs mode/routing) |
+| sub_command enum | IN PROGRESS (not static; CMD_MASK not yet seen live — RF-test REPACK not routed to us) |
+| tech-enter → tune → IQ capture | BLOCKED on getting the RF-test framework to REPACK (cmd_id + mode + F3 routing) |
 | IQ samples out via memshare | infra already in the port (5 MiB FTM loan) |
 | arbitrary RX / TX | future |
 

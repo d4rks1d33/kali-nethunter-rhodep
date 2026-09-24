@@ -633,22 +633,45 @@ def main():
                 sk.settimeout(3.0)
                 try:
                     sk.sendto(req, where)
-                    # collect all reply datagrams for a couple seconds
+                    # Listen on BOTH the cmd socket (inline echo/status) AND the
+                    # served DATA/CNTL/DCI sockets, because the RF-test structured
+                    # reply (CMD_MASK, measurement/IQ pointers) comes back on DATA,
+                    # not on the socket the request was sent from. Print anything
+                    # that is not an obvious F3 log packet (F3 starts 0x79/0x92/
+                    # 0x99); flag the 0x60.. RF-test REPACK packets.
                     end_r = time.time() + 3.0
                     n = 0
+                    poll = list(socks.values()) + [sk]
                     while time.time() < end_r:
-                        try:
-                            d, a = sk.recvfrom(65536)
-                        except socket.timeout:
-                            break
-                        n += 1
-                        txt = "".join(chr(c) if 32 <= c < 127 else "." for c in d)
-                        say("  REPLY %d from %s: %d bytes" % (n, a, len(d)))
-                        say("    hex: %s" % d.hex())
-                        say("    txt: %s" % txt)
-                        if dump is not None:
-                            dump.write(d)
-                            dump.flush(); os.fsync(dump.fileno())
+                        got_any = False
+                        for ps in poll:
+                            try:
+                                d, a = ps.recvfrom(65536)
+                            except (BlockingIOError, socket.timeout, OSError):
+                                continue
+                            got_any = True
+                            if ps is sk:
+                                n += 1
+                                txt = "".join(chr(c) if 32 <= c < 127 else "."
+                                              for c in d)
+                                say("  CMD REPLY %d: %d B  %s |%s|"
+                                    % (n, len(d), d.hex(), txt))
+                                continue
+                            # served socket (DATA/CNTL/DCI): skip pure F3 logs
+                            if d[:1] in (b"\x79", b"\x92", b"\x99"):
+                                continue
+                            n += 1
+                            txt = "".join(chr(c) if 32 <= c < 127 else "."
+                                          for c in d)
+                            tag = " <<< RF-test REPACK" if d[:1] == b"\x60" else ""
+                            say("  DATA REPLY %d: %d B%s" % (n, len(d), tag))
+                            say("    hex: %s" % d.hex()[:400])
+                            say("    txt: %s" % txt[:200])
+                            if dump is not None:
+                                dump.write(d)
+                                dump.flush(); os.fsync(dump.fileno())
+                        if not got_any:
+                            time.sleep(0.02)
                     if n == 0:
                         say("  no reply")
                 except OSError as e:

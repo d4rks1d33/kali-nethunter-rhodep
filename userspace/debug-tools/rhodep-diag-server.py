@@ -250,6 +250,12 @@ def main():
                          "modem CMD service and print each reply. One handshake "
                          "for the whole sweep, so it maps the FTM command space "
                          "in a single modem restart instead of one per id.")
+    ap.add_argument("--iq-hunt", action="store_true",
+                    help="the real IQ path: send TECH_ENTER(LTE, sub 0x0d) with the "
+                         "correct FTM wrapper, then sweep COMMAND_CAPABILITY over RF "
+                         "sub_command 0..0x14 and print every CMD reply in full, to "
+                         "find which sub answers (that names the RFTEST enum). All "
+                         "on one socket so the entered-tech state is kept.")
     ap.add_argument("--raw-seq", metavar="HEX1,HEX2,...", default=None,
                     help="send several raw DIAG payloads in order on ONE socket "
                          "(so per-client state like 'tech entered' is kept), "
@@ -490,7 +496,7 @@ def main():
     cmd_deadline = time.time() + args.cmd_after \
         if (args.cmd or args.ftm_sweep or args.ftm_l2 or args.rftest_sweep
             or args.rftest_one or args.cap_sweep or args.tech_enter_hunt
-            or args.raw or args.raw_seq) \
+            or args.raw or args.raw_seq or args.iq_hunt) \
         else None
     match_prefix = bytes.fromhex(args.match_prefix.replace("0x", "")) \
         if args.match_prefix else None
@@ -698,6 +704,57 @@ def main():
                         sk.close()
                     time.sleep(0.1)
                 say("CMD_CAPABILITY hunt done")
+            elif args.iq_hunt:
+                say("modem CMD service at node %d port %d" % where)
+                sk = socket.socket(socket.AF_QIPCRTR, socket.SOCK_DGRAM)
+                sk.settimeout(1.5)
+                W = bytes.fromhex  # shorthand
+
+                def hexpkt(*parts):
+                    return b"".join(parts)
+
+                # TECH_ENTER: wrapper + ftm_cmd 27 00 + sub 0d 00 + ntlv 3 + TLVs
+                te = W("4b0b14005a03000000002700" + "0d00" + "0300"
+                       + "010004000000" + "0000"          # SUB=0 (pad to fill? no)
+                       )
+                # build TLVs properly: SUB(1)=0, TECH(2)=1, SCENARIO(3)=0, each {id,len,val}
+                te = (W("4b0b14005a03000000002700") + struct.pack("<H", 0x0d)
+                      + struct.pack("<H", 3)
+                      + struct.pack("<HHI", 1, 4, 0)
+                      + struct.pack("<HHI", 2, 4, 1)   # TECH = 1 = LTE
+                      + struct.pack("<HHI", 3, 4, 0))
+                say("STEP TECH_ENTER: %s" % te.hex())
+                sk.sendto(te, where)
+                t_end = time.time() + 2.0
+                while time.time() < t_end:
+                    try:
+                        d, a = sk.recvfrom(8192)
+                        say("  TE reply: status 0x%02x  %s" % (d[0] if d else -1, d.hex()[:160]))
+                    except (socket.timeout, OSError):
+                        break
+                # also check the served DATA for an FTM F3
+                time.sleep(0.3)
+                # sweep COMMAND_CAPABILITY over sub 0..0x14 with QUERY_COMMAND=0xffffffff
+                say("--- sweeping COMMAND_CAPABILITY over RF sub_command 0..0x14 ---")
+                for sub in range(0, 0x15):
+                    cc = (W("4b0b14005a03000000002700") + struct.pack("<H", sub)
+                          + struct.pack("<H", 1)
+                          + struct.pack("<HHI", 1, 4, 0xFFFFFFFF))  # QUERY_COMMAND
+                    try:
+                        sk.sendto(cc, where)
+                        d, a = sk.recvfrom(8192)
+                        st = d[0] if d else -1
+                        extra = len(d) - len(cc) - 1
+                        flag = "  <<< reply carries %d extra B" % extra if extra > 4 else ""
+                        say("  sub 0x%02x: status 0x%02x  %dB  %s%s"
+                            % (sub, st, len(d), d.hex()[:120], flag))
+                    except socket.timeout:
+                        say("  sub 0x%02x: no reply" % sub)
+                    except OSError as e:
+                        say("  sub 0x%02x: err %s" % (sub, e))
+                    time.sleep(0.12)
+                sk.close()
+                say("iq-hunt done")
             elif args.raw_seq:
                 say("modem CMD service at node %d port %d" % where)
                 pkts = [bytes.fromhex(p.replace(" ", "").replace("0x", ""))
@@ -826,6 +883,12 @@ def main():
                                 continue
                             # served socket (DATA/CNTL/DCI): skip pure F3 logs
                             if d[:1] in (b"\x79", b"\x92", b"\x99"):
+                                continue
+                            # skip the known background telemetry: gain-tap REPACKs
+                            # carry a119d000, and control packets start 0x06.
+                            if d[:1] == b"\x06":
+                                continue
+                            if b"\xa1\x19\xd0" in d[:64]:
                                 continue
                             n += 1
                             txt = "".join(chr(c) if 32 <= c < 127 else "."

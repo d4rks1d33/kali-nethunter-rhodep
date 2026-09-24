@@ -494,13 +494,42 @@ whether the reply/F3 comes back on a different port. This is the finish line: th
 protocol is decoded from the firmware, only a handful of numeric values remain to
 pin by live probing with the now-correct packet shape.
 
+### The protocol is fully decoded; one live-plumbing detail remains
+
+Reading the decompressed handlers (`blob-analysis/iq_final_values.md`) resolved
+the packet down to the byte, all FACT from disassembly:
+- header offset 0x06 = a handle/id passed to an alloc-lookup (`0xd816d20c` →
+  `0xd8062414`), not a length; 0x08 = response length but only when the DIAG
+  subcmd @0x02 is 0x24 (ignored for our 0x14);
+- body: ftm_cmd at 0x0a, sub_command at 0x0c (`d816d1f0` reads pkt[0xc]/pkt[0xd]);
+- **TECH_ENTER responds** (allocs a DIAG rsp, SSID 0x17, writes an 8-byte status)
+  — it is not fire-and-forget; a status-0 success is just short and easy to miss;
+- **TECH = 1 = LTE**, closed two ways (`0xd8169ec0` cmd 0x27→idx1, and table
+  `@0xc37bdfe0` TECH-TLV 1→idx1);
+- the 0x14 gate is a per-tech state byte `@0xca7897b0` (tech<<3) == 0x7 ("no
+  tech") → error; TECH_ENTER clears it.
+
+Live, the corrected TECH_ENTER packet
+(`4b 0b 14 00 5a 03 <handle> 00 00 27 00 0d 00 03 00 <SUB/TECH=1/SCENARIO>`) is
+accepted — no 0x14 rejection — but **no reply is observed on any served socket
+(CMD/CNTL/DATA/DCI) nor the cmd socket**, and a following COMMAND_CAPABILITY sweep
+(sub 0..0x14) also returns nothing. So the command reaches the handler but its
+short success response is not landing where the tool listens. That is the one
+open detail: where/how the TECH_ENTER DIAG response (SSID 0x17, subsys FTM) is
+delivered back over QRTR — likely a different port/instance than the CMD service
+we send to, or it needs the DIAG response routing that a real diag client sets up.
+
 ### Honest conclusion for this line of work
 
-The SDR ladder is proven and documented end to end, the modem code is decompiled,
-and the FTM RF-test protocol is decoded from that code. The tech-enter gate — the
-long blocker — is broken open: the packet wrapper and the TECH_ENTER sub_command
-(0x0d) are FACTs, and what is left is a small live-probe of a few numeric TLV
-values with the corrected packet, not another wall.
+The SDR ladder is complete except for this final plumbing detail. The whole
+protocol is decoded from the decompressed firmware — packet wrapper, TECH_ENTER
+sub_command 0x0d, TECH=1=LTE, the field-id model for tune and IQ capture, the
+0x14 state gate, and the memshare delivery path. The command is sent in the
+correct shape and accepted; what is not yet observed is its response, a QRTR
+delivery-routing question rather than a protocol unknown. Tooling
+(`rhodep-diag-server.py` with `--raw`, `--raw-seq`, `--iq-hunt`) and the full
+byte-level command sequence are in place for the next session to resolve the
+response routing and then run tech-enter → RADIO_CONFIG → IQ_CAPTURE.
 Everything reusable is in place: the DIAG transport and tooling
 (`rhodep-diag-server.py` with sweep/l2/rftest/cap/tech-enter-hunt modes), the
 full firmware-derived TLV field model, the dispatcher id, F3 routing, and the
@@ -527,7 +556,10 @@ front-end and the LTE-attach watchdog.
 | TECH_ENTER sub_command | 0x0d (13) — FACT, from the registration table @0xca65b414 |
 | TECH field / LTE value | field_id 2 (u32) FACT; LTE value best-guess 1 (probe 1/4/5/0x27) |
 | RADIO_CONFIG/IQ_CAPTURE sub_command | candidates 0-3, second table @0xca789780 |
-| tune → IQ capture | protocol decoded; a few TLV values left to pin live with the correct packet |
+| TECH=LTE value | 1 (FACT, two ways) |
+| 0x14 gate | per-tech state byte @0xca7897b0 == 0x7 -> error; TECH_ENTER clears it (FACT) |
+| TECH_ENTER live | sent correctly + accepted (no 0x14); response not yet observed (QRTR delivery routing) |
+| tune → IQ capture | protocol fully decoded; blocked only on where the DIAG response comes back |
 | IQ samples out via memshare | infra already in the port (5 MiB FTM loan) |
 | arbitrary RX / TX | future |
 

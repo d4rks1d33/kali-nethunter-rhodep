@@ -555,16 +555,49 @@ Tx-mode/real-time control with the right stream_id) and confirm via the F3 strin
 8-byte status appears on the DATA socket, and then RADIO_CONFIG → IQ_CAPTURE run
 with the byte-level packets already worked out.
 
+### Response routing fully mapped — COMMAND vs DATA channel (2026-09-24, later)
+
+An integral read of the diag socket transport in the decompressed code
+(`blob-analysis/diag_transport_full.md`, `allow_flow.md`, `drain_to_peer.md`)
+corrected the earlier "it all drains on DATA" guess and pinned the mechanism:
+
+- The response gate (`diagpkt_rsp_send` @0xc0d36c44) needs feature-mask
+  (@0xc92e43e0, ctrl type 8) AND diagID (@0xc92e4754 bit0, ctrl type 0x21) — and
+  it PASSES (apps 0x00 answers; TECH_ENTER never returns 0x14). Not the blocker.
+- **Two output channels, not one** (`diagpkt_rsp_send` @0xc0d55d54:
+  `r1 = mux(rsp_entry+0x20==0, 1, 2)`): mask 1 = COMMAND channel (desc
+  0xcb93f380), mask 2 = DATA channel (desc 0xcb93f608). Confirmed by the strings
+  `allow_flow on command channel` / `on data channel`.
+- **F3 logs drain on DATA (mask 2); command responses drain on COMMAND (mask 1).**
+  That resolves the paradox: logs arrive, command responses don't, because they
+  use different channels/peers.
+- The COMMAND channel's destination is a single global node/port
+  (0xc8c2d870/0xc8c2d874) the modem learned from the last NEW_SERVER it saw.
+- There is NO kernel diag driver (`/dev/diag` absent, no module) — verified — so
+  no kernel peer is stealing the response.
+
+Live result: sending TECH_ENTER **from the served DATA socket** (`--from-data`)
+finally made large responses flow back on the COMMAND path (16 KB packets) —
+previously nothing came back. So the routing insight is right: the peer/socket
+you send from and listen on matters. BUT the packets that arrive are the modem's
+general F3/telemetry stream now draining to us, not TECH_ENTER's own response —
+no `[FTM.RFDEBUG][TECH_ENTER_EXIT]` F3 and no `4b0b` echo appears. So the command
+still is not producing its own visible response/effect.
+
 ### Honest conclusion for this line of work
 
-The SDR ladder is complete except for this final plumbing detail, now fully
-characterised. The whole FTM protocol is decoded from the decompressed firmware —
-packet wrapper, TECH_ENTER sub_command 0x0d, TECH=1=LTE, the tune/IQ field model,
-the 0x14 state gate, and the response pipeline. The command is sent correctly and
-accepted; the only remaining step is flipping `allow_flow` on the DATA channel so
-the subsys response drains to the socket we serve — a diag control-handshake
-detail, not a protocol unknown. Tooling (`--raw`, `--raw-seq`, `--iq-hunt`,
-`--from-data`) and the full byte-level sequence are ready for it.
+Enormous, well-evidenced progress: the whole FTM protocol is decoded from the
+decompressed firmware, and the response routing (COMMAND vs DATA channel, the
+feature/diagID gate, the single global COMMAND peer, no kernel diag driver) is now
+mapped from the code, not guessed. `--from-data` demonstrably unblocked the
+COMMAND-channel response flow. The last unresolved piece is that TECH_ENTER,
+though sent in the correct shape and accepted, does not emit its own response or a
+visible RFDEBUG F3 — so either the command needs one more precondition to
+actually run its handler, or its response is routed to a peer we still aren't the
+registered destination for. Next: make our listening socket the modem's COMMAND
+peer (be the last NEW_SERVER of the CMD/service, or send-and-listen on that exact
+socket), and re-check for the TECH_ENTER response / RFDEBUG F3. Tooling (`--raw`,
+`--raw-seq`, `--iq-hunt`, `--from-data`) and the byte-level sequence are ready.
 Everything reusable is in place: the DIAG transport and tooling
 (`rhodep-diag-server.py` with sweep/l2/rftest/cap/tech-enter-hunt modes), the
 full firmware-derived TLV field model, the dispatcher id, F3 routing, and the
@@ -594,8 +627,11 @@ front-end and the LTE-attach watchdog.
 | TECH=LTE value | 1 (FACT, two ways) |
 | 0x14 gate | per-tech state byte @0xca7897b0 == 0x7 -> error; TECH_ENTER clears it (FACT) |
 | TECH_ENTER live | sent correctly + accepted (no 0x14); subsys response needs allow_flow on DATA |
-| response routing | DECODED: subsys rsp drains out DIAG_DATA (inst 2), allow_flow-gated by the Tx/RT control handshake |
-| tune → IQ capture | protocol fully decoded; last step = set allow_flow=1 so the response drains |
+| response routing | DECODED: cmd responses drain on the COMMAND channel (mask 1), F3 logs on DATA (mask 2); COMMAND peer = last NEW_SERVER's node/port |
+| feature+diagID gate | PASSES (0x00 answers) — not the blocker |
+| kernel diag driver | none (verified) — no kernel peer competing |
+| --from-data | unblocked the COMMAND-channel response flow (16KB responses now arrive) |
+| tune → IQ capture | protocol decoded; last piece = be the modem's COMMAND peer / confirm TECH_ENTER emits its response |
 | IQ samples out via memshare | infra already in the port (5 MiB FTM loan) |
 | arbitrary RX / TX | future |
 

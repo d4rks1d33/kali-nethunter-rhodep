@@ -171,6 +171,21 @@ def diagmode_packet():
     return struct.pack("<II", DIAG_CTRL_MSG_DIAGMODE, len(body)) + body
 
 
+DIAG_CTRL_MSG_TX_MODE = 0x11
+
+
+def txmode_packet(stream_id=STREAM_1, tx_mode=1):
+    """DIAG_CTRL_MSG type 0x11 (Tx Mode). THIS is what enables allow_flow /
+    real-time drain for a stream -- diagpkt_process_ctrl_msg handler 0xc0d6711c
+    calls the per-stream setter 0xc0d7dc78 (tx_mode -> stream_obj+0xaf, then
+    flush). The DIAGMODE (type 3) we also send only tweaks global buffering; it
+    is the 0x11 that makes subsys command responses drain. Layout (from the
+    decompiled handler): num_streams:u32, then per stream {id:u8, mode:u8}.
+    """
+    body = struct.pack("<I", 1) + bytes([stream_id, tx_mode])
+    return struct.pack("<II", DIAG_CTRL_MSG_TX_MODE, len(body)) + body
+
+
 def diagid_reply(diag_id, process_name):
     """Echo a DIAGID back with the id the AP assigns.
 
@@ -606,6 +621,7 @@ def main():
                         except OSError as e:
                             say("  could not send FTM msg mask: %s" % e)
                         for nm, mp in (("diagmode", diagmode_packet()),
+                                       ("tx mode (0x11)", txmode_packet()),
                                        ("log mask all", log_mask_all()),
                                        ("event mask all", event_mask_all())):
                             try:
@@ -817,7 +833,7 @@ def main():
                     sk.settimeout(3.0)
                 try:
                     sk.sendto(req, where)
-                    end_r = time.time() + 4.0
+                    end_r = time.time() + 15.0
                     n = 0
                     poll = list(socks.values()) + [sk]
                     while time.time() < end_r:

@@ -565,6 +565,16 @@ def main():
                         # handle_cntl() once the modem reports its real
                         # ranges, which it does after this point.
                         send_msg_masks(s, addr, ssid_ranges[0], "default ranges")
+                        # Always enable MSG_SSID_FTM (23) explicitly with
+                        # ALL_ENABLED: the RF-test F3 messages ([FTM.RFTEST]...)
+                        # carry ss_id 23 (verified in the blob), and the modem's
+                        # own reported ranges may not cover it, so it never gets
+                        # routed to us. Force it on.
+                        try:
+                            s.sendto(msg_mask_range(23, 23), addr)
+                            say("  sent FTM msg mask (ssid 23) ALL_ENABLED")
+                        except OSError as e:
+                            say("  could not send FTM msg mask: %s" % e)
                         for nm, mp in (("diagmode", diagmode_packet()),
                                        ("log mask all", log_mask_all()),
                                        ("event mask all", event_mask_all())):

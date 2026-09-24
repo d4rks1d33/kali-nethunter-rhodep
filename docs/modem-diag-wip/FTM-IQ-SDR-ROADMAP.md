@@ -324,6 +324,52 @@ get the RF-test framework to answer with its REPACK (right cmd_id + mode +
 routing), which the decode pass turned from "read the 16 KB blob" into these two
 specific checks.
 
+### Both checks done — the gate is tech-enter (2026-09-24, third live pass)
+
+**F3 routing: fixed.** The RF-test F3 messages carry MSG_SSID_FTM = 23 (verified
+in the blob, `blob-analysis/ssid_ftm.md`). The handshake only enabled the ranges
+the modem reports, so the tool now always sends an explicit ALL_ENABLED msg mask
+for ssid 23 after the handshake. Confirmed the modem reports range 0-134 (covers
+23) and accepts the build-derived mask. So routing is no longer the blocker.
+
+**Still no `[FTM.RFTEST]` F3 and no CMD_MASK.** With ssid 23 enabled, 0x27 sub 5
+(and 0/6) still return only the clean 11-byte echo and never emit an RF-test F3 —
+so the command is *accepted but not executed*. The 4972/16 KB DATA packets remain
+background heap/telemetry ("Small pool / SL pool / Large pool", RxDCO cal), not
+the reply.
+
+**What 0x14 means (RE, `blob-analysis/rftest_entry_0x14.md`):** 0x14 =
+DIAG_BAD_PARM_F — the command is recognised (else it would be 0x13) but rejected
+for an invalid parameter/state *before* executing (hence no F3). Also two
+structural corrections from this pass:
+- the FTM code is NOT runtime-relocated as earlier assumed — it is **q6zip
+  compressed and demand-paged** (dlpager), which is why 0xd8150ed8 won't
+  disassemble. seg27 was zlib and was decompressed (QSHRINK4 DB); the dispatch
+  code is in seg26 (q6zip), still packed;
+- **stop probing 0x03** — the RF-test hangs off the per-technology cmd_ids (0x27
+  LTE, 0x8000/0x8001 NR5G), confirmed by `ftm_lte_rex_dispatch`. 0x03's uniform
+  0x14 was a dead end.
+
+Recovered from rodata: the per-command property handler counts (RADIO_CONFIG=46,
+RX_MEASURE=70, IQ_CAPTURE=51, COMMAND_CAPABILITY=6, TX_MEASURE=237), but not the
+sub_command→handler master table (it is in the q6zip code).
+
+**So the one remaining gate is the tech-enter sequence** — the modem needs LTE (or
+NR5G) *entered* in FTM before RADIO_CONFIG/RX_MEASURE/IQ_CAPTURE will run; the
+accepted-but-inert subs 0/5/6 are the enter/exit/get-state candidates, and 1-4
+(the 0x14 ones) are the config/measure commands that fail because no mode is
+entered. Its exact sub_command + TECH value is UNKNOWN statically (q6zip code).
+
+**Two ways to close it, both bounded:**
+1. Decompress the seg26 q6zip and read the ftm_common_dispatch / tech_enter_exit
+   handler for the sub_command numbers and TECH enum. (RE, offline.)
+2. Live: sweep 0x27 sub 0/5/6 as tech-enter with a TECH TLV (try LTE tech values)
+   then immediately send a config command and watch for the 0x14 to clear and an
+   F3 to appear. (Live, iterative.)
+
+This is a clean stopping point: the whole chain is proven except the tech-enter
+gate, which has a firmware answer (q6zip) and a bounded live search.
+
 ### Summary of the SDR ladder status
 
 | rung | state |
@@ -332,9 +378,12 @@ specific checks.
 | FTM mode | DONE (QMI DMS factory-test, coordinated with handshake) |
 | FTM dispatch table | DONE (extracted + validated, 74 selectors) |
 | RF-test command model | DONE (TLV structure + all field-ids extracted) |
-| RF-test dispatcher id | PARTIAL (0x27=FTM_LTE echoes; multi-tech RF-test likely under 0x03, needs mode/routing) |
-| sub_command enum | IN PROGRESS (not static; CMD_MASK not yet seen live — RF-test REPACK not routed to us) |
-| tech-enter → tune → IQ capture | BLOCKED on getting the RF-test framework to REPACK (cmd_id + mode + F3 routing) |
+| RF-test dispatcher id | DONE (per-tech cmd_ids: 0x27 LTE, 0x8000/0x8001 NR5G; NOT 0x03) |
+| F3 routing (ssid 23) | DONE (explicit ALL_ENABLED mask for MSG_SSID_FTM) |
+| status 0x14 meaning | DONE (DIAG_BAD_PARM_F: recognised, rejected pre-execute) |
+| tech-enter gate | BLOCKING (sub_command + TECH value unknown; in q6zip seg26) |
+| sub_command enum | via COMMAND_CAPABILITY once tech is entered, or from seg26 q6zip |
+| tune → IQ capture | after tech-enter; field model + memshare infra ready |
 | IQ samples out via memshare | infra already in the port (5 MiB FTM loan) |
 | arbitrary RX / TX | future |
 

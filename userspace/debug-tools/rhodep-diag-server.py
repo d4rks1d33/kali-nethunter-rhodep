@@ -250,6 +250,14 @@ def main():
                          "modem CMD service and print each reply. One handshake "
                          "for the whole sweep, so it maps the FTM command space "
                          "in a single modem restart instead of one per id.")
+    ap.add_argument("--rftest-one", metavar="CMDID:SUB[:TLVHEX]", default=None,
+                    help="send one RF-test command: 4b 0b <CMDID16> <SUB16> "
+                         "<num_tlv16> <TLVHEX>. CMDID and SUB are hex. TLVHEX is "
+                         "the raw TLV bytes (optional); num_tlv is inferred as 0 "
+                         "if absent. Prints the FULL reply (hex + text) and, with "
+                         "--dump, writes the raw reply bytes to that file.")
+    ap.add_argument("--rftest-ntlv", type=int, default=0,
+                    help="num_tlv value to put in the --rftest-one header")
     ap.add_argument("--rftest-sweep", metavar="CMDID:LO-HI", default=None,
                     help="RF-test probe: for FTM ftm_cmd_id CMDID (hex, e.g. 03), "
                          "send 4b 0b <CMDID16> <sub16> 0000 (empty TLV list) for "
@@ -454,7 +462,8 @@ def main():
 
     cmd_sock = None
     cmd_deadline = time.time() + args.cmd_after \
-        if (args.cmd or args.ftm_sweep or args.ftm_l2 or args.rftest_sweep) \
+        if (args.cmd or args.ftm_sweep or args.ftm_l2 or args.rftest_sweep
+            or args.rftest_one) \
         else None
     match_prefix = bytes.fromhex(args.match_prefix.replace("0x", "")) \
         if args.match_prefix else None
@@ -567,6 +576,44 @@ def main():
             where = modem_cmd_port()
             if not where:
                 say("the modem is not publishing its CMD service; no handshake?")
+            elif args.rftest_one:
+                say("modem CMD service at node %d port %d" % where)
+                parts = args.rftest_one.split(":")
+                cmdid = int(parts[0], 16)
+                sub = int(parts[1], 16)
+                tlv = bytes.fromhex(parts[2]) if len(parts) > 2 else b""
+                ntlv = args.rftest_ntlv
+                req = bytes([0x4b, 0x0b]) + struct.pack("<HHH", cmdid, sub, ntlv) + tlv
+                say("RF-test one: cmd 0x%02x sub 0x%02x ntlv %d tlv %s"
+                    % (cmdid, sub, ntlv, tlv.hex()))
+                say("  request: %s" % req.hex())
+                sk = socket.socket(socket.AF_QIPCRTR, socket.SOCK_DGRAM)
+                sk.settimeout(3.0)
+                try:
+                    sk.sendto(req, where)
+                    # collect all reply datagrams for a couple seconds
+                    end_r = time.time() + 3.0
+                    n = 0
+                    while time.time() < end_r:
+                        try:
+                            d, a = sk.recvfrom(65536)
+                        except socket.timeout:
+                            break
+                        n += 1
+                        txt = "".join(chr(c) if 32 <= c < 127 else "." for c in d)
+                        say("  REPLY %d from %s: %d bytes" % (n, a, len(d)))
+                        say("    hex: %s" % d.hex())
+                        say("    txt: %s" % txt)
+                        if dump is not None:
+                            dump.write(d)
+                            dump.flush(); os.fsync(dump.fileno())
+                    if n == 0:
+                        say("  no reply")
+                except OSError as e:
+                    say("  send/recv error: %s" % e)
+                finally:
+                    sk.close()
+                say("RF-test one done")
             elif args.rftest_sweep:
                 say("modem CMD service at node %d port %d" % where)
                 cidpart, rng = args.rftest_sweep.split(":")

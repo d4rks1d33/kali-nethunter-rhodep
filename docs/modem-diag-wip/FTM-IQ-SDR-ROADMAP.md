@@ -236,12 +236,57 @@ across sub-commands. Two candidate dispatchers were compared:
 
 So the RF-test path on this build is the per-technology cmd_id (0x27 for LTE),
 not the generic FTM_RF, and the accepted empty-TLV sub-commands (0, 5, 6) are the
-ones to identify — one is almost certainly COMMAND_CAPABILITY, which enumerates
-the rest. The status-0x14 subs (1-4) are the ones that take a TLV body
-(RADIO_CONFIG / RX_MEASURE / IQ_CAPTURE need CENTER_FREQ, NUM_OF_SAMPLES, ...).
-Next: read COMMAND_CAPABILITY's reply to name the sub-commands, then build a
-RADIO_CONFIG (tune) + RX_MEASURE/IQ_CAPTURE TLV request using the field-ids
-already extracted (blob-analysis/rftest_tlv_IQ_CAPTURE_ids.txt).
+ones to identify. The status-0x14 subs (1-4) take a TLV body.
+
+### Where it stands, and why the enum needs a live-only method (2026-09-24)
+
+A third RE pass established, by five independent checks (0 hits each), that the
+**sub_command enum is NOT statically extractable**: the `[FTM.RFTEST][*]` format
+strings have no xref in mapped code, the 25 TLV parameter tables have no pointer
+referencing them (indexed by runtime calculation), the sub-command names do not
+exist as standalone strings (no `{name,id,fptr}` table), and the FTM dispatch
+entries all point into the runtime-relocated region. The enum lives in a compiled
+`.h` inside that relocated code. Full write-up:
+`blob-analysis/rftest_subcommand_enum_entermode.md`.
+
+But the same pass found the firmware's own enumeration mechanism, which is the
+way out. **COMMAND_CAPABILITY (TLV group 22) returns a CMD_MASK**: a bitmask
+where bit N = 1 means sub_command N exists. Its TLVs are `QUERY_COMMAND` (id 1),
+`QUERY_PROPERTY` (id 2), `CMD_MASK` (id 3, in the reply). So reading CMD_MASK
+gives the valid sub_command numbers directly, and `QUERY_COMMAND=N` then names
+each. The catch is circular: COMMAND_CAPABILITY's own sub_command number is
+unknown, so it has to be found first.
+
+Live probing this round, with the coordinated FTM+handshake tool:
+- `0x27` subs echo their TLVs but stay status 0x14 (the LTE-legacy sub_command
+  space, likely enter/exit/get-state at 0/5/6 and config/measure at 1-4, needing
+  a technology entered first);
+- `0x03` (FTM_RF, the generic multi-tech RF-test) answers status 0x14 uniformly
+  and echoes any TLV — consistent with it being the multi-tech framework that
+  needs a mode entered (`ftm_rf_debug_tech_enter_exit.c`) before RADIO_CONFIG /
+  RX_MEASURE / IQ_CAPTURE will run.
+
+**Next, as a focused fuzzing session (not blind):** sweep COMMAND_CAPABILITY
+across sub_command numbers on both 0x03 and 0x27 sending `QUERY_COMMAND=0xFFFFFFFF`
+(num_tlv=1) and watch for a reply carrying a CMD_MASK (a value + `0x%8x` pointer
+shape, not a bare echo). Once CMD_MASK is read, the whole enum is known; then do
+tech-enter (group 16: SUB/TECH/SCENARIO) → RADIO_CONFIG tune → IQ_CAPTURE with
+the extracted field-ids. Everything up to the enum is done; this last unknown is
+bounded and has a firmware-provided answer.
+
+### Summary of the SDR ladder status
+
+| rung | state |
+|------|-------|
+| DIAG transport | DONE (QRTR socket, handshake, log stream) |
+| FTM mode | DONE (QMI DMS factory-test, coordinated with handshake) |
+| FTM dispatch table | DONE (extracted + validated, 74 selectors) |
+| RF-test command model | DONE (TLV structure + all field-ids extracted) |
+| RF-test dispatcher id | DONE (0x27 LTE discriminates; 0x03 is the multi-tech generic) |
+| sub_command enum | IN PROGRESS (not static; read via COMMAND_CAPABILITY CMD_MASK) |
+| tech-enter → tune → IQ capture | NEXT (field model ready, needs the enum) |
+| IQ samples out via memshare | infra already in the port (5 MiB FTM loan) |
+| arbitrary RX / TX | future |
 
 4. **RX tune + measurement** — set the receiver to a frequency and read back
    RSSI / an FFT bin / a power measurement. Still no TX. This is where "does the

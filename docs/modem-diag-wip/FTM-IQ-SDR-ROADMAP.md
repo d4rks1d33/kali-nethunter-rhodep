@@ -422,6 +422,48 @@ The IQ-capture field model and the memshare delivery path are both ready; the
 gate is purely getting the framework to enter a technology, and the clean way to
 crack it is a runtime code dump rather than more blind live fuzzing.
 
+### Runtime code dump tried too — the modem code is not reachable from the AP (2026-09-24)
+
+Went after the runtime code with a real MSS ram dump, and it closes this avenue
+with evidence:
+
+- DIAG memory-peek is out: an RE pass of the diag master command table
+  (`blob-analysis/mem_read_cmds.md`) found PEEKB/PEEKW/PEEKD (0x02/0x03/0x04) are
+  NOT registered in this firmware (compiled out, not gated), and there is no
+  memory-read subsys. So there is no "read address" DIAG command.
+- The remoteproc coredump path works: set
+  `/sys/class/remoteproc/remoteproc0/coredump = inline`, crash the modem
+  (`.../crash`), and a `devcd` appears. Read it: a valid 264 MB ELF core, 34
+  program headers. Backed up at `research/modem-blob/mssdump-runtime.elf.gz`.
+- BUT the dump is **data only, no code and no rodata**: it does not cover the
+  0xd8xxxxxx dispatch window, and it contains ZERO readable strings (no
+  `[FTM.RFTEST]`, no `ftm_*` module names). The qcom_q6v5_pas coredump on this
+  build dumps RAM state, not the modem's read-only code/rodata segments — so the
+  ftm_common_dispatch / tech_enter code is not in it either.
+
+Net: the modem's code is not reachable from the AP on this production build by
+any path tried — static q6zip (page table is boot-built, not in the ELF), DIAG
+peek (compiled out), or ram coredump (data only). Reading the tech-enter
+sub_command and TECH enum out of the code is therefore not available; the only
+remaining route to IQ capture is **live protocol discovery** of the tech-enter
+(high-dimensional: sub_command x TECH x TLV set/order), which blind sweeping has
+not cracked.
+
+### Honest conclusion for this line of work
+
+The SDR ladder is proven and documented end to end EXCEPT the final tech-enter
+gate, which sits behind the modem's own code — code this production build does
+not expose to the AP by any means available (verified: static, peek, coredump).
+Everything reusable is in place: the DIAG transport and tooling
+(`rhodep-diag-server.py` with sweep/l2/rftest/cap/tech-enter-hunt modes), the
+full firmware-derived TLV field model, the dispatcher id, F3 routing, and the
+memshare delivery path. Closing the last gate needs either a lucky live-fuzz of
+the enter sequence, a different firmware/build that ships the diag peek or a
+symbol'd FTM, or vendor documentation of the FTM RF-test enter command. This is
+recorded as a bounded, well-characterised stopping point rather than a failure:
+the wall is the vendor's closed RF firmware, the same class as the NFC RF
+front-end and the LTE-attach watchdog.
+
 ### Summary of the SDR ladder status
 
 | rung | state |
@@ -433,9 +475,9 @@ crack it is a runtime code dump rather than more blind live fuzzing.
 | RF-test dispatcher id | DONE (per-tech cmd_ids: 0x27 LTE, 0x8000/0x8001 NR5G; NOT 0x03) |
 | F3 routing (ssid 23) | DONE (explicit ALL_ENABLED mask for MSG_SSID_FTM) |
 | status 0x14 meaning | DONE (DIAG_BAD_PARM_F: recognised, rejected pre-execute) |
-| tech-enter gate | BLOCKING — q6zip code is boot-paged (not in ELF), live sweep did not clear 0x14. Next: dump paged code from a live modem |
-| sub_command enum | names known; numeric indices only via runtime code dump or CMD_MASK on another cmd_id |
-| tune → IQ capture | field model + memshare infra ready; waiting on the enter gate |
+| tech-enter gate | WALLED — code unreachable from AP (q6zip boot-built, DIAG peek compiled out, coredump is data-only). Only live-fuzz left |
+| sub_command enum | names known; numeric indices need the code (unreachable) or a lucky live-fuzz |
+| tune → IQ capture | field model + memshare infra ready; blocked behind the enter gate |
 | IQ samples out via memshare | infra already in the port (5 MiB FTM loan) |
 | arbitrary RX / TX | future |
 

@@ -367,8 +367,60 @@ entered. Its exact sub_command + TECH value is UNKNOWN statically (q6zip code).
    then immediately send a config command and watch for the 0x14 to clear and an
    F3 to appear. (Live, iterative.)
 
-This is a clean stopping point: the whole chain is proven except the tech-enter
-gate, which has a firmware answer (q6zip) and a bounded live search.
+### Both tried (2026-09-24) — q6zip not statically decompressable, live sweep inconclusive
+
+**q6zip (path 1): the tool works, the input is not in the ELF.** Using
+`nlitsme/qualcomm-q6zip`, the format was fully understood (npages/version, two
+dicts, a page-pointer table, 15-opcode bitstream). But seg26 (modem.b26,
+0xcc000000, 38 MB, entropy 7.73) carries **no q6zip metadata in the ELF**: the
+page-pointer table and dict are built at boot into the paged window 0xd8xxxxxx,
+which is BSS (PH24: filesz 0, memsz 48 MB). Verified by six independent scans.
+The dispatch handler 0xd8150ed8 is exactly in that boot-built window, so the
+ftm_common_dispatch / tech_enter code is not recoverable from the static image.
+Full analysis in `blob-analysis/tech_enter_decoded.md`. So the sub_command
+numbers and the TECH enum value stay UNKNOWN-from-blob.
+
+What the blob DID give (FACT): GROUP 16 = tech_enter_exit fields are SUB=1,
+TECH=2, SCENARIO=3; GROUP 22 = COMMAND_CAPABILITY has QUERY_COMMAND=1,
+QUERY_PROPERTY=2, CMD_MASK=3, PROPERTY_MASK=4..7; the sub_command NAMES
+(RADIO_CONFIG, RX_MEASURE, IQ_CAPTURE, COMMAND_CAPABILITY, TECH_ENTER_EXIT, ...)
+but not their numeric indices.
+
+**Live (path 2): swept, no combination cleared the 0x14.** With the correct
+GROUP-16 field-ids (SUB=1, TECH=2, SCENARIO=3), sent tech-enter on 0x27 sub
+{0,5,6} for every TECH value 0-12, then a config sub {1-4} on the same socket —
+the enter is accepted (echoes) but every config still returns 0x14. A config sub
+1 with a full RADIO_CONFIG TLV set (TECH_MODE=25, BAND=5, CHANNEL=6) also stayed
+0x14, and the reply echoed only the FIRST TLV before stopping, i.e. it rejects at
+the first field. So on 0x27 the config commands are gated on something the blind
+sweep did not hit: the real enter sub_command, or a different cmd_id for the
+generic enter (FTM_COMMON 0x00 / FTM_RF 0x03 as a global set-mode), or a
+mandatory TLV/order the field tables do not reveal.
+
+### Honest status and what is actually left
+
+Everything up to the RF-test execution is proven and reproducible: DIAG
+transport, FTM mode, dispatch table, the full TLV field-id model, the dispatcher
+(per-tech cmd_ids), F3 routing (ssid 23), and 0x14 = DIAG_BAD_PARM. The single
+remaining unknown — how to make the RF-test framework execute (enter a
+technology) — is not resolvable by static RE (code is boot-paged q6zip) and did
+not fall out of the bounded live sweep. The realistic ways forward, for a future
+session, ranked:
+
+1. **Dump the paged code from a LIVE modem**, not the static image: the
+   decompressed pages exist in the 0xd8xxxxxx window at runtime. A DIAG
+   peek/memory-read command (if this build allows it) or reading the modem's
+   memory over the debug path would give the real dispatch code, and with it the
+   sub_command + TECH enum directly. This is the highest-value next step.
+2. **COMMAND_CAPABILITY CMD_MASK** remains the firmware-blessed enumerator, but
+   it did not answer with a mask on 0x27 sub 0/5/6; try it on other cmd_ids
+   (0x00 FTM_COMMON, 0x03) and read field_id 3 in the reply / on DATA.
+3. A **wider live sweep** driven by the runtime code dump from (1), rather than
+   blind — blind proved too high-dimensional (sub × tech × field × value).
+
+The IQ-capture field model and the memshare delivery path are both ready; the
+gate is purely getting the framework to enter a technology, and the clean way to
+crack it is a runtime code dump rather than more blind live fuzzing.
 
 ### Summary of the SDR ladder status
 
@@ -381,9 +433,9 @@ gate, which has a firmware answer (q6zip) and a bounded live search.
 | RF-test dispatcher id | DONE (per-tech cmd_ids: 0x27 LTE, 0x8000/0x8001 NR5G; NOT 0x03) |
 | F3 routing (ssid 23) | DONE (explicit ALL_ENABLED mask for MSG_SSID_FTM) |
 | status 0x14 meaning | DONE (DIAG_BAD_PARM_F: recognised, rejected pre-execute) |
-| tech-enter gate | BLOCKING (sub_command + TECH value unknown; in q6zip seg26) |
-| sub_command enum | via COMMAND_CAPABILITY once tech is entered, or from seg26 q6zip |
-| tune → IQ capture | after tech-enter; field model + memshare infra ready |
+| tech-enter gate | BLOCKING — q6zip code is boot-paged (not in ELF), live sweep did not clear 0x14. Next: dump paged code from a live modem |
+| sub_command enum | names known; numeric indices only via runtime code dump or CMD_MASK on another cmd_id |
+| tune → IQ capture | field model + memshare infra ready; waiting on the enter gate |
 | IQ samples out via memshare | infra already in the port (5 MiB FTM loan) |
 | arbitrary RX / TX | future |
 

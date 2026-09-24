@@ -258,6 +258,15 @@ def main():
                          "--dump, writes the raw reply bytes to that file.")
     ap.add_argument("--rftest-ntlv", type=int, default=0,
                     help="num_tlv value to put in the --rftest-one header")
+    ap.add_argument("--tech-enter-hunt", metavar="CMDID", default=None,
+                    help="hunt the tech-enter: for each enter sub, each TECH value, "
+                         "send tech-enter then a config sub and watch for the 0x14 "
+                         "to clear. CMDID hex (e.g. 27).")
+    ap.add_argument("--te-enter-subs", default="0,5,6")
+    ap.add_argument("--te-config-subs", default="1,2,3,4")
+    ap.add_argument("--te-tech-field", type=int, default=25,
+                    help="field_id to carry TECH in the enter TLVs (default 25=TECH_MODE)")
+    ap.add_argument("--te-tech-max", type=int, default=12)
     ap.add_argument("--cap-sweep", metavar="CMDID:LO-HI", default=None,
                     help="COMMAND_CAPABILITY hunt: for FTM ftm_cmd_id CMDID (hex), "
                          "send each sub-command LO-HI with num_tlv=1 and a "
@@ -470,7 +479,7 @@ def main():
     cmd_sock = None
     cmd_deadline = time.time() + args.cmd_after \
         if (args.cmd or args.ftm_sweep or args.ftm_l2 or args.rftest_sweep
-            or args.rftest_one or args.cap_sweep) \
+            or args.rftest_one or args.cap_sweep or args.tech_enter_hunt) \
         else None
     match_prefix = bytes.fromhex(args.match_prefix.replace("0x", "")) \
         if args.match_prefix else None
@@ -593,6 +602,56 @@ def main():
             where = modem_cmd_port()
             if not where:
                 say("the modem is not publishing its CMD service; no handshake?")
+            elif args.tech_enter_hunt:
+                # Combined hunt: for each candidate enter sub, for each TECH value,
+                # send tech-enter then a config sub-command; watch for the config
+                # to stop returning 0x14 (status byte) and/or an [FTM.RFTEST] F3.
+                say("modem CMD service at node %d port %d" % where)
+                cmdid = int(args.tech_enter_hunt, 16)  # e.g. 27
+                enter_subs = [int(x) for x in args.te_enter_subs.split(",")]
+                config_subs = [int(x) for x in args.te_config_subs.split(",")]
+                tech_field = args.te_tech_field  # field_id for TECH
+                say("tech-enter hunt cmd 0x%02x enter_subs=%s config_subs=%s tech_field=%d tech=0-%d"
+                    % (cmdid, enter_subs, config_subs, tech_field, args.te_tech_max))
+
+                # One persistent socket for the whole enter+config pair, because
+                # the modem may track the "tech entered" state per QRTR client
+                # (per socket). A fresh socket per message would lose it.
+                def mk():
+                    s2 = socket.socket(socket.AF_QIPCRTR, socket.SOCK_DGRAM)
+                    s2.settimeout(0.5)
+                    return s2
+
+                def sr(sk, payload):
+                    try:
+                        sk.sendto(payload, where)
+                        d, _ = sk.recvfrom(4096)
+                        return d
+                    except (socket.timeout, OSError):
+                        return None
+
+                for es in enter_subs:
+                    for t in range(0, args.te_tech_max + 1):
+                        sk = mk()
+                        tlvs = (struct.pack("<HHI", 1, 4, 0) +          # SUB=0
+                                struct.pack("<HHI", tech_field, 4, t) + # TECH=t
+                                struct.pack("<HHI", 3, 4, 0))           # SCENARIO=0
+                        ereq = bytes([0x4b, 0x0b]) + struct.pack("<HHH", cmdid, es, 3) + tlvs
+                        er = sr(sk, ereq)
+                        estat = ("%02x" % er[0]) if er else "--"
+                        # config on the SAME socket
+                        for cs in config_subs:
+                            creq = bytes([0x4b, 0x0b]) + struct.pack("<HHH", cmdid, cs, 0)
+                            cr = sr(sk, creq)
+                            cstat = ("%02x" % cr[0]) if cr else "--"
+                            hit = cr is not None and cr[0] not in (0x14, 0x13)
+                            if hit or (er and er[0] not in (0x14, 0x13, 0x4b)):
+                                say("  enter sub %d tech %2d -> estat %s | config sub %d -> %s %s"
+                                    % (es, t, estat, cs, cstat,
+                                       "<<< CHANGED" if hit else ""))
+                        sk.close()
+                        time.sleep(0.03)
+                say("tech-enter hunt done")
             elif args.cap_sweep:
                 say("modem CMD service at node %d port %d" % where)
                 cidpart, rng = args.cap_sweep.split(":")

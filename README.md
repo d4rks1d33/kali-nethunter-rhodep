@@ -247,7 +247,7 @@ file protection) ·
 
 | | |
 | --- | --- |
-| **Mobile data, day to day** | It works, and then the SoC watchdog-resets 3 to 10 minutes after the modem attaches to LTE. `ipa.ko` is therefore held out of the boot. This is the one thing standing between this port and a finished phone. HANDOFF-SESSION4.md §5, sessions 14-15. |
+| **Mobile data, day to day** | The SoC watchdog-resets when the modem attaches to LTE — reproduced on demand on a live SIM (`--set-allowed-modes=4g` → `bootreason=watchdog` in ~20 s). As of 2026-09-24 this fires **with or without `ipa.ko`** (tested `modprobe -r ipa` first, resets the same), so **IPA is exonerated**; the trigger is the modem's own LTE bearer/data-engine bring-up, same class as the GNSS-measurement reset. Left on 2g/3g day to day (registers + attaches + stays up). Still the one thing between this port and a finished phone. See nice-to-have on the LTE reset. |
 | **In-call audio** | Calls connect but there is no sound. Not a modem problem: Qualcomm voice audio goes modem ↔ ADSP ↔ codec and mainline has no q6voice (MVM/CVS/CVP) at all. A new driver, not a bug. |
 | **Fingerprint** | Focaltech with a proprietary HAL (`fingerprint.focaltech.default.so`). No mainline driver. |
 | **NFC** | Samsung `sec-nfc` on i2c7. No mainline driver. |
@@ -439,9 +439,28 @@ it takes the ADSP and audio down with it until a reboot.
    selection + scan + measurement is safe; the reset is bound to the **completed
    attach / bearer activation**, the point where the modem lights the LTE data
    engine (the same class of trigger as the GNSS measurement engine above). A
-   dead SIM cannot reproduce it; reproducing it needs a SIM that actually
-   attaches. This rules the AP-side RF/QMI path further out and points squarely
-   at the modem's data-engine bring-up under IPA.
+    dead SIM cannot reproduce it; reproducing it needs a SIM that actually
+    attaches. This rules the AP-side RF/QMI path further out and points squarely
+    at the modem's data-engine bring-up under IPA.
+
+    **The experiment this file kept asking for is now DONE (2026-09-24), and it
+    exonerates IPA.** On a fresh boot with a live, credited SIM (Personal,
+    registered home + attached on 2G), `mmcli -m 0 --set-allowed-modes=4g`
+    watchdog-resets the SoC within ~20 s, every time — `bootreason=watchdog`
+    confirmed. Then the run this document has wanted since session 4: `modprobe
+    -r ipa` first (verified `lsmod | grep -c ^ipa` = 0), *then* force LTE. **It
+    resets exactly the same, still `bootreason=watchdog`.** So the LTE-attach
+    reset happens with `ipa.ko` loaded AND with it unloaded — **IPA is not the
+    cause**. The trigger is the modem's own LTE bearer/data-engine bring-up on
+    attach, the same class of event as the GNSS measurement engine that resets in
+    under a second. This closes the long-standing "attach LTE with ipa.ko never
+    loaded" experiment and redirects the search away from the AP IPA driver and
+    onto the modem-side engine (and whatever SoC resource it touches: a clock,
+    a rail, an interconnect path, or a TZ/hyp guard that fires when that engine
+    powers up). `rhodep-ipa-hold.conf` therefore does not prevent the reset — it
+    only removes IPA as a variable; the phone still cannot stay on LTE. Day to
+    day the modem is left on 2g/3g, where it registers and attaches and stays up.
+
 
    Already bisected, on the device, one reboot per row: it is not the
    indications (an empty event mask still resets), not the optional start TLVs,

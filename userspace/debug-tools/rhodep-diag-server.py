@@ -250,6 +250,16 @@ def main():
                          "modem CMD service and print each reply. One handshake "
                          "for the whole sweep, so it maps the FTM command space "
                          "in a single modem restart instead of one per id.")
+    ap.add_argument("--raw-seq", metavar="HEX1,HEX2,...", default=None,
+                    help="send several raw DIAG payloads in order on ONE socket "
+                         "(so per-client state like 'tech entered' is kept), "
+                         "printing each reply and any FTM F3 in between. For the "
+                         "tech-enter -> radio-config -> iq-capture sequence.")
+    ap.add_argument("--raw", metavar="HEX", default=None,
+                    help="send this exact raw DIAG payload (hex) to the modem CMD "
+                         "service and print the full reply (CMD socket + non-log "
+                         "DATA). For the real FTM packet wrapper "
+                         "(4b 0b 14 00 5a 03 ...) that plain rftest-one can't build.")
     ap.add_argument("--rftest-one", metavar="CMDID:SUB[:TLVHEX]", default=None,
                     help="send one RF-test command: 4b 0b <CMDID16> <SUB16> "
                          "<num_tlv16> <TLVHEX>. CMDID and SUB are hex. TLVHEX is "
@@ -479,7 +489,8 @@ def main():
     cmd_sock = None
     cmd_deadline = time.time() + args.cmd_after \
         if (args.cmd or args.ftm_sweep or args.ftm_l2 or args.rftest_sweep
-            or args.rftest_one or args.cap_sweep or args.tech_enter_hunt) \
+            or args.rftest_one or args.cap_sweep or args.tech_enter_hunt
+            or args.raw or args.raw_seq) \
         else None
     match_prefix = bytes.fromhex(args.match_prefix.replace("0x", "")) \
         if args.match_prefix else None
@@ -687,6 +698,93 @@ def main():
                         sk.close()
                     time.sleep(0.1)
                 say("CMD_CAPABILITY hunt done")
+            elif args.raw_seq:
+                say("modem CMD service at node %d port %d" % where)
+                pkts = [bytes.fromhex(p.replace(" ", "").replace("0x", ""))
+                        for p in args.raw_seq.split(",")]
+                sk = socket.socket(socket.AF_QIPCRTR, socket.SOCK_DGRAM)
+                sk.settimeout(2.5)
+                served = list(socks.values())
+                for pi, req in enumerate(pkts):
+                    say(">>> STEP %d request: %s" % (pi + 1, req.hex()))
+                    try:
+                        sk.sendto(req, where)
+                    except OSError as e:
+                        say("    send error: %s" % e); continue
+                    # collect replies + FTM F3 for ~2.5s on this socket + served
+                    end_r = time.time() + 2.5
+                    got = 0
+                    while time.time() < end_r:
+                        any_r = False
+                        for ps in [sk] + served:
+                            try:
+                                d, a = ps.recvfrom(65536)
+                            except (BlockingIOError, socket.timeout, OSError):
+                                continue
+                            any_r = True
+                            if ps is sk:
+                                got += 1
+                                st = d[0] if d else -1
+                                say("    CMD reply: status 0x%02x  %s"
+                                    % (st, d.hex()[:120]))
+                            else:
+                                if d[:1] in (b"\x79", b"\x92", b"\x99"):
+                                    txt = bytes(c if 32 <= c < 127 else 0x2e for c in d)
+                                    if (b"FTM" in txt or b"RFTEST" in txt
+                                            or b"RADIO" in txt or b"TECH" in txt):
+                                        say("    F3 <<< %s"
+                                            % txt.decode("ascii", "replace")[:280])
+                                elif d[:1] == b"\x60":
+                                    say("    RF-test REPACK: %d B %s"
+                                        % (len(d), d.hex()[:100]))
+                        if not any_r:
+                            time.sleep(0.02)
+                    if got == 0:
+                        say("    (no direct CMD reply)")
+                    time.sleep(0.2)
+                sk.close()
+                say("raw-seq done")
+            elif args.raw:
+                say("modem CMD service at node %d port %d" % where)
+                req = bytes.fromhex(args.raw.replace(" ", "").replace("0x", ""))
+                say("RAW request: %s" % req.hex())
+                sk = socket.socket(socket.AF_QIPCRTR, socket.SOCK_DGRAM)
+                sk.settimeout(3.0)
+                try:
+                    sk.sendto(req, where)
+                    end_r = time.time() + 4.0
+                    n = 0
+                    poll = list(socks.values()) + [sk]
+                    while time.time() < end_r:
+                        got = False
+                        for ps in poll:
+                            try:
+                                d, a = ps.recvfrom(65536)
+                            except (BlockingIOError, socket.timeout, OSError):
+                                continue
+                            got = True
+                            if ps is not sk and d[:1] in (b"\x79", b"\x92", b"\x99"):
+                                # F3 log: only print if it mentions FTM/RFTEST
+                                txt = bytes(c if 32 <= c < 127 else 0x2e for c in d)
+                                if b"FTM" in txt or b"RFTEST" in txt or b"RADIO" in txt \
+                                   or b"TECH" in txt or b"IQ" in txt:
+                                    n += 1
+                                    say("  F3 <<< %s" % txt.decode("ascii", "replace")[:300])
+                                continue
+                            n += 1
+                            src = "CMD" if ps is sk else "DATA"
+                            txt = "".join(chr(c) if 32 <= c < 127 else "." for c in d)
+                            say("  %s REPLY %d: %d B  %s" % (src, n, len(d), d.hex()[:200]))
+                            say("     txt: %s" % txt[:150])
+                        if not got:
+                            time.sleep(0.02)
+                    if n == 0:
+                        say("  no reply")
+                except OSError as e:
+                    say("  send/recv error: %s" % e)
+                finally:
+                    sk.close()
+                say("RAW done")
             elif args.rftest_one:
                 say("modem CMD service at node %d port %d" % where)
                 parts = args.rftest_one.split(":")

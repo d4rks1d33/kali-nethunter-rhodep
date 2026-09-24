@@ -449,11 +449,58 @@ remaining route to IQ capture is **live protocol discovery** of the tech-enter
 (high-dimensional: sub_command x TECH x TLV set/order), which blind sweeping has
 not cracked.
 
+### BREAKTHROUGH: the modem code WAS decompressed (2026-09-24, later)
+
+The "code is unreachable" conclusion above was **overturned**. The dispatch code
+is not q6zip — it is **CLADE** (a hardware decompression engine). Three RE passes
+cracked it (`blob-analysis/clade_decomp.md`, `clade_exceptions.md`,
+`clade_final.md`, `iq_sequence.md`):
+
+1. The CLADE dictionaries are in `modem.b26` at offsets 0x2444000/0x2446000/
+   0x2448000 (validated with cladetool's OR signature); `.clade.comp` = b26@0.
+2. `unclade.py` alone got ~74% (its bug: CLADE code `0b11` is a zero-bit
+   EXCEPTION marker, not an inline 32-bit literal — it desynced the bitstream).
+3. The real Qualcomm codec **`libclade.so`** (from `mzakocs/qualcomm_baseband_
+   scripts`, cross-compiled x86-64 under qemu) decompressed it HW-accurate:
+   0.14% invalid over 1M instructions, the dispatcher page 1 invalid / 2049.
+   Output: `clade_dec_full.bin` (10 MB of real Hexagon), reproducible with
+   `clade_extractor_sm6375`.
+
+With clean code, the dispatcher `0xd8150ed8` was read directly and it yielded
+what live fuzzing never could (all FACT from disassembly):
+
+- **The real FTM packet wrapper.** The command is NOT `4b 0b <cmd16>` (what every
+  live attempt sent, and why they all got 0x14). It is:
+  `4b 0b | 14 00 | 5a 03 | <ftm_len16> | <id16> | 27 00 | <sub_command16> |
+  <num_tlv16> | <TLVs>` — DIAG SUBSYS_CMD, subsys 0x0b, **DIAG subsys cmd code
+  0x0014**, **ftm command id 0x35a**, the ftm_cmd (0x27=LTE) at offset 0xa, the
+  RF sub_command at 0xc.
+- **TECH_ENTER_EXIT sub_command = 13 (0x0d)** — FACT, from the dynamic
+  registration table @0xca65b414 (stride 0xc, TECH_ENTER at offset 0x9c → slot
+  13). The string-order guess (slot 8) was wrong, which is why blind sweeps of
+  0-6 never hit it.
+- **TECH field_id = 2 (u32)** in the tech-enter TLV; TECH=LTE best estimate **1**
+  (internal tech-index for cmd 0x27), candidates 1/4/5/0x27.
+- The 0x14 gate lives inside the dispatcher (DIAG_BAD_PARM).
+
+Live test with the corrected wrapper (`--raw` / `--raw-seq` added to the tool):
+the TECH_ENTER packet (`4b0b14005a03...2700 0d00 ...`) and a following
+RADIO_CONFIG are now ACCEPTED without the 0x14 rejection — but the modem returns
+no direct reply and no `[FTM.RFTEST]` F3 yet, so it is not confirmed to execute.
+The remaining unknowns are small and live-testable: the exact TECH enum value
+(barrer 1/4/5/0x27), the RADIO_CONFIG/IQ_CAPTURE RF sub_command numbers
+(candidates 0-3, from a second dynamic table @0xca789780), the ftm_len field, and
+whether the reply/F3 comes back on a different port. This is the finish line: the
+protocol is decoded from the firmware, only a handful of numeric values remain to
+pin by live probing with the now-correct packet shape.
+
 ### Honest conclusion for this line of work
 
-The SDR ladder is proven and documented end to end EXCEPT the final tech-enter
-gate, which sits behind the modem's own code — code this production build does
-not expose to the AP by any means available (verified: static, peek, coredump).
+The SDR ladder is proven and documented end to end, the modem code is decompiled,
+and the FTM RF-test protocol is decoded from that code. The tech-enter gate — the
+long blocker — is broken open: the packet wrapper and the TECH_ENTER sub_command
+(0x0d) are FACTs, and what is left is a small live-probe of a few numeric TLV
+values with the corrected packet, not another wall.
 Everything reusable is in place: the DIAG transport and tooling
 (`rhodep-diag-server.py` with sweep/l2/rftest/cap/tech-enter-hunt modes), the
 full firmware-derived TLV field model, the dispatcher id, F3 routing, and the
@@ -475,9 +522,12 @@ front-end and the LTE-attach watchdog.
 | RF-test dispatcher id | DONE (per-tech cmd_ids: 0x27 LTE, 0x8000/0x8001 NR5G; NOT 0x03) |
 | F3 routing (ssid 23) | DONE (explicit ALL_ENABLED mask for MSG_SSID_FTM) |
 | status 0x14 meaning | DONE (DIAG_BAD_PARM_F: recognised, rejected pre-execute) |
-| tech-enter gate | WALLED — code unreachable from AP (q6zip boot-built, DIAG peek compiled out, coredump is data-only). Only live-fuzz left |
-| sub_command enum | names known; numeric indices need the code (unreachable) or a lucky live-fuzz |
-| tune → IQ capture | field model + memshare infra ready; blocked behind the enter gate |
+| modem code | DECOMPRESSED (CLADE via libclade.so, HW-accurate, clade_dec_full.bin) |
+| FTM packet wrapper | DECODED (4b 0b 14 00 5a 03 .. 27 00 <sub> <ntlv> ..) — FACT |
+| TECH_ENTER sub_command | 0x0d (13) — FACT, from the registration table @0xca65b414 |
+| TECH field / LTE value | field_id 2 (u32) FACT; LTE value best-guess 1 (probe 1/4/5/0x27) |
+| RADIO_CONFIG/IQ_CAPTURE sub_command | candidates 0-3, second table @0xca789780 |
+| tune → IQ capture | protocol decoded; a few TLV values left to pin live with the correct packet |
 | IQ samples out via memshare | infra already in the port (5 MiB FTM loan) |
 | arbitrary RX / TX | future |
 

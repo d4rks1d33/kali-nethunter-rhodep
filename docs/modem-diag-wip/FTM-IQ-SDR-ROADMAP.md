@@ -39,14 +39,19 @@ rf_1x_mdsp, so that fault was OUR memshare, not pre-existing. Takeaways:
   hand against a live-but-bare modem.
 
 ### Next
-1. Apply patch 0120 (DT reserve 0x8ab00000/0x800000) properly (3 copies + APKBUILD
-   + README + build), so the module uses the stock address, not CMA.
-2. Order boot: rhodep_memassign (fixed region) -> memshare-daemon -> only then let
-   the modem come up (or accept it needs a controlled remoteproc0 restart with the
-   region already valid). Watch for the QUERY_SIZE/ALLOC on QMI 52 and for the
-   absence of rf_1x_mdsp.
-3. If the modem accepts the region: run TECH_ENTER->RADIO_CONFIG->IQ_CAPTURE and
-   read /dev/rhodep_memshare for the samples.
+1. DONE: patch 0120 applied to the build (3 APKBUILD copies + README, 105->106,
+   three copies agree). Kernel built (BUILD_EXIT=0), boot image at
+   out/rhodep-memshare-0120.img. Sanity OK: ANDROID! v2, kernel_size==vmlinuz+dtb,
+   dtb d00dfeed, audio 0xa1 x3, gsi-loader=self, no .ko.zst, and the DTB now
+   contains memshare@8ab00000 (0x800000, no-map). Slot A. **User to flash.**
+2. After flashing: load rhodep_memassign WITHOUT alloc (it will use the reserved
+   0x8ab00000 now that the DT declares it), start memshare-daemon, THEN a
+   controlled remoteproc0 restart so the modem does its QMI-52 QUERY/ALLOC against
+   the stock address. Watch dmesg for the ALLOC on the daemon and the ABSENCE of
+   rf_1x_mdsp Potential Memory Corruption. (A CMA-random address crashed it; the
+   stock address should not.)
+3. If the modem accepts the region: TECH_ENTER -> RADIO_CONFIG -> IQ_CAPTURE, then
+   read /dev/rhodep_memshare for the samples (mmap/read, non-cached).
 
 ## Status update (2026-09-26, session 5) — no-restart handshake works; modem no longer SSRs
 

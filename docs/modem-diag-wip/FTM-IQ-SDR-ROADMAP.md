@@ -7,6 +7,47 @@ not be reachable at all on a production-fused handset. This document is the plan
 and the honest boundary between what is proven and what is speculation, in the
 FACT / INFERENCE convention the rest of `docs/modem-diag-wip/` uses.
 
+## Status update (2026-09-26, session 6) — OS-side memshare path built; modem-restart is risky
+
+Reframed around the real gap: this is mainline, so the OS-side memshare plumbing
+the modem expects does not exist yet and we are building it.
+
+### Built and validated live (rhodep_memassign.ko)
+`os_iq_path.md` mapped the OS path; fixed two real bugs in the module, compiled it
+with clang on the phone, loaded it (alloc=1, 5 MiB CMA):
+- **Dual-VMID assign** (was the show-stopper for reading back): assign the region
+  to BOTH {HLOS RW, MSS_MSA RW}, not just the modem. Live:
+  `qcom_scm_assign_mem(... HLOS 0x6, vmid 0xf 0x6) returned 0`, srcvm bitmap 0x8008.
+- **/dev/rhodep_memshare** char device (mmap non-cached + read via ioremap_wc) so
+  the AP can pull the samples the modem writes to the no-map region. Live: created,
+  0640. The memshare-daemon then finds the region via sysfs and offers it on QMI 52.
+
+qcom_scm_assign_mem is EXPORT_SYMBOL_GPL in 7.2-rc5; the module links and works.
+
+### Hard lesson: do NOT restart remoteproc0 with memshare half-set-up
+Restarting the modem (`echo stop/start > /sys/class/remoteproc/remoteproc0/state`)
+with the daemon up but the region at a CMA-random address (0xfd200000) made the
+modem boot, then fatal ~17 s later with
+`rf_1x_mdsp_intf.c:312: Potential Memory Corruption !!!`, and the phone then froze
+(needed a hardware reboot). A clean cold boot has **0 modem crashes** and no
+rf_1x_mdsp, so that fault was OUR memshare, not pre-existing. Takeaways:
+- The modem's memshare QUERY happens at MSS bring-up; the daemon+module must be up
+  and offering a *valid* region BEFORE that, and the ADDRESS matters (stock uses
+  the reserved 0x8ab00000, not a random CMA page).
+- So the correct path is the DT reservation (patch 0120) + module using that fixed
+  region + daemon, all started before the modem — not restarting remoteproc0 by
+  hand against a live-but-bare modem.
+
+### Next
+1. Apply patch 0120 (DT reserve 0x8ab00000/0x800000) properly (3 copies + APKBUILD
+   + README + build), so the module uses the stock address, not CMA.
+2. Order boot: rhodep_memassign (fixed region) -> memshare-daemon -> only then let
+   the modem come up (or accept it needs a controlled remoteproc0 restart with the
+   region already valid). Watch for the QUERY_SIZE/ALLOC on QMI 52 and for the
+   absence of rf_1x_mdsp.
+3. If the modem accepts the region: run TECH_ENTER->RADIO_CONFIG->IQ_CAPTURE and
+   read /dev/rhodep_memshare for the samples.
+
 ## Status update (2026-09-26, session 5) — no-restart handshake works; modem no longer SSRs
 
 Two big live results this session.

@@ -99,6 +99,10 @@
 #include <linux/types.h>
 #include <linux/firmware/qcom/qcom_scm.h>
 #include <dt-bindings/firmware/qcom,scm.h>
+#include <linux/miscdevice.h>
+#include <linux/mm.h>
+#include <linux/io.h>
+#include <linux/uaccess.h>
 
 static unsigned long long base = 0x8ab00000ULL;
 module_param(base, ullong, 0444);
@@ -338,9 +342,89 @@ static bool region_is_reserved(u64 want_base, u64 want_size)
 	return found;
 }
 
+/*
+ * /dev/rhodep_memshare: how the AP reads what the modem wrote.
+ *
+ * The region is no-map, so the kernel never mapped it and there is no struct
+ * page for it; the only ways in are ioremap (for read()) and remap_pfn_range
+ * (for mmap). Both use a non-cached mapping: the modem writes it behind the
+ * XPU with its own view of memory, so the AP must not read stale cache lines.
+ * Only present once the region is actually assigned (assigned == true), so a
+ * reader can never touch pages that still belong to HLOS-only or to no one.
+ */
+static int memshare_mmap(struct file *f, struct vm_area_struct *vma)
+{
+	unsigned long len = vma->vm_end - vma->vm_start;
+	unsigned long off = vma->vm_pgoff << PAGE_SHIFT;
+
+	if (!assigned)
+		return -ENODEV;
+	if (off >= size || len > size - off)
+		return -EINVAL;
+	/* non-cached: the modem's writes bypass the AP cache. */
+	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+	return remap_pfn_range(vma, vma->vm_start,
+			       (base + off) >> PAGE_SHIFT, len,
+			       vma->vm_page_prot);
+}
+
+static ssize_t memshare_read(struct file *f, char __user *ubuf,
+			     size_t count, loff_t *ppos)
+{
+	void __iomem *io;
+	void *tmp;
+	loff_t pos = *ppos;
+	ssize_t ret;
+
+	if (!assigned)
+		return -ENODEV;
+	if (pos < 0 || pos >= (loff_t)size)
+		return 0;
+	if (count > size - pos)
+		count = size - pos;
+	if (!count)
+		return 0;
+
+	io = ioremap_wc(base + pos, count);
+	if (!io)
+		return -ENOMEM;
+	tmp = kvmalloc(count, GFP_KERNEL);
+	if (!tmp) {
+		iounmap(io);
+		return -ENOMEM;
+	}
+	memcpy_fromio(tmp, io, count);
+	iounmap(io);
+
+	if (copy_to_user(ubuf, tmp, count))
+		ret = -EFAULT;
+	else {
+		*ppos = pos + count;
+		ret = count;
+	}
+	kvfree(tmp);
+	return ret;
+}
+
+static const struct file_operations memshare_fops = {
+	.owner = THIS_MODULE,
+	.mmap  = memshare_mmap,
+	.read  = memshare_read,
+	.llseek = default_llseek,
+};
+
+static struct miscdevice memshare_miscdev = {
+	.minor = MISC_DYNAMIC_MINOR,
+	.name  = "rhodep_memshare",
+	.fops  = &memshare_fops,
+	.mode  = 0640,
+};
+
+static bool miscdev_up;
+
 static int __init memassign_init(void)
 {
-	struct qcom_scm_vmperm dest;
+	struct qcom_scm_vmperm dest[2];
 	int ret;
 
 	if (!size)
@@ -376,14 +460,25 @@ static int __init memassign_init(void)
 		}
 	}
 
-	dest.vmid = dest_vmid;
-	dest.perm = dest_perm;
+	/*
+	 * Assign to BOTH the modem AND HLOS. qcom_scm_assign_mem() sets the
+	 * owners to EXACTLY the destination list, so a single {MSS_MSA} entry
+	 * would strip HLOS of all access and the AP could never read back the
+	 * IQ samples the modem writes here. For a capture buffer we want the
+	 * modem to write (VMID_MSS_MSA, RW) and the AP to read (VMID_HLOS, RW).
+	 * This is deliberately less isolated than a pure hand-off; it is what a
+	 * shared capture region needs. Set hlos_perm=4 (RO) if the AP only reads.
+	 */
+	dest[0].vmid = QCOM_SCM_VMID_HLOS;
+	dest[0].perm = hlos_perm;
+	dest[1].vmid = dest_vmid;
+	dest[1].perm = dest_perm;
 	srcvm = BIT(QCOM_SCM_VMID_HLOS);
 
 	ret = qcom_scm_assign_mem((phys_addr_t)base, (size_t)size, &srcvm,
-				  &dest, 1);
-	pr_info("rhodep_memassign: qcom_scm_assign_mem(0x%llx, 0x%llx, HLOS -> vmid 0x%x perm 0x%x) returned %d\n",
-		base, size, dest_vmid, dest_perm, ret);
+				  dest, 2);
+	pr_info("rhodep_memassign: qcom_scm_assign_mem(0x%llx, 0x%llx, HLOS -> {HLOS perm 0x%x, vmid 0x%x perm 0x%x}) returned %d\n",
+		base, size, hlos_perm, dest_vmid, dest_perm, ret);
 	if (ret) {
 		pr_err("rhodep_memassign: TrustZone refused the transition; the modem must not be given this address\n");
 		region_release();
@@ -391,8 +486,8 @@ static int __init memassign_init(void)
 	}
 
 	assigned = true;
-	pr_info("rhodep_memassign: 0x%llx + 0x%llx now owned by vmid 0x%x perm 0x%x (srcvm bitmap 0x%llx)\n",
-		base, size, dest_vmid, dest_perm, srcvm);
+	pr_info("rhodep_memassign: 0x%llx + 0x%llx now shared HLOS(0x%x)+vmid 0x%x(0x%x) (srcvm bitmap 0x%llx)\n",
+		base, size, hlos_perm, dest_vmid, dest_perm, srcvm);
 
 	/*
 	 * Published only now, and only on success: the daemon's whole guard is
@@ -412,6 +507,14 @@ static int __init memassign_init(void)
 	}
 	pr_info("rhodep_memassign: published /sys/kernel/rhodep_memshare (base 0x%llx size %llu)\n",
 		base, size);
+
+	/* the read path for the AP: /dev/rhodep_memshare */
+	if (misc_register(&memshare_miscdev))
+		pr_warn("rhodep_memassign: could not create /dev/rhodep_memshare; samples unreadable from the AP\n");
+	else {
+		miscdev_up = true;
+		pr_info("rhodep_memassign: /dev/rhodep_memshare ready (mmap/read, non-cached)\n");
+	}
 	return 0;
 }
 
@@ -419,6 +522,11 @@ static void __exit memassign_exit(void)
 {
 	struct qcom_scm_vmperm back;
 	int ret;
+
+	if (miscdev_up) {
+		misc_deregister(&memshare_miscdev);
+		miscdev_up = false;
+	}
 
 	if (memshare_kobj) {
 		sysfs_remove_groups(memshare_kobj, memshare_groups);

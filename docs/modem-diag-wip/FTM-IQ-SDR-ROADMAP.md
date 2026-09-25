@@ -7,6 +7,39 @@ not be reachable at all on a production-fused handset. This document is the plan
 and the honest boundary between what is proven and what is speculation, in the
 FACT / INFERENCE convention the rest of `docs/modem-diag-wip/` uses.
 
+## Status update (2026-09-25, later) — gate resolved; blocker is the RFTEST wire layout
+
+Further RE flipped the previous "async gate" understanding and narrowed the real
+blocker to one concrete unknown: the exact wire layout of the RFTEST body.
+
+- The RFTEST gate `0xd8202224` (`memb(tech<<3+0xca7897b0)!=1 -> 0x14`) lives in the
+  deferred RF action executor `0xd8201d3c`, which NO DIAG dispatcher reaches (BFS
+  from RADIO_CONFIG unpacker / handler 0x1002 / dispatcher `0xd82714b4` hits none of
+  it). **RADIO_CONFIG is NOT gated** — there is no circularity. The gate only guards
+  the measurement/action phase (RX_MEASURE/IQ_CAPTURE). `blob-analysis/gate_resolution.md`.
+- The `enter_mode`/`enter_mode_cnf` we chased is the ONLINE ML1 path (seg27
+  @0xce480000), not FTM. In factory-test the FTM path powers RF directly via
+  `rflte_mc_carrier_activate` -> `rflte_ftm_mc_wakeup`. `blob-analysis/enter_mode_path.md`.
+- **The RFTEST command is NOT selected by the sub_command @0x04.** The 24-slot table
+  `@0xc37c649c` (sub = 0x1000+slot) routes to a shared envelope; the real command is
+  `command_id = memub(req+0x0a)`, checked <=0x31, indexing the runtime table
+  `@0xca79a850` (`0xd8272684: memw(memw(0xca79a850)+id*4+0x34)`). 0 static refs to
+  any unpacker. Best INFERENCE: IQ_CAPTURE=0x1002, RADIO_CONFIG=0x1003,
+  COMMAND_CAPABILITY=0x1004. `blob-analysis/slot_correlation.md`.
+
+**The one blocker now: the wire offset of `command_id`.** The envelope `0xd8272c10`
+(@0xd8272c50) copies wire bytes 0..7 verbatim into the internal buffer but writes
+buffer[8]=r16 and buffer[9]=lsr(r16,8) (sub_command metadata, not wire), so
+`buffer+0x0a` (command_id) does NOT map 1:1 to wire byte 10. Resolving the exact
+wire byte needs a full trace of r1/r16/r17 through the copy chain. Live sweeps of
+command_id at guessed offsets SSR the modem, and the static trace agent keeps
+getting blocked by the model's content filter. So: protocol fully open, the last
+missing datum is a byte offset.
+
+Next: finish the static trace of `0xd8272c10`/`0xd86fd0e8` (r18 provenance) to pin
+the wire byte, or brute-force it more carefully (one command_id per run to isolate
+SSRs). Live logs: `research/modem-blob/live-logs/` (cid.log = the offset sweep).
+
 ## Status update (2026-09-25) — packet format solved, one async gate left
 
 The long-standing "silence" is fully explained and fixed. The packet is

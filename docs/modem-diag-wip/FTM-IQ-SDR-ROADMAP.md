@@ -7,6 +7,47 @@ not be reachable at all on a production-fused handset. This document is the plan
 and the honest boundary between what is proven and what is speculation, in the
 FACT / INFERENCE convention the rest of `docs/modem-diag-wip/` uses.
 
+## Status update (2026-09-26, session 7) — memshare kernel FLASHED; modem reboots CLEAN on the stock address
+
+Flashed the kernel with patch 0120. Big confirmation this session, driven by
+`scripts/modem/rhodep-iq-memshare-run.sh` (a self-contained on-device script that
+logs every stage to /tmp/iqrun/, so we stop fighting SSH glitches):
+
+- DT now reserves memshare@8ab00000 (0x800000, no-map); iomem shows
+  `8ab00000-8b2fffff : reserved`. FACT.
+- rhodep_memassign (no alloc) assigns the RESERVED stock address 0x8ab00000 to
+  BOTH VMIDs: `qcom_scm_assign_mem(...HLOS 0x6, vmid 0xf 0x6) returned 0`, srcvm
+  0x8008. /dev/rhodep_memshare created. memshare-daemon detects it:
+  `reserved region memshare@8ab00000: 0x8ab00000 + 0x800000 (no-map)`. FACT.
+- **remoteproc0 restart with the region assigned at the stock address = CLEAN:**
+  stop->offline->start->"modem is now up", and for 35 s of watch **crashes=0,
+  rf1x=0**. This is the decisive result: the CMA-random address (0xfd200000) last
+  session gave rf_1x_mdsp Potential Memory Corruption + freeze; the stock address
+  0x8ab00000 does NOT. The address was the problem, and patch 0120 fixed it. FACT.
+
+Two open observations (for next session):
+1. After the clean modem restart the daemon logged NO QMI-52 QUERY/ALLOC from the
+   modem. Either the modem only requests memshare when something needs it (e.g.
+   IQ_CAPTURE), or the request went somewhere the daemon didn't log. Need to
+   instrument the daemon to print every incoming QMI-52 packet (and confirm it is
+   up and registered BEFORE the modem bring-up).
+2. /dev/rhodep_memshare read all-zero (expected, no capture ran).
+
+The phone hung during the SECOND run (stage 5: the diag TECH_ENTER->RADIO_CONFIG->
+IQ_CAPTURE with --kick). The hang was the diag --kick/restart path, NOT the
+memshare (stages 0-4 were clean and the modem rebooted healthy). User powered off.
+
+### Next session (close to done)
+1. Boot clean. Load rhodep_memassign (no alloc, uses reserved 0x8ab00000),
+   start memshare-daemon, confirm it's registered on QMI 52.
+2. Instrument the daemon to log every QMI-52 request. Restart remoteproc0 once and
+   watch whether the modem sends QUERY_SIZE/ALLOC now that the address is stock.
+3. Separately (avoid combining with --kick which hung): a careful IQ_CAPTURE and
+   then read /dev/rhodep_memshare. If the diag reply path is flaky, rely on the
+   memshare buffer for the samples, not the command reply.
+4. Everything is scripted in scripts/modem/rhodep-iq-memshare-run.sh
+   (DO_MODEM_RESTART / DO_DIAG toggles) — keep using it, read /tmp/iqrun/*.log.
+
 ## Status update (2026-09-26, session 6) — OS-side memshare path built; modem-restart is risky
 
 Reframed around the real gap: this is mainline, so the OS-side memshare plumbing

@@ -7,6 +7,43 @@ not be reachable at all on a production-fused handset. This document is the plan
 and the honest boundary between what is proven and what is speculation, in the
 FACT / INFERENCE convention the rest of `docs/modem-diag-wip/` uses.
 
+## Status update (2026-09-25) — packet format solved, one async gate left
+
+The long-standing "silence" is fully explained and fixed. The packet is
+`4b 0b <ftm_cmd:u16 @0x02> <sub_command:u16 @0x04> <num_tlv:u16 @0x06> <TLVs>`
+(TLV = `<field_id:u16><len:u16><value>`). The old wrapper `14 00 5a 03` put the
+constant 0x14 at @0x02, which the diag core (`memuh(pkt+0x2)` @0xc0d55f48,
+table 0xc37bd1e8) routes to a reserved handler that `return 0` = silent drop.
+See `blob-analysis/ftm_subsys_activate.md`.
+
+With the correct format and by becoming the modem's COMMAND peer
+(`--cmd-peer`), live over QRTR:
+
+- `4b0b 2700 0d00 0300 <SUB=0,TECH=1,SCENARIO=0>` (TECH_ENTER, ftm_cmd 0x27=LTE,
+  sub 0x0d) → **reproducible 63-byte structured reply**, plus (some runs) 16 KB
+  RF-test REPACK blocks on the DATA channel. The command parses and runs.
+- sub_command @0x04 is one space partitioned by range: 0x0000-0x0FFF RFDEBUG
+  (TECH_ENTER=0x0d), 0x1000-0x3FFF RFTEST (RADIO_CONFIG / RX_MEASURE / IQ_CAPTURE
+  / COMMAND_CAPABILITY). See `blob-analysis/sub_command_map.md`.
+
+**The one remaining blocker is an async gate, not the protocol.** Every RFTEST
+sub returns status 0x14 because the per-tech "entered" flag `@0xca7897b0[tech]`
+is still 0. That flag is written =1 by `0xd81e5cec` only when `session->0xc == 2`
+(gate `0xd81e5d20`); the RFTEST executor gates on it at `0xd8202224`
+(`memb(tech<<3+0xca7897b0)!=1 → 0x14`). `session->0xc` is NOT set by any DIAG
+sub_command and NOT by a missing TLV (our SUB/TECH/SCENARIO set is complete). It
+is raised to 2 only as an **async side-effect**: TECH_ENTER sends an RF
+`enter_mode` over MSGR and, when `enter_mode_cnf` returns, the state machine sets
+`session->0xc=2`. In factory-test mode that confirmation does not complete
+(RF/cal not in a state to confirm — asserts `rfm_inst->wakeup_req.use_enter_mode`
+/ `enter_mode_cnf`). So the protocol path is fully open; the RF enter-mode
+handshake is what stalls. See `blob-analysis/tech_state_gate.md` and
+`blob-analysis/session_start.md`.
+
+Next candidates to make enter-mode confirm: try SCENARIO/SUB variants, drive the
+RF cal/wakeup sequence first, or attempt outside factory-test (online) mode.
+`--cmd-peer` is now supported on `--raw`, `--raw-seq` and `--rftest-sweep`.
+
 ## Where we actually are (FACT, measured 2026-09-23)
 
 The transport problem is **solved**. DIAG runs end to end over QRTR sockets, no

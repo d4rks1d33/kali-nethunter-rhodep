@@ -253,6 +253,12 @@ def main():
     ap.add_argument("--restart-modem", action="store_true",
                     help="crash the modem after publishing, so its diag sees "
                          "the services during its own boot")
+    ap.add_argument("--kick", action="store_true",
+                    help="kick the modem's already-running diag into re-doing the "
+                         "handshake without a restart: re-publish NEW_SERVER for "
+                         "each instance and push our feature mask to the modem's "
+                         "CMD service. Lets us keep the modem's live RF state "
+                         "(carrier context) that --restart-modem would wipe.")
     ap.add_argument("--cmd", metavar="HEX",
                     help="after the handshake, send this DIAG request to the "
                          "modem's CMD service and print what comes back. "
@@ -386,6 +392,52 @@ def main():
                 f.write("1")
         except OSError as e:
             say("cannot crash it: %s" % e)
+
+    if args.kick and not args.restart_modem:
+        # Kick the modem's already-running diag into re-handshaking, so we keep
+        # its live RF state instead of wiping it with a crash. Two things:
+        # (1) re-announce our servers so the modem re-notices the diag client,
+        # (2) push our feature mask straight to the modem's CMD service, which
+        #     makes its diag reply with its own feature mask + DIAGID and the
+        #     normal reactive handshake below takes over.
+        say("kick: re-announcing diag servers + pushing feature mask (no restart)")
+        for inst, s in socks.items():
+            try:
+                n, p = s.getsockname()
+                s.sendto(struct.pack("<IIIII", QRTR_TYPE_NEW_SERVER,
+                         DIAG_SVC_ID, inst, n, p), (n, QRTR_PORT_CTRL))
+            except OSError as e:
+                say("  kick NEW_SERVER inst %d failed: %s" % (inst, e))
+        time.sleep(0.3)
+        # find the modem CMD service and push the feature mask to it
+        lk = socket.socket(socket.AF_QIPCRTR, socket.SOCK_DGRAM)
+        ln, _ = lk.getsockname()
+        lk.sendto(struct.pack("<IIIII", 10, DIAG_SVC_ID, 0, 0, 0),
+                  (ln, QRTR_PORT_CTRL))
+        lk.settimeout(2.0)
+        cmdaddr = None
+        endk = time.time() + 2.0
+        while time.time() < endk:
+            try:
+                d, _ = lk.recvfrom(4096)
+            except socket.timeout:
+                break
+            if len(d) >= 20:
+                c, sv, ins, nn, pp = struct.unpack_from("<IIIII", d, 0)
+                if c == QRTR_TYPE_NEW_SERVER and sv == DIAG_SVC_ID and nn == 0:
+                    cmdaddr = (nn, pp)
+        lk.close()
+        if cmdaddr:
+            fm = feature_mask_packet()
+            for s in socks.values():
+                try:
+                    s.sendto(fm, cmdaddr)
+                except OSError:
+                    pass
+            say("  kick: pushed feature mask %s to modem CMD %s"
+                % (fm.hex(), cmdaddr))
+        else:
+            say("  kick: modem CMD service not found")
 
     def modem_cmd_port():
         """Where the modem publishes its DIAG CMD service, instance 1.

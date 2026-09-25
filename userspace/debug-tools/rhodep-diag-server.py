@@ -732,48 +732,46 @@ def main():
                 say("CMD_CAPABILITY hunt done")
             elif args.iq_hunt:
                 say("modem CMD service at node %d port %d" % where)
+                # CORRECT format: 4b 0b <ftm_cmd@0x02> <sub@0x04> <ntlv@0x06> <TLVs>
+                # ftm_cmd 0x27 = LTE. Become the COMMAND peer first.
                 sk = socket.socket(socket.AF_QIPCRTR, socket.SOCK_DGRAM)
-                sk.settimeout(1.5)
-                W = bytes.fromhex  # shorthand
+                pn, pp = sk.getsockname()
+                sk.sendto(struct.pack("<IIIII", QRTR_TYPE_NEW_SERVER,
+                          DIAG_SVC_ID, MODEM_INST_BASE + 1, pn, pp),
+                          (pn, QRTR_PORT_CTRL))
+                sk.settimeout(2.0)
+                time.sleep(0.3)
 
-                def hexpkt(*parts):
-                    return b"".join(parts)
+                def ftm(sub, tlvs=b"", ntlv=0):
+                    return (bytes([0x4b, 0x0b]) + struct.pack("<HHH", 0x27, sub, ntlv)
+                            + tlvs)
 
-                # TECH_ENTER: wrapper + ftm_cmd 27 00 + sub 0d 00 + ntlv 3 + TLVs
-                te = W("4b0b14005a03000000002700" + "0d00" + "0300"
-                       + "010004000000" + "0000"          # SUB=0 (pad to fill? no)
-                       )
-                # build TLVs properly: SUB(1)=0, TECH(2)=1, SCENARIO(3)=0, each {id,len,val}
-                te = (W("4b0b14005a03000000002700") + struct.pack("<H", 0x0d)
-                      + struct.pack("<H", 3)
-                      + struct.pack("<HHI", 1, 4, 0)
-                      + struct.pack("<HHI", 2, 4, 1)   # TECH = 1 = LTE
-                      + struct.pack("<HHI", 3, 4, 0))
+                # STEP 1: TECH_ENTER (sub 0x0d), SUB=0/TECH=1(LTE)/SCENARIO=0
+                te_tlvs = (struct.pack("<HHI", 1, 4, 0)
+                           + struct.pack("<HHI", 2, 4, 1)
+                           + struct.pack("<HHI", 3, 4, 0))
+                te = ftm(0x0d, te_tlvs, 3)
                 say("STEP TECH_ENTER: %s" % te.hex())
                 sk.sendto(te, where)
                 t_end = time.time() + 2.0
                 while time.time() < t_end:
                     try:
                         d, a = sk.recvfrom(8192)
-                        say("  TE reply: status 0x%02x  %s" % (d[0] if d else -1, d.hex()[:160]))
+                        say("  TE reply: status 0x%02x  %dB  %s"
+                            % (d[0] if d else -1, len(d), d.hex()[:200]))
                     except (socket.timeout, OSError):
                         break
-                # also check the served DATA for an FTM F3
                 time.sleep(0.3)
-                # sweep COMMAND_CAPABILITY over sub 0..0x14 with QUERY_COMMAND=0xffffffff
-                say("--- sweeping COMMAND_CAPABILITY over RF sub_command 0..0x14 ---")
-                for sub in range(0, 0x15):
-                    cc = (W("4b0b14005a03000000002700") + struct.pack("<H", sub)
-                          + struct.pack("<H", 1)
-                          + struct.pack("<HHI", 1, 4, 0xFFFFFFFF))  # QUERY_COMMAND
+                # STEP 2: sweep the config sub-commands (now that tech is entered),
+                # empty TLV first to see which changed from 0x14 to something else.
+                say("--- after TECH_ENTER: probing config subs 0..8 (empty) ---")
+                for sub in range(0, 9):
                     try:
-                        sk.sendto(cc, where)
+                        sk.sendto(ftm(sub), where)
                         d, a = sk.recvfrom(8192)
                         st = d[0] if d else -1
-                        extra = len(d) - len(cc) - 1
-                        flag = "  <<< reply carries %d extra B" % extra if extra > 4 else ""
-                        say("  sub 0x%02x: status 0x%02x  %dB  %s%s"
-                            % (sub, st, len(d), d.hex()[:120], flag))
+                        say("  sub 0x%02x: status 0x%02x  %dB  %s"
+                            % (sub, st, len(d), d.hex()[:100]))
                     except socket.timeout:
                         say("  sub 0x%02x: no reply" % sub)
                     except OSError as e:
@@ -786,7 +784,14 @@ def main():
                 pkts = [bytes.fromhex(p.replace(" ", "").replace("0x", ""))
                         for p in args.raw_seq.split(",")]
                 sk = socket.socket(socket.AF_QIPCRTR, socket.SOCK_DGRAM)
-                sk.settimeout(2.5)
+                if args.cmd_peer:
+                    pn, pp = sk.getsockname()
+                    sk.sendto(struct.pack("<IIIII", QRTR_TYPE_NEW_SERVER,
+                              DIAG_SVC_ID, MODEM_INST_BASE + 1, pn, pp),
+                              (pn, QRTR_PORT_CTRL))
+                    say("  became COMMAND peer (node %d port %d)" % (pn, pp))
+                    time.sleep(0.5)
+                sk.settimeout(0.0)   # non-blocking; poll in the window loop
                 served = list(socks.values())
                 for pi, req in enumerate(pkts):
                     say(">>> STEP %d request: %s" % (pi + 1, req.hex()))
@@ -794,8 +799,8 @@ def main():
                         sk.sendto(req, where)
                     except OSError as e:
                         say("    send error: %s" % e); continue
-                    # collect replies + FTM F3 for ~2.5s on this socket + served
-                    end_r = time.time() + 2.5
+                    # collect replies + FTM F3 for ~6s on this socket + served
+                    end_r = time.time() + 6.0
                     got = 0
                     while time.time() < end_r:
                         any_r = False

@@ -416,6 +416,7 @@ def main():
                   (ln, QRTR_PORT_CTRL))
         lk.settimeout(2.0)
         peer = None
+        cmd_peer = None
         endk = time.time() + 2.0
         while time.time() < endk:
             try:
@@ -425,21 +426,27 @@ def main():
             if len(d) >= 20:
                 c, sv, ins, nn, pp = struct.unpack_from("<IIIII", d, 0)
                 if c == QRTR_TYPE_NEW_SERVER and sv == DIAG_SVC_ID and nn == 0:
-                    peer = (nn, pp)
                     say("  kick: modem DIAG service inst %d at node %d port %d"
                         % (ins, nn, pp))
+                    # The CNTL port is derived from the CMD service (inst 1):
+                    # observed CNTL = CMD_port - 1. Only inst 1 is a reliable
+                    # anchor (inst 3/DCI has a different port).
+                    if ins == MODEM_INST_BASE + 1:
+                        cmd_peer = (nn, pp)
+                    if peer is None:
+                        peer = (nn, pp)
         lk.close()
         cntl = socks.get(0)
         # The modem's CNTL channel is a separate port from the CMD service it
-        # advertises. Observed with --restart-modem: the modem sends its feature
-        # mask from node 0 port 25, while the advertised CMD service is port 26.
-        # So the CNTL peer is (cmd_node, cmd_port - 1). Allow override via
-        # --cntl-port.
-        if peer:
-            cntl_port = args.cntl_port if args.cntl_port >= 0 else peer[1] - 1
-            peer = (peer[0], cntl_port)
-            say("  kick: using modem CNTL peer node %d port %d"
-                % (peer[0], peer[1]))
+        # advertises. Observed: the modem's feature mask comes from node 0 port
+        # 25 while the CMD service (inst 1) is port 26, so CNTL = CMD_port - 1.
+        # Anchor on inst 1 specifically. Allow override via --cntl-port.
+        anchor = cmd_peer or peer
+        if anchor:
+            cntl_port = args.cntl_port if args.cntl_port >= 0 else anchor[1] - 1
+            peer = (anchor[0], cntl_port)
+            say("  kick: using modem CNTL peer node %d port %d (from CMD inst1 %s)"
+                % (peer[0], peer[1], cmd_peer))
         if peer and cntl is not None:
             # re-announce our servers first so the modem's drain target = us
             for inst, s in socks.items():

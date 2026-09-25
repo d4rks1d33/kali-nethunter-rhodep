@@ -276,6 +276,12 @@ def main():
                          "(so per-client state like 'tech entered' is kept), "
                          "printing each reply and any FTM F3 in between. For the "
                          "tech-enter -> radio-config -> iq-capture sequence.")
+    ap.add_argument("--cmd-peer", action="store_true",
+                    help="with --raw: right before sending, publish a NEW_SERVER "
+                         "from a dedicated socket so THAT socket becomes the modem's "
+                         "last-learned COMMAND peer (global 0xc8c2d870/74), then "
+                         "send the command from it and listen on it. This is where "
+                         "the modem sendto's command responses.")
     ap.add_argument("--from-data", action="store_true",
                     help="with --raw, send the command FROM the served DATA (inst 2) "
                          "socket instead of a fresh client socket, so the modem may "
@@ -515,7 +521,7 @@ def main():
     cmd_deadline = time.time() + args.cmd_after \
         if (args.cmd or args.ftm_sweep or args.ftm_l2 or args.rftest_sweep
             or args.rftest_one or args.cap_sweep or args.tech_enter_hunt
-            or args.raw or args.raw_seq or args.iq_hunt) \
+            or args.raw or args.raw_seq or args.iq_hunt or args.cmd_peer) \
         else None
     match_prefix = bytes.fromhex(args.match_prefix.replace("0x", "")) \
         if args.match_prefix else None
@@ -825,7 +831,19 @@ def main():
                 say("modem CMD service at node %d port %d" % where)
                 req = bytes.fromhex(args.raw.replace(" ", "").replace("0x", ""))
                 say("RAW request: %s" % req.hex())
-                if args.from_data and 2 in socks:
+                if args.cmd_peer:
+                    # become the modem's last-learned COMMAND peer: NEW_SERVER
+                    # from a dedicated socket, then send+listen on it.
+                    sk = socket.socket(socket.AF_QIPCRTR, socket.SOCK_DGRAM)
+                    pnode, pport = sk.getsockname()
+                    sk.sendto(struct.pack("<IIIII", QRTR_TYPE_NEW_SERVER,
+                              DIAG_SVC_ID, MODEM_INST_BASE + 1, pnode, pport),
+                              (pnode, QRTR_PORT_CTRL))
+                    say("  published NEW_SERVER (inst 1/CMD) from node %d port %d "
+                        "-> now the COMMAND peer" % (pnode, pport))
+                    time.sleep(0.5)
+                    sk.settimeout(3.0)
+                elif args.from_data and 2 in socks:
                     sk = socks[2]
                     say("  (sending FROM the served DATA inst-2 socket)")
                 else:
@@ -864,7 +882,8 @@ def main():
                 except OSError as e:
                     say("  send/recv error: %s" % e)
                 finally:
-                    sk.close()
+                    if not (args.from_data and 2 in socks):
+                        sk.close()
                 say("RAW done")
             elif args.rftest_one:
                 say("modem CMD service at node %d port %d" % where)
@@ -945,11 +964,18 @@ def main():
                 lo, hi = (int(x) for x in rng.split("-"))
                 say("RF-test sweep: ftm_cmd_id 0x%02x, sub-command %d-%d"
                     % (cmdid, lo, hi))
+                # become the COMMAND peer so responses come back to us
+                psk = socket.socket(socket.AF_QIPCRTR, socket.SOCK_DGRAM)
+                pn, pp = psk.getsockname()
+                psk.sendto(struct.pack("<IIIII", QRTR_TYPE_NEW_SERVER,
+                           DIAG_SVC_ID, MODEM_INST_BASE + 1, pn, pp),
+                           (pn, QRTR_PORT_CTRL))
+                psk.settimeout(0.6)
+                time.sleep(0.3)
                 for sub in range(lo, hi + 1):
                     # 4b 0b <cmdid16> <sub16> <num_tlv16=0>
                     req = bytes([0x4b, 0x0b]) + struct.pack("<HHH", cmdid, sub, 0)
-                    sk = socket.socket(socket.AF_QIPCRTR, socket.SOCK_DGRAM)
-                    sk.settimeout(0.5)
+                    sk = psk   # send+recv on the COMMAND-peer socket
                     try:
                         sk.sendto(req, where)
                         d, _ = sk.recvfrom(8192)
@@ -965,9 +991,8 @@ def main():
                         w = modem_cmd_port()
                         if w:
                             where = w
-                    finally:
-                        sk.close()
                     time.sleep(0.1)
+                psk.close()
                 say("RF-test sweep done")
             elif args.ftm_l2:
                 say("modem CMD service at node %d port %d" % where)

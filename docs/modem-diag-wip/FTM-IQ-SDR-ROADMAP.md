@@ -7,6 +7,57 @@ not be reachable at all on a production-fused handset. This document is the plan
 and the honest boundary between what is proven and what is speculation, in the
 FACT / INFERENCE convention the rest of `docs/modem-diag-wip/` uses.
 
+## Status update (2026-09-26, session 5) — no-restart handshake works; modem no longer SSRs
+
+Two big live results this session.
+
+### 1. The SSR was a wiped RF state, not a missing command — keep the modem LIVE
+RE (`cal_mode_trigger.md`) showed the RF-cal-mode gate is opened by TECH_ENTER's
+per-tech `callr` into the resident RF driver, which must already be REGISTERED.
+`--restart-modem` crashes the modem so its diag re-announces — but that leaves the
+RF driver unregistered, so every RFTEST NULL-derefs the carrier pointer and SSRs.
+
+Measured, decisive:
+- Modem after `--restart-modem` (bare): IQ_CAPTURE -> 65 SSR control packets (crash).
+- Modem kept LIVE (`online` -> settle 8 s -> `factory-test`, NO restart):
+  IQ_CAPTURE x3 -> **0 SSR every time**; full TECH_ENTER->RADIO_CONFIG->IQ_CAPTURE
+  -> 0-1 SSR. The modem stays in factory-test. **The command does not crash.**
+
+So the recipe is: never crash-restart; bring the modem up normally first, then
+QMI-DMS into factory-test, and the RF driver stays registered / gates stay usable.
+
+### 2. AP-initiated diag handshake WITHOUT a restart (this is the enabler)
+The blocker was that without `--restart-modem` the modem never re-sends its feature
+mask, so replies wouldn't route. RE (`handshake_no_restart.md`) found the fix and
+it WORKS live (`--kick`):
+
+- The diag handshake is on the **CNTL channel**, a *separate QRTR port from CMD*.
+  With `--restart-modem` the modem's feature mask arrives from **node 0 port 25**,
+  while the advertised CMD service is **port 26**. So CNTL peer = (cmd_node, cmd_port-1).
+- The response gate checks only two global flags, both set when the modem processes
+  OUR ctrl-msgs. So we drive the handshake ourselves by sending, ON THE CNTL SOCKET
+  (inst 0) to node 0 port 25:
+    1. FEATURE mask   (type 0x08)  -> sets the feature-received flag
+    2. DIAGID         (type 0x21)  -> sets the diagID-received flag
+    3. TX_MODE        (type 0x11, stream 1, real-time) -> real-time drain
+  Both FEATURE and DIAGID handlers also fire RESEND_CTRL/DATA/DRAIN, so the modem
+  re-pushes its state to us.
+- Live result (`--kick`, no restart): the modem replied on CNTL with its feature
+  mask `f7fe1b`, its DIAGID `msm/modem/root_pd`, and the full SSID-range (4020 B),
+  build-mask (3692 B) and log-range reports. **Full handshake, no restart, RF state
+  preserved.** Implemented as `--kick` / `--cntl-port` in rhodep-diag-server.py.
+
+### Where it stands now (the remaining gap)
+With `--kick` (handshake done, modem live, gates OK) the FTM commands DO NOT crash
+but their replies are NOT coming back yet: TECH_ENTER (which returned a reproducible
+63-byte reply under `--restart-modem`) gives "no direct CMD reply", and only QRTR
+control packets (0600.. node 0x40xx) show up on DATA. So: transport handshake OK,
+command executes (no SSR), but the command *response* isn't routing to us in the
+no-restart path. Next: find why the reply drains to a different peer than under
+restart (likely the COMMAND-peer / drain target learned during boot vs now).
+Live logs: `research/modem-blob/live-logs/` (kick3.log = handshake, iqfull.log =
+full IQ sequence, te_kick.log = TECH_ENTER alone).
+
 ## Status update (2026-09-25, session 4) — full-firmware RE; the SSR is a missing FTM_SET_MODE
 
 A whole-firmware RE pass (many parallel agents; consolidated in

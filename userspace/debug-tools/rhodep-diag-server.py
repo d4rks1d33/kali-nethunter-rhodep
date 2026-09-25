@@ -255,10 +255,12 @@ def main():
                          "the services during its own boot")
     ap.add_argument("--kick", action="store_true",
                     help="kick the modem's already-running diag into re-doing the "
-                         "handshake without a restart: re-publish NEW_SERVER for "
-                         "each instance and push our feature mask to the modem's "
-                         "CMD service. Lets us keep the modem's live RF state "
-                         "(carrier context) that --restart-modem would wipe.")
+                         "handshake without a restart, on the CNTL channel. Lets "
+                         "us keep the modem's live RF state (carrier context) that "
+                         "--restart-modem would wipe.")
+    ap.add_argument("--cntl-port", type=int, default=-1,
+                    help="modem CNTL channel port for --kick (default: the "
+                         "advertised CMD port minus 1, observed = 25).")
     ap.add_argument("--cmd", metavar="HEX",
                     help="after the handshake, send this DIAG request to the "
                          "modem's CMD service and print what comes back. "
@@ -394,28 +396,26 @@ def main():
             say("cannot crash it: %s" % e)
 
     if args.kick and not args.restart_modem:
-        # Kick the modem's already-running diag into re-handshaking, so we keep
-        # its live RF state instead of wiping it with a crash. Two things:
-        # (1) re-announce our servers so the modem re-notices the diag client,
-        # (2) push our feature mask straight to the modem's CMD service, which
-        #     makes its diag reply with its own feature mask + DIAGID and the
-        #     normal reactive handshake below takes over.
-        say("kick: re-announcing diag servers + pushing feature mask (no restart)")
-        for inst, s in socks.items():
-            try:
-                n, p = s.getsockname()
-                s.sendto(struct.pack("<IIIII", QRTR_TYPE_NEW_SERVER,
-                         DIAG_SVC_ID, inst, n, p), (n, QRTR_PORT_CTRL))
-            except OSError as e:
-                say("  kick NEW_SERVER inst %d failed: %s" % (inst, e))
-        time.sleep(0.3)
-        # find the modem CMD service and push the feature mask to it
+        # Kick the modem's already-running diag into re-handshaking WITHOUT a
+        # crash, so we keep its live RF state (carrier context / gates) that a
+        # restart wipes. RE (handshake_no_restart.md): the handshake is on the
+        # CNTL channel (inst 0), not CMD. The response gate only checks two
+        # global flags, both set when the modem processes OUR ctrl-msgs:
+        #   FEATURE (type 8)  -> sets 0xc92e43e0
+        #   DIAGID  (type 0x21) -> sets 0xc92e4754 bit0
+        #   TX_MODE (type 0x11) -> real-time drain for stream 1
+        # Both handlers also call 0xc0d68168 -> RESEND_CTRL/DATA/DRAIN, so the
+        # modem re-pushes its settings to us. Masks (msg/log/event) are only
+        # needed for F3, not for a command's direct reply. Send all of this on
+        # the CNTL socket (socks[0]) to the modem's DIAG service peer.
+        say("kick: CNTL-channel handshake, no restart (preserve live RF state)")
+        # discover the modem's DIAG service peer (any instance from node 0)
         lk = socket.socket(socket.AF_QIPCRTR, socket.SOCK_DGRAM)
         ln, _ = lk.getsockname()
         lk.sendto(struct.pack("<IIIII", 10, DIAG_SVC_ID, 0, 0, 0),
                   (ln, QRTR_PORT_CTRL))
         lk.settimeout(2.0)
-        cmdaddr = None
+        peer = None
         endk = time.time() + 2.0
         while time.time() < endk:
             try:
@@ -425,19 +425,45 @@ def main():
             if len(d) >= 20:
                 c, sv, ins, nn, pp = struct.unpack_from("<IIIII", d, 0)
                 if c == QRTR_TYPE_NEW_SERVER and sv == DIAG_SVC_ID and nn == 0:
-                    cmdaddr = (nn, pp)
+                    peer = (nn, pp)
+                    say("  kick: modem DIAG service inst %d at node %d port %d"
+                        % (ins, nn, pp))
         lk.close()
-        if cmdaddr:
-            fm = feature_mask_packet()
-            for s in socks.values():
+        cntl = socks.get(0)
+        # The modem's CNTL channel is a separate port from the CMD service it
+        # advertises. Observed with --restart-modem: the modem sends its feature
+        # mask from node 0 port 25, while the advertised CMD service is port 26.
+        # So the CNTL peer is (cmd_node, cmd_port - 1). Allow override via
+        # --cntl-port.
+        if peer:
+            cntl_port = args.cntl_port if args.cntl_port >= 0 else peer[1] - 1
+            peer = (peer[0], cntl_port)
+            say("  kick: using modem CNTL peer node %d port %d"
+                % (peer[0], peer[1]))
+        if peer and cntl is not None:
+            # re-announce our servers first so the modem's drain target = us
+            for inst, s in socks.items():
                 try:
-                    s.sendto(fm, cmdaddr)
+                    n, p = s.getsockname()
+                    s.sendto(struct.pack("<IIIII", QRTR_TYPE_NEW_SERVER,
+                             DIAG_SVC_ID, inst, n, p), (n, QRTR_PORT_CTRL))
                 except OSError:
                     pass
-            say("  kick: pushed feature mask %s to modem CMD %s"
-                % (fm.hex(), cmdaddr))
+            time.sleep(0.2)
+            for nm, mp in (("feature mask", feature_mask_packet()),
+                           ("diagid", diagid_reply(DIAG_ID_APPS + 1,
+                                                   "msm/modem/root_pd")),
+                           ("tx mode (0x11)", txmode_packet())):
+                try:
+                    cntl.sendto(mp, peer)
+                    say("  kick: sent %-14s on CNTL -> %s: %s"
+                        % (nm, peer, mp.hex()))
+                    time.sleep(0.1)
+                except OSError as e:
+                    say("  kick: could not send %s: %s" % (nm, e))
         else:
-            say("  kick: modem CMD service not found")
+            say("  kick: modem DIAG peer or CNTL socket not found "
+                "(peer=%s cntl=%s)" % (peer, cntl is not None))
 
     def modem_cmd_port():
         """Where the modem publishes its DIAG CMD service, instance 1.

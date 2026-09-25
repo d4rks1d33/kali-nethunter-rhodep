@@ -1056,7 +1056,7 @@ Everything under `packages/` and `userspace/` is **rootfs**, not boot image —
 none of it is in this `.img`. To get the userspace side onto a device see
 "Building the Kali rootfs (debos)" and the per-component `install.sh` scripts.
 
-## The 105 applied patches (`kernel/patches/`, applied in this order)
+## The 106 applied patches (`kernel/patches/`, applied in this order)
 
 The order below is the aport's `source=` order, which is what `patch` sees; it
 is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
@@ -1220,6 +1220,9 @@ is deliberately not numeric — 0042 and 0043 come before 0027 and 0028.
                                          monitor interface on WCN3990
 0118 ath10k-advertise-AUTH_AND_DEAUTH_RANDOM_TA-ext-feature  advertise the random
                                          TA ext feature for deauth
+0120 arm64-dts-qcom-rhodep-reserve-the-memshare-region  reserve memshare@8ab00000
+                                         (8 MiB no-map) so the modem's QMI-52 heap
+                                         has a fixed address to hand over for IQ
 0122 ath10k-rhodep-wcn3990-monitor-injection-5ghz  monitor-mode injection on the
                                          internal WCN3990 across 2.4 and 5 GHz
 0123 arm64-dts-qcom-rhodep-bind-typec-tusb320  bind the SGM7220 (a TUSB320 clone)

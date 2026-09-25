@@ -7,6 +7,43 @@ not be reachable at all on a production-fused handset. This document is the plan
 and the honest boundary between what is proven and what is speculation, in the
 FACT / INFERENCE convention the rest of `docs/modem-diag-wip/` uses.
 
+## Status update (2026-09-25, session 3) — protocol fully mapped; live RFTEST still SSRs
+
+The RFTEST command model is now completely reverse-engineered (8 RE passes,
+`blob-analysis/`), but every live RFTEST command still crashes the modem (SSR),
+and static analysis no longer predicts the crash — the remaining gap is runtime.
+
+What is now FACT/strong-INFERENCE:
+- Wire layout: `4b 0b | 27 00 | sub_command(2) | tlv_count(2) | body@8 | command_id@0x0a
+  | params@0x0f..0x11 | TLVs@0x12`. command_id (byte 10) is the real selector
+  (runtime table @0xca79a850); sub_command picks a wrapper. `wire_offset_{A,B}.md`.
+- Registration order (module init 0xd8182640, first module): command_id =
+  RADIO_CONFIG 0x00, RX_MEASURE 0x01, IQ_CAPTURE 0x05, COMMAND_CAPABILITY 0x0b
+  (INFERENCE base B=0). `reg_order_B.md`.
+- The SSR is a NULL deref of the active-carrier pointer memw(0xca79c494) in the
+  per-carrier exec 0xd827923c; that pointer is set only by RADIO_CONFIG's carrier
+  apply (0xd8279264, single caller 0xd8273b40, reached via runtime cb 0xd81bd01c).
+  `base_and_safe_B.md`.
+- Per-wrapper BFS: 0x100D is the unique query-pure wrapper (calls resolver, never
+  derefs 0xca79c494). So COMMAND_CAPABILITY should be sub 0x100D / cid 0x0b, and
+  RADIO_CONFIG sub 0x100D / cid 0x00. `canonical_wrapper.md`.
+
+Live result: TECH_ENTER reproducibly returns 63 B + big REPACKs, but EVERY RFTEST
+attempt SSRs right after the command — including sub 0x100D (the "query-pure"
+wrapper) with cid 0x0b, and RADIO_CONFIG cid 0x00 with full B3 TLVs. The 64x
+`status 0x06` control packets appear only AFTER the RFTEST step (0 before), so it
+is a real modem crash caused by the command, not restart noise.
+
+Honest read: static RE has been exhausted. The 0x10xx handlers use runtime `callr`
+dispatch that BFS cannot fully follow, so the static "query-pure"/"safe" verdicts
+do not hold at runtime. Closing IQ capture likely needs a different lever, e.g.:
+(a) capture the modem RAM/registers at the SSR (why 0xca79c494 is still NULL after
+TECH_ENTER — maybe TECH_ENTER must complete an async step first), (b) diff against
+a known-good FTM tool trace (QRCT/QMSL) to see the exact byte sequence, or (c) a
+one-command-per-boot brute of sub/command_id/offset to find any non-SSR combo.
+Live logs of every attempt in `research/modem-blob/live-logs/` (ccfinal.log =
+sub 0x100D COMMAND_CAPABILITY, rcgo.log = RADIO_CONFIG).
+
 ## Status update (2026-09-25, later) — gate resolved; blocker is the RFTEST wire layout
 
 Further RE flipped the previous "async gate" understanding and narrowed the real

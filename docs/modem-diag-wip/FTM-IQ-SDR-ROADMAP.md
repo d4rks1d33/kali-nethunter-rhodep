@@ -7,6 +7,46 @@ not be reachable at all on a production-fused handset. This document is the plan
 and the honest boundary between what is proven and what is speculation, in the
 FACT / INFERENCE convention the rest of `docs/modem-diag-wip/` uses.
 
+## Status update (2026-09-25, session 4) — full-firmware RE; the SSR is a missing FTM_SET_MODE
+
+A whole-firmware RE pass (many parallel agents; consolidated in
+`blob-analysis/MASTER_MODEM_MAP.md` + 14 `map_*.md`) turned the "runtime SSR we
+can't explain" into an exact, missing step. **This changes the live plan.**
+
+Root cause of every RFTEST SSR (FACT): the getter `0xd827923c` reads the
+active-carrier pointer `@0xca79c494`; if NULL it calls `err_fatal` (SSR, it asserts
+— does not return). The only writer `0xd8279264` runs solely when TWO hardware
+gates are both set:
+- `gp+0x740` = **0xcbf4f740** (byte) must == 2  → "RF cal mode"
+- `gp+0x7000` = **0xcbf56000** (word) must != 0 → RF context created
+
+`TECH_ENTER` sets NEITHER. Every earlier live attempt SSR'd because we never put
+the modem in RF cal mode. The missing PASO is an **FTM_SET_MODE (cal)** command
+under **ftm_cmd 0x00 = FTM_COMMON** (handler `0xd8271290`):
+`4b 0b 00 00 <SET_MODE:u16> 02 00`. The exact SET_MODE sub-cmd number is UNKNOWN
+statically (runtime dispatch); candidate 0x10F was disproved (it's a per-tech RF
+enable, not the mode gate). (`rf_cal_mode_gates.md`, `ftm_set_mode_verified.md`)
+
+Real bring-up order (supersedes all earlier sequences):
+1. DMS `--dms-set-operating-mode=factory-test` (necessary, not sufficient)
+2. **FTM_SET_MODE cal** (ftm_cmd 0x00, mode=2) → flips 0xcbf4f740 to 2, creates 0xcbf56000
+3. TECH_ENTER LTE (ftm_cmd 0x27, sub 0x0d, TECH=1)
+4. RADIO_CONFIG (BAND/EARFCN/BW) → carrier-apply now runs, writes 0xca79c494
+5. IQ_CAPTURE (command_id 0x05) — no SSR, samples via memshare REPACK
+
+Proven hard limit: the RFLTE/RFLM/SDR735 driver *code* is NOT in the MBN — it is
+resident RF/PHY code backed by physical DDR 0x2a3xxxxx / a dlpager pool outside
+every program header (confirmed over the correctly re-extracted 36 MB CLADE image).
+So the low-level RF register writes are not statically recoverable.
+
+Immediate live plan when the phone is back (DIAG PEEK/POKE/NV are compiled out, so
+no RAM read over DIAG — see `map_diag_core.md`):
+1. Sweep ftm_cmd 0x00 sub-cmds with mode=2 and, after each, send a harmless
+   RFTEST (e.g. COMMAND_CAPABILITY sub 0x100D / cid 0x0b); the sub-cmd that stops
+   the SSR is FTM_SET_MODE cal. Watch for an F3 confirming cal mode.
+2. Once cal mode holds: TECH_ENTER → RADIO_CONFIG → IQ_CAPTURE per the sequence above.
+3. If needed, a live RAM dump anchored on the seg27 string VAs to recover RFLTE.
+
 ## Status update (2026-09-25, session 3) — protocol fully mapped; live RFTEST still SSRs
 
 The RFTEST command model is now completely reverse-engineered (8 RE passes,

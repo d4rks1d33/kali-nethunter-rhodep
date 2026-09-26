@@ -157,7 +157,7 @@ reproduce -- the same ceiling as host emulation.
  	proto->power_state = NCI_LMRT_POWER_STATE_ALL;
  	proto->protocol = NCI_RF_PROTOCOL_MIFARE;
  	p += sizeof(*proto);
-@@ -990,25 +999,61 @@
+@@ -990,25 +999,63 @@
  		 * here corrupts the high ATQA byte). */
  		__u8 dur[2];
  
@@ -212,11 +212,13 @@ reproduce -- the same ceiling as host emulation.
 +		 * the analog front-end without presenting anything on F -- and
 +		 * the NFC-A field reaches the eSE. */
 +		if (ndev->ese_nfcee_id) {
-+			__u8 t3t_flags[2] = { 0x00, 0x00 };
-+
++			/* LF_PROTOCOL_TYPE=0 alone suppresses the NFC-DEP peer.
++			 * Do NOT also send LF_T3T_FLAGS=0: with no matching
++			 * LF_T3T_IDENTIFIERS the S3FWRN5 rejects it (SET_CONFIG
++			 * status 0x9, an incoherent T3T config) and that leaves
++			 * the listen config inconsistent, blocking activation. */
 +			v = 0x00;
 +			nci_set_config(ndev, NCI_LF_PROTOCOL_TYPE, 1, &v);
-+			nci_set_config(ndev, NCI_LF_T3T_FLAGS, 2, t3t_flags);
 +		}
 +
 +		/* If the embedded secure element that holds a provisioned MIFARE

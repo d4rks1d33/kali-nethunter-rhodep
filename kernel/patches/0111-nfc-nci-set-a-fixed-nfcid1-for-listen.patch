@@ -85,8 +85,14 @@ discovery dwells in the listen window.
 +#define NCI_LMRT_TYPE_PROTOCOL					0x01
 +/* NFCEE id of the host (the AP itself) */
 +#define NCI_NFCEE_ID_HOST					0x00
-+/* Power states bitmask: switched on | switched off | battery off */
-+#define NCI_LMRT_POWER_STATE_ALL				0x3f
++/* Power states bitmask. The vendor (LineageOS Samsung NFC HAL, verified by
++ * RE of nfc_nci_sec.so + libnfc-nci.conf) programs the listen-mode routing
++ * entries with 0x3B, not 0x3f. The S3FWRN5 silently accepts a routing entry
++ * whose power_state has unsupported bits set (status 0x0) but then never
++ * activates for it -- exactly the "accepts all, activates nothing" symptom.
++ * 0x3B = switched-on | switched-off | battery-off | screen-on-locked |
++ * screen-off-unlocked, dropping the 0x04 bit the part does not honour here. */
++#define NCI_LMRT_POWER_STATE_ALL				0x3b
 +struct nci_lmrt_tech_entry {
 +	__u8	type;		/* NCI_LMRT_TYPE_TECHNOLOGY */
 +	__u8	len;		/* 3 */

@@ -455,3 +455,25 @@ from the 7-byte NFCID1 length. Patch 0111 already emits these exact tags/values.
   except UICC_LISTEN_TECH_MASK (§0 table).
 - rfreg/swreg tails end in `44 45 46 00` ("DEF\0"); no 0x33/UID/ATQA/SAK inside →
   confirms analog RF images, not NCI listen config (§4F).
+
+---
+## Convergence note (session 2026-09-26)
+
+Three independent sources now agree on the SAME ceiling for NFC-A card emulation
+(host AND eSE):
+1. patch 0113 header (already tried eSE routing, LF_PROTOCOL_TYPE=0, NFC-A+NFC-F
+   pairing, NFCEE_MODE_SET 0x83): "remaining block is the NFC-A listen front-end
+   not engaging at RF, most likely a vendor RF profile the plain NCI path cannot
+   reproduce."
+2. swreg_rfreg_analysis.md: rfreg has poll/TX profiles but NO NFC-A listen RF
+   profile.
+3. vendor_listen_sequence.md: the true gap is the listen-specific vendor RF
+   profile the Android HAL pushes, not a missing NCI tag.
+
+So the concrete next step is to obtain the vendor's listen RF register stream:
+capture what the Android NFC HAL (Samsung libsec-nfc / libnfc-nci vendor .so)
+loads into the chip when card emulation starts (the delta vs rfreg||swreg), then
+add a driver path to push it at CE start. This needs RE of the Android vendor NFC
+HAL from the super/vendor partition, or an I2C/NCI capture of Android doing CE.
+The cheap NCI deltas (order MAP->LMRT, power byte 0x3B, NFCEE_POWER_AND_LINK_CTRL)
+are worth folding in regardless, but are unlikely to be sufficient alone.

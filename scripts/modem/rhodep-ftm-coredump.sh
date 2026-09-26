@@ -6,7 +6,7 @@
 #   sudo setsid bash rhodep-ftm-coredump.sh </dev/null >/tmp/iqrun/coredump.log 2>&1 &
 #   then read /tmp/iqrun/coredump.log and /tmp/iqrun/gates.txt
 #
-# Method: enable inline coredump, put the modem in FTM, run the diag sequence
+# Method: enable async (enabled) coredump, put the modem in FTM, run the diag sequence
 # TECH_ENTER -> RADIO_CONFIG (which SSRs on the null carrier ptr). The crash
 # produces a devcoredump captured at exactly the moment of the null-deref, i.e.
 # with cal_gate/rf_ctx/carrier in whatever state the FTM+TECH_ENTER flow left them.
@@ -30,8 +30,8 @@ log "stop ModemManager"
 systemctl stop ModemManager 2>/dev/null; pkill -9 ModemManager 2>/dev/null
 sleep 1
 
-log "enable inline coredump, keep recovery on"
-echo inline  > /sys/class/remoteproc/remoteproc0/coredump 2>&1; log "coredump=$(cat /sys/class/remoteproc/remoteproc0/coredump)"
+log "enable async (enabled) coredump, keep recovery on"
+echo enabled > /sys/class/remoteproc/remoteproc0/coredump 2>&1; log "coredump=$(cat /sys/class/remoteproc/remoteproc0/coredump)"
 
 # clear any stale devcoredump
 for c in /sys/class/devcoredump/devcd*; do [ -e "$c/data" ] && echo 1 > "$c/data" 2>/dev/null; done

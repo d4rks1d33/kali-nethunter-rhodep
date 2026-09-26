@@ -114,3 +114,26 @@ Start with **Avenue A step 3** (a kernel-module peek of the three gate globals),
 because it is cheap, safe-ish (read-only), and immediately tells us whether any
 AP-reachable state (Avenue B) ever sets the gate — which decides whether B is even
 possible or whether we must RE the resident driver (rest of A).
+
+## Update (session 8) — both live-dump avenues are blocked; IQ path paused here
+
+Tested both dump avenues from the running OS; both are hard-blocked in mainline:
+- **rhodep_mpeek** (SCM reassign of one modem page MSS->{HLOS,MSS}, read, assign
+  back): `qcom_scm_assign_mem` returns **-22 EINVAL** on every modem page. TZ
+  refuses to reassign the modem's active pages. Clean fail, no crash. So Avenue A
+  (live peek / dump of the resident RF-cal driver) is not possible this way.
+- **remoteproc coredump**: `inline` hangs SSH (synchronous 256MB); `enabled` (async)
+  produces devcoredump nodes with **data-size 0** — the mainline q6v5 MSS driver
+  does not vault modem memory. So no usable dump from the running OS.
+
+Also reconfirmed: the byte-perfect config-apply packet (RFTEST 0x10xx,
+wire[0x0f]=wire[0x10]=0) still SSRs live, because config-apply derefs internal RF
+state the resident cal driver sets - which we can neither read (above) nor trigger
+by DIAG.
+
+**Net:** the IQ path is blocked by resident modem code we can't reach from the OS.
+The only remaining dump route is QDL/EDL ramdump (special download mode; captures
+state at EDL entry, not in cal mode - so it wouldn't show the cal trigger firing).
+Pausing IQ here: fully reverse-engineered and documented; the blocker is outside
+the AP's reach. Revisit if a factory tool (QRCT/QMSL) trace or an EDL ramdump of a
+cal-mode session becomes available.

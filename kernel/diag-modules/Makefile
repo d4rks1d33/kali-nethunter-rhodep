@@ -41,3 +41,4 @@ all:
 
 clean:
 	$(MAKE) -C $(KDIR) M=$(PWD) CC=$(KCC) clean
+obj-m += rhodep_mpeek.o

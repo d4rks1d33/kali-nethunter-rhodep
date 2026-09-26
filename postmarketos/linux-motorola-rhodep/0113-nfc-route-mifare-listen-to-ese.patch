@@ -51,7 +51,7 @@ reproduce -- the same ceiling as host emulation.
  /* NCI Configuration Parameters masks */
 --- a/include/net/nfc/nci_core.h	2026-09-01 22:59:46.862251004 +0000
 +++ b/include/net/nfc/nci_core.h	2026-09-01 22:57:03.430301012 +0000
-@@ -254,6 +254,12 @@
+@@ -254,6 +254,16 @@
  	__u8			manufact_id;
  	__u32			manufact_specific_info;
  
@@ -60,13 +60,17 @@ reproduce -- the same ceiling as host emulation.
 +	 * A provisioned MIFARE card lives here; routing the MIFARE listen to
 +	 * this NFCEE lets it answer a reader. */
 +	__u8			ese_nfcee_id;
++	/* NFCEE status byte from NFCEE_DISCOVER_NTF for the eSE (0x01 =
++	 * CONNECTED/ENABLED). Used to skip a redundant NFCEE_MODE_SET(ENABLE)
++	 * that the S3FWRN5 answers with status 0x03 (REJECTED). */
++	__u8			ese_enabled;
 +
  	/* Save RF Discovery ID or NFCEE ID under conn_create */
  	struct dest_spec_params cur_params;
  	/* Save destination type under conn_create */
 --- a/net/nfc/nci/ntf.c	2026-09-01 22:59:53.267251007 +0000
 +++ b/net/nfc/nci/ntf.c	2026-09-01 22:57:03.430301012 +0000
-@@ -958,6 +958,24 @@
+@@ -958,6 +958,26 @@
  
  	nfcee_ntf = (struct nci_nfcee_discover_ntf *)skb->data;
  
@@ -83,6 +87,8 @@ reproduce -- the same ceiling as host emulation.
 +		for (i = 0; i < num_proto && 3 + i < skb->len; i++) {
 +			if (skb->data[3 + i] == NCI_RF_PROTOCOL_MIFARE) {
 +				ndev->ese_nfcee_id = nfcee_id;
++				/* Byte 1 is the NFCEE status (0x01 = ENABLED). */
++				ndev->ese_enabled = skb->data[1];
 +				break;
 +			}
 +		}
@@ -93,6 +99,33 @@ reproduce -- the same ceiling as host emulation.
  	 * and only one, NFCEE_DISCOVER_NTF with a Protocol type of
 --- a/net/nfc/nci/core.c	2026-09-02 00:58:13.502372006 +0000
 +++ b/net/nfc/nci/core.c	2026-09-01 22:58:08.755575000 +0000
+@@ -244,6 +244,26 @@
+ 	nci_send_cmd(ndev, NCI_OP_CORE_SET_CONFIG_CMD, (3 + param->len), &cmd);
+ }
+ 
++/* Isolation switch for card emulation: when set, ignore any embedded secure
++ * element learned from NFCEE_DISCOVER_NTF and force the HOST listen path
++ * (LA_* NFC-A identity + LMRT to the host 0x00 + T2T/FRAME listen map). This
++ * lets a single build test host listen (does the RF front-end arm at all?)
++ * versus eSE routing, without reflashing. Use:  modprobe nci emulate_host=1
++ * or, at runtime:  echo 1 > /sys/module/nci/parameters/emulate_host  */
++static bool emulate_host;
++module_param(emulate_host, bool, 0644);
++MODULE_PARM_DESC(emulate_host,
++		 "force host card-emulation path, ignore the eSE (default 0)");
++
++/* Effective eSE NFCEE id for the emulation path: 0 (host path) when the
++ * emulate_host isolation switch is on, otherwise the id learned from
++ * NFCEE_DISCOVER_NTF. Both nci_start_poll() and the listen mode routing
++ * builder use this so the two stay consistent. */
++static inline u8 nci_emu_ese_id(const struct nci_dev *ndev)
++{
++	return emulate_host ? 0 : ndev->ese_nfcee_id;
++}
++
+ struct nci_rf_discover_param {
+ 	__u32	im_protocols;
+ 	__u32	tm_protocols;
 @@ -301,12 +301,13 @@
  			NCI_NFC_A_PASSIVE_LISTEN_MODE;
  		cmd.disc_configs[cmd.num_disc_configs].frequency = 1;
@@ -131,7 +164,7 @@ reproduce -- the same ceiling as host emulation.
  	tech->type = NCI_LMRT_TYPE_TECHNOLOGY;
  	tech->len = 3;
 -	tech->nfcee_id = NCI_NFCEE_ID_HOST;
-+	tech->nfcee_id = ndev->ese_nfcee_id ? : NCI_NFCEE_ID_HOST;
++	tech->nfcee_id = nci_emu_ese_id(ndev) ? : NCI_NFCEE_ID_HOST;
  	tech->power_state = NCI_LMRT_POWER_STATE_ALL;
  	tech->technology = NCI_NFC_RF_TECHNOLOGY_A;
  	p += sizeof(*tech);
@@ -153,11 +186,11 @@ reproduce -- the same ceiling as host emulation.
  	proto->type = NCI_LMRT_TYPE_PROTOCOL;
  	proto->len = 3;
 -	proto->nfcee_id = NCI_NFCEE_ID_HOST;
-+	proto->nfcee_id = ndev->ese_nfcee_id ? : NCI_NFCEE_ID_HOST;
++	proto->nfcee_id = nci_emu_ese_id(ndev) ? : NCI_NFCEE_ID_HOST;
  	proto->power_state = NCI_LMRT_POWER_STATE_ALL;
  	proto->protocol = NCI_RF_PROTOCOL_MIFARE;
  	p += sizeof(*proto);
-@@ -990,25 +999,63 @@
+@@ -1024,34 +1024,72 @@
  		 * here corrupts the high ATQA byte). */
  		__u8 dur[2];
  
@@ -169,10 +202,6 @@ reproduce -- the same ceiling as host emulation.
 -			       nfc_dev->emu_nfcid1_len, nfc_dev->emu_nfcid1);
 -		v = nfc_dev->emu_sel_res;
 -		nci_set_config(ndev, NCI_LA_SEL_INFO, 1, &v);
--
--		/* EXP-3: give discovery a real total duration (1000 ms, LE) so
--		 * the controller dwells in the NFC-A listen window long enough
--		 * to coincide with a reader's field. */
 +		/* Host NFC-A identity (LA_*) ONLY when the host is the tag. When
 +		 * a MIFARE card in the secure element is being presented, the eSE
 +		 * owns the NFC-A identity -- its own ATQA/SAK/UID from the
@@ -180,7 +209,7 @@ reproduce -- the same ceiling as host emulation.
 +		 * here would override that with a wrong UID and a SAK that
 +		 * advertises ISO-DEP (0x08) instead of MIFARE, so the reader
 +		 * would never see the real card. Skip all LA_* for the eSE. */
-+		if (!ndev->ese_nfcee_id) {
++		if (!nci_emu_ese_id(ndev)) {
 +			v = 0x04;
 +			nci_set_config(ndev, NCI_LA_BIT_FRAME_SDD, 1, &v);
 +			v = 0x00;
@@ -191,7 +220,10 @@ reproduce -- the same ceiling as host emulation.
 +			v = nfc_dev->emu_sel_res;
 +			nci_set_config(ndev, NCI_LA_SEL_INFO, 1, &v);
 +		}
-+
+ 
+-		/* EXP-3: give discovery a real total duration (1000 ms, LE) so
+-		 * the controller dwells in the NFC-A listen window long enough
+-		 * to coincide with a reader's field. */
 +		/* Give discovery a real total duration (1000 ms, LE) so the
 +		 * controller dwells in the NFC-A listen window long enough to
 +		 * coincide with a reader's field. */
@@ -199,40 +231,46 @@ reproduce -- the same ceiling as host emulation.
  		dur[1] = 0x03;
  		nci_set_config(ndev, NCI_TOTAL_DURATION, 2, dur);
  
--		/* Program the listen mode routing table so NFC-A / T2T are
--		 * routed to the host; without this the controller accepts the
--		 * NFC-A listen config but never activates as a tag. */
 +		/* This controller does not light its listen front-end for NFC-A
 +		 * alone; it only comes up when NFC-F listen is also offered. But
 +		 * offering NFC-F with the firmware defaults makes it arm an
 +		 * autonomous NFC-DEP (P2P) peer / a Type-3 tag that answers the
-+		 * reader instead of routing the field to us. Neutralise those:
-+		 * clear LF_PROTOCOL_TYPE (no NFC-DEP over NFC-F) and disable all
-+		 * Type-3 listen slots (LF_T3T_FLAGS = 0), so NFC-F listen lights
-+		 * the analog front-end without presenting anything on F -- and
-+		 * the NFC-A field reaches the eSE. */
-+		if (ndev->ese_nfcee_id) {
-+			/* LF_PROTOCOL_TYPE=0 alone suppresses the NFC-DEP peer.
-+			 * Do NOT also send LF_T3T_FLAGS=0: with no matching
-+			 * LF_T3T_IDENTIFIERS the S3FWRN5 rejects it (SET_CONFIG
-+			 * status 0x9, an incoherent T3T config) and that leaves
-+			 * the listen config inconsistent, blocking activation. */
++		 * reader instead of routing the field to us. LF_PROTOCOL_TYPE=0
++		 * alone suppresses the NFC-DEP peer. Do NOT also send
++		 * LF_T3T_FLAGS=0: with no matching LF_T3T_IDENTIFIERS the
++		 * S3FWRN5 rejects it (SET_CONFIG status 0x9) and that leaves the
++		 * listen config inconsistent, blocking activation. */
++		if (nci_emu_ese_id(ndev)) {
 +			v = 0x00;
 +			nci_set_config(ndev, NCI_LF_PROTOCOL_TYPE, 1, &v);
 +		}
 +
+ 		/* Canonical NCI listen order is
+ 		 * CORE_SET_CONFIG -> RF_DISCOVER_MAP -> LMRT -> RF_DISCOVER.
+ 		 * Send an RF_DISCOVER_MAP (T2T/FRAME/LISTEN) here, in the listen
+ 		 * window: the map done at open_device is not honoured for this
+ 		 * later RF_DISCOVER, and without a listen map the controller has
+ 		 * no interface to activate a tag with and never raises
+ 		 * RF_INTF_ACTIVATED_NTF. */
+ 		nci_request(ndev, nci_rf_discover_map_listen_req, NULL,
+ 			    msecs_to_jiffies(NCI_RF_DISC_TIMEOUT));
+ 
 +		/* If the embedded secure element that holds a provisioned MIFARE
-+		 * card was found, enable it so it can answer over RF. The MIFARE
-+		 * listen is then routed to it in the routing table below. */
-+		if (ndev->ese_nfcee_id)
-+			nci_nfcee_mode_set(ndev, ndev->ese_nfcee_id,
++		 * card was found, enable it so it can answer over RF -- but ONLY
++		 * if it is not already enabled. The eSE (0x83) enumerates with
++		 * NFCEE_DISCOVER_NTF status 0x01 (CONNECTED/ENABLED) and the
++		 * S3FWRN5 answers a redundant NFCEE_MODE_SET(ENABLE) on an
++		 * already-enabled NFCEE with status 0x03 (REJECTED). Skip it when
++		 * ese_enabled == 0x01; the MIFARE listen is routed to it in the
++		 * routing table below either way. This runs after RF_DISCOVER_MAP
++		 * and before the LMRT, per the canonical NCI order. */
++		if (nci_emu_ese_id(ndev) &&
++		    ndev->ese_enabled != NCI_NFCEE_ENABLE)
++			nci_nfcee_mode_set(ndev, nci_emu_ese_id(ndev),
 +					   NCI_NFCEE_ENABLE);
 +
-+		/* Program the listen mode routing table. NFC-A / T2T go to the
-+		 * host; the MIFARE protocol goes to the eSE if we have one (see
-+		 * nci_rf_set_listen_mode_routing_req). Without this the
-+		 * controller accepts the NFC-A listen config but never activates
-+		 * as a tag. */
+ 		/* Program the listen mode routing table so NFC-A / T2T are
+ 		 * routed to the host; without this the controller accepts the
+ 		 * NFC-A listen config but never activates as a tag. */
  		nci_request(ndev, nci_rf_set_listen_mode_routing_req, NULL,
  			    msecs_to_jiffies(NCI_RF_DISC_TIMEOUT));
- 	} else if (tm_protocols & NFC_PROTO_NFC_DEP_MASK) {

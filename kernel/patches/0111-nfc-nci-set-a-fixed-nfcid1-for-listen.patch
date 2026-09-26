@@ -202,10 +202,44 @@ discovery dwells in the listen window.
  		cmd.disc_configs[cmd.num_disc_configs].rf_tech_and_mode =
  			NCI_NFC_F_PASSIVE_LISTEN_MODE;
  		cmd.disc_configs[cmd.num_disc_configs].frequency = 1;
-@@ -825,6 +844,80 @@
+@@ -825,6 +844,114 @@
  	return nci_set_config(ndev, NCI_LF_CON_BITR_F, 1, &val);
  }
  
++/* RF_DISCOVER_MAP for the listen (card-emulation) window.
++ *
++ * The mainline core only ever sends RF_DISCOVER_MAP once, from
++ * nci_init_complete_req() at adapter bring-up (open_device). That map is built
++ * from the controller's default POLL|LISTEN interface list and, with patch
++ * 0111, also carries a T2T/FRAME/LISTEN entry -- but it is sent long before any
++ * listen session and is not re-issued per discovery. On the S3FWRN5 the listen
++ * mapping does not "stick" for a later RF_DISCOVER: the canonical AOSP/NCI order
++ * is CORE_SET_CONFIG -> RF_DISCOVER_MAP -> (NFCEE) -> LMRT -> RF_DISCOVER, and
++ * without an RF_DISCOVER_MAP in the listen window the CLF has no interface to
++ * activate a tag with, so it never raises RF_INTF_ACTIVATED_NTF.
++ *
++ * Send a minimal listen map here: T2T mapped to the FRAME interface in LISTEN
++ * mode. MIFARE (proprietary 0x80) is deliberately NOT mapped -- the controller
++ * rejects RF_DISCOVER_MAP (status 0x1) if 0x80 is listed; MIFARE is only routed
++ * via the LMRT and presented on the T2T/FRAME interface. */
++static void nci_rf_discover_map_listen_req(struct nci_dev *ndev,
++					   const void *opt)
++{
++	struct nci_rf_disc_map_cmd cmd;
++	struct disc_map_config *cfg = cmd.mapping_configs;
++	__u8 num = 0;
++
++	cfg[num].rf_protocol = NCI_RF_PROTOCOL_T2T;
++	cfg[num].mode = NCI_DISC_MAP_MODE_LISTEN;
++	cfg[num].rf_interface = NCI_RF_INTERFACE_FRAME;
++	num++;
++
++	cmd.num_mapping_configs = num;
++
++	nci_send_cmd(ndev, NCI_OP_RF_DISCOVER_MAP_CMD,
++		     (1 + (num * sizeof(struct disc_map_config))), &cmd);
++}
++
 +static void nci_rf_set_listen_mode_routing_req(struct nci_dev *ndev,
 +					       const void *opt)
 +{
@@ -293,7 +327,7 @@ discovery dwells in the listen window.
  		rc = nci_set_local_general_bytes(nfc_dev);
  		if (rc) {
  			pr_err("failed to set local general bytes\n");
-@@ -862,7 +956,45 @@
+@@ -862,7 +956,55 @@
  		}
  	}
  
@@ -330,6 +364,16 @@ discovery dwells in the listen window.
 +		dur[0] = 0xe8;
 +		dur[1] = 0x03;
 +		nci_set_config(ndev, NCI_TOTAL_DURATION, 2, dur);
++
++		/* Canonical NCI listen order is
++		 * CORE_SET_CONFIG -> RF_DISCOVER_MAP -> LMRT -> RF_DISCOVER.
++		 * Send an RF_DISCOVER_MAP (T2T/FRAME/LISTEN) here, in the listen
++		 * window: the map done at open_device is not honoured for this
++		 * later RF_DISCOVER, and without a listen map the controller has
++		 * no interface to activate a tag with and never raises
++		 * RF_INTF_ACTIVATED_NTF. */
++		nci_request(ndev, nci_rf_discover_map_listen_req, NULL,
++			    msecs_to_jiffies(NCI_RF_DISC_TIMEOUT));
 +
 +		/* Program the listen mode routing table so NFC-A / T2T are
 +		 * routed to the host; without this the controller accepts the

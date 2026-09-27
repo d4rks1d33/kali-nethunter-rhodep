@@ -168,7 +168,7 @@ reproduce -- the same ceiling as host emulation.
  	tech->power_state = NCI_LMRT_POWER_STATE_ALL;
  	tech->technology = NCI_NFC_RF_TECHNOLOGY_A;
  	p += sizeof(*tech);
-@@ -894,14 +901,16 @@
+@@ -894,43 +901,21 @@
  	p += sizeof(*proto);
  	cmd.num_entries++;
  
@@ -190,7 +190,36 @@ reproduce -- the same ceiling as host emulation.
  	proto->power_state = NCI_LMRT_POWER_STATE_ALL;
  	proto->protocol = NCI_RF_PROTOCOL_MIFARE;
  	p += sizeof(*proto);
-@@ -1024,34 +1024,72 @@
+ 	cmd.num_entries++;
+ 
+-	/* Route NFC-F technology to the host too. This controller performs an
+-	 * NFC-F / NFC-DEP listen activation autonomously; by default that
+-	 * activation is routed to the UICC (NFCEE 0x83) and the host never sees
+-	 * it. Routing NFC-F and NFC-DEP to the host (0x00) makes the activation
+-	 * raise RF_INTF_ACTIVATED_NTF to us, which is how we learn what the chip
+-	 * actually comes up as when a reader is presented. */
+-	tech = (struct nci_lmrt_tech_entry *)p;
+-	tech->type = NCI_LMRT_TYPE_TECHNOLOGY;
+-	tech->len = 3;
+-	tech->nfcee_id = NCI_NFCEE_ID_HOST;
+-	tech->power_state = NCI_LMRT_POWER_STATE_ALL;
+-	tech->technology = NCI_NFC_RF_TECHNOLOGY_F;
+-	p += sizeof(*tech);
+-	cmd.num_entries++;
+-
+-	proto = (struct nci_lmrt_proto_entry *)p;
+-	proto->type = NCI_LMRT_TYPE_PROTOCOL;
+-	proto->len = 3;
+-	proto->nfcee_id = NCI_NFCEE_ID_HOST;
+-	proto->power_state = NCI_LMRT_POWER_STATE_ALL;
+-	proto->protocol = NCI_RF_PROTOCOL_NFC_DEP;
+-	p += sizeof(*proto);
+-	cmd.num_entries++;
+-
+ 	nci_send_cmd(ndev, NCI_OP_RF_SET_LISTEN_MODE_ROUTING_CMD,
+ 		     2 + (p - cmd.entries), &cmd);
+ }
+@@ -1024,34 +1024,76 @@
  		 * here corrupts the high ATQA byte). */
  		__u8 dur[2];
  
@@ -236,14 +265,18 @@ reproduce -- the same ceiling as host emulation.
 +		 * offering NFC-F with the firmware defaults makes it arm an
 +		 * autonomous NFC-DEP (P2P) peer / a Type-3 tag that answers the
 +		 * reader instead of routing the field to us. LF_PROTOCOL_TYPE=0
-+		 * alone suppresses the NFC-DEP peer. Do NOT also send
++		 * suppresses the NFC-DEP peer so the NFC-F carrier only powers
++		 * the analog front-end and the NFC-A field is what activates.
++		 * This MUST be sent on BOTH the host and the eSE path: with
++		 * emulate_host=1 (host path) nci_emu_ese_id() is 0, and gating
++		 * this SET_CONFIG on it was the bug that left the firmware
++		 * NFC-DEP peer armed, so the chip came up as NFC-F/NFC-DEP
++		 * (0x82 / proto 0x5) instead of NFC-A/T2T. Do NOT also send
 +		 * LF_T3T_FLAGS=0: with no matching LF_T3T_IDENTIFIERS the
 +		 * S3FWRN5 rejects it (SET_CONFIG status 0x9) and that leaves the
 +		 * listen config inconsistent, blocking activation. */
-+		if (nci_emu_ese_id(ndev)) {
-+			v = 0x00;
-+			nci_set_config(ndev, NCI_LF_PROTOCOL_TYPE, 1, &v);
-+		}
++		v = 0x00;
++		nci_set_config(ndev, NCI_LF_PROTOCOL_TYPE, 1, &v);
 +
  		/* Canonical NCI listen order is
  		 * CORE_SET_CONFIG -> RF_DISCOVER_MAP -> LMRT -> RF_DISCOVER.

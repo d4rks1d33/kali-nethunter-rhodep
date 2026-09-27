@@ -386,18 +386,53 @@ discovery dwells in the listen window.
  			pr_err("failed to set listen parameters\n");
 --- a/net/nfc/nci/ntf.c	2026-09-01 02:32:20.980409009 +0000
 +++ b/net/nfc/nci/ntf.c	2026-09-01 00:15:13.891657005 +0000
-@@ -882,6 +882,14 @@
+@@ -873,15 +873,47 @@
+ listen:
+ 		/* Listen mode */
+ 		atomic_set(&ndev->state, NCI_LISTEN_ACTIVE);
+-		if (err == NCI_STATUS_OK &&
+-		    ntf.rf_protocol == NCI_RF_PROTOCOL_NFC_DEP) {
++		if (err == NCI_STATUS_OK &&
++		    ntf.rf_protocol == NCI_RF_PROTOCOL_NFC_DEP &&
++		    ntf.rf_interface == NCI_RF_INTERFACE_NFC_DEP) {
++			/* Real NFC-DEP (P2P) peer activation over the NFC-DEP
++			 * interface: the ATR_REQ general bytes were extracted
++			 * and stored by nci_store_general_bytes_nfc_dep(), so
++			 * remote_gb is a valid LLCP MAGIC + TLVs. Only in this
++			 * case may we hand remote_gb to the LLCP layer. */
+ 			err = nfc_tm_activated(ndev->nfc_dev,
+ 					       NFC_PROTO_NFC_DEP_MASK,
+ 					       NFC_COMM_PASSIVE,
+ 					       ndev->remote_gb,
  					       ndev->remote_gb_len);
  			if (err != NCI_STATUS_OK)
  				pr_err("error when signaling tm activation\n");
 +		} else if (err == NCI_STATUS_OK &&
-+			   ntf.rf_protocol == NCI_RF_PROTOCOL_T2T) {
-+			/* Activated as an NFC-A tag (card emulation). */
++			   (ntf.rf_protocol == NCI_RF_PROTOCOL_T2T ||
++			    ntf.rf_protocol == NCI_RF_PROTOCOL_MIFARE)) {
++			/* Activated as an NFC-A tag (card emulation): T2T, or
++			 * the Samsung/NXP proprietary MIFARE Classic protocol
++			 * (0x80), both over the FRAME interface. There are no
++			 * LLCP general bytes here, so pass gb = NULL / 0 --
++			 * NEVER remote_gb, which is empty for a FRAME
++			 * activation and would make nfc_llcp_set_remote_gb()
++			 * fail with -EINVAL (gb_len < 3), the "error when
++			 * signaling tm activation" seen when the chip came up
++			 * as NFC-DEP over FRAME. */
 +			err = nfc_tm_activated(ndev->nfc_dev,
 +					       NFC_PROTO_MIFARE_MASK,
 +					       NFC_COMM_PASSIVE, NULL, 0);
 +			if (err != NCI_STATUS_OK)
 +				pr_err("error when signaling tm activation\n");
++		} else if (err == NCI_STATUS_OK &&
++			   ntf.rf_protocol == NCI_RF_PROTOCOL_NFC_DEP) {
++			/* NFC-DEP protocol but NOT over the NFC-DEP interface
++			 * (e.g. NFC-DEP over FRAME with no ATR params, as the
++			 * S3FWRN5 autonomous NFC-F peer produces). remote_gb is
++			 * empty; do NOT touch the LLCP path. Nothing to signal
++			 * to userspace -- let the stack deactivate. */
++			pr_debug("ignoring NFC-DEP activation over rf_interface 0x%x\n",
++				 ntf.rf_interface);
  		}
  	}
  

@@ -1659,3 +1659,76 @@ reading the VIN1/VIN2 split in the vendor DT does not spend the same day on it.
 `kali-boot-v111-restore.img` is the exact image that was running before, rebuilt
 from the same parts, for going back -- `regulator-always-on` on a rail nothing
 needs is only a small idle-power cost, but it buys nothing.
+
+---
+
+# Live experiments: the digital core is dead, not asleep (session 2026-09-28)
+
+**Status: measured on the device with camdiag holding the sensor powered.**
+
+A fresh RE pass (`docs/OUT_s5kjn1_bringup.md`) proposed the one untested class of
+hypothesis: every prior session only *read* registers; maybe the sensor needs to
+be *written to* to boot its internal digital core before reg 0x0000 is meaningful.
+The mainline driver's own `s5kjn1_enable_streams` does `0x6028=0x4000;
+0x001e=0x0007; 0x6010=0x0001` (the Samsung "boot the internal logic" writes) at
+stream-on, but chip-id is read cold at probe, before any of that. Two experiments
+were run live to decide "logic asleep" vs "logic electrically dead".
+
+## camdiag had to be rebuilt with clang
+
+The prebuilt `camdiag.ko` was gone and the phone's gcc (even 16.2) rejects
+`-fexperimental-late-parse-attributes`, which comes from
+`scripts/Makefile.context-analysis` — the kernel was built with **Alpine clang 22**
+(pmbootstrap). It builds on-device with:
+
+	make -C /lib/modules/7.2.0-rc5/build M=$PWD LLVM=1 CONFIG_CONTEXT_ANALYSIS=n modules
+
+(the phone has clang 21; context-analysis off avoids the clang-22-only flag).
+
+## Experiment A — boot-the-core writes, then re-read chip id: NEGATIVE
+
+	BEFORE (cold):            0x00 0x00 -> 0x8b 0x05   (residue)
+	write 0x6010 = 0x0001    (ACK, no error)
+	write 0x6226 = 0x0001    (ACK, no error)
+	AFTER:                   0x00 0x00 -> 0x8b 0x05   (unchanged)
+
+The boot/wake writes are accepted but change nothing. Also ran the full sequence
+`0x6028=0x4000; 0x001e=0x0007; 0x6010=0x0001; 0x6226=0x0001` and a soft reset
+`0x0103=1`: chip id stays `0x8b05` throughout.
+
+## Experiment B — write/read-back: NEGATIVE, and decisive
+
+	write 0x0a0a to reg 0x3000, read reg 0x3000 -> 0x8b 0x05   (NOT 0x0a0a)
+
+Nothing written is stored. Every read returns the same residue regardless of
+which register is addressed or what was written. A *sleeping* core would latch a
+boot write; this one does not store anything at all.
+
+## The residue tracks MCLK frequency
+
+	MCLK 24.0 MHz -> chip id reads 0x8b05
+	MCLK 19.2 MHz -> chip id reads 0x8b21
+
+The returned value changes with the MCLK rate. That is a shift register being
+clocked by MCLK with nothing loaded behind it — the I/O ring and the MCLK gate are
+alive, the digital register block is not.
+
+## Conclusion: this is a hardware-domain problem outside AP reach
+
+The I/O ring answers (ACK), MCLK reaches the part (residue changes with its rate),
+reset is honoured — but the digital core neither boots (writes do nothing) nor
+stores (read-back fails) nor identifies (0x0000 never becomes 0x38e1). It is
+electrically present but not functional. Everything the application processor
+controls — rails (per-register verified on the PMIC), MCLK, GDSC, reset, pin mux,
+CCI transactions, addressing width, power-on order, and now the boot/wake writes —
+has been verified correct. What remains is a core power/clock domain that the AP
+cannot observe: `/sys/class/regulator` "enabled" only means the PMIC's bit is set,
+not that voltage is present, and the sensor's digital core supply/clock could be
+failing at a level no sysfs read can see. Ruling that in or out needs a meter/scope
+on the sensor flex, not more software.
+
+**Camera state:** the entire AP-side stack works (FAN53870 PMIC, sm6375-camss ISP
+pipeline, both CCI masters, the S5KJN1 node powered/clocked/reset correctly). The
+single remaining blocker is the sensor's own digital core not coming up, which the
+live experiments now show is not a software/sequence issue reachable from Linux.
+Parked here unless hardware instrumentation becomes available.

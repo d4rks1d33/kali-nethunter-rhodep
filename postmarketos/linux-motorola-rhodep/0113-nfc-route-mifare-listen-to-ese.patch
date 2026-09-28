@@ -409,23 +409,34 @@ i.e. the direct evidence that the MIFARE listen fired on the eSE 0x83.
  		/* Canonical NCI listen order is
  		 * CORE_SET_CONFIG -> RF_DISCOVER_MAP -> LMRT -> RF_DISCOVER.
  		 * Send an RF_DISCOVER_MAP (T2T/FRAME/LISTEN) here, in the listen
-@@ -1050,6 +1108,40 @@
+@@ -1050,6 +1108,51 @@
  		nci_request(ndev, nci_rf_discover_map_listen_req, NULL,
  			    msecs_to_jiffies(NCI_RF_DISC_TIMEOUT));
  
 +		/* If the embedded secure element that holds a provisioned MIFARE
-+		 * card was found, enable it so it can answer over RF -- but ONLY
-+		 * if it is not already enabled. The eSE (0x83) enumerates with
-+		 * NFCEE_DISCOVER_NTF status 0x01 (CONNECTED/ENABLED) and the
-+		 * S3FWRN5 answers a redundant NFCEE_MODE_SET(ENABLE) on an
-+		 * already-enabled NFCEE with status 0x03 (REJECTED). Skip it when
-+		 * ese_enabled == 0x01; the MIFARE listen is routed to it in the
-+		 * routing table below either way. This runs after RF_DISCOVER_MAP
-+		 * and before the LMRT, per the canonical NCI order. */
-+		if (nci_emu_ese_id(ndev) &&
-+		    ndev->ese_enabled != NCI_NFCEE_ENABLE)
-+			nci_nfcee_mode_set(ndev, nci_emu_ese_id(ndev),
-+					   NCI_NFCEE_ENABLE);
++		 * card was found, enable it so it can answer over RF. Send
++		 * NFCEE_MODE_SET(ENABLE) UNCONDITIONALLY on the eSE path (gated
++		 * only by nci_emu_ese_id(): skipped for emulate_host=1). Without
++		 * this the eSE (0x83) is never moved to the ENABLED state and the
++		 * NFC-A route to it cannot fire (0 RF_NFCEE_ACTION_NTF, 0
++		 * activations) -- the live capture showed the MODE_SET being
++		 * skipped and the sequence jumping straight to
++		 * NFCEE_POWER_AND_LINK_CTRL. On the wire: 22 01 02 83 01. This
++		 * runs after RF_DISCOVER_MAP and before NFCEE_POWER_AND_LINK_CTRL
++		 * and the LMRT, per the canonical NCI order. The S3FWRN5 may
++		 * answer a redundant MODE_SET on an already-enabled NFCEE with
++		 * status 0x03 (REJECTED); that is NOT fatal -- log it and
++		 * continue, the MIFARE listen is routed to the eSE by the LMRT
++		 * below either way. ese_enabled is kept for logging only and no
++		 * longer gates this command. */
++		if (nci_emu_ese_id(ndev)) {
++			int mrc = nci_nfcee_mode_set(ndev,
++						     nci_emu_ese_id(ndev),
++						     NCI_NFCEE_ENABLE);
++			if (mrc)
++				pr_info("NFCEE_MODE_SET(0x%x, ENABLE) rc %d (e.g. status 0x3 REJECTED if already enabled) -- continuing\n",
++					nci_emu_ese_id(ndev), mrc);
++		}
 +
 +		/* Keep the eSE powered and the NFCC<->eSE link up during listen
 +		 * so the eSE can answer the reader's NFC-A field even in low /

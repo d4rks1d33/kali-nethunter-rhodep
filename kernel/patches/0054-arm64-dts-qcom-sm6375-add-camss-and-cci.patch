@@ -1,7 +1,7 @@
 ---
 --- a/arch/arm64/boot/dts/qcom/sm6375.dtsi
 +++ b/arch/arm64/boot/dts/qcom/sm6375.dtsi
-@@ -1533,6 +1533,172 @@
+@@ -1533,6 +1533,179 @@
  			};
  		};
  
@@ -123,6 +123,8 @@
 +			clocks = <&gcc GCC_CAMSS_TOP_AHB_CLK>,
 +				 <&gcc GCC_CAMSS_CCI_0_CLK>;
 +			clock-names = "camss_top_ahb", "cci";
++			assigned-clocks = <&gcc GCC_CAMSS_CCI_0_CLK_SRC>;
++			assigned-clock-rates = <37500000>;
 +			#address-cells = <1>;
 +			#size-cells = <0>;
 +			status = "disabled";
@@ -136,9 +138,12 @@
 +
 +			cci0_i2c1: i2c-bus@1 {
 +				reg = <1>;
-+				/* 100 kHz: at 400 kHz reads from the sensor come back
-+				 * byte-shifted, which is a timing signature. */
-+				clock-frequency = <100000>;
++				/* FAST_PLUS 1 MHz: the S5KJN1 needs FAST_PLUS to read
++				 * its register interface (the Fairphone FP5 uses the
++				 * same sensor+driver at 1 MHz). Earlier byte-shifted
++				 * reads at 400 kHz were the CCI-source-clock bug (fixed
++				 * by assigned-clock-rates = 37.5 MHz above). */
++				clock-frequency = <1000000>;
 +				#address-cells = <1>;
 +				#size-cells = <0>;
 +			};
@@ -152,6 +157,8 @@
 +			clocks = <&gcc GCC_CAMSS_TOP_AHB_CLK>,
 +				 <&gcc GCC_CAMSS_CCI_1_CLK>;
 +			clock-names = "camss_top_ahb", "cci";
++			assigned-clocks = <&gcc GCC_CAMSS_CCI_1_CLK_SRC>;
++			assigned-clock-rates = <37500000>;
 +			#address-cells = <1>;
 +			#size-cells = <0>;
 +			status = "disabled";

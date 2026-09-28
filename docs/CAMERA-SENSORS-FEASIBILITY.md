@@ -1732,3 +1732,74 @@ pipeline, both CCI masters, the S5KJN1 node powered/clocked/reset correctly). Th
 single remaining blocker is the sensor's own digital core not coming up, which the
 live experiments now show is not a software/sequence issue reachable from Linux.
 Parked here unless hardware instrumentation becomes available.
+
+---
+
+# Session 2026-09-28 (cont): CCI 37.5MHz + FAST_PLUS fixes flashed, sensor still silent
+
+Two RE-driven fixes were found, built, flashed and tested end-to-end:
+
+1. **CCI source clock 37.5 MHz** (patch 0054, assigned-clock-rates on GCC_CAMSS_CCI_0/1_CLK_SRC).
+   RE (OUT_power_seq.md) found mainline i2c-qcom-cci cci_v2 hw_params are cycle-counts calibrated
+   for a 37.5 MHz CCI source, but the DT never set it so it ran at 19.2 MHz. FLASHED.
+   RESULT: confirmed cci_0_clk_src=37.5MHz live; the EEPROM at 0x50 now reads PERFECTLY both
+   repeated-START and STOP; sensor residue became STABLE (was MCLK-tracking). Bus fully exonerated.
+   But sensor still returns residue, not 0x38e1.
+
+2. **FAST_PLUS 1 MHz on the sensor bus** (patch 0054, cci0_i2c1 clock-frequency 100000 -> 1000000).
+   RE (OUT_fp5_diff.md) found the Fairphone FP5 - which runs the SAME mainline s5kjn1.c driver and
+   the SAME S5KJN1 silicon successfully - sets its sensor CCI bus to 1 MHz FAST_PLUS, while our DT
+   had it at 100 kHz. FLASHED, confirmed 1 MHz live (/proc/device-tree). RESULT: sensor still
+   returns residue (0x9b05), chip id 38e1!=0.
+
+Reset polarity verified CORRECT (GPIO_ACTIVE_LOW; gpio35 high = released; matches FP5 + datasheet).
+
+## Where it stands
+Everything AP-side now matches the known-good FP5 setup: bus timing (proven by EEPROM), FAST_PLUS
+mode, MCLK 24MHz (parent gpll9_out_main), all rails, reset released. The FP5 proves this driver +
+config wakes this silicon. Yet rhodep's sensor core still won't identify. Two RE leads remain:
+- The rhodep CCI/CAMSS clock tree is a port backport (SM6375 has no camcc; CCI+MCLK come off GCC),
+  vs FP5's mature sc7280 nodes - a subtle clock/GDSC/parent difference in the backport.
+- The rhodep sensormodule blob DOES carry a powerUpSequence (correcting an earlier note) in a
+  nested binary encoding not yet decoded (needs the QTI parser or an ftrace of stock).
+Reports: docs/OUT_power_seq.md, OUT_identify.md, OUT_corewake.md, OUT_camx_seq.md, OUT_fp5_diff.md.
+
+---
+
+# Session 2026-09-28 (cont 2): CamX HAL RE + reset polarity ruled out live
+
+Extracted and RE'd the full CamX chain (all reports in research/camera/):
+- com.qti.sensor.mot_s5kjn1.so: exposure/gain math only, no power/init (OUT_camx_seq confirmed).
+- com.qti.sensormodule.mot_rhodep_s5kjn1_sunny.bin: decoded fully - NO rail power sequence,
+  sensorI2CFrequencyMode=0 (STANDARD), slave 0xac/0x56, id 0x38e1 (OUT_blob_powerseq).
+- camera.qcom.so (11.9MB CamX HAL): extracted .gnu_debugdata (7646 symbols). FINDINGS
+  (OUT_camx_hal.md): CamX has NO hardcoded default power sequence; it is 100% data-driven from
+  the .bin. When the .bin has none (our case), CreateSensorSubmodules logs "Power settings are not
+  valid. Will use default settings" and emits a cam_cmd_power packet with COUNT 0. Probe/MatchID is
+  cold (no pre-id register write). No S5KJN1-specific code path. The agent's top hypothesis was a
+  RESET polarity mismatch (KMD writes raw GPIO level from config_val, mainline uses gpiod+ACTIVE_LOW).
+
+RESET POLARITY - TESTED LIVE, RULED OUT:
+- gpio35 HIGH (reset released, current driver behavior): sensor ACKs 0x56, returns residue.
+- gpio35 LOW (reset asserted): sensor returns ENXIO (does not ACK).
+So HIGH=running, LOW=reset - the CURRENT polarity is CORRECT. If it were inverted, LOW would ACK.
+The sensor answers only with reset released, exactly as the driver drives it. Polarity is not the bug.
+
+## The standing contradiction and the real open question
+FP5 runs the IDENTICAL mainline s5kjn1.c driver + same silicon and works; rhodep doesn't, with
+everything AP-side verified correct and identical (bus/EEPROM, CCI 37.5MHz, MCLK 24MHz clean,
+rails, reset polarity both tested, blob, .so, HAL all exonerated). Yet the sensor core returns
+residue, not 0x38e1.
+
+Key unresolved observation: CamX emits a COUNT-0 power packet when the .bin has no sequence - yet
+the camera WORKS on stock Android. So stock's real power sequence comes from a layer NOT yet seen:
+either a CamX config XML (chi-cdk / camxoverridesettings / a sensor XML on vendor), or the
+downstream KMD's own built-in default. That layer - not the .bin, not the HAL binary, not the
+sensor .so - is the last place the rhodep-specific sequence could live. Next RE target if resumed:
+the CamX sensor XML/config on the vendor partition, and/or the downstream cam_sensor KMD default
+sequence. Definitive alternative: ftrace cam_sensor_core_power_up on stock Android (destructive -
+needs userdata backup first).
+
+Two real fixes landed this session (flashed, in patch 0054): CCI source clock 37.5MHz and sensor
+bus FAST_PLUS 1MHz. The rest of the camera stack works (ISP enumerates, CCI, EEPROM, PMIC). Only
+the sensor's own core identification remains.

@@ -137,3 +137,50 @@ state at EDL entry, not in cal mode - so it wouldn't show the cal trigger firing
 Pausing IQ here: fully reverse-engineered and documented; the blocker is outside
 the AP's reach. Revisit if a factory tool (QRCT/QMSL) trace or an EDL ramdump of a
 cal-mode session becomes available.
+
+## Update (session 9) — three AP-reachable IQ avenues checked, all negative for raw IQ
+
+Per the user's goal (use the modem as a general SDR, ideally for a BTS with yateBTS),
+we launched three parallel RE agents to find ANY AP-reachable path to raw IQ that does
+NOT need cal-mode. All three are hard negatives for raw IQ, each with cited evidence
+(reports: blob-analysis/OUT_diag_log_iq.md, OUT_rx_measure.md, OUT_qmi_qdss.md):
+
+1. DIAG log packets (OUT_diag_log_iq.md): SET_LOG_MASK (0x73) IS compiled in and
+   mask-only (no cal-gate), drains over the working QRTR/DIAG channel. BUT no log code
+   carries raw IQ in normal operation: LOG_RX_IQ_SAMPLES is CDMA1x-only (rhodep doesn't
+   run 1x); the LTE/NR "IQ logs" are phases of the same command-triggered capture engine
+   (the gated IQ_CAPTURE), not passive logs. NB_EFS sample dump goes to EFS files, and
+   EFS-over-DIAG isn't registered in this PD.
+
+2. FTM RX commands (OUT_rx_measure.md): RX_MEASURE (index 0x01) returns both power
+   metrics AND IQ fields, and its own code reads neither the carrier ptr nor the gate -
+   but the actual measured values come one indirect hop later through the abort-on-null
+   getter 0xd827923c (96 call-sites). The carrier ptr 0xca79c494 has exactly ONE writer
+   (0xd8279264) via a UNIQUE chain dominated by the `if(memb(0xcbf4f740)!=2) skip` gate.
+   No tune params can populate it unless mode==2, and the store of 2 is not in this image.
+   Every FTM command that yields real receiver data passes this gate. Definitive.
+
+3. QMI / QDSS / NV (OUT_qmi_qdss.md): no sample-to-trace route (QDSS here is CoreSight
+   SW trace, the ML1 "STM" is a software state machine, not the trace bus); EFS exposes
+   no samples; no QMI/NAS message bypasses the gate for raw IQ.
+
+### Verdict on raw IQ and on the BTS goal
+Raw IQ capture is NOT reachable from the AP on mainline. The only producer is FTM
+IQ_CAPTURE, gated behind cal-mode set by resident code outside the MBN, and all three
+RAM-dump routes fail (SCM -22, coredump 0 bytes, EDL wouldn't capture cal state). This
+is a structural limit of the closed firmware, not a lack of RE effort.
+
+The modem also cannot serve as an SDR front-end for yateBTS/srsRAN: there is no
+full-duplex IQ streaming interface, no sub-us TX/RX timing control, and the RF chain
+code (RFLTE/RFLM/RFDEVICE, TX and RX) is not in the MBN. A real SDR (LimeSDR/bladeRF/
+USRP) is required for a BTS.
+
+### What IS usable today (no cal-mode): per-frequency power survey via QMI-NAS
+OUT_qmi_qdss.md found a working, ungated capability: QMI-NAS in normal ONLINE mode
+returns per-frequency signal power (RSSI/RSRP/RSRQ vs EARFCN/ARFCN, in dBm):
+- perform_network_scan / perform_incremental_network_scan / force_lte_scan
+- get_cell_location_info (serving + neighbor RSRP/RSRQ per EARFCN)
+- get_signal_strength / get_sig_info / get_rf_band_info, get_arfcn_list
+- GSM power scan, common_rssi_ind (TRUE_RSSI dBm)
+This is a cell-search-granularity spectrum survey (not a dense spectrogram, not IQ),
+reachable today with qmicli over qrtr. It's the realistic "SDR-lite" the modem offers.

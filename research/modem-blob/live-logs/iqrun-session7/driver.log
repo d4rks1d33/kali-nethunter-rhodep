@@ -1,0 +1,52 @@
+[19:32:54] === rhodep IQ/memshare run ===
+7.2.0-rc5
+[19:32:54] --- stage 0 preflight ---
+DT reservation:
+00000000  00 00 00 00 8a b0 00 00  00 00 00 00 00 80 00 00  |................|
+8ab00000-8b2fffff : reserved
+remoteproc0 state: running
+daemon check ->
+memshare: reserved region memshare@8ab00000: 0x8ab00000 + 0x800000 (no-map)
+[19:32:54] --- stage 1 assign (rhodep_memassign, reserved region, dual-VMID) ---
+[ 1206.671966] rhodep_memassign: covered by memshare (0x8ab00000 + 0x800000), no-map
+[ 1206.677971] rhodep_memassign: qcom_scm_assign_mem(0x8ab00000, 0x800000, HLOS -> {HLOS perm 0x6, vmid 0xf perm 0x6}) returned 0
+[ 1206.678129] rhodep_memassign: 0x8ab00000 + 0x800000 now shared HLOS(0x6)+vmid 0xf(0x6) (srcvm bitmap 0x8008)
+[ 1206.678301] rhodep_memassign: published /sys/kernel/rhodep_memshare (base 0x8ab00000 size 8388608)
+[ 1206.678646] rhodep_memassign: /dev/rhodep_memshare ready (mmap/read, non-cached)
+chardev: crw-r----- 1 root root 10, 262 Sep 25 19:32 /dev/rhodep_memshare
+sysfs base/size: 0x8ab00000 8388608
+[19:32:55] --- stage 2 memshare-daemon ---
+[19:32:58] daemon started, log:
+memshare: reserved region memshare@8ab00000: 0x8ab00000 + 0x800000 (no-map)
+memshare: published QMI service 52
+[19:32:58] --- stage 3 restart remoteproc0 (modem re-queries memshare) ---
+[19:33:01] stop rc=0
+state after stop: offline
+[19:33:06] start rc=0
+  +5s state=running crashes=0 rf1x=0
+  +10s state=running crashes=0 rf1x=0
+  +15s state=running crashes=0 rf1x=0
+  +20s state=running crashes=0 rf1x=0
+  +25s state=running crashes=0 rf1x=0
+  +30s state=running crashes=0 rf1x=0
+  +35s state=running crashes=0 rf1x=0
+[19:33:42] --- stage 4 dmesg (modem bring-up + memshare) ---
+[ 1210.809004] ipa 5840000.ipa: received modem stopping event
+[ 1214.210842] ipa 5840000.ipa: received modem offline event
+[ 1214.215705] remoteproc remoteproc0: stopped remote processor modem
+[ 1218.231495] remoteproc remoteproc0: powering up modem
+[ 1218.231736] remoteproc remoteproc0: Booting fw image qcom/sm6375/motorola/rhodep/modem.mbn, size 9500
+[ 1218.233985] ipa 5840000.ipa: received modem starting event
+[ 1219.139811] ipa 5840000.ipa: received modem running event
+[ 1219.139861] remoteproc remoteproc0: remote processor modem is now up
+[19:33:42] daemon log after modem restart:
+memshare: reserved region memshare@8ab00000: 0x8ab00000 + 0x800000 (no-map)
+memshare: published QMI service 52
+[19:33:42] --- stage 5 SKIPPED (DO_DIAG=0) ---
+[19:33:42] --- stage 6 /dev/rhodep_memshare head (are there samples?) ---
+00000000  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  |................|
+*
+00000100
+nonzero bytes in first 64KiB:
+0
+[19:33:42] === DONE ===

@@ -1,0 +1,15 @@
+KEY LIVE FINDINGS (S3FWRN5, rhodep, listen/card-emulation):
+- The RF listen front-end DOES light up, but ONLY when the NFC-F/NFC-DEP peer is armed.
+  * With NFC-DEP peer active (LF_PROTOCOL_TYPE=default, LMRT routes NFC-F/DEP to host):
+    chip activates repeatedly as NFC-F LISTEN (activation_rf_tech_and_mode 0x82,
+    rf_protocol 0x5 NFC-DEP, rf_interface 0x1 FRAME).
+  * With NFC-DEP suppressed (LF_PROTOCOL_TYPE=0 + LMRT without NFC-F/DEP entries):
+    chip activates NOTHING (0 activations). BOTH host and eSE paths.
+- So: the DEP peer is what powers the analog listen front-end. We must KEEP it to
+  light the RF, but steer the NFC-A/MIFARE field to the eSE (NFCEE 0x83, proto MIFARE).
+- eSE = NFCEE 0x83, sole protocol 0x80 (MIFARE). NFCEE_MODE_SET(0x83,ENABLE) accepted
+  once (0x0), later 0x3 REJECTED because already enabled (now made conditional).
+- RF_DISCOVER offers NFC-A listen 0x80 + NFC-F listen 0x82.
+- Reader (real NFC reader) response so far: unknown/nothing conclusive.
+The QUESTION: how does the Android HAL make NFC-A/MIFARE reach the eSE (so a reader
+sees the SUBE MIFARE card) WHILE the NFC-F/DEP peer stays armed to power the RF?

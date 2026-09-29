@@ -1,0 +1,9 @@
+Read the 3 gate globals from the preserved mssdump.elf (RAM dump taken in normal
+ONLINE operation, PA base 0x8b800000):
+  carrier  PA 0x9579c494 = 0x00000000  (NULL -> RFTEST would SSR)
+  cal_gate PA 0x96f4f740 = 0x00        (NOT in RF cal mode; needs ==2)
+  rf_ctx   PA 0x96f56000 = 0x00000000  (RF context not created)
+All three are 0 in normal online operation. This confirms the modem is NOT in RF
+cal mode during normal use; the cal_gate only flips to 2 inside the cal flow we
+need to trigger. The read was pure ELF32 program-header parsing (PA -> file offset),
+not code RE. VA->PA = VA - 0x35000000 (per gate_globals_phys.md).

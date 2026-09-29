@@ -1,0 +1,19 @@
+Cloning into 'motorola/wlan-host-cmn-A12'...
+Note: switching to 'f939184aa001fb6bfbacbc625a4d42c7018b688f'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+Updating files:  24% (232/948)Updating files:  25% (237/948)Updating files:  26% (247/948)Updating files:  27% (256/948)Updating files:  28% (266/948)Updating files:  29% (275/948)Updating files:  30% (285/948)Updating files:  31% (294/948)Updating files:  32% (304/948)Updating files:  33% (313/948)Updating files:  34% (323/948)Updating files:  35% (332/948)Updating files:  36% (342/948)Updating files:  37% (351/948)Updating files:  38% (361/948)Updating files:  39% (370/948)Updating files:  40% (380/948)Updating files:  41% (389/948)Updating files:  42% (399/948)Updating files:  43% (408/948)Updating files:  44% (418/948)Updating files:  45% (427/948)Updating files:  46% (437/948)Updating files:  47% (446/948)Updating files:  48% (456/948)Updating files:  48% (459/948)Updating files:  49% (465/948)Updating files:  50% (474/948)Updating files:  51% (484/948)Updating files:  52% (493/948)Updating files:  53% (503/948)Updating files:  54% (512/948)Updating files:  55% (522/948)Updating files:  56% (531/948)Updating files:  57% (541/948)Updating files:  58% (550/948)Updating files:  59% (560/948)Updating files:  60% (569/948)Updating files:  61% (579/948)Updating files:  62% (588/948)Updating files:  62% (590/948)Updating files:  63% (598/948)Updating files:  64% (607/948)Updating files:  65% (617/948)Updating files:  66% (626/948)Updating files:  67% (636/948)Updating files:  68% (645/948)Updating files:  69% (655/948)Updating files:  70% (664/948)Updating files:  71% (674/948)Updating files:  72% (683/948)Updating files:  73% (693/948)Updating files:  74% (702/948)Updating files:  75% (711/948)Updating files:  76% (721/948)Updating files:  77% (730/948)Updating files:  78% (740/948)Updating files:  79% (749/948)Updating files:  79% (753/948)Updating files:  80% (759/948)Updating files:  81% (768/948)Updating files:  82% (778/948)Updating files:  83% (787/948)Updating files:  84% (797/948)Updating files:  85% (806/948)Updating files:  86% (816/948)Updating files:  87% (825/948)Updating files:  88% (835/948)Updating files:  89% (844/948)Updating files:  90% (854/948)Updating files:  91% (863/948)Updating files:  92% (873/948)Updating files:  93% (882/948)Updating files:  94% (892/948)Updating files:  95% (901/948)Updating files:  96% (911/948)Updating files:  97% (920/948)Updating files:  97% (926/948)Updating files:  98% (930/948)Updating files:  99% (939/948)Updating files: 100% (948/948)Updating files: 100% (948/948), done.

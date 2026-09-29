@@ -1,0 +1,16 @@
+[20:22:24] === diag probe ===
+[20:22:24] stopping ModemManager (competing COMMAND peer)
+[qrtr://0] Operating mode retrieved:
+	Mode: 'factory-test'
+[20:22:25] diag --kick --cmd-peer --raw-seq 4b0b27000d10000000000005000000000000
+[20:23:13] --- handshake markers ---
+[4179.89]   kick: using modem CNTL peer node 0 port 25 (from CMD inst1 (0, 26))
+[4180.09]   kick: sent feature mask   on CNTL -> (0, 25): 08000000080000000400000015ea1000
+[4180.19]   kick: sent diagid         on CNTL -> (0, 25): 210000001a00000001000000020000006d736d2f6d6f64656d2f726f6f745f706400
+[4180.29]   kick: sent tx mode (0x11) on CNTL -> (0, 25): 1100000006000000010000000101
+[4186.17]   that is the modem's feature mask, 3 bytes: f7fe1b
+[4186.59]   DIAGID from the modem: id 0x5205ef30 name 'msm/modem/root_pd'
+[20:23:13] --- replies (CMD/DATA/REPACK), control packets filtered ---
+[20:23:13] --- SSR count in the run ---
+SSR(0x06/0x03) packets: 64
+[20:23:13] === DONE ===

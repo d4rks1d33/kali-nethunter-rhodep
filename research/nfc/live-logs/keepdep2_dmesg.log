@@ -1,0 +1,40 @@
+[ 2148.017419] nci: nci_send_cmd: opcode 0x2, plen 5
+[ 2148.017912] nci: nci_cmd_work: cmd_cnt 1
+[ 2148.018260] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0x0, OID=0x2, plen=5
+[ 2148.018450] nci: nci_send_frame: len 8
+[ 2148.019430] nci: nci_recv_frame: len 5
+[ 2148.019510] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0x0, OID=0x2, plen=2
+[ 2148.019851] nci: nci_core_set_config_rsp_packet: status 0x0
+[ 2148.020049] nci: __nci_request: wait_for_completion return 1249
+[ 2148.020144] nci: nci_send_cmd: opcode 0x100, plen 4
+[ 2148.020213] nci: nci_cmd_work: cmd_cnt 1
+[ 2148.020396] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0x1, OID=0x0, plen=4
+[ 2148.020718] nci: nci_send_frame: len 7
+[ 2148.021615] nci: nci_recv_frame: len 4
+[ 2148.021712] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0x1, OID=0x0, plen=1
+[ 2148.021908] nci: nci_rf_disc_map_rsp_packet: status 0x0
+[ 2148.022252] nci: __nci_request: wait_for_completion return 1249
+[ 2148.022346] nci: nci_send_cmd: opcode 0x101, plen 27
+[ 2148.022518] nci: nci_cmd_work: cmd_cnt 1
+[ 2148.022705] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0x1, OID=0x1, plen=27
+[ 2148.023032] nci: nci_send_frame: len 30
+[ 2148.024647] nci: nci_recv_frame: len 4
+[ 2148.024719] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0x1, OID=0x1, plen=1
+[ 2148.025153] nci: nci_rf_set_listen_mode_routing_rsp_packet: status 0x0
+[ 2148.025488] nci: __nci_request: wait_for_completion return 1249
+[ 2148.025540] nci: nci_send_cmd: opcode 0x103, plen 5
+[ 2148.025632] nci: nci_cmd_work: cmd_cnt 1
+[ 2148.025823] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0x1, OID=0x3, plen=5
+[ 2148.026153] nci: nci_send_frame: len 8
+[ 2148.029925] nci: nci_recv_frame: len 4
+[ 2148.030008] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0x1, OID=0x3, plen=1
+[ 2148.030351] nci: nci_rf_disc_rsp_packet: status 0x0
+[ 2148.030554] nci: __nci_request: wait_for_completion return 1249
+[ 2163.952114] nci: nci_send_cmd: opcode 0x106, plen 1
+[ 2163.952207] nci: nci_cmd_work: cmd_cnt 1
+[ 2163.952549] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0x1, OID=0x6, plen=1
+[ 2163.952734] nci: nci_send_frame: len 4
+[ 2163.956168] nci: nci_recv_frame: len 4
+[ 2163.956396] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0x1, OID=0x6, plen=1
+[ 2163.956607] nci: nci_rf_deactivate_rsp_packet: status 0x0
+[ 2163.956748] nci: __nci_request: wait_for_completion return 7499

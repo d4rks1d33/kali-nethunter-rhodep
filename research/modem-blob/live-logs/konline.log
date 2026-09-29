@@ -1,0 +1,9 @@
+[13294.33] publishing the diag services the AP normally provides
+[13294.34] published service 0x1001 instance 0 (CNTL) on node 1 port 0
+[13294.34] published service 0x1001 instance 2 (DATA) on node 1 port 0
+[13294.34] published service 0x1001 instance 4 (DCI) on node 1 port 0
+[13294.35] glink channels before: DATA1 DATA11 DATA2 DATA3 DATA4 DS IPCRTR LOOPBACK_CTL_MPSS SSM_RTR_MODEM_APPS apr_voice_svc glink_ssr rpmsg_ctrl
+[13294.35] kick: CNTL-channel handshake, no restart (preserve live RF state)
+[13294.36]   kick: modem DIAG service inst 1 at node 0 port 26
+[13294.36]   kick: modem DIAG service inst 3 at node 0 port 41
+[13296.37]   kick: using modem CNTL peer node 0 port 25 (from CMD inst1 (0, 26))

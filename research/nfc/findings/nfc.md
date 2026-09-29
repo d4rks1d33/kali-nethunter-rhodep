@@ -1,0 +1,621 @@
+# NFC on the Moto G82 (rhodep) under mainline Linux
+
+The phone's NFC controller is a **Samsung S3NRN4V**, driven by the in-tree
+`s3fwrn5` driver with the port's patches (0101-0105). It sits on **i2c-2**
+(`4c84000.i2c`, the vendor's `qupv3_se7_i2c`). This document is for writing
+your own software against it; for the story of how it was made to work see the
+`nfc:` commits and the patch headers.
+
+## What works
+
+Reading every passive tag technology the chip advertises:
+
+- **NFC-A** -- MIFARE Classic/Ultralight/NTAG (Type 2), and ISO-DEP Type 4
+  (bank/EMV cards, passports, transit)
+- **NFC-B** -- ISO 14443-B
+- **NFC-F** -- FeliCa (Type 3)
+- **NFC-V** -- ISO 15693 (Type 5)
+
+Verified on hardware with a MIFARE Classic 1K (UID, ATQA 0x0044, SAK 0x08) and
+an EMV card (ISO-DEP, SAK 0x20).
+
+**Card emulation is a work in progress with a clear path.** Two approaches were
+tried; the second is the right one and is now unblocked:
+
+- **Host card emulation (the chip emulates the tag itself) does not work** and
+  is a dead end for MIFARE. Patch 0111 builds the full standard-NCI NFC-A listen
+  setup and the chip accepts all of it (`status 0x0`) but never activates as an
+  NFC-A tag; the NFC-A card-emulation state machine lives in Android's userspace
+  `libnfc-nci` and Linux mainline has no host path. And crucially a **MIFARE
+  Classic tag cannot be emulated from the host on any platform** -- Crypto1 lives
+  in the secure element, not the host.
+- **Secure-element card emulation (the right way) is reachable.** The target is a
+  transit card (SUBE) that an Android app provisioned into the phone's **embedded
+  secure element (eSE)**; the applet lives in the eSE's own secure storage,
+  survives the OS change, and the eSE runs the MIFARE/Crypto1 exchange
+  autonomously once the controller routes the field to it. Patch 0112 fixes the
+  mainline NFCEE code (which spoke NCI 1.0 to this NCI 2.0 part) and now
+  **enumerates the eSE from Linux**: NFCEE id **0x83**, whose one supported
+  protocol is **0x80 (MIFARE)**. What remains is to enable that NFCEE and route
+  the MIFARE protocol to it in listen mode. See "Card emulation via the secure
+  element" below. NFC-F (FeliCa) listen also works (autonomously, in firmware).
+
+## The one thing that must be set
+
+The chip needs `rfreg_dual=1` on the `s3fwrn5` module, or it comes up on the
+older register-transfer path, talks fine over the bus, and reads nothing
+because its antenna is never configured. The port installs
+`/etc/modprobe.d/s3fwrn5-rhodep.conf` to set it at boot. If you build the
+module yourself, remember this or you will chase a "polls but sees no card"
+ghost. The RF register blobs must also be present:
+
+    /lib/firmware/sec_s3fwrn5_rfreg.bin   (3232 bytes, hwreg)
+    /lib/firmware/sec_s3fwrn5_swreg.bin   (336 bytes, swreg)
+
+You can confirm the load in `dmesg`:
+
+    nfc nfc0: rfreg configuration update: success (checksum 0x5b9a)
+
+## Two ways to talk to it
+
+### 1. neard over D-Bus -- easy, read-only, NDEF-oriented
+
+`neard` is installed and exposes the adapter on the system bus as
+`org.neard` at `/org/neard/nfc0`. It is the simplest path if all you want is
+to poll and read NDEF content, and it is what a GTK/Qt app would sit on.
+
+    # power on and poll
+    busctl --system set-property org.neard /org/neard/nfc0 \
+        org.neard.Adapter Powered b true
+    busctl --system call org.neard /org/neard/nfc0 \
+        org.neard.Adapter StartPollLoop s Initiator
+
+    # what it found (tags appear as /org/neard/nfc0/tagN)
+    busctl --system call org.neard / \
+        org.freedesktop.DBus.ObjectManager GetManagedObjects
+
+The `org.neard.Adapter` interface has `StartPollLoop`, `StopPollLoop`,
+`Powered`, `Polling`, `Mode` and `Protocols`. Tags expose `org.neard.Tag`;
+NDEF records appear as `org.neard.Record`. neard does **not** give you the
+raw UID/ATQA/SAK of a non-NDEF card, and it will not let you send arbitrary
+APDUs -- for that, use netlink.
+
+Only one program can drive the adapter at a time. If you use netlink
+directly, stop neard first: `sudo systemctl stop neard`.
+
+### 2. Kernel NFC netlink -- full control
+
+This is what `neard`, `nfcpy` and the port's own `rhodep-nfc` tool use. It is
+a generic-netlink family called `nfc` (resolve its id at runtime with
+`CTRL_CMD_GETFAMILY`; it is not fixed). The commands and attributes are in
+`include/uapi/linux/nfc.h`. The essentials:
+
+- `NFC_CMD_GET_DEVICE` (dump) -- list adapters, their index, name, protocol
+  mask and powered state.
+- `NFC_CMD_DEV_UP` -- power the adapter on. Attribute:
+  `NFC_ATTR_DEVICE_INDEX`.
+- `NFC_CMD_START_POLL` -- begin discovery. Attributes: `NFC_ATTR_DEVICE_INDEX`,
+  and a protocol bitmask in `NFC_ATTR_PROTOCOLS` (and `NFC_ATTR_IM_PROTOCOLS`
+  for the initiator-mode set). The bit positions are `enum nfc_prot`:
+  1=Jewel/NFC-A, 2=MIFARE, 3=FeliCa, 4=ISO-DEP, 5=NFC-DEP, 6=ISO 15693.
+- `NFC_EVENT_TARGETS_FOUND` -- multicast event on the `events` group when a
+  card is activated. Join the group to receive it.
+- `NFC_CMD_GET_TARGET` (dump) -- read the activated targets. Attributes come
+  back per technology: `NFC_ATTR_TARGET_NFCID1` (UID),
+  `NFC_ATTR_TARGET_SENS_RES` (ATQA), `NFC_ATTR_TARGET_SEL_RES` (SAK),
+  `NFC_ATTR_TARGET_ATS`, `NFC_ATTR_TARGET_SENSB_RES`,
+  `NFC_ATTR_TARGET_SENSF_RES`, `NFC_ATTR_TARGET_ISO15693_UID`,
+  `NFC_ATTR_TARGET_ISO15693_DSFID`.
+- `NFC_CMD_STOP_POLL` -- stop. The chip stops on its own once it activates and
+  holds a target, so to keep scanning you re-poll after `NFC_EVENT_TARGET_LOST`.
+
+All of these are privileged: you must be root.
+
+For raw APDU exchange with an activated ISO-DEP card, the transport is a
+`PF_NFC` `SOCK_SEQPACKET` socket connected to the target's logical connection
+(this is how `nfcpy` does tag transceive). `rhodep-nfc` currently reads the
+activation data but does not yet open that socket; the disassembly of the
+vendor HAL and the `nci_transceive` traces in `dmesg` show it working, so the
+next step for an APDU tool is well mapped.
+
+## The ready-made tool: `rhodep-nfc`
+
+Installed at `/usr/local/bin/rhodep-nfc`. Pure Python, stdlib only, speaks
+netlink directly. Run as root, with neard stopped.
+
+    sudo systemctl stop neard
+
+    sudo rhodep-nfc info               # adapter and its protocols
+    sudo rhodep-nfc read              # poll, print the first card, exit
+    sudo rhodep-nfc watch             # keep printing every card presented
+    sudo rhodep-nfc raw [file.pcap]   # capture every NCI frame, hex + pcap
+    sudo rhodep-nfc attrs             # dump activation attributes only
+    rhodep-nfc --help                 # full usage, and how to add a protocol
+
+Example, a bank card:
+
+    target #1: ISO-DEP (ISO 14443-4) -- e.g. a bank/EMV card or passport
+      UID (NFCID1):  0f 58 86 07  (4 bytes)
+      ATQA (SENS):   0004
+      SAK  (SEL):    20
+
+It names the card from SAK and protocol the way a reader would, and prints the
+UID, ATQA, SAK, ATS, and the type-B/F/V specific fields when present.
+
+To analyse a card whose protocol is not yet handled, `raw` is the real tool.
+It taps the kernel's `PF_NFC`/`SOCK_RAW` socket, which gets a copy of **every
+NCI frame** exchanged with the controller in both directions — the whole wire
+conversation with the presented tag, every command, response and APDU. It
+prints each frame live (direction, type, hex, and a name for common NCI
+messages) and, given a path, writes a pcap:
+
+    sudo rhodep-nfc raw /tmp/card.pcap
+
+The pcap uses link type USER0; in Wireshark use *Decode As* to point the NCI
+dissector at it, or read the hex. Each record is `[dev][dir|type<<1]` followed
+by the raw NCI frame, exactly as the kernel delivered it.
+
+This is not an RF sniffer: the S3NRN4V only reports what it itself transacts,
+so `raw` cannot capture a transaction between two *other* devices (for that you
+need a Proxmark). But for a tag you present to the phone it is the complete,
+byte-exact conversation.
+
+`attrs` is the lighter, handshake-only view: the parsed activation attributes
+as label + hex, including any the tool has no name for (`attr <N>`).
+
+`rhodep-nfc --help` explains exactly where to add a new protocol bit, a new
+activation attribute, or a new card name — and when the change belongs in the
+driver instead (an unmapped vendor protocol value, patch 0105).
+
+## A note on the hardware layout
+
+If you write something lower level, these are the board facts established
+during the port:
+
+- I2C: `i2c-2` (bus number can move between boots; bind by driver, the NFC
+  node is `samsung,s3fwrn5-i2c` at address `0x27`).
+- GPIOs on the TLMM (`gpiochip3`): enable/VEN = tlmm48 **active low**
+  (`SEC_NFC_PW_ON` asserted = 0), firmware/wake = tlmm8, IRQ = tlmm9,
+  clock-request = tlmm7.
+- The wake line (tlmm8) must stay high for the whole time NCI is up; the
+  driver raises it in `open` and only drops it in `close`. Do not toggle it
+  under the driver's feet.
+
+## Card emulation -- listen works, tag activation is the open point
+
+Started. `rhodep-nfc listen [uid [sak]]` puts the controller into listen mode.
+Two kernel patches back it:
+
+- **0110** makes the s3fwrn5 device advertise `NFC_PROTO_NFC_DEP_MASK`, which is
+  the only target protocol the mainline NCI core wires up. Without it
+  `nfc_genl_start_poll` rejects any `tm_protocols` and the chip never listens.
+- **0111** teaches the NCI core to present an NFC-A tag: it adds the config tags
+  `LA_BIT_FRAME_SDD` (0x30), `LA_PLATFORM_CONFIG` (0x31) and `LA_NFCID1` (0x33),
+  carries a UID and a SAK from userspace on `START_POLL` (reusing
+  `NFC_ATTR_TARGET_NFCID1` and `NFC_ATTR_TARGET_SEL_RES`, no ABI change), maps
+  T2T to the FRAME interface in `RF_DISCOVER_MAP` for listen, offers only NFC-A
+  passive listen when a UID is set (NFC-F would bring the chip up as NFC-DEP),
+  and signals `nfc_tm_activated` for T2T as well as NFC-DEP.
+
+### What is proven on the device
+
+- **The chip enters listen and a reader activates it.** With NFC-A + NFC-F
+  offered (no UID), presenting a phone activates the controller -- dmesg shows
+  `rf_intf_activated_ntf`, `data_exch_rf_tech_and_mode 0x82`, an ATR_REQ. So the
+  hardware can be a listen target; this is not a hardware wall.
+- **The S3NRN4V accepts a fixed 7-byte NFCID1.** `CORE_SET_CONFIG` with
+  `LA_NFCID1` = the card's UID returns `status 0x0`. That was the open hardware
+  question -- the chip does not force a random UID. All nine listen SET_CONFIGs
+  (BIT_FRAME_SDD, PLATFORM_CONFIG, NFCID1, SEL_INFO, ...) return `status 0x0`.
+- Target card measured for emulation: MIFARE Classic 1K, **ATQA 0x0044, SAK
+  0x08, UID 04:35:3d:6a:f7:54:80** (7 bytes, NXP 0x04 prefix).
+
+### The open point (narrowed down)
+
+The chip **emulates in listen mode -- confirmed with a Flipper Zero** -- but it
+only comes up over **NFC-F**, never as an NFC-A tag. What was measured, all with
+the clean NFC-A config (patch 0111: `LA_BIT_FRAME_SDD`, `LA_PLATFORM_CONFIG`,
+`LA_NFCID1`, `LA_SEL_INFO`, no NFC-DEP `LF_*` parameters):
+
+- **NFC-A + NFC-F offered:** the Flipper detects the phone -- **as a FeliCa
+  (Type 3 / NFC-F)**. So the hardware does answer a reader in listen; it just
+  answers on F, not A.
+- **NFC-A only offered:** nothing. No reader (Flipper or NFC Tools) sees it, and
+  there is no `rf_intf_activated_ntf`. The chip accepts every SET_CONFIG and the
+  RF_DISCOVER (`status 0x0` on all), then sits silent -- it does **not** answer
+  the NFC-A anticollision as a tag.
+- Removing the NFC-DEP `LF_*` parameters (the clean config) does not stop the F
+  activation; the F path still works and shows up as FeliCa.
+
+So the S3NRN4V, driven by the plain NCI listen sequence, **does NFC-F listen but
+not NFC-A tag listen**. The hardware is capable (Android emulated on it); what
+was missing turned out to be the whole userspace card-emulation stack, not a
+single NCI command -- the LMRT below was implemented and tested and did not
+unblock it. See "Conclusion" at the end of this section for the full result.
+
+### The LMRT -- implemented (patch 0111)
+
+`RF_SET_LISTEN_MODE_ROUTING` is now built and sent. Patch 0111 adds the opcode
+(`GID 0x1 OID 0x1`), the command/response structs and the RSP handler to the
+mainline NCI core (mainline had none of it -- it only read
+`max_routing_table_size` from `CORE_INIT_RSP` and never programmed a table).
+When emulating, `nci_start_poll` sends the table just before `RF_DISCOVER`,
+routing three entries to the host NFCEE (id 0x00) for all power states (0x3f):
+
+- a **technology** entry for NFC-A (tech 0x00),
+- a **protocol** entry for T2T (0x02), and
+- a **protocol** entry for MIFARE Classic (the Samsung/NXP proprietary 0x80,
+  from index 5 of the `NFA_PROPRIETARY_CFG` remap -- MIFARE Classic is presented
+  under 0x80, not plain T2T).
+
+The MIFARE 0x80 protocol is deliberately **not** added to `RF_DISCOVER_MAP`: the
+controller rejects that command with `status 0x1` if 0x80 is listed there, so
+only T2T is mapped to the FRAME interface, while MIFARE is routed via the LMRT.
+
+**Measured on the phone -- every command is accepted, but it still does not
+activate.** With `nci` dynamic debug on and a MIFARE Classic 1K target
+(`rhodep-nfc listen 04:35:3d:6a:f7:54:80 0x08`):
+
+```
+NCI TX: GID=0x1, OID=0x0, plen=19   RF_DISCOVER_MAP           -> status 0x0
+NCI TX: GID=0x1, OID=0x1, plen=17   RF_SET_LISTEN_MODE_ROUTING -> status 0x0  (3 entries, incl. MIFARE 0x80)
+NCI TX: GID=0x1, OID=0x3, plen=3    RF_DISCOVER                -> status 0x0
+... then 30 s of total silence while a Flipper Zero (read mode) is on the
+    antenna: no nci_recv_frame, no RF_INTF_ACTIVATED_NTF ...
+NCI TX: GID=0x1, OID=0x6            RF_DEACTIVATE (timeout)    -> status 0x0
+```
+
+The Flipper detects **nothing**. This was tested with NFC-A only, with
+NFC-A + NFC-F, with and without the MIFARE 0x80 route, and with the corrected
+`LA_PLATFORM_CONFIG` cascade byte -- the result is the same every time: the chip
+accepts the full standard-NCI listen setup with `status 0x0` and then never
+answers the NFC-A anticollision. (With NFC-F offered it comes up as FeliCa, so
+the RF front-end and the listen path themselves work -- see above.)
+
+### Conclusion: NFC-A tag listen is not reachable from standard NCI on this chip
+
+The LMRT was necessary to even attempt it, but it is **not sufficient**, and
+disassembly of the vendor HAL (`nfc_nci_sec.so`, extracted from the LineageOS
+`vendor.img`) shows there is no missing magic command to add:
+
+- The vendor `hwreg`/`swreg` blobs are **RF analog register images** (they end in
+  the magic `"DEF\0"`), not NCI config -- patch 0104 already loads them via the
+  proprietary `2F 2A` dual-rfreg opcode, which is why NFC-F listen and reader
+  mode work. They contain no `LA_*` listen TLVs.
+- The HAL's `nfc_hal_pre_discover` sends nothing; `hal_nci_send_clearLmrt` only
+  builds a *clear* (`21 01 02 00 00`), identical in format to ours; and every
+  proprietary opcode (`2F 25/26/27/28/2A`) is rfreg / clock / trace during init,
+  never a "card emulation enable".
+- In Android the entire NFC-A card-emulation state machine lives in
+  **`libnfc-nci.so` in userspace** (the system partition), driven by the AOSP
+  NFA stack and HCE app routing -- the kernel `sec-nfc` driver is a pure
+  transport. Linux mainline's `net/nfc/` has never implemented host card
+  emulation for T2T/ISO-DEP; it only wires up NFC-DEP (P2P) listen. So there is
+  no in-kernel path that makes this controller arm NFC-A tag listen, and no
+  single vendor command that would.
+
+What is upstreamable and kept in 0111: the fixed-NFCID1 NFC-A listen config, the
+T2T FRAME mapping, and the `RF_SET_LISTEN_MODE_ROUTING` implementation the
+mainline core lacked. What is **not** achievable without porting a full
+userspace NCI/HCE stack (à la libnfc-nci) talking raw NCI over the driver: the
+actual NFC-A tag activation and the tag data path. That is the real remaining
+gap, and it is a large piece of new software, not a missing register or command.
+
+## Host card emulation (HCE): the full plan to finish this
+
+Card emulation is host card emulation (HCE): the kernel handles listen + a
+generic data path, and userspace implements each tag protocol as a handler --
+the same split Android uses (the chip does RF/listen, the userspace stack does
+the tag protocol). This section is the complete investigation of what it takes,
+from three deep dives: the activation (why the chip stays silent), the kernel
+data path (what net/nfc is missing), and the libnfc-nci/NFA reference (what
+Android actually sends). **We are the first to attempt HCE on mainline for this
+family, so this is written as a build spec, not a summary.**
+
+### What is and is not achievable on this chip
+
+- **NFC-A Type 2 tag emulation (UID + READ) -- target, likely achievable.** A
+  UID-only reader needs nothing past activation. A reader that sends `30 <blk>`
+  needs the data path below.
+- **ISO-DEP / Type 4 (HCE with APDUs) -- target, achievable.** This is real
+  Android HCE: SELECT-by-AID and APDU exchange, dispatched in userspace.
+- **MIFARE Classic emulation (SAK 0x08, Crypto1) from the *host* -- NOT
+  achievable, on any platform.** libnfc-nci does not emulate MIFARE Classic (no
+  Crypto1, no sector/key logic); AOSP host CE covers only Type-4 (ISO-DEP) and
+  Type-3 (NFC-F). `LEGACY_MIFARE_READER=1` in the conf is a *reader* flag.
+  Crypto1 lives in silicon (the SE), not the host.
+- **MIFARE Classic emulation via the *secure element* -- achievable, and is how
+  Android does it here.** The card is provisioned into the eSE; the eSE runs
+  Crypto1 autonomously; the host only has to enable the eSE NFCEE and route the
+  MIFARE protocol to it. This is the path patch 0112 opens and the section
+  "Card emulation via the secure element" describes. It works regardless of
+  whether the door does a Crypto1 sector auth, because the real card's keys and
+  data are inside the eSE.
+
+### Step 1: make the chip actually activate (activation experiments)
+
+The chip accepts the full standard-NCI listen setup with `status 0x0` yet never
+raises `RF_INTF_ACTIVATED_NTF` on NFC-A. Three concrete, untried fixes, in the
+order to try them (each is a small change to patch 0111, testable in isolation
+with a Flipper Zero on the antenna and `nci` dynamic debug on):
+
+**EXP-1 -- a correctly formed SENS_RES (ATQA) and NFCID1.** In NFC-A listen the
+chip does *not* send LA_NFCID1 as the SENS_RES; the SENS_RES (ATQA) is built from
+two config bytes, and the UID-size bits come from the *length* of LA_NFCID1, not
+from LA_PLATFORM_CONFIG (our earlier mistake):
+
+- Low ATQA byte = `LA_BIT_FRAME_SDD` (SDD bits) + UID-size (b7:b6, from NFCID1 len).
+- High ATQA byte = `LA_PLATFORM_CONFIG` (low nibble).
+
+The target card's **ATQA 0x0044** decodes to SDD `0x04` + UID-size `01`
+(7-byte UID), high byte `0x00`. So the correct config is
+`LA_BIT_FRAME_SDD=0x04`, `LA_PLATFORM_CONFIG=0x00`, a **7-byte** `LA_NFCID1`
+(a 7-byte UID makes the chip advertise double cascade and set the `01` bits by
+itself), `LA_SEL_INFO=0x08`. Note the Digital Protocol cascade rules for a
+7-byte UID (the first cascade level carries a `0x88` cascade tag on the wire; the
+chip inserts it, LA_NFCID1 holds the 7 real bytes). Expected: if a malformed ATQA
+was the block, the Flipper now lists an NFC-A tag.
+
+**EXP-2 -- command order and pairing A-listen with F-listen (most likely).** The
+canonical libnfc-nci order is **SET_CONFIG -> RF_DISCOVER_MAP -> LMRT ->
+RF_DISCOVER**; patch 0111 currently sends the LMRT *before* DISCOVER_MAP. Reorder
+to MAP -> LMRT -> DISCOVER, and offer **NFC-A listen and NFC-F listen together**
+in RF_DISCOVER (0x80 + 0x82) the way the mainline core always does -- NFC-F is
+the one path that *does* activate today, and the strongest clue is exactly this
+asymmetry: in `nci_rf_discover_req` (core.c:285) NFC-A listen is never offered
+alone, always paired with F and only under NFC-DEP. The Samsung firmware may
+require the pairing, or a listen-mode-mapped activatable protocol, to arm the A
+listener at all. Also ensure every protocol in the LMRT has a matching
+RF_DISCOVER_MAP entry with the LISTEN mode bit set.
+
+**EXP-3 -- TOTAL_DURATION.** Add CORE_SET_CONFIG tag `0x00` (TOTAL_DURATION, e.g.
+`E8 03` = 1000 ms LE) before RF_DISCOVER. A listen-only discovery with a tiny or
+zero total duration can pass through the A listen window too briefly to ever
+coincide with the reader's field.
+
+Verifying chip state (no direct GET_STATE): read back the LA_* tags with
+CORE_GET_CONFIG to confirm SET_CONFIG actually took, and watch that no
+`CORE_GENERIC_ERROR_NTF` or early `RF_DEACTIVATE_NTF` arrives after RF_DISCOVER
+(an early deactivate means the chip left discovery).
+
+### Step 2: the kernel data path (net/nfc has no HCE)
+
+Once the chip activates, mainline still drops it on the floor. `net/nfc` only
+ever wired up listen for NFC-DEP (P2P/LLCP); T2T/ISO-DEP listen has four hard
+cuts. The design below reuses the existing ABI entirely -- the raw socket
+(`SOCK_SEQPACKET`, `NFC_SOCKPROTO_RAW`) for data and the existing
+`NFC_EVENT_TM_ACTIVATED` netlink event for activation -- so **no new socket
+protocol, no new netlink command/attr, no UAPI change** (a passive `bind()` on
+the SEQPACKET raw socket becomes the target-mode entry point).
+
+The four cuts and the fix for each:
+
+1. **Activation ignored (ntf.c:872-885).** The listen branch only calls
+   `nfc_tm_activated()` for `NCI_RF_PROTOCOL_NFC_DEP`. Extend it to a
+   `switch(rf_protocol)`: T2T -> `NFC_PROTO_MIFARE_MASK`, ISO_DEP ->
+   `NFC_PROTO_ISO14443_MASK`, calling `nfc_tm_activated(..., NULL, 0)`. For T2T
+   also set `ndev->target_active_prot = NFC_PROTO_MIFARE` so the FRAME-interface
+   status-byte strip in `data.c:294` runs; clear it in the deactivate NTF. Don't
+   fail the activation on ISO-DEP listen activation params (the RATS need not be
+   parsed for the MVP).
+2. **RX routed by rf_mode (data.c:260).** `nfc_tm_activated` sets
+   `rf_mode = NFC_RF_TARGET` (core.c:682), which makes the existing RX path route
+   incoming frames to `nfc_tm_data_received` -- so cut 1 unblocks this for free.
+3. **`nfc_tm_data_received` hardcoded to LLCP (core.c:655).** Add
+   `u32 tm_active_proto` to `struct nfc_dev`, set it in `nfc_tm_activated`, and
+   route: NFC_DEP -> `nfc_llcp_data_received` (legacy), else -> a new
+   `nfc_tm_to_sock()` that delivers the skb to a bound target raw socket.
+4. **No passive target socket (rawsock.c).** Add a `tm_sk_list` (same pattern as
+   `raw_sk_list`), implement `rawsock_bind()` (today `sock_no_bind`) so userspace
+   can `bind(sockaddr_nfc{dev_idx})` a `SOCK_SEQPACKET`/`NFC_SOCKPROTO_RAW`
+   socket in target mode, mark it `TCP_ESTABLISHED` so `sendmsg` works, and add
+   `nfc_tm_to_sock()` (deliver via `sock_queue_rcv_skb`). Fix `rawsock_tx_work`
+   to not wait for a callback in target mode (`nci_tm_send` is synchronous and
+   ignores the cb, so the current `sock_hold`/`sock_put` would leak). Unlink from
+   `tm_sk_list` in release/destruct without calling `nfc_deactivate_target`.
+
+TX is otherwise already present: `nci_tm_send` (nci/core.c:1078) is registered in
+`nci_nfc_ops` and `nfc_data_exchange` already has a `NFC_RF_TARGET` branch
+(core.c:520). The full hop-by-hop path:
+
+```
+activate:  reader -> RF_INTF_ACTIVATED_NTF -> nci_rf_intf_activated_ntf_packet
+           -> [ntf.c fix] nfc_tm_activated(MIFARE|ISO14443) -> rf_mode=TARGET,
+              tm_active_proto set, NFC_EVENT_TM_ACTIVATED to userspace
+RX:        reader "30 xx"/APDU -> nci_rx_data_packet -> [strip status byte if
+           T2T FRAME] -> rf_mode==TARGET -> nfc_tm_data_received -> [core.c fix]
+           nfc_tm_to_sock -> sock_queue_rcv_skb -> userspace recv()
+TX:        userspace send(resp) -> rawsock_sendmsg -> rawsock_tx_work ->
+           nfc_data_exchange (target branch) -> nci_tm_send ->
+           nci_send_data(NCI_STATIC_RF_CONN_ID) -> driver -> chip -> reader
+```
+
+Files to touch: `net/nfc/nci/ntf.c`, `net/nfc/core.c`, `net/nfc/rawsock.c`,
+`net/nfc/nci/data.c`, `include/net/nfc/nfc.h` (add `tm_active_proto`),
+`net/nfc/nfc.h` (declare `nfc_tm_to_sock`). No `include/uapi/linux/nfc.h` change.
+
+Order of implementation, each independently testable:
+1. Activation up to userspace (ntf.c + tm_active_proto) -- verify
+   `NFC_EVENT_TM_ACTIVATED` with `NFC_ATTR_TM_PROTOCOLS = MIFARE` and `rf_mode`
+   becomes TARGET.
+2. Target socket bind + RX -- `recv()` the reader's `30 00` READ, no stray status
+   byte.
+3. TX response -- answer the READ with 16 bytes; reader reads the emulated tag.
+4. ISO-DEP / Type 4 -- SELECT-by-AID APDU in, `90 00` out (no status-byte strip
+   on the ISO-DEP interface).
+5. Deactivation/cleanup -- `RF_DEACTIVATE_NTF` clears `target_active_prot`, no
+   refcount leak across taps.
+
+### Step 3: userspace handlers
+
+A `rhodep-nfc emulate` mode opens the target socket and implements the tag
+protocol as a handler: a `Type2Handler` (an emulated tag memory answering
+`30 <blk>` READs), and a `Type4Handler` that dispatches APDUs by AID. New
+protocols later are userspace handlers, not kernel changes.
+
+### The one command that might still be missing
+
+The libnfc-nci dive raised one more candidate for the activation block: the
+Samsung parts remap the LA_* config IDs through `NFA_PROPRIETARY_CFG =
+{00,81,82,80,8A,80,70,74,F4}`. If the firmware expects the proprietary-remapped
+PMIDs and we send the standard 0x30-0x34 tags, SET_CONFIG can return `status 0x0`
+yet not take effect. This is worth checking against EXP-1/EXP-3 if the standard
+tags do not move the SENS_RES (confirm with CORE_GET_CONFIG whether the values
+read back).
+
+## Card emulation via the secure element (the working path)
+
+The host-emulation route above is a dead end for the actual goal: the target is
+a MIFARE Classic transit card (SUBE), and MIFARE Classic cannot be emulated from
+the host on any platform -- Crypto1 lives in a secure element. But that is
+exactly how the card works on Android: a transit app provisions the card into
+the phone's **embedded secure element (eSE)**, the applet lives in the eSE's own
+secure storage, and the eSE answers a reader autonomously (it runs Crypto1 in
+hardware) as long as the NFC controller routes the RF field to it. The eSE is
+independent of the application processor, so **the provisioned card survives the
+switch from Android to Linux** -- it is still in the eSE after flashing pmOS.
+
+So the job on Linux is not to emulate anything: it is to (1) find the eSE, (2)
+enable it, and (3) tell the controller to route the MIFARE listen to it. The
+host does nothing in real time; the eSE does the card.
+
+### The eSE is reachable from Linux (patch 0112)
+
+The mainline NFCEE code was written for NCI 1.0 and this controller is NCI 2.0
+(`nci_ver 0x20`), which broke enumeration in two places. Patch 0112 fixes both:
+
+- **NFCEE_DISCOVER_CMD**: NCI 2.0 dropped the Discovery Action byte, so the
+  command has no payload. Mainline sent the 1.0 one-byte action and the chip
+  answered `SYNTAX_ERROR (0x05)`. Fixed to send an empty command on NCI 2.0.
+- **NFCEE_DISCOVER_RSP**: NCI 2.0 shortened it to a single status byte (the
+  NFCEE count/details moved to per-NFCEE NFCEE_DISCOVER_NTFs). Mainline required
+  the 1.0 two-byte form and treated the reply as a protocol error. Fixed to
+  accept the 2.0 form and let the NTF complete the request.
+
+Patch 0112 also issues NFCEE_DISCOVER once at the end of `nci_open_device`
+(nothing in mainline ever does, since the s3fwrn5 driver has no `discover_se`).
+
+Measured on the phone, the well-formed exchange:
+
+```
+NFCEE_DISCOVER_CMD   GID=0x2 OID=0x0 plen=0        (empty, NCI 2.0)
+NFCEE_DISCOVER_RSP   status 0x0, num_nfcee 0x2
+NFCEE_DISCOVER_NTF   83 01 01 80 01 a0 01 02 00    -> NFCEE id 0x83
+NFCEE_DISCOVER_NTF   15 01 01 00 01 04 06 00 00 02 00 3b 01 00  -> NFCEE id 0x15
+```
+
+Decoding the NTFs (NCI 2.0: id, status, num_protocols, protocols[], num_tlvs,
+tlvs[]):
+
+- **NFCEE 0x83 -- the eSE.** status 0x01 (connected), one protocol **0x80
+  (MIFARE)**, one Samsung TLV `A0 01 02`. Its only protocol being MIFARE is the
+  signature of the transit-card applet. **This is where the SUBE card lives.**
+- **NFCEE 0x15 -- the UICC (SIM).** status 0x01, protocol 0x00 (undetermined),
+  a TLV whose value carries an ATR-like `3B`. Not relevant to the MIFARE card.
+
+And the controller's `nfcc_features` from CORE_INIT is `0x80067e1a`: technology-
+based routing supported, multiple power states (switched-on and switched-off,
+so the card can answer with the screen off), `max_routing_table_size` 1170.
+Supported RF interfaces are 0x00/0x01/0x02/0x03 (NFCEE Direct, Frame, ISO-DEP,
+NFC-DEP).
+
+### The eSE routing is implemented (patch 0113), but the card still does not answer
+
+Patch 0113 does all of the routing, and the controller accepts every command:
+
+1. **Learn the eSE id**: the NFCEE_DISCOVER_NTF handler records the id of the
+   NFCEE that lists the MIFARE protocol (0x83 here) as `ndev->ese_nfcee_id`.
+2. **Enable the eSE**: `NFCEE_MODE_SET(0x83, ENABLE)` on start of card emulation
+   -> status 0x0, plus the NFCEE_MODE_SET_NTF.
+3. **Route to the eSE**: `RF_SET_LISTEN_MODE_ROUTING` routes both the NFC-A
+   *technology* and the MIFARE protocol to NFCEE 0x83 -> status 0x0. (Routing the
+   technology, not just the protocol, matters: MIFARE selection happens at the
+   NFC-A technology level, so the eSE has to own the technology to present its
+   own ATQA/SAK/UID.)
+4. **Do not set any host LA_\* config** when routing to the eSE: the eSE owns the
+   NFC-A identity (the real card's UID/SAK/ATQA). Forcing a host LA_NFCID1 or
+   LA_SEL_INFO=0x08 (which also wrongly advertises ISO-DEP) would hide the card.
+5. **Neutralise the parasitic peer**: this controller does not light its listen
+   front-end for NFC-A alone -- it only wakes when NFC-F listen is also offered,
+   but NFC-F with firmware defaults arms an autonomous NFC-DEP (P2P) peer that
+   answers the reader itself. Clearing LF_PROTOCOL_TYPE (0x50 = 0) and
+   LF_T3T_FLAGS (0x3F = 0) suppresses that peer, so NFC-F listen only powers the
+   analog front-end. Verified: with this, the `data_exch_rf_tech_and_mode 0x82`
+   NFC-DEP activation that used to appear on every tap is gone.
+6. **Listen**: `RF_DISCOVER` with NFC-A + NFC-F passive listen -> status 0x0.
+
+**Result: still no card.** Tested against the official SUBE app on another phone
+(which reads a physical MIFARE transit card over NFC, i.e. it is a real MIFARE
+reader): with the phone in this listen mode, the app reads nothing, and the host
+sees **no `RF_NFCEE_ACTION_NTF` and no activation at all** -- 40 s of silence
+after RF_DISCOVER. This holds whether MIFARE is routed to the eSE or to the host,
+and with or without the LF neutralisation. So the controller accepts the whole
+standard-NCI card-emulation setup with status 0x0 but the **NFC-A listen
+front-end never engages at RF** for the reader, and the field never reaches the
+eSE (`RF_NFCEE_ACTION_NTF`, GID 0x1 OID 0x9, would be the signal that it did).
+
+### The open question, and what to try next
+
+The wall is the same one host emulation hit: this firmware does not arm an NFC-A
+tag/listen activation from a plain NCI listen sequence, even with the eSE as the
+route target. `RF_NFCEE_ACTION_NTF` never fires, so the CLF is not delivering the
+NFC-A field to the eSE. Leading candidates for the missing piece, from two rounds
+of investigation:
+
+- **ETSI HCI network init for the eSE.** NFCEE_MODE_SET enables the NFCEE at the
+  NCI layer, but the eSE's contactless gate may only come up after the HCI
+  network is initialised (CORE_CONN_CREATE to the NFCEE with HCI_ACCESS, session
+  init, the admin-gate WHITELIST, waiting for EVT_HOT_PLUG) -- the sequence
+  `drivers/nfc/st-nci/se.c` does. The s3fwrn5 driver has none of this. Without the
+  eSE host being on the HCI whitelist, the CLF may refuse to route the field to
+  it. This is the strongest candidate.
+- **`NFCEE_POWER_AND_LINK_CTRL`** (NCI 2.0, GID 0x2 OID 0x3, not in mainline):
+  Android sends it (its `OFFHOST_AID_ROUTE_PWR_STATE=0x3B` implies low-power
+  states) to keep the eSE powered and linked during listen. Try
+  `21 03 02 83 03` after MODE_SET; if it returns UNKNOWN_OID (0x08) the firmware
+  wants another mechanism.
+- **The Samsung-proprietary listen/RF path.** As with host emulation, it is
+  possible this firmware only arms the listen front-end through a vendor RF
+  profile that the HAL loads, which plain NCI does not reproduce.
+
+**The Flipper test was done and rules out the app.** With the phone in this
+listen mode and a Flipper Zero in NFC read mode presented to the antenna, the
+Flipper stayed on "Reading..." and saw nothing, and the host again logged no
+activation and no `RF_NFCEE_ACTION_NTF`. A Flipper is a far more permissive,
+lower-level reader than the SUBE app, so this confirms the block is not app
+logic: the controller is simply **not lighting the NFC-A listen front-end at RF**,
+even though it accepts the whole SET_CONFIG / MODE_SET / routing / RF_DISCOVER
+sequence with status 0x0. Nothing is emitted on NFC-A, so no reader can see it
+and the field never reaches the eSE.
+
+**The HCI network bring-up was tried, and it does not apply.** The idea was that
+the field only reaches the eSE once its ETSI HCI host is admitted to the network
+(what `st-nci/se.c` does: `CORE_CONN_CREATE` to the eSE with the HCI_ACCESS
+interface, `nci_hci_dev_session_init`, admin-gate whitelist). Implemented and
+tested: the `CORE_CONN_CREATE` is **rejected with status 0x1**. The reason is
+decisive -- the eSE NFCEE advertises the **MIFARE protocol (0x80)** in its
+NFCEE_DISCOVER_NTF, **not the HCI Access interface (0x01)**, and neither NFCEE
+advertises HCI Access at all. So there is no HCI network to bring up, and
+`CONN_CREATE(HCI_ACCESS)` can only be rejected. Just as important: **MIFARE card
+emulation does not use the HCI/APDU path** -- that path (APDU reader gate) is for
+ISO-DEP APDU exchange with an applet, and MIFARE Classic is neither ISO-DEP nor
+APDU-based. The HCI init was a wrong turn; it has been reverted from patch 0113,
+which keeps only the routing (MODE_SET + technology/protocol route to the eSE +
+the LF neutralisation).
+
+So the routing is architecturally correct for MIFARE-via-eSE, the controller
+accepts all of it (status 0x0), and yet the NFC-A listen front-end never engages
+at RF -- with a Flipper Zero too, not just the SUBE app. That is the same wall as
+host emulation, and the most likely explanation is a **vendor RF profile the
+plain NCI path does not reproduce**: on Android the field only comes up in listen
+because the vendor HAL loads an RF-register configuration for it that mainline's
+s3fwrn5 does not. Confirming or breaking that would mean disassembling the HAL's
+RF-register update path for a listen-specific profile, or capturing the exact NCI
++ proprietary-command stream Android emits when the SUBE card is read, and
+replaying it. Short of that, NFC-A listen / card emulation on this controller is
+not reachable from Linux, by either the host or the eSE route.
+
+The larger, upstreamable version of the eSE work is real secure-element support
+in the s3fwrn5 driver (`discover_se`/`enable_se`/`se_io`), but note that for this
+part it would be for **ISO-DEP HCE** (APDU applets), not the MIFARE transit card,
+which needs the RF-listen front-end to engage first.

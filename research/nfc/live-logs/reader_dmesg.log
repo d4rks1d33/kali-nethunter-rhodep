@@ -1,0 +1,237 @@
+[ 8732.412386] nci: nci_send_cmd: opcode 0x2, plen 4
+[ 8732.412463] nci: nci_cmd_work: cmd_cnt 1
+[ 8732.412543] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0x0, OID=0x2, plen=4
+[ 8732.412673] nci: nci_send_frame: len 7
+[ 8732.413377] nci: nci_recv_frame: len 5
+[ 8732.413469] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0x0, OID=0x2, plen=2
+[ 8732.413551] nci: nci_core_set_config_rsp_packet: status 0x0
+[ 8732.413690] nci: __nci_request: wait_for_completion return 1250
+[ 8732.413730] nci: nci_send_cmd: opcode 0x2, plen 4
+[ 8732.413809] nci: nci_cmd_work: cmd_cnt 1
+[ 8732.413885] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0x0, OID=0x2, plen=4
+[ 8732.414013] nci: nci_send_frame: len 7
+[ 8732.414660] nci: nci_recv_frame: len 5
+[ 8732.414714] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0x0, OID=0x2, plen=2
+[ 8732.414848] nci: nci_core_set_config_rsp_packet: status 0x0
+[ 8732.414926] nci: __nci_request: wait_for_completion return 1250
+[ 8732.414994] nci: nci_send_cmd: opcode 0x2, plen 10
+[ 8732.415042] nci: nci_cmd_work: cmd_cnt 1
+[ 8732.415221] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0x0, OID=0x2, plen=10
+[ 8732.415297] nci: nci_send_frame: len 13
+[ 8732.416152] nci: nci_recv_frame: len 5
+[ 8732.416515] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0x0, OID=0x2, plen=2
+[ 8732.416656] nci: nci_core_set_config_rsp_packet: status 0x0
+[ 8732.416740] nci: __nci_request: wait_for_completion return 1249
+[ 8732.416822] nci: nci_send_cmd: opcode 0x2, plen 4
+[ 8732.417179] nci: nci_cmd_work: cmd_cnt 1
+[ 8732.417258] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0x0, OID=0x2, plen=4
+[ 8732.417387] nci: nci_send_frame: len 7
+[ 8732.418035] nci: nci_recv_frame: len 5
+[ 8732.418118] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0x0, OID=0x2, plen=2
+[ 8732.418198] nci: nci_core_set_config_rsp_packet: status 0x0
+[ 8732.418333] nci: __nci_request: wait_for_completion return 1250
+[ 8732.418370] nci: nci_send_cmd: opcode 0x2, plen 5
+[ 8732.418446] nci: nci_cmd_work: cmd_cnt 1
+[ 8732.418521] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0x0, OID=0x2, plen=5
+[ 8732.418650] nci: nci_send_frame: len 8
+[ 8732.419336] nci: nci_recv_frame: len 5
+[ 8732.419426] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0x0, OID=0x2, plen=2
+[ 8732.419507] nci: nci_core_set_config_rsp_packet: status 0x0
+[ 8732.419644] nci: __nci_request: wait_for_completion return 1249
+[ 8732.419689] nci: nci_send_cmd: opcode 0x100, plen 4
+[ 8732.419773] nci: nci_cmd_work: cmd_cnt 1
+[ 8732.419847] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0x1, OID=0x0, plen=4
+[ 8732.419976] nci: nci_send_frame: len 7
+[ 8732.420767] nci: nci_recv_frame: len 4
+[ 8732.421020] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0x1, OID=0x0, plen=1
+[ 8732.421159] nci: nci_rf_disc_map_rsp_packet: status 0x0
+[ 8732.421238] nci: __nci_request: wait_for_completion return 1250
+[ 8732.421304] nci: nci_send_cmd: opcode 0x101, plen 27
+[ 8732.421352] nci: nci_cmd_work: cmd_cnt 1
+[ 8732.421483] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0x1, OID=0x1, plen=27
+[ 8732.421557] nci: nci_send_frame: len 30
+[ 8732.423110] nci: nci_recv_frame: len 4
+[ 8732.423333] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0x1, OID=0x1, plen=1
+[ 8732.423473] nci: nci_rf_set_listen_mode_routing_rsp_packet: status 0x0
+[ 8732.423557] nci: __nci_request: wait_for_completion return 1249
+[ 8732.423637] nci: nci_send_cmd: opcode 0x103, plen 5
+[ 8732.423696] nci: nci_cmd_work: cmd_cnt 1
+[ 8732.423827] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0x1, OID=0x3, plen=5
+[ 8732.423899] nci: nci_send_frame: len 8
+[ 8732.425831] nci: nci_recv_frame: len 4
+[ 8732.425912] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0x1, OID=0x3, plen=1
+[ 8732.425993] nci: nci_rf_disc_rsp_packet: status 0x0
+[ 8732.426126] nci: __nci_request: wait_for_completion return 1250
+[ 8732.934921] nci: nci_recv_frame: len 23
+[ 8732.935278] nci: nci_ntf_packet: NCI RX: MT=ntf, PBF=0, GID=0x1, OID=0x5, plen=20
+[ 8732.935362] nci: nci_rf_intf_activated_ntf_packet: rf_discovery_id 1
+[ 8732.935488] nci: nci_rf_intf_activated_ntf_packet: rf_interface 0x1
+[ 8732.935616] nci: nci_rf_intf_activated_ntf_packet: rf_protocol 0x5
+[ 8732.935687] nci: nci_rf_intf_activated_ntf_packet: activation_rf_tech_and_mode 0x82
+[ 8732.935819] nci: nci_rf_intf_activated_ntf_packet: max_data_pkt_payload_size 0xff
+[ 8732.936076] nci: nci_rf_intf_activated_ntf_packet: initial_num_credits 0xff
+[ 8732.936327] nci: nci_rf_intf_activated_ntf_packet: rf_tech_specific_params_len 9
+[ 8732.936380] nci: nci_recv_frame: len 21
+[ 8732.936649] nci: nci_rf_intf_activated_ntf_packet: data_exch_rf_tech_and_mode 0x82
+[ 8732.936660] nci: nci_rf_intf_activated_ntf_packet: data_exch_tx_bit_rate 0x1
+[ 8732.937230] nci: nci_rf_intf_activated_ntf_packet: data_exch_rx_bit_rate 0x1
+[ 8732.937466] nci: nci_rf_intf_activated_ntf_packet: activation_params_len 0
+[ 8732.937707] nci: nci_rf_intf_activated_ntf_packet: error when signaling tm activation
+[ 8732.937846] nci: nci_rx_data_packet: len 21
+[ 8732.938061] nci: nci_rx_data_packet: NCI RX: MT=data, PBF=0, conn_id=0, plen=18
+[ 8732.938133] nci: nci_data_exchange_complete: len 18, err 0
+[ 8732.938287] nci: nci_data_exchange_complete: no rx callback, dropping rx data...
+[ 8734.173591] nci: nci_recv_frame: len 5
+[ 8734.173931] nci: nci_ntf_packet: NCI RX: MT=ntf, PBF=0, GID=0x1, OID=0x6, plen=2
+[ 8734.174132] nci: nci_rf_deactivate_ntf_packet: entry, type 0x3, reason 0x2
+[ 8734.305832] nci: nci_recv_frame: len 23
+[ 8734.305983] nci: nci_ntf_packet: NCI RX: MT=ntf, PBF=0, GID=0x1, OID=0x5, plen=20
+[ 8734.306340] nci: nci_rf_intf_activated_ntf_packet: rf_discovery_id 1
+[ 8734.306540] nci: nci_rf_intf_activated_ntf_packet: rf_interface 0x1
+[ 8734.306545] nci: nci_recv_frame: len 21
+[ 8734.306740] nci: nci_rf_intf_activated_ntf_packet: rf_protocol 0x5
+[ 8734.306924] nci: nci_rf_intf_activated_ntf_packet: activation_rf_tech_and_mode 0x82
+[ 8734.307127] nci: nci_rf_intf_activated_ntf_packet: max_data_pkt_payload_size 0xff
+[ 8734.307240] nci: nci_rf_intf_activated_ntf_packet: initial_num_credits 0xff
+[ 8734.307436] nci: nci_rf_intf_activated_ntf_packet: rf_tech_specific_params_len 9
+[ 8734.307621] nci: nci_rf_intf_activated_ntf_packet: data_exch_rf_tech_and_mode 0x82
+[ 8734.307725] nci: nci_rf_intf_activated_ntf_packet: data_exch_tx_bit_rate 0x1
+[ 8734.307912] nci: nci_rf_intf_activated_ntf_packet: data_exch_rx_bit_rate 0x1
+[ 8734.308221] nci: nci_rf_intf_activated_ntf_packet: activation_params_len 0
+[ 8734.308302] nci: nci_rf_intf_activated_ntf_packet: error when signaling tm activation
+[ 8734.308448] nci: nci_rx_data_packet: len 21
+[ 8734.308520] nci: nci_rx_data_packet: NCI RX: MT=data, PBF=0, conn_id=0, plen=18
+[ 8734.308650] nci: nci_data_exchange_complete: len 18, err 0
+[ 8734.308724] nci: nci_data_exchange_complete: no rx callback, dropping rx data...
+[ 8735.546166] nci: nci_recv_frame: len 5
+[ 8735.546470] nci: nci_ntf_packet: NCI RX: MT=ntf, PBF=0, GID=0x1, OID=0x6, plen=2
+[ 8735.546688] nci: nci_rf_deactivate_ntf_packet: entry, type 0x3, reason 0x2
+[ 8735.676187] nci: nci_recv_frame: len 23
+[ 8735.676552] nci: nci_ntf_packet: NCI RX: MT=ntf, PBF=0, GID=0x1, OID=0x5, plen=20
+[ 8735.676890] nci: nci_rf_intf_activated_ntf_packet: rf_discovery_id 1
+[ 8735.677177] nci: nci_rf_intf_activated_ntf_packet: rf_interface 0x1
+[ 8735.677688] nci: nci_rf_intf_activated_ntf_packet: rf_protocol 0x5
+[ 8735.677877] nci: nci_rf_intf_activated_ntf_packet: activation_rf_tech_and_mode 0x82
+[ 8735.677975] nci: nci_recv_frame: len 21
+[ 8735.678188] nci: nci_rf_intf_activated_ntf_packet: max_data_pkt_payload_size 0xff
+[ 8735.678596] nci: nci_rf_intf_activated_ntf_packet: initial_num_credits 0xff
+[ 8735.678724] nci: nci_rf_intf_activated_ntf_packet: rf_tech_specific_params_len 9
+[ 8735.678795] nci: nci_rf_intf_activated_ntf_packet: data_exch_rf_tech_and_mode 0x82
+[ 8735.678923] nci: nci_rf_intf_activated_ntf_packet: data_exch_tx_bit_rate 0x1
+[ 8735.679069] nci: nci_rf_intf_activated_ntf_packet: data_exch_rx_bit_rate 0x1
+[ 8735.679140] nci: nci_rf_intf_activated_ntf_packet: activation_params_len 0
+[ 8735.679266] nci: nci_rf_intf_activated_ntf_packet: error when signaling tm activation
+[ 8735.679342] nci: nci_rx_data_packet: len 21
+[ 8735.679471] nci: nci_rx_data_packet: NCI RX: MT=data, PBF=0, conn_id=0, plen=18
+[ 8735.679543] nci: nci_data_exchange_complete: len 18, err 0
+[ 8735.679781] nci: nci_data_exchange_complete: no rx callback, dropping rx data...
+[ 8736.913201] nci: nci_recv_frame: len 5
+[ 8736.913279] nci: nci_ntf_packet: NCI RX: MT=ntf, PBF=0, GID=0x1, OID=0x6, plen=2
+[ 8736.913599] nci: nci_rf_deactivate_ntf_packet: entry, type 0x3, reason 0x2
+[ 8737.838912] nci: nci_recv_frame: len 23
+[ 8737.839440] nci: nci_ntf_packet: NCI RX: MT=ntf, PBF=0, GID=0x1, OID=0x5, plen=20
+[ 8737.839575] nci: nci_rf_intf_activated_ntf_packet: rf_discovery_id 1
+[ 8737.839788] nci: nci_rf_intf_activated_ntf_packet: rf_interface 0x1
+[ 8737.839918] nci: nci_recv_frame: len 21
+[ 8737.839919] nci: nci_rf_intf_activated_ntf_packet: rf_protocol 0x5
+[ 8737.840098] nci: nci_rf_intf_activated_ntf_packet: activation_rf_tech_and_mode 0x82
+[ 8737.840308] nci: nci_rf_intf_activated_ntf_packet: max_data_pkt_payload_size 0xff
+[ 8737.840516] nci: nci_rf_intf_activated_ntf_packet: initial_num_credits 0xff
+[ 8737.840634] nci: nci_rf_intf_activated_ntf_packet: rf_tech_specific_params_len 9
+[ 8737.840978] nci: nci_rf_intf_activated_ntf_packet: data_exch_rf_tech_and_mode 0x82
+[ 8737.841054] nci: nci_rf_intf_activated_ntf_packet: data_exch_tx_bit_rate 0x1
+[ 8737.841126] nci: nci_rf_intf_activated_ntf_packet: data_exch_rx_bit_rate 0x1
+[ 8737.841253] nci: nci_rf_intf_activated_ntf_packet: activation_params_len 0
+[ 8737.841326] nci: nci_rf_intf_activated_ntf_packet: error when signaling tm activation
+[ 8737.841459] nci: nci_rx_data_packet: len 21
+[ 8737.841530] nci: nci_rx_data_packet: NCI RX: MT=data, PBF=0, conn_id=0, plen=18
+[ 8737.841661] nci: nci_data_exchange_complete: len 18, err 0
+[ 8737.841790] nci: nci_data_exchange_complete: no rx callback, dropping rx data...
+[ 8739.077578] nci: nci_recv_frame: len 5
+[ 8739.077677] nci: nci_ntf_packet: NCI RX: MT=ntf, PBF=0, GID=0x1, OID=0x6, plen=2
+[ 8739.077714] nci: nci_rf_deactivate_ntf_packet: entry, type 0x3, reason 0x2
+[ 8739.205711] nci: nci_recv_frame: len 23
+[ 8739.205788] nci: nci_ntf_packet: NCI RX: MT=ntf, PBF=0, GID=0x1, OID=0x5, plen=20
+[ 8739.205944] nci: nci_rf_intf_activated_ntf_packet: rf_discovery_id 1
+[ 8739.206018] nci: nci_rf_intf_activated_ntf_packet: rf_interface 0x1
+[ 8739.206149] nci: nci_rf_intf_activated_ntf_packet: rf_protocol 0x5
+[ 8739.206221] nci: nci_rf_intf_activated_ntf_packet: activation_rf_tech_and_mode 0x82
+[ 8739.206351] nci: nci_recv_frame: len 21
+[ 8739.206432] nci: nci_rf_intf_activated_ntf_packet: max_data_pkt_payload_size 0xff
+[ 8739.206559] nci: nci_rf_intf_activated_ntf_packet: initial_num_credits 0xff
+[ 8739.206684] nci: nci_rf_intf_activated_ntf_packet: rf_tech_specific_params_len 9
+[ 8739.206754] nci: nci_rf_intf_activated_ntf_packet: data_exch_rf_tech_and_mode 0x82
+[ 8739.206880] nci: nci_rf_intf_activated_ntf_packet: data_exch_tx_bit_rate 0x1
+[ 8739.207150] nci: nci_rf_intf_activated_ntf_packet: data_exch_rx_bit_rate 0x1
+[ 8739.207301] nci: nci_rf_intf_activated_ntf_packet: activation_params_len 0
+[ 8739.207466] nci: nci_rf_intf_activated_ntf_packet: error when signaling tm activation
+[ 8739.207631] nci: nci_rx_data_packet: len 21
+[ 8739.207720] nci: nci_rx_data_packet: NCI RX: MT=data, PBF=0, conn_id=0, plen=18
+[ 8739.207882] nci: nci_data_exchange_complete: len 18, err 0
+[ 8739.207974] nci: nci_data_exchange_complete: no rx callback, dropping rx data...
+[ 8740.448377] nci: nci_recv_frame: len 5
+[ 8740.448725] nci: nci_ntf_packet: NCI RX: MT=ntf, PBF=0, GID=0x1, OID=0x6, plen=2
+[ 8740.448985] nci: nci_rf_deactivate_ntf_packet: entry, type 0x3, reason 0x2
+[ 8740.578606] nci: nci_recv_frame: len 23
+[ 8740.579086] nci: nci_ntf_packet: NCI RX: MT=ntf, PBF=0, GID=0x1, OID=0x5, plen=20
+[ 8740.579313] nci: nci_rf_intf_activated_ntf_packet: rf_discovery_id 1
+[ 8740.579620] nci: nci_rf_intf_activated_ntf_packet: rf_interface 0x1
+[ 8740.579921] nci: nci_rf_intf_activated_ntf_packet: rf_protocol 0x5
+[ 8740.580042] nci: nci_recv_frame: len 21
+[ 8740.580112] nci: nci_rf_intf_activated_ntf_packet: activation_rf_tech_and_mode 0x82
+[ 8740.580333] nci: nci_rf_intf_activated_ntf_packet: max_data_pkt_payload_size 0xff
+[ 8740.580437] nci: nci_rf_intf_activated_ntf_packet: initial_num_credits 0xff
+[ 8740.580493] nci: nci_rf_intf_activated_ntf_packet: rf_tech_specific_params_len 9
+[ 8740.580597] nci: nci_rf_intf_activated_ntf_packet: data_exch_rf_tech_and_mode 0x82
+[ 8740.580700] nci: nci_rf_intf_activated_ntf_packet: data_exch_tx_bit_rate 0x1
+[ 8740.580760] nci: nci_rf_intf_activated_ntf_packet: data_exch_rx_bit_rate 0x1
+[ 8740.580861] nci: nci_rf_intf_activated_ntf_packet: activation_params_len 0
+[ 8740.580966] nci: nci_rf_intf_activated_ntf_packet: error when signaling tm activation
+[ 8740.581034] nci: nci_rx_data_packet: len 21
+[ 8740.581138] nci: nci_rx_data_packet: NCI RX: MT=data, PBF=0, conn_id=0, plen=18
+[ 8740.581199] nci: nci_data_exchange_complete: len 18, err 0
+[ 8740.581301] nci: nci_data_exchange_complete: no rx callback, dropping rx data...
+[ 8740.904241] nci: nci_recv_frame: len 5
+[ 8740.904583] nci: nci_ntf_packet: NCI RX: MT=ntf, PBF=0, GID=0x1, OID=0x6, plen=2
+[ 8740.904700] nci: nci_rf_deactivate_ntf_packet: entry, type 0x3, reason 0x2
+[ 8741.946190] nci: nci_recv_frame: len 23
+[ 8741.946383] nci: nci_ntf_packet: NCI RX: MT=ntf, PBF=0, GID=0x1, OID=0x5, plen=20
+[ 8741.946464] nci: nci_rf_intf_activated_ntf_packet: rf_discovery_id 1
+[ 8741.946530] nci: nci_rf_intf_activated_ntf_packet: rf_interface 0x1
+[ 8741.946566] nci: nci_rf_intf_activated_ntf_packet: rf_protocol 0x5
+[ 8741.946631] nci: nci_rf_intf_activated_ntf_packet: activation_rf_tech_and_mode 0x82
+[ 8741.946666] nci: nci_rf_intf_activated_ntf_packet: max_data_pkt_payload_size 0xff
+[ 8741.946729] nci: nci_rf_intf_activated_ntf_packet: initial_num_credits 0xff
+[ 8741.946796] nci: nci_rf_intf_activated_ntf_packet: rf_tech_specific_params_len 9
+[ 8741.946832] nci: nci_rf_intf_activated_ntf_packet: data_exch_rf_tech_and_mode 0x82
+[ 8741.946857] nci: nci_recv_frame: len 21
+[ 8741.946896] nci: nci_rf_intf_activated_ntf_packet: data_exch_tx_bit_rate 0x1
+[ 8741.946897] nci: nci_rf_intf_activated_ntf_packet: data_exch_rx_bit_rate 0x1
+[ 8741.946898] nci: nci_rf_intf_activated_ntf_packet: activation_params_len 0
+[ 8741.947111] nci: nci_rf_intf_activated_ntf_packet: error when signaling tm activation
+[ 8741.947178] nci: nci_rx_data_packet: len 21
+[ 8741.947214] nci: nci_rx_data_packet: NCI RX: MT=data, PBF=0, conn_id=0, plen=18
+[ 8741.947278] nci: nci_data_exchange_complete: len 18, err 0
+[ 8741.947314] nci: nci_data_exchange_complete: no rx callback, dropping rx data...
+[ 8743.185369] nci: nci_recv_frame: len 5
+[ 8743.185698] nci: nci_ntf_packet: NCI RX: MT=ntf, PBF=0, GID=0x1, OID=0x6, plen=2
+[ 8743.185777] nci: nci_rf_deactivate_ntf_packet: entry, type 0x3, reason 0x2
+[ 8744.112416] nci: nci_recv_frame: len 23
+[ 8744.112900] nci: nci_ntf_packet: NCI RX: MT=ntf, PBF=0, GID=0x1, OID=0x5, plen=20
+[ 8744.113316] nci: nci_rf_intf_activated_ntf_packet: rf_discovery_id 1
+[ 8744.113619] nci: nci_rf_intf_activated_ntf_packet: rf_interface 0x1
+[ 8744.114052] nci: nci_rf_intf_activated_ntf_packet: rf_protocol 0x5
+[ 8744.114214] nci: nci_rf_intf_activated_ntf_packet: activation_rf_tech_and_mode 0x82
+[ 8744.114450] nci: nci_recv_frame: len 21
+[ 8744.114495] nci: nci_rf_intf_activated_ntf_packet: max_data_pkt_payload_size 0xff
+[ 8744.114677] nci: nci_rf_intf_activated_ntf_packet: initial_num_credits 0xff
+[ 8744.114835] nci: nci_rf_intf_activated_ntf_packet: rf_tech_specific_params_len 9
+[ 8744.114923] nci: nci_rf_intf_activated_ntf_packet: data_exch_rf_tech_and_mode 0x82
+[ 8744.115099] nci: nci_rf_intf_activated_ntf_packet: data_exch_tx_bit_rate 0x1
+[ 8744.115172] nci: nci_rf_intf_activated_ntf_packet: data_exch_rx_bit_rate 0x1
+[ 8744.115243] nci: nci_rf_intf_activated_ntf_packet: activation_params_len 0
+[ 8744.115375] nci: nci_rf_intf_activated_ntf_packet: error when signaling tm activation
+[ 8744.115466] nci: nci_rx_data_packet: len 21
+[ 8744.115614] nci: nci_rx_data_packet: NCI RX: MT=data, PBF=0, conn_id=0, plen=18
+[ 8744.115689] nci: nci_data_exchange_complete: len 18, err 0
+[ 8744.116115] nci: nci_data_exchange_complete: no rx callback, dropping rx data...

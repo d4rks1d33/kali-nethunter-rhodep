@@ -1,0 +1,234 @@
+[12110.370410] nci: nci_send_cmd: opcode 0x0, plen 1
+[12110.370970] nci: nci_cmd_work: cmd_cnt 1
+[12110.371320] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0x0, OID=0x0, plen=1
+[12110.371504] nci: nci_send_frame: len 4
+[12110.388270] nci: nci_recv_frame: len 4
+[12110.388806] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0x0, OID=0x0, plen=1
+[12110.389549] nci: nci_recv_frame: len 12
+[12110.389695] nci: nci_core_reset_rsp_packet: status 0x0
+[12110.390460] nci: nci_ntf_packet: NCI RX: MT=ntf, PBF=0, GID=0x0, OID=0x0, plen=9
+[12110.391059] nci: nci_core_reset_ntf_packet: nci_ver 0x20, config_status 0x1
+[12110.392267] nci: __nci_request: wait_for_completion return 1245
+[12110.392356] nci: nci_send_cmd: opcode 0xf28, plen 1
+[12110.392520] nci: nci_cmd_work: cmd_cnt 1
+[12110.392861] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0xf, OID=0x28, plen=1
+[12110.393457] nci: nci_send_frame: len 4
+[12110.398969] nci: nci_recv_frame: len 5
+[12110.399502] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0xf, OID=0x28, plen=2
+[12110.400203] nci: __nci_request: wait_for_completion return 1248
+[12110.400519] nfc nfc0: rfreg configuration update: sec_s3fwrn5_rfreg.bin + sec_s3fwrn5_swreg.bin (3568 bytes)
+[12110.400655] nci: nci_send_cmd: opcode 0xf2a, plen 1
+[12110.400790] nci: nci_cmd_work: cmd_cnt 1
+[12110.401126] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0xf, OID=0x2a, plen=1
+[12110.401710] nci: nci_send_frame: len 4
+[12110.417748] nci: nci_recv_frame: len 4
+[12110.418176] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0xf, OID=0x2a, plen=1
+[12110.419265] nci: __nci_request: wait_for_completion return 1245
+[12110.419391] nci: nci_send_cmd: opcode 0xf2a, plen 254
+[12110.419768] nci: nci_cmd_work: cmd_cnt 1
+[12110.420131] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0xf, OID=0x2a, plen=254
+[12110.420748] nci: nci_send_frame: len 257
+[12110.432291] nci: nci_recv_frame: len 4
+[12110.433183] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0xf, OID=0x2a, plen=1
+[12110.433723] nci: __nci_request: wait_for_completion return 1247
+[12110.433851] nci: nci_send_cmd: opcode 0xf2a, plen 254
+[12110.433962] nci: nci_cmd_work: cmd_cnt 1
+[12110.434643] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0xf, OID=0x2a, plen=254
+[12110.434979] nci: nci_send_frame: len 257
+[12110.445724] nci: nci_recv_frame: len 4
+[12110.446171] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0xf, OID=0x2a, plen=1
+[12110.447925] nci: __nci_request: wait_for_completion return 1246
+[12110.448062] nci: nci_send_cmd: opcode 0xf2a, plen 254
+[12110.448696] nci: nci_cmd_work: cmd_cnt 1
+[12110.449233] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0xf, OID=0x2a, plen=254
+[12110.450235] nci: nci_send_frame: len 257
+[12110.462587] nci: nci_recv_frame: len 4
+[12110.463364] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0xf, OID=0x2a, plen=1
+[12110.464389] nci: __nci_request: wait_for_completion return 1246
+[12110.464506] nci: nci_send_cmd: opcode 0xf2a, plen 254
+[12110.464741] nci: nci_cmd_work: cmd_cnt 1
+[12110.465104] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0xf, OID=0x2a, plen=254
+[12110.465722] nci: nci_send_frame: len 257
+[12110.478983] nci: nci_recv_frame: len 4
+[12110.479465] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0xf, OID=0x2a, plen=1
+[12110.479885] nci: __nci_request: wait_for_completion return 1246
+[12110.479981] nci: nci_send_cmd: opcode 0xf2a, plen 254
+[12110.480098] nci: nci_cmd_work: cmd_cnt 1
+[12110.480730] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0xf, OID=0x2a, plen=254
+[12110.481082] nci: nci_send_frame: len 257
+[12110.494248] nci: nci_recv_frame: len 4
+[12110.494956] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0xf, OID=0x2a, plen=1
+[12110.496062] nci: __nci_request: wait_for_completion return 1246
+[12110.496290] nci: nci_send_cmd: opcode 0xf2a, plen 254
+[12110.496659] nci: nci_cmd_work: cmd_cnt 1
+[12110.497054] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0xf, OID=0x2a, plen=254
+[12110.497726] nci: nci_send_frame: len 257
+[12110.510734] nci: nci_recv_frame: len 4
+[12110.511419] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0xf, OID=0x2a, plen=1
+[12110.512503] nci: __nci_request: wait_for_completion return 1246
+[12110.512731] nci: nci_send_cmd: opcode 0xf2a, plen 254
+[12110.513083] nci: nci_cmd_work: cmd_cnt 1
+[12110.513460] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0xf, OID=0x2a, plen=254
+[12110.514208] nci: nci_send_frame: len 257
+[12110.524595] nci: nci_recv_frame: len 4
+[12110.524959] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0xf, OID=0x2a, plen=1
+[12110.525355] nci: __nci_request: wait_for_completion return 1247
+[12110.525613] nci: nci_send_cmd: opcode 0xf2a, plen 254
+[12110.525803] nci: nci_cmd_work: cmd_cnt 1
+[12110.526771] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0xf, OID=0x2a, plen=254
+[12110.527407] nci: nci_send_frame: len 257
+[12110.539277] nci: nci_recv_frame: len 4
+[12110.539922] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0xf, OID=0x2a, plen=1
+[12110.540635] nci: __nci_request: wait_for_completion return 1246
+[12110.540804] nci: nci_send_cmd: opcode 0xf2a, plen 254
+[12110.541025] nci: nci_cmd_work: cmd_cnt 1
+[12110.541714] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0xf, OID=0x2a, plen=254
+[12110.542092] nci: nci_send_frame: len 257
+[12110.555199] nci: nci_recv_frame: len 4
+[12110.555735] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0xf, OID=0x2a, plen=1
+[12110.556548] nci: __nci_request: wait_for_completion return 1246
+[12110.556721] nci: nci_send_cmd: opcode 0xf2a, plen 254
+[12110.557068] nci: nci_cmd_work: cmd_cnt 1
+[12110.557522] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0xf, OID=0x2a, plen=254
+[12110.558342] nci: nci_send_frame: len 257
+[12110.570782] nci: nci_recv_frame: len 4
+[12110.571414] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0xf, OID=0x2a, plen=1
+[12110.572122] nci: __nci_request: wait_for_completion return 1246
+[12110.572284] nci: nci_send_cmd: opcode 0xf2a, plen 254
+[12110.572435] nci: nci_cmd_work: cmd_cnt 1
+[12110.572793] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0xf, OID=0x2a, plen=254
+[12110.573411] nci: nci_send_frame: len 257
+[12110.584667] nci: nci_recv_frame: len 4
+[12110.585136] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0xf, OID=0x2a, plen=1
+[12110.585705] nci: __nci_request: wait_for_completion return 1247
+[12110.585954] nci: nci_send_cmd: opcode 0xf2a, plen 254
+[12110.586085] nci: nci_cmd_work: cmd_cnt 1
+[12110.586790] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0xf, OID=0x2a, plen=254
+[12110.587383] nci: nci_send_frame: len 257
+[12110.598798] nci: nci_recv_frame: len 4
+[12110.599366] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0xf, OID=0x2a, plen=1
+[12110.600084] nci: __nci_request: wait_for_completion return 1246
+[12110.600256] nci: nci_send_cmd: opcode 0xf2a, plen 254
+[12110.600588] nci: nci_cmd_work: cmd_cnt 1
+[12110.600945] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0xf, OID=0x2a, plen=254
+[12110.601550] nci: nci_send_frame: len 257
+[12110.612283] nci: nci_recv_frame: len 4
+[12110.613082] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0xf, OID=0x2a, plen=1
+[12110.614158] nci: __nci_request: wait_for_completion return 1246
+[12110.614345] nci: nci_send_cmd: opcode 0xf2a, plen 254
+[12110.615035] nci: nci_cmd_work: cmd_cnt 1
+[12110.615593] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0xf, OID=0x2a, plen=254
+[12110.616499] nci: nci_send_frame: len 257
+[12110.629769] nci: nci_recv_frame: len 4
+[12110.630591] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0xf, OID=0x2a, plen=1
+[12110.631782] nci: __nci_request: wait_for_completion return 1246
+[12110.632161] nci: nci_send_cmd: opcode 0xf2a, plen 42
+[12110.632394] nci: nci_cmd_work: cmd_cnt 1
+[12110.633032] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0xf, OID=0x2a, plen=42
+[12110.633389] nci: nci_send_frame: len 45
+[12110.637982] nci: nci_recv_frame: len 4
+[12110.638760] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0xf, OID=0x2a, plen=1
+[12110.639824] nci: __nci_request: wait_for_completion return 1248
+[12110.639944] nci: nci_send_cmd: opcode 0xf2a, plen 3
+[12110.640185] nci: nci_cmd_work: cmd_cnt 1
+[12110.640572] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0xf, OID=0x2a, plen=3
+[12110.641219] nci: nci_send_frame: len 6
+[12110.649924] nci: nci_recv_frame: len 4
+[12110.650571] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0xf, OID=0x2a, plen=1
+[12110.652308] nci: __nci_request: wait_for_completion return 1247
+[12110.652452] nfc nfc0: rfreg configuration update: success (checksum 0x5b9a)
+[12110.652653] nci: nci_send_cmd: opcode 0x1, plen 2
+[12110.652907] nci: nci_cmd_work: cmd_cnt 1
+[12110.653343] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0x0, OID=0x1, plen=2
+[12110.653766] nci: nci_send_frame: len 5
+[12110.659799] nci: nci_recv_frame: len 31
+[12110.660333] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0x0, OID=0x1, plen=28
+[12110.661003] nci: nci_core_init_rsp_packet_v2: status 0
+[12110.661361] nci: nci_core_init_rsp_packet: nfcc_features 0x80067e1a
+[12110.661982] nci: nci_core_init_rsp_packet: num_supported_rf_interfaces 4
+[12110.662397] nci: nci_core_init_rsp_packet: supported_rf_interfaces[0] 0x0
+[12110.663055] nci: nci_core_init_rsp_packet: supported_rf_interfaces[1] 0x1
+[12110.663673] nci: nci_core_init_rsp_packet: supported_rf_interfaces[2] 0x2
+[12110.664014] nci: nci_core_init_rsp_packet: supported_rf_interfaces[3] 0x3
+[12110.664623] nci: nci_core_init_rsp_packet: max_logical_connections 2
+[12110.664960] nci: nci_core_init_rsp_packet: max_routing_table_size 1170
+[12110.665573] nci: nci_core_init_rsp_packet: max_ctrl_pkt_payload_len 255
+[12110.666276] nci: nci_core_init_rsp_packet: max_size_for_large_params 15
+[12110.666628] nci: nci_core_init_rsp_packet: manufact_id 0xe
+[12110.667264] nci: nci_core_init_rsp_packet: manufact_specific_info 0x2030065
+[12110.668448] nci: __nci_request: wait_for_completion return 1246
+[12110.668756] nfc nfc0: Direct firmware load for sec_s3fwrn5_firmware.bin failed with error -2
+[12110.668918] nfc nfc0: Failed to get fw file, ret=fffffffe
+[12110.669008] nci: nci_send_cmd: opcode 0x100, plen 19
+[12110.669172] nci: nci_cmd_work: cmd_cnt 1
+[12110.669824] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0x1, OID=0x0, plen=19
+[12110.670276] nci: nci_send_frame: len 22
+[12110.675994] nci: nci_recv_frame: len 4
+[12110.676480] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0x1, OID=0x0, plen=1
+[12110.677147] nci: nci_rf_disc_map_rsp_packet: status 0x0
+[12110.677547] nci: __nci_request: wait_for_completion return 1248
+[12110.677837] nci: nci_send_cmd: opcode 0x200, plen 0
+[12110.678062] nci: nci_cmd_work: cmd_cnt 1
+[12110.678516] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0x2, OID=0x0, plen=0
+[12110.678903] nci: nci_send_frame: len 3
+[12110.683368] nci: nci_recv_frame: len 5
+[12110.684054] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0x2, OID=0x0, plen=2
+[12110.684224] nci: nci_recv_frame: len 12
+[12110.684504] nci: nci_ntf_packet: NCI RX: MT=ntf, PBF=0, GID=0x2, OID=0x0, plen=9
+[12110.684862] nci: __nci_request: wait_for_completion return 1248
+[12110.684988] nci: nci_recv_frame: len 17
+[12110.685069] nci: nci_ntf_packet: NCI RX: MT=ntf, PBF=0, GID=0x2, OID=0x0, plen=14
+[12110.685312] nci: nci_send_cmd: opcode 0x2, plen 5
+[12110.685804] nci: __nci_request: wait_for_completion return 1250
+[12110.685839] nci: nci_cmd_work: cmd_cnt 1
+[12110.686037] nci: nci_send_cmd: opcode 0x2, plen 4
+[12110.687281] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0x0, OID=0x2, plen=5
+[12110.687617] nci: nci_send_frame: len 8
+[12110.689267] nci: nci_cmd_work: cmd_cnt 0
+[12110.690903] nci: nci_recv_frame: len 5
+[12110.691458] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0x0, OID=0x2, plen=2
+[12110.692297] nci: nci_core_set_config_rsp_packet: status 0x0
+[12110.692810] nci: nci_cmd_work: cmd_cnt 1
+[12110.693233] nci: __nci_request: wait_for_completion return 1248
+[12110.693553] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0x0, OID=0x2, plen=4
+[12110.693596] nci: nci_send_cmd: opcode 0x100, plen 4
+[12110.694634] nci: nci_send_frame: len 7
+[12110.696413] nci: nci_cmd_work: cmd_cnt 0
+[12110.697541] nci: nci_recv_frame: len 5
+[12110.697865] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0x0, OID=0x2, plen=2
+[12110.698857] nci: nci_core_set_config_rsp_packet: status 0x0
+[12110.699645] nci: __nci_request: wait_for_completion return 1248
+[12110.699654] nci: nci_cmd_work: cmd_cnt 1
+[12110.699710] nci: nci_send_cmd: opcode 0x101, plen 27
+[12110.700897] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0x1, OID=0x0, plen=4
+[12110.701244] nci: nci_send_frame: len 7
+[12110.703132] nci: nci_cmd_work: cmd_cnt 0
+[12110.703920] nci: nci_recv_frame: len 4
+[12110.704014] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0x1, OID=0x0, plen=1
+[12110.704923] nci: nci_rf_disc_map_rsp_packet: status 0x0
+[12110.705561] nci: __nci_request: wait_for_completion return 1249
+[12110.705568] nci: nci_cmd_work: cmd_cnt 1
+[12110.705704] nci: nci_send_cmd: opcode 0x103, plen 5
+[12110.705719] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0x1, OID=0x1, plen=27
+[12110.707687] nci: nci_send_frame: len 30
+[12110.709361] nci: nci_cmd_work: cmd_cnt 0
+[12110.724752] nci: nci_recv_frame: len 4
+[12110.725601] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0x1, OID=0x1, plen=1
+[12110.725991] nci: nci_rf_set_listen_mode_routing_rsp_packet: status 0x0
+[12110.726806] nci: nci_cmd_work: cmd_cnt 1
+[12110.727347] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0x1, OID=0x3, plen=5
+[12110.727527] nci: __nci_request: wait_for_completion return 1244
+[12110.728241] nci: nci_send_frame: len 8
+[12110.733483] nci: nci_recv_frame: len 4
+[12110.734095] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0x1, OID=0x3, plen=1
+[12110.734848] nci: nci_rf_disc_rsp_packet: status 0x0
+[12113.013048] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+[12117.289228] ath10k_snoc c800000.wifi: chan info: invalid frequency 0 (idx 41 out of bounds)
+[12124.233742] nci: nci_send_cmd: opcode 0x106, plen 1
+[12124.234312] nci: nci_cmd_work: cmd_cnt 1
+[12124.234413] nci: nci_cmd_work: NCI TX: MT=cmd, PBF=0, GID=0x1, OID=0x6, plen=1
+[12124.234584] nci: nci_send_frame: len 4
+[12124.238998] nci: nci_recv_frame: len 4
+[12124.239587] nci: nci_rsp_packet: NCI RX: MT=rsp, PBF=0, GID=0x1, OID=0x6, plen=1
+[12124.239734] nci: nci_rf_deactivate_rsp_packet: status 0x0
+[12124.239939] nci: __nci_request: wait_for_completion return 7498

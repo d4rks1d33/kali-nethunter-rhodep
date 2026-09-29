@@ -1,0 +1,2 @@
+warning: this device does not advertise NFC-DEP; the kernel will likely reject listen (needs the s3fwrn5 NFC-DEP patch)
+listening as NFC-A tag with UID 04:35:3d:6a:f7:54:80 -- present a reader to the upper back of the phone and check the UID it reports. (Ctrl-C to stop)

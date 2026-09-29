@@ -1,0 +1,7 @@
+capturing NCI frames -- present a tag to the upper back of the phone (Ctrl-C to stop)
+  #1    TX NCI  len=23  20 02 14 01 29 11 46 66 6d 01 01 11 04 01 96 03 02 00 01 02 02 07 ff   CMD CORE_SET_CONFIG
+  #2    RX NCI  len=5   40 02 02 00 00   RSP CORE_SET_CONFIG
+  #3    TX NCI  len=23  20 02 14 01 61 11 46 66 6d 01 01 11 04 01 96 03 02 00 01 02 02 07 ff   CMD CORE_SET_CONFIG
+  #4    RX NCI  len=5   40 02 02 00 00   RSP CORE_SET_CONFIG
+  #5    TX NCI  len=10  21 03 07 03 00 01 01 01 02 01   CMD RF_DISCOVER
+  #6    RX NCI  len=4   41 03 01 00   RSP RF_DISCOVER

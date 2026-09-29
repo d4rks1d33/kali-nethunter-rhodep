@@ -1,0 +1,13 @@
+[12:41:27] === diag probe ===
+[12:41:27] stopping ModemManager (competing COMMAND peer)
+[qrtr://0] Operating mode retrieved:
+	Mode: 'shutting-down'
+[12:41:28] diag --restart-modem --set-ftm-after --cmd-peer --raw-seq 4b0b270002100500000000000000000000000100040000000000190004000100000005000400030000000600040027060000070004000300000000
+[12:42:08] --- handshake markers ---
+[5353.27]   that is the modem's feature mask, 3 bytes: f7fe1b
+[5354.09]   DIAGID from the modem: id 0x8c160f50 name 'msm/modem/root_pd'
+[5357.58]   DIAGID from the modem: id 0xc9147e50 name 'msm/modem/wlan_pd'
+[12:42:08] --- replies (CMD/DATA/REPACK), control packets filtered ---
+[12:42:08] --- SSR count in the run ---
+SSR(0x06/0x03) packets: 78
+[12:42:08] === DONE ===

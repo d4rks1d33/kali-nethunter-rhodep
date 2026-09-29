@@ -1,0 +1,17 @@
+[9035.69] publishing the diag services the AP normally provides
+[9035.70] published service 0x1001 instance 0 (CNTL) on node 1 port 0
+[9035.71] published service 0x1001 instance 2 (DATA) on node 1 port 0
+[9035.71] published service 0x1001 instance 4 (DCI) on node 1 port 0
+[9035.71] glink channels before: DATA1 DATA11 DATA2 DATA3 DATA4 DS IPCRTR LOOPBACK_CTL_MPSS SSM_RTR_MODEM_APPS apr_voice_svc glink_ssr rpmsg_ctrl
+[9035.72] kick: re-announcing diag servers + pushing feature mask (no restart)
+[9038.03]   kick: pushed feature mask 08000000080000000400000015ea1000 to modem CMD (0, 26)
+[9038.04] RX on CNTL from (1, 4294967294): 20 bytes: 0600000001000000284000000000000000000000
+[9038.04] RX on DATA from (1, 4294967294): 20 bytes: 0600000001000000284000000000000000000000
+[9038.05] RX on DCI from (1, 4294967294): 20 bytes: 0600000001000000284000000000000000000000
+[9048.08] modem CMD service at node 0 port 26
+[9048.09] sent DIAG request 00
+[9048.14] RX on CNTL from (1, 4294967294): 20 bytes: 0600000001000000284000000000000000000000
+[9048.15] RX on DATA from (1, 4294967294): 20 bytes: 0600000001000000284000000000000000000000
+[9048.15] RX on DCI from (1, 4294967294): 20 bytes: 0600000001000000284000000000000000000000
+[9068.07] done. 6 packets received on the diag services.
+[9068.09] DIAG glink channels now: none

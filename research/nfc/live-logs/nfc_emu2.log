@@ -1,0 +1,2 @@
+warning: this device does not advertise NFC-DEP; the kernel will likely reject listen (needs the s3fwrn5 NFC-DEP patch)
+kernel rejected listen ([Errno 16] Device or resource busy). The driver must advertise a target protocol and the firmware must allow listen -- see docs/nfc.md.

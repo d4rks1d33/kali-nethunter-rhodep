@@ -54,3 +54,4 @@ debos/rootfs*.tar.xz
 !docs/screenshots/*.jpg
 __pycache__/
 backups/diag-gnss-20260906/
+research/motorola/

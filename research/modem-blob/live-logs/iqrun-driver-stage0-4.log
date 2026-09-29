@@ -1,0 +1,36 @@
+=== rhodep IQ/memshare run (2026-09-26, session 6) - stages 0-4, DO_DIAG=0 ===
+7.2.0-rc5
+--- stage 0 preflight ---
+DT reservation: 00 00 00 00 8a b0 00 00  00 00 00 00 00 80 00 00  (0x8ab00000 + 0x800000)
+8ab00000-8b2fffff : reserved
+remoteproc0 state: running
+daemon check -> memshare: reserved region memshare@8ab00000: 0x8ab00000 + 0x800000 (no-map)
+--- stage 1 assign (dual-VMID) ---
+rhodep_memassign: covered by memshare (0x8ab00000 + 0x800000), no-map
+rhodep_memassign: qcom_scm_assign_mem(0x8ab00000, 0x800000, HLOS -> {HLOS perm 0x6, vmid 0xf perm 0x6}) returned 0
+rhodep_memassign: 0x8ab00000 + 0x800000 now shared HLOS(0x6)+vmid 0xf(0x6) (srcvm bitmap 0x8008)
+rhodep_memassign: published /sys/kernel/rhodep_memshare (base 0x8ab00000 size 8388608)
+rhodep_memassign: /dev/rhodep_memshare ready (mmap/read, non-cached)
+chardev: crw-r----- 1 root root 10, 262 /dev/rhodep_memshare
+--- stage 2 daemon ---
+memshare: reserved region memshare@8ab00000: 0x8ab00000 + 0x800000 (no-map)
+memshare: published QMI service 52
+--- stage 3 restart remoteproc0 ---
+stop rc=0 ; state after stop: offline
+start rc=0
+  +5s..+35s: state=running crashes=0 rf1x=0   (ALL clean, NO rf_1x_mdsp!)
+--- stage 4 dmesg ---
+ipa: received modem stopping/offline event
+remoteproc0: stopped remote processor modem
+remoteproc0: powering up modem ; Booting fw image .../modem.mbn size 9500
+ipa: received modem starting/running event
+remoteproc0: remote processor modem is now up
+daemon log after modem restart: (UNCHANGED - modem did NOT send a QMI-52 QUERY/ALLOC)
+--- stage 6 /dev/rhodep_memshare head ---
+all zero (0 nonzero bytes in first 64KiB) - expected, no IQ_CAPTURE ran yet
+=== DONE (stages 0-4) ===
+
+NOTE: stage 5 (diag TECH_ENTER->RADIO_CONFIG->IQ_CAPTURE with --kick) was run in a
+second invocation (driver2.log) and the phone hung during it (SSH dead, user
+powered off). The hang was the diag --kick/restart path, NOT the memshare (stages
+0-4 were clean and the modem rebooted healthy).

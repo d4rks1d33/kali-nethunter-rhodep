@@ -1,0 +1,8 @@
+[ 1210.809004] ipa 5840000.ipa: received modem stopping event
+[ 1214.210842] ipa 5840000.ipa: received modem offline event
+[ 1214.215705] remoteproc remoteproc0: stopped remote processor modem
+[ 1218.231495] remoteproc remoteproc0: powering up modem
+[ 1218.231736] remoteproc remoteproc0: Booting fw image qcom/sm6375/motorola/rhodep/modem.mbn, size 9500
+[ 1218.233985] ipa 5840000.ipa: received modem starting event
+[ 1219.139811] ipa 5840000.ipa: received modem running event
+[ 1219.139861] remoteproc remoteproc0: remote processor modem is now up

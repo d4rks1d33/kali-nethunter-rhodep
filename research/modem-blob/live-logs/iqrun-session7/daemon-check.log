@@ -1,0 +1,1 @@
+memshare: reserved region memshare@8ab00000: 0x8ab00000 + 0x800000 (no-map)

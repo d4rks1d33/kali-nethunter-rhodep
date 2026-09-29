@@ -1,0 +1,5 @@
+[ 1206.671966] rhodep_memassign: covered by memshare (0x8ab00000 + 0x800000), no-map
+[ 1206.677971] rhodep_memassign: qcom_scm_assign_mem(0x8ab00000, 0x800000, HLOS -> {HLOS perm 0x6, vmid 0xf perm 0x6}) returned 0
+[ 1206.678129] rhodep_memassign: 0x8ab00000 + 0x800000 now shared HLOS(0x6)+vmid 0xf(0x6) (srcvm bitmap 0x8008)
+[ 1206.678301] rhodep_memassign: published /sys/kernel/rhodep_memshare (base 0x8ab00000 size 8388608)
+[ 1206.678646] rhodep_memassign: /dev/rhodep_memshare ready (mmap/read, non-cached)

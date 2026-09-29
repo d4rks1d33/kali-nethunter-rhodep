@@ -1,0 +1,17 @@
+[8701.32] publishing the diag services the AP normally provides
+[8701.33] published service 0x1001 instance 0 (CNTL) on node 1 port 0
+[8701.33] published service 0x1001 instance 2 (DATA) on node 1 port 0
+[8701.33] published service 0x1001 instance 4 (DCI) on node 1 port 0
+[8701.33] glink channels before: DATA1 DATA11 DATA2 DATA3 DATA4 DS IPCRTR LOOPBACK_CTL_MPSS SSM_RTR_MODEM_APPS apr_voice_svc glink_ssr rpmsg_ctrl
+[8717.36] modem CMD service at node 0 port 26
+[8717.37]   became COMMAND peer (node 1 port 0)
+[8717.88] >>> STEP 1 request: 4b0b27000d000300010004000000000002000400010000000300040000000000
+[8718.13]     CMD reply: status 0x06  0600000001000000254000000000000000000000
+[8724.08] >>> STEP 2 request: 4b0b27000d10000000000005000000000000
+[8730.09]     (no direct CMD reply)
+[8730.33] raw-seq done
+[8730.39] RX on CNTL from (1, 4294967294): 20 bytes: 0600000001000000214000000000000000000000
+[8730.39] RX on DATA from (1, 4294967294): 20 bytes: 0600000001000000214000000000000000000000
+[8730.40] RX on DCI from (1, 4294967294): 20 bytes: 0600000001000000214000000000000000000000
+[8751.34] done. 3 packets received on the diag services.
+[8751.35] DIAG glink channels now: none

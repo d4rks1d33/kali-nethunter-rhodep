@@ -1,0 +1,38 @@
+[11103.06] publishing the diag services the AP normally provides
+[11103.07] published service 0x1001 instance 0 (CNTL) on node 1 port 0
+[11103.07] published service 0x1001 instance 2 (DATA) on node 1 port 0
+[11103.08] published service 0x1001 instance 4 (DCI) on node 1 port 0
+[11103.08] glink channels before: DATA1 DATA11 DATA2 DATA3 DATA4 DS IPCRTR LOOPBACK_CTL_MPSS SSM_RTR_MODEM_APPS apr_voice_svc glink_ssr rpmsg_ctrl
+[11103.09] kick: CNTL-channel handshake, no restart (preserve live RF state)
+[11103.09]   kick: modem DIAG service inst 1 at node 0 port 26
+[11103.09]   kick: modem DIAG service inst 3 at node 0 port 41
+[11105.12]   kick: using modem CNTL peer node 0 port 25 (from CMD inst1 (0, 26))
+[11105.33]   kick: sent feature mask   on CNTL -> (0, 25): 08000000080000000400000015ea1000
+[11105.43]   kick: sent diagid         on CNTL -> (0, 25): 210000001a00000001000000020000006d736d2f6d6f64656d2f726f6f745f706400
+[11105.54]   kick: sent tx mode (0x11) on CNTL -> (0, 25): 1100000006000000010000000101
+[11105.65] RX on CNTL from (1, 4294967294): 20 bytes: 0600000001000000214000000000000000000000
+[11105.66] RX on DATA from (1, 4294967294): 20 bytes: 0600000001000000214000000000000000000000
+[11105.66] RX on DCI from (1, 4294967294): 20 bytes: 0600000001000000214000000000000000000000
+[11115.72] modem CMD service at node 0 port 26
+[11115.72] RAW request: 4b0b27000d000300010004000000000002000400010000000300040000000000
+[11115.73]   published NEW_SERVER (inst 1/CMD) from node 1 port 0 -> now the COMMAND peer
+[11116.23]   DATA REPLY 1: 20 B  0600000001000000214000000000000000000000
+[11116.24]      txt: ........!@..........
+[11116.25]   DATA REPLY 2: 20 B  0600000001000000214000000000000000000000
+[11116.25]      txt: ........!@..........
+[11116.26]   DATA REPLY 3: 20 B  0600000001000000214000000000000000000000
+[11116.26]      txt: ........!@..........
+[11118.11]   CMD REPLY 4: 20 B  0600000001000000284000000000000000000000
+[11118.11]      txt: ........(@..........
+[11118.12]   DATA REPLY 5: 20 B  0600000001000000284000000000000000000000
+[11118.12]      txt: ........(@..........
+[11118.12]   DATA REPLY 6: 20 B  0600000001000000284000000000000000000000
+[11118.12]      txt: ........(@..........
+[11118.12]   DATA REPLY 7: 20 B  0600000001000000284000000000000000000000
+[11118.13]      txt: ........(@..........
+[11133.25] RAW done
+[11133.30] RX on CNTL from (1, 4294967294): 20 bytes: 0600000001000000214000000000000000000000
+[11133.30] RX on DATA from (1, 4294967294): 20 bytes: 0600000001000000214000000000000000000000
+[11133.30] RX on DCI from (1, 4294967294): 20 bytes: 0600000001000000214000000000000000000000
+[11155.66] done. 3 packets received on the diag services.
+[11155.67] DIAG glink channels now: none

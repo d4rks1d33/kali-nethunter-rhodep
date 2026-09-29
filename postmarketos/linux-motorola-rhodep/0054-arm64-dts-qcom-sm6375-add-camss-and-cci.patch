@@ -1,7 +1,7 @@
 ---
 --- a/arch/arm64/boot/dts/qcom/sm6375.dtsi
 +++ b/arch/arm64/boot/dts/qcom/sm6375.dtsi
-@@ -1533,6 +1533,179 @@
+@@ -1533,6 +1533,180 @@
  			};
  		};
  
@@ -138,12 +138,13 @@
 +
 +			cci0_i2c1: i2c-bus@1 {
 +				reg = <1>;
-+				/* FAST_PLUS 1 MHz: the S5KJN1 needs FAST_PLUS to read
-+				 * its register interface (the Fairphone FP5 uses the
-+				 * same sensor+driver at 1 MHz). Earlier byte-shifted
-+				 * reads at 400 kHz were the CCI-source-clock bug (fixed
-+				 * by assigned-clock-rates = 37.5 MHz above). */
-+				clock-frequency = <1000000>;
++				/* FAST 400 kHz: the S5KJN1's own vendor config
++				 * (sensorI2CFrequencyMode = 1 = FAST, decoded from
++				 * com.qti.sensormodule...s5kjn1_sunny.bin @0x4147a)
++				 * mandates 400 kHz. Earlier byte-shifted reads were
++				 * the CCI-source-clock bug (fixed by the 37.5 MHz
++				 * assigned-clock-rates above). */
++				clock-frequency = <400000>;
 +				#address-cells = <1>;
 +				#size-cells = <0>;
 +			};

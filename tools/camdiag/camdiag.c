@@ -29,6 +29,7 @@ static unsigned int post_reset_ms = 18;
 static unsigned int mclk_hz = 24000000;
 static bool assert_reset_first = true;
 static bool mclk_before_reset = true;
+static bool mclk_first = false;
 static bool release_reset = true;
 static bool enable_mclk = true;
 
@@ -39,6 +40,7 @@ module_param(post_reset_ms, uint, 0644);
 module_param(mclk_hz, uint, 0644);
 module_param(assert_reset_first, bool, 0644);
 module_param(mclk_before_reset, bool, 0644);
+module_param(mclk_first, bool, 0644);
 module_param(release_reset, bool, 0644);
 module_param(enable_mclk, bool, 0644);
 
@@ -107,6 +109,18 @@ static int camdiag_probe(struct i2c_client *client)
 		msleep(pre_reset_ms);
 	}
 
+	/* Stock vendor blob sequence (decoded from the sensormodule .bin):
+	 * MCLK first, THEN rails, then reset. mclk_first=1 enables MCLK before
+	 * any rail, which is the order the stock camera uses. */
+	if (mclk_first && enable_mclk) {
+		clk_set_rate(cd->mclk, mclk_hz);
+		ret = clk_prepare_enable(cd->mclk);
+		if (ret)
+			return ret;
+		cd->mclk_on = true;
+		msleep(post_mclk_ms);
+	}
+
 	/* Vendor's regulator-names order: cam_vio, cam_vana, cam_vdig. */
 	ret = regulator_enable(cd->vddio);
 	if (ret)
@@ -119,7 +133,7 @@ static int camdiag_probe(struct i2c_client *client)
 		return ret;
 	msleep(post_rail_ms);
 
-	if (mclk_before_reset && enable_mclk) {
+	if (mclk_before_reset && enable_mclk && !mclk_first) {
 		clk_set_rate(cd->mclk, mclk_hz);
 		ret = clk_prepare_enable(cd->mclk);
 		if (ret)
@@ -136,7 +150,7 @@ static int camdiag_probe(struct i2c_client *client)
 		msleep(post_reset_ms);
 	}
 
-	if (!mclk_before_reset && enable_mclk) {
+	if (!mclk_before_reset && enable_mclk && !mclk_first) {
 		clk_set_rate(cd->mclk, mclk_hz);
 		ret = clk_prepare_enable(cd->mclk);
 		if (ret)

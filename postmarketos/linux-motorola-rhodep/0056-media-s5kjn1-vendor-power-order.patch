@@ -1,88 +1,179 @@
 From: rhodep port <none@example.com>
 Date: Tue, 19 Aug 2026 22:45:00 -0300
-Subject: [PATCH] media: s5kjn1: bring the rails up in the documented order
+Subject: [PATCH] media: s5kjn1: power up MCLK first, matching the vendor
+ sequence
 
-VDDIO feeds the sensor's I2C buffers, so it comes up first: vddio, vdda,
-vddd. That is the order Qualcomm's sensormodule blob for this module
-specifies and the order the vendor device tree repeats; the driver had the
-reverse.
+The S5KJN1 on the Motorola Moto G82 (rhodep, SM6375) never identifies with
+the mainline driver: the chip-id read returns residue instead of 0x38e1.
 
-On a Motorola rhodep the difference is measurable. With the driver's order
-reads from the sensor address return a different value every time; with
-this order they are stable.
+The stock vendor power-up order was decoded byte-exact from the Qualcomm
+sensormodule blob (com.qti.sensormodule.mot_rhodep_s5kjn1_sunny.bin) as a
+flat (seq_type, config_val, delay) u32-triplet array at file offset
+0x35143, anchored by the unique MCLK config 24000000 (0x016e3600) at
+0x35147. The five power-up triplets are:
+
+  1. SENSOR_MCLK  24000000 Hz  delay 1 ms   (mclk)   <- FIRST, before rails
+  2. SENSOR_VIO   on           delay 0 ms   (vddio, 1.8 V)
+  3. SENSOR_VDIG  on           delay 1 ms   (vddd,  1.05 V)
+  4. SENSOR_VANA  on           delay 1 ms   (vdda,  2.8 V)
+  5. SENSOR_RESET released     delay 4 ms   (reset deasserted, then id read)
+
+and the power-down is the exact mirror:
+
+  RESET asserted (1 ms) -> VANA off -> VDIG off -> VIO off (1 ms)
+  -> MCLK off (1 ms).
+
+The critical delta is that the vendor brings the 24 MHz clock up *first*,
+before any rail; mainline enabled the rails first and MCLK last. Without a
+running clock at the moment the rails settle the part never latches its id.
+
+Reorder s5kjn1_power_on to MCLK -> VIO -> VDIG -> VANA -> (afvdd) ->
+RESET-release with the blob's millisecond delays, and mirror the teardown
+in s5kjn1_power_off. afvdd feeds the AF actuator, is not part of the
+sensor's own sequence, and stays optional (-ENODEV tolerant); it is
+enabled last and disabled first. The reset GPIO keeps the gpiod
+convention (DT GPIO_ACTIVE_LOW, requested GPIOD_OUT_HIGH == asserted at
+probe; value 0 == deassert == electrical high == running).
 
 Signed-off-by: rhodep port <none@example.com>
 ---
 --- a/drivers/media/i2c/s5kjn1.c
 +++ b/drivers/media/i2c/s5kjn1.c
-@@ -1205,30 +1205,32 @@
+@@ -1205,10 +1205,34 @@
  	struct s5kjn1 *s5kjn1 = to_s5kjn1(sd);
  	int ret;
  
--	if (s5kjn1->vddd) {
--		ret = regulator_enable(s5kjn1->vddd);
 +	/*
-+	 * Bring the rails up in the order the sensor's own configuration data
-+	 * specifies: VDDIO, then VDDA, then VDDD. VDDIO feeds the I2C buffers,
-+	 * so powering the core first can leave the part unable to answer on the
-+	 * bus. Qualcomm's blob for this module lists them as cam_vio, cam_vana,
-+	 * cam_vdig, and the vendor device tree repeats that order.
++	 * Follow the vendor sensormodule power-up order, decoded byte-exact
++	 * from the Qualcomm blob for this module (5 (type, config, delay)
++	 * triplets at file offset 0x35143):
++	 *
++	 *   MCLK (24 MHz, 1 ms) -> VIO (1.8 V, 0 ms) -> VDIG (1.05 V, 1 ms)
++	 *   -> VANA (2.8 V, 1 ms) -> RESET released (4 ms)
++	 *
++	 * MCLK must come up *first*, before any rail. Bringing the rails up
++	 * first (as done previously) leaves the sensor unable to latch its
++	 * chip id and it reads back as residue instead of 0x38e1.
 +	 */
++	ret = clk_prepare_enable(s5kjn1->mclk);
++	if (ret)
++		return ret;
++
++	usleep_range(USEC_PER_MSEC, 2 * USEC_PER_MSEC);
++
 +	if (s5kjn1->vddio) {
 +		ret = regulator_enable(s5kjn1->vddio);
++		if (ret)
++			goto disable_mclk;
++	}
++
+ 	if (s5kjn1->vddd) {
+ 		ret = regulator_enable(s5kjn1->vddd);
  		if (ret)
- 			return ret;
--
--		usleep_range(USEC_PER_MSEC, 2 * USEC_PER_MSEC);
-+		usleep_range(2000, 3000);
- 	}
+-			return ret;
++			goto disable_vddio;
  
- 	if (s5kjn1->vdda) {
+ 		usleep_range(USEC_PER_MSEC, 2 * USEC_PER_MSEC);
+ 	}
+@@ -1217,46 +1241,41 @@
  		ret = regulator_enable(s5kjn1->vdda);
  		if (ret)
--			goto disable_vddd;
-+			goto disable_vddio;
-+		usleep_range(2000, 3000);
- 	}
+ 			goto disable_vddd;
+-	}
  
 -	if (s5kjn1->vddio) {
 -		ret = regulator_enable(s5kjn1->vddio);
-+	if (s5kjn1->vddd) {
-+		ret = regulator_enable(s5kjn1->vddd);
- 		if (ret)
- 			goto disable_vdda;
--	}
--
--	if (s5kjn1->afvdd) {
--		ret = regulator_enable(s5kjn1->afvdd);
 -		if (ret)
--			goto disable_vddio;
-+		usleep_range(2000, 3000);
+-			goto disable_vdda;
++		usleep_range(USEC_PER_MSEC, 2 * USEC_PER_MSEC);
  	}
  
- 	ret = clk_prepare_enable(s5kjn1->mclk);
-@@ -1244,19 +1246,14 @@
- 	if (s5kjn1->afvdd)
- 		regulator_disable(s5kjn1->afvdd);
++	/*
++	 * afvdd powers the AF actuator, not the sensor core; it is not part
++	 * of the vendor sensor sequence. Enable it last and tolerate its
++	 * absence (-ENODEV).
++	 */
+ 	if (s5kjn1->afvdd) {
+ 		ret = regulator_enable(s5kjn1->afvdd);
+ 		if (ret)
+-			goto disable_vddio;
++			goto disable_vdda;
+ 	}
  
+-	ret = clk_prepare_enable(s5kjn1->mclk);
+-	if (ret)
+-		goto disable_regulators;
+-
++	/* Release reset (GPIO_ACTIVE_LOW: value 0 == deassert == running). */
+ 	gpiod_set_value_cansleep(s5kjn1->reset_gpio, 0);
+-	usleep_range(10 * USEC_PER_MSEC, 15 * USEC_PER_MSEC);
++	usleep_range(4 * USEC_PER_MSEC, 5 * USEC_PER_MSEC);
+ 
+ 	return 0;
+ 
+-disable_regulators:
+-	if (s5kjn1->afvdd)
+-		regulator_disable(s5kjn1->afvdd);
+-
 -disable_vddio:
 -	if (s5kjn1->vddio)
 -		regulator_disable(s5kjn1->vddio);
 -
-+	if (s5kjn1->vddd)
-+		regulator_disable(s5kjn1->vddd);
  disable_vdda:
  	if (s5kjn1->vdda)
  		regulator_disable(s5kjn1->vdda);
--
--disable_vddd:
+ 
+ disable_vddd:
 -	if (s5kjn1->vddd) {
 -		usleep_range(USEC_PER_MSEC, 2 * USEC_PER_MSEC);
--		regulator_disable(s5kjn1->vddd);
++	if (s5kjn1->vddd)
+ 		regulator_disable(s5kjn1->vddd);
 -	}
++
 +disable_vddio:
 +	if (s5kjn1->vddio)
 +		regulator_disable(s5kjn1->vddio);
++
++disable_mclk:
++	clk_disable_unprepare(s5kjn1->mclk);
  
  	return ret;
+ }
+@@ -1266,23 +1285,29 @@
+ 	struct v4l2_subdev *sd = dev_get_drvdata(dev);
+ 	struct s5kjn1 *s5kjn1 = to_s5kjn1(sd);
+ 
++	/*
++	 * Mirror the vendor power-down order (triplets 5-9 at 0x3517f):
++	 *   RESET asserted (1 ms) -> VANA off -> VDIG off -> VIO off (1 ms)
++	 *   -> MCLK off (1 ms).
++	 */
+ 	gpiod_set_value_cansleep(s5kjn1->reset_gpio, 1);
+-
+-	clk_disable_unprepare(s5kjn1->mclk);
++	usleep_range(USEC_PER_MSEC, 2 * USEC_PER_MSEC);
+ 
+ 	if (s5kjn1->afvdd)
+ 		regulator_disable(s5kjn1->afvdd);
+ 
+-	if (s5kjn1->vddio)
+-		regulator_disable(s5kjn1->vddio);
+-
+ 	if (s5kjn1->vdda)
+ 		regulator_disable(s5kjn1->vdda);
+ 
+-	if (s5kjn1->vddd) {
+-		usleep_range(USEC_PER_MSEC, 2 * USEC_PER_MSEC);
++	if (s5kjn1->vddd)
+ 		regulator_disable(s5kjn1->vddd);
+-	}
++
++	if (s5kjn1->vddio)
++		regulator_disable(s5kjn1->vddio);
++
++	usleep_range(USEC_PER_MSEC, 2 * USEC_PER_MSEC);
++
++	clk_disable_unprepare(s5kjn1->mclk);
+ 
+ 	return 0;
  }

@@ -1803,3 +1803,82 @@ needs userdata backup first).
 Two real fixes landed this session (flashed, in patch 0054): CCI source clock 37.5MHz and sensor
 bus FAST_PLUS 1MHz. The rest of the camera stack works (ISP enumerates, CCI, EEPROM, PMIC). Only
 the sensor's own core identification remains.
+
+---
+
+# Session 2026-09-29: DECODED the stock power sequence, applied it, sensor still silent
+
+BREAKTHROUGH in RE (OUT_symbolref.md): the prior "no power sequence in the blob" was WRONG.
+The real S5KJN1 power-up sequence IS in the sensormodule blob at file offset 0x35143 (byte-exact,
+anchored by the unique MCLK constant 24000000 @0x35147):
+  MCLK(24MHz,1ms) -> VIO(on,0ms) -> VDIG(on,1ms) -> VANA(on,1ms) -> RESET(high,4ms)
+The KEY delta vs mainline: stock enables MCLK FIRST, before any rail. Mainline s5kjn1_power_on
+did rails-first-then-MCLK. Also decoded: sensorI2CFrequencyMode = 1 = FAST (400kHz), not 1MHz.
+
+APPLIED (built, flashed, tested):
+- patch 0056 rewritten: s5kjn1_power_on now MCLK-first (clk_prepare_enable before any regulator),
+  then VIO->VDIG->VANA with the blob delays, then reset deassert +4ms. (s5kjn1.ko md5 cbe094b5)
+- patch 0054: sensor CCI bus clock-frequency 1000000 -> 400000 (FAST, per the blob's freq mode).
+
+LIVE RESULT: bus confirmed at 400kHz, driver confirmed MCLK-first, BUT sensor STILL returns
+residue (0x8f05), chip id 38e1!=0. Also tested the exact sequence via the camdiag rig (new
+mclk_first=1 param): still residue. So replicating the byte-exact stock sequence (MCLK-first,
+rail order, delays, reset, FAST 400kHz) does NOT wake the core on mainline.
+
+This is genuinely puzzling: we now match the decoded stock sequence exactly, yet the core won't
+complete its internal boot. The residue changes slightly with each variation but never becomes
+0x38e1. Something beyond the power/clock/reset/freq sequence still differs. Candidates not yet
+closed: (a) the chip-id read timing/path - the driver reads via CCI regmap immediately after
+power_on; stock may insert a delay or read differently; (b) a CSIPHY/CSID init the stock does
+around probe that mainline doesn't; (c) the register init table right after the power seq in the
+blob (@0x351bb, "0x0210..." register writes) may need to be pushed before the id read on THIS
+module. These are the next RE targets.
+
+Two real fixes landed (0054 FAST 400k, 0056 MCLK-first) - both are blob-accurate and upstreamable
+regardless. The sensor core identification remains the single open item; the rest of the camera
+stack works.
+
+---
+
+# Session 2026-09-29 (cont): 3 more agents (init table / read path / GDSC) - all negative; FAN53870 regs read
+
+After decoding+applying the stock power sequence (MCLK-first) without success, three parallel RE
+agents closed the remaining static candidates, all valid negatives:
+- **Init register table** (OUT_initregs.md): the "table @0x351bb" was a misread (schema IDs, not
+  I2C writes). The real register tables (mode config @0x35533, streamOn/init-array @0x40a38) ARE in
+  the blob but are the SAME data mainline already ships. No mandatory init-before-chip-id exists;
+  both stock and mainline read id cold. Not the fix. (Core-boot strobe 0x6028/0x6010/0x6226 re-tested
+  live at 400kHz+MCLK-first: still residue.)
+- **Chip-id read path/timing** (OUT_readpath.md): stock reads cold with LESS delay (4ms) than
+  mainline (10-15ms), same Sr framing, same FAST 400kHz, ≤5 retries with zero inter-try delay. A
+  read-path change cannot be the fix - stock is less forgiving than mainline.
+- **CAMSS GDSC / power-domain / CSIPHY** (OUT_gdsc.md): SM6375 has ONE camera GDSC
+  (gcc_camss_top_gdsc); the rhodep CCI node already owns it (patch 0054 power-domains); live
+  camss_top_gdsc=on, MCLK1 24MHz count=1 even on the CCI-only path; residue tracks MCLK freq =
+  the die IS clocked. CSIPHY is post-identify. Power/clock domain is fine.
+
+FAN53870 PMIC registers read live (i2c 0x35): reg0x03(enable)=0x6d (LDO1/cam_vdig bit0 SET),
+reg0x04(LDO1 vsel)=0x20=1.056V, reg0x07(LDO4)=0xb3=2.804V, reg0x0a(LDO7)=0x36=1.804V. The PMIC
+reports cam_vdig enabled at the correct voltage with no visible fault bit.
+
+## Final assessment (this line of attack)
+12 RE agents + dozens of live experiments have exonerated EVERYTHING reachable from software:
+CCI bus (EEPROM proof), CCI clock 37.5MHz, MCLK 24MHz (parent/duty/GDSC all correct), rails (PMIC
+registers verified), reset polarity (both levels tested), the byte-exact stock power sequence
+(decoded from the blob and applied: MCLK-first + FAST 400kHz), the init register tables, the chip-id
+read path/timing, CSIPHY, the CamX HAL, the KMD, and the sensor .so. The sensor's digital core
+still returns residue (writes don't latch, id reads 0x0000) though it ACKs and is clocked.
+
+The only candidate left is NOT software-diagnosable: VDIG (cam_vdig, 1.05V, 1.2A - the digital core
+supply, the highest-current sensor rail) integrity UNDER LOAD. sysfs/PMIC "enabled" and the vsel
+register only prove the PMIC is asked to output; they cannot prove the rail holds 1.05V at 1.2A at
+the die, or that VIN1 sources enough current. This is exactly the symptom (I/O ring alive, digital
+core not) and would be board/rhodep-specific (FP5 identifies the same silicon). Confirming it needs
+a meter/scope on the sensor flex - outside software reach.
+
+## What DID land (real, blob-accurate, upstreamable)
+- patch 0054: CCI source clock 37.5MHz (fixed the bus - EEPROM now reads perfectly) + sensor bus
+  FAST 400kHz (per the blob's sensorI2CFrequencyMode).
+- patch 0056: s5kjn1_power_on rewritten to the exact stock MCLK-first sequence decoded from the blob.
+These are correct and worth keeping regardless of the sensor-core wall. The rest of the camera
+stack works (ISP enumerates 12 video nodes, CCI, EEPROM, FAN53870 PMIC).

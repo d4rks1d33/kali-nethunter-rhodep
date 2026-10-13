@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!--
+  Pandora Emu runs as the normal login user. The only privileged operation is
+  USB access to the HackRF, which is better handled by a udev rule that grants
+  the console user access to the device (see install.sh / README). This polkit
+  action exists only for environments that would rather elevate the radio
+  helper than relax udev permissions.
+-->
+<policyconfig>
+  <vendor>Kali NetHunter</vendor>
+  <vendor_url>https://www.kali.org/</vendor_url>
+
+  <action id="org.kali.PandoraEmu.hackrf">
+    <description>Access the HackRF SDR for Pandora Emu</description>
+    <message>Authentication is required to use the HackRF radio</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+</policyconfig>

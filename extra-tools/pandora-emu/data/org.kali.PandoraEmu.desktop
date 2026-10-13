@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Pandora Emu
+Comment=Pandora D-605 keyfob emulator with HackRF radio bridge
+Exec=pandora-emu
+Icon=org.kali.PandoraEmu
+Terminal=false
+Categories=System;Utility;HamRadio;
+Keywords=pandora;keyfob;emulator;hackrf;arm;cortex-m3;rf;

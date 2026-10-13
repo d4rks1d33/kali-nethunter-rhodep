@@ -11,6 +11,13 @@
 packages/firmware-motorola-rhodep/lib/firmware/**
 !packages/firmware-motorola-rhodep/lib/firmware/.gitkeep
 
+# Pandora keyfob .hex firmwares (not ours to redistribute - users supply their own)
+extra-tools/pandora-emu/firmwares/*.hex
+# Pandora emu build artifacts (install.sh runs `make` to regenerate them)
+extra-tools/pandora-emu/src/pandora_emu/libpandora.so
+extra-tools/pandora-emu/src/pandora_emu/native/libpandora.so
+extra-tools/pandora-emu/src/pandora_emu/native/*.o
+
 # Local backups kept on disk but NOT pushed. Track the folder structure, notes,
 # and small text/RE helpers; ignore blobs and any snapshots of source that is
 # already versioned elsewhere in the repo (avoid duplicating files that already
@@ -55,3 +62,4 @@ debos/rootfs*.tar.xz
 __pycache__/
 backups/diag-gnss-20260906/
 research/motorola/
+out/

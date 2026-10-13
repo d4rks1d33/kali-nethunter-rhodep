@@ -1204,3 +1204,67 @@ to be redistributed), `kernel/patches/0001`, `0046`, `0065`, `0070`, `0088`,
 mainline 7.2-rc5, and full checkouts of
 `Motorola-SM6375-Devs/android_kernel_motorola_sm6375@sixteen` plus three files
 from `LineageOS/android_kernel_motorola_sm6375@lineage-22.1` for cross-checking.
+
+---
+
+## Addendum (Session 12, 2026-10-06): QSR4 decoder + slow-clock confirmed as the same root cause
+
+Two things changed this session. Full detail in
+[`../modem-diag-wip/SESSION12-QSR4-DECODER-GNSS.md`](../modem-diag-wip/SESSION12-QSR4-DECODER-GNSS.md).
+
+**1. The Qshrink-4 (`0x99`) F3 decoder now works.** `qdsp6m.qdb` is a 64-byte
+header + a single zlib stream → 27.3 MB of ASCII; its `<Content>` section is
+157877 lines `hash:ss_mask:ssid:line:file:format`, where `hash` is the 32-bit
+message-id carried in the `0x99` frames. Tools:
+`userspace/debug-tools/rhodep-qsr4-extract.py` (validated HDLC deframer) and
+`rhodep-qsr4-decode.py` (resolves ids + renders printf args). The three existing
+GNSS captures decoded at 100% id-resolution.
+
+**2. The previous "smoking gun" strings were misattributed.** The
+`Config BB WDog` / `CLK RESET NAPALI` / `ADC cal` / `axi_bridge_reset` /
+`Qlink start_link_reset` messages in the F3 captures are **WLAN/WCSS/RF**
+(ssid 4534 `qca61x0_reset.c`, 4515 `platform_helium.c`, 14 `rflm_qlnk_*`) —
+normal, repetitive bring-up, **not** the NAV core. No ERR_FATAL / ASSERT /
+"Request CC reset" appears in any existing capture; all three are **survive**
+runs (monotonic `ms_rel`, clean end).
+
+**3. The observable root cause unifies both symptoms: the NAV core's free-running
+hardware RTC is not running (`cc_IsGnssRTCRunning() == 0`).** Decoded sequence
+(repeats every fix session, `gnss-f3`):
+```
+gts.c:12255  ProcGetSlowClkTime: Request
+gts.c:6307   GetGtsTime - No Time Avl
+mc_msg.c:7742  SLOW CLOCK REQUEST: reason=2/3
+mgp_pe_api.c:770  PE: Slow Clock Time: INVALID        (8/8; the valid variant mgp_pe_api.c:761 never appears)
+nf_task.c:3736  XTRA clock request: Wk 65535          (3/3; week 0xFFFF = seed never written)
+tm_xtra_data_handler.c:151  =TM XTRA= GPS time is invalid
+gts.c:2069   FindBestGpsTime: No valid GPS Time       (13/13)
+```
+The AP's `rhodep-xtra` injection succeeds end-to-end (network OK, DNS OK, NTP
+synced, XTRA downloaded, QMI inject time+position returns status=0 — verified
+live this session) yet the modem still shows `Wk 65535`. The firmware **discards
+the accepted injection** at the RTC gate (`mc_clock.c:6685` *"Time-Tag Time
+estimate received while GNSS RTC is not running. Not accepting time"*). Week
+`0xFFFF` proves the seed is never populated, i.e. not a quality/uncertainty
+problem — it is the RTC gate.
+
+The same predicate (`GNSS RTC not running`) guards **both** the time-discard
+(`mc_clock.c:1346`, `:6685`) and the reset (`cc_slicer.c:9922`, `cc_task.c:4012`).
+The existing captures are the idle/no-reset side (NAV core never powered → RTC
+never runs → slow-clock INVALID forever, MGP OFF, 0 measurements); the
+inject-time side tries to power the NAV core and dies in ~100 ms. One root state
+(NAV core not powered+clocked / RTC not ticking), two observable modes. Consistent
+with this document's main conclusion: the whole RTC/STMR path is MPSS/secure-world,
+AP exonerated.
+
+### Next step to confirm (no reset risk)
+The decisive messages exist in the qdb but were **not F3-mask-enabled** in the
+existing captures (ssid 47 Clock Controller at `ss_mask=8`/`128`). Capture a
+cold-start with the ssid-47 debug F3 mask on and read, rendered:
+- `mc_clock.c:1346` → `u_GpsRtcRunning %u cc_IsGnssRTCRunning() %u` (second %u = 0 confirms RTC OFF)
+- `mc_clock.c:6685` → `...GNSS RTC is not running. Not accepting time` (confirms the discard gate)
+- `navbb_qft.c:221` → `ECO Mode %u Fifo 0x%x RTC 0x%x STMR 0x%x SpCtl 0x%x GDSC 0x%x Retry %d` (raw RTC/STMR/GDSC registers)
+- `cc_hwconfig.c:641` → `Failed to enable Nav SDD HW. Clock Status: Flag %d, BCR 0x%x, QDSCR 0x%x, PllMode 0x%x, NavClkStat 0x%x`
+- `cc_slicer.c:9915/9922`, `cc_task.c:4001/4012` → which recovery branch is taken
+If `RTC 0x0`/`STMR 0x0`/`NavClkStat` bad → NAV core never clocked inside the
+modem; that is the origin of both the slow-clock INVALID and the reset.

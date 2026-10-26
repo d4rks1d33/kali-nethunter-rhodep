@@ -1,0 +1,589 @@
+/* =============================================================================
+ * WiFi Pineapple Pager — estilo fiel al hardware (carcasa amarilla, landscape)
+ * Target: Motorola G82 (Kali/Phosh, Wayland, kiosk chromium), portrait FISICO
+ *         ~1080x2400. Tambien navegador de escritorio (landscape nativo).
+ *
+ * ========================= ESTRATEGIA (reescrita) ===========================
+ *
+ * 1) CARCASA CON ASPECT RATIO FIJO
+ *    El Pager fisico es apaisado ~2:1. La carcasa #pager tiene un tamano
+ *    "natural" FIJO en px (NAT_W x NAT_H) y se escala ENTERA con una sola
+ *    variable --sc via `transform: scale()`. Al tener dimensiones naturales
+ *    fijas, el ratio NUNCA se deforma y el calculo de escala es trivial y
+ *    estable (no depende del reflujo del contenido como antes).
+ *      NAT_W = 960px, NAT_H = 500px  -> ratio 1.92:1 (apaisado, como el real).
+ *    Antes se escalaba cada medida con calc(px*--sc); eso hacia que la altura
+ *    dependiera del contenido y el fitPager midiera un alto inestable => la
+ *    carcasa quedaba diminuta. Ahora el layout interno usa % de la carcasa.
+ *
+ * 2) ROTACION LANDSCAPE SIEMPRE
+ *    El Pager es horizontal. Si el viewport esta en PORTRAIT (G82 en kiosk),
+ *    rotamos el #stage 90deg. Tecnica:
+ *      - #stage se posiciona fixed, centrado, y se le da width=100vh,
+ *        height=100vw (dimensiones INTERCAMBIADAS) y transform rotate(90deg).
+ *        Asi, tras rotar, el stage ocupa VISUALMENTE todo el viewport apaisado.
+ *      - fitPager (boot.js) calcula la escala usando las dimensiones VISUALES
+ *        correctas (en portrait: ancho_visual=innerHeight, alto_visual=
+ *        innerWidth), por eso swapea. Ver boot.js.
+ *    En landscape nativo no se rota: #stage = 100vw x 100vh.
+ *
+ * 3) ESCALADO QUE LLENA LA PANTALLA
+ *    fitPager: --sc = min(availW/NAT_W, availH/NAT_H) * FILL (0.98). Centra con
+ *    flex. Fallback puro CSS (sin JS): --sc con clamp()+min() sobre vmin/vmax
+ *    equivalente, para que igual se vea grande si el JS no corriera.
+ *
+ * 4) DISPLAY 480:222
+ *    El #screen mantiene aspect-ratio real 480/222 y ocupa la mayor parte
+ *    (arriba). El canvas#display lo llena. container-type:inline-size para que
+ *    el contenido HTML de fallback (si lo hubiera) escale en cqw. El render
+ *    real lo pinta el engine sobre el canvas (boot.js -> engine/pager.js).
+ *
+ * 5) BOTONERA
+ *    Fila inferior: [brand] (izq) ... [status-led][SELECT][<][^v][>][back].
+ *    Medidas en % de la carcasa (altura de la fila fija) -> no se apilan ni
+ *    deforman. flex con gap; brand con margin-right:auto empuja los botones a
+ *    la derecha, como el hardware.
+ * ========================================================================== */
+
+@font-face {
+  font-family: 'Material Icons';
+  font-style: normal; font-weight: 400;
+  src: local('Material Icons'), local('MaterialIcons-Regular'),
+       url(assets/MaterialIcons-Regular.ttf) format('truetype');
+}
+@font-face {
+  font-family: 'Steelfish';
+  font-style: normal; font-weight: 400;
+  src: local('Steelfish'), url(assets/Steelfish.ttf) format('truetype');
+}
+.material-icons {
+  font-family: 'Material Icons', serif;
+  font-weight: normal; font-style: normal;
+  display: inline-block; line-height: 1; text-transform: none;
+  letter-spacing: normal; white-space: nowrap; direction: ltr;
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  -moz-osx-font-smoothing: grayscale; font-feature-settings: 'liga';
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --pager-yellow:  #d7e000;
+  --pager-yellow2: #aeb800;
+  --pager-dark:    #1a1c05;
+  --btn-black:     #141414;
+  --btn-black2:    #262626;
+  --led-green:     #22ff4e;
+  --led-green-dim: #0b3a16;
+  --led-red:       #ff2b2b;
+  --led-red-dim:   #3a0b0b;
+
+  /* ---- Pantalla (TEMATIZABLE) ---------------------------------------------
+   * Estas 6 variables las sobreescribe themes.js al cargar un tema JSON.
+   * --scr-grid es un TRIPLETE RGB "r,g,b" para usar con rgba(var(--scr-grid),a)
+   * en grillas/bordes/glow. Los demas son colores completos.
+   * Valores por defecto = tema "wargames". */
+  --scr-bg:        #020402;
+  --scr-green:     #00ef35;  /* fg / fosforo principal */
+  --scr-cyan:      #35f0e0;  /* accent */
+  --scr-amber:     #ffd23a;  /* seleccion / highlight */
+  --scr-grid:      0,239,53; /* RGB para grilla/bordes/glow */
+  --scr-amber-rgb: 255,210,58;/* RGB del highlight de seleccion */
+  --scr-danger:    #ff2b2b;
+}
+
+html, body {
+  height: 100%;
+  background: radial-gradient(circle at 50% 30%, #2a2a2a 0%, #0d0d0d 70%, #000 100%);
+  color: #d0d0d0;
+  font-family: Roboto, 'Helvetica Neue', sans-serif;
+  overflow: hidden;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+/* Dimensiones naturales de la carcasa (ratio ~1.92:1, apaisado como el real).
+ * Se declaran como custom props para reutilizarlas en el fallback CSS y para
+ * que boot.js las lea (NAT_W/NAT_H). */
+:root {
+  --nat-w: 960px;
+  --nat-h: 500px;
+}
+
+#stage {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;   /* nada de la carcasa escapa del viewport */
+  min-width: 0; min-height: 0;
+}
+
+/* ---- Carcasa amarilla -------------------------------------------------------
+ * Tamano NATURAL fijo (960x500) con ratio apaisado. Se escala ENTERA con
+ * transform: scale(var(--sc)). boot.js (fitPager) calcula --sc para llenar la
+ * pantalla manteniendo el ratio. El layout interno usa % de la carcasa, asi
+ * nada se deforma ni se apila. */
+#pager {
+  /* Fallback puro CSS (si el JS no corriera): llena ~96% del viewport por el
+     lado mas restrictivo. vmin/vmax no sirven por la rotacion, usamos vw/vh
+     explicitos: en portrait el JS rota y recalcula, pero esto evita que se vea
+     diminuto antes de que corra el JS. */
+  --sc: min((100vw - 24px) / 960, (100vh - 24px) / 500);
+  position: relative;
+  width: 960px;
+  height: 500px;
+  flex: 0 0 auto;
+  transform: scale(var(--sc));
+  transform-origin: center center;
+  display: flex;
+  flex-direction: column;
+  padding: 26px 34px 22px;
+  border-radius: 54px;
+  background:
+    linear-gradient(160deg, var(--pager-yellow) 0%, var(--pager-yellow2) 100%);
+  box-shadow:
+    inset 0 2px 0 rgba(255,255,255,.4),
+    inset 0 -14px 26px rgba(0,0,0,.28),
+    inset 0 0 60px rgba(120,130,0,.25),
+    0 20px 48px rgba(0,0,0,.6),
+    0 0 26px rgba(var(--scr-grid),.08);
+}
+
+/* textura sutil de goma */
+#pager::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  pointer-events: none;
+  background-image: radial-gradient(rgba(0,0,0,.05) 1px, transparent 1px);
+  background-size: 6px 6px; opacity: .5;
+}
+
+/* ---- Marco negro de la pantalla ---------------------------------------------
+ * Ocupa la parte superior de la carcasa. Flex-centra el #screen, que mantiene
+ * el ratio real 480:222. El marco crece para llenar el espacio por encima de
+ * la botonera (flex:1). */
+#screen-bezel {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0 auto 14px;
+  width: 100%;
+  padding: 10px;
+  border-radius: 22px;
+  background: linear-gradient(180deg, #0c0c0c, #000);
+  box-shadow:
+    inset 0 2px 6px rgba(255,255,255,.08),
+    inset 0 -6px 14px rgba(0,0,0,.8),
+    0 2px 0 rgba(255,255,255,.25);
+  /* la pantalla LLENA el marco (sin franjas negras). El contenido interno del
+   * canvas es 480x222 y se estira a este area; el ratio de la carcasa ya es
+   * apaisado, asi que la deformacion es despreciable. */
+  display: flex;
+}
+
+/* La pantalla real: LLENA todo el bezel (sin aspect-ratio forzado que dejaba
+ * franjas negras arriba/abajo). El canvas 480x222 se estira a este tamanio. */
+#screen {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: var(--scr-bg);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow:
+    inset 0 0 22px rgba(0,0,0,.95),
+    inset 0 0 26px rgba(0,255,55,.05);
+}
+
+/* Canvas del Virtual Pager: llena la pantalla (ratio 480:222) con nearest-neighbor. */
+#display {
+  position: absolute; inset: 0; z-index: 2;
+  width: 100%; height: 100%;
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+/* grilla retro + scanlines */
+#screen::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 5;
+  background-image:
+    linear-gradient(rgba(var(--scr-grid),.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--scr-grid),.05) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+#screen::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 6;
+  background: repeating-linear-gradient(
+    to bottom, rgba(0,0,0,0) 0, rgba(0,0,0,0) 2px, rgba(0,0,0,.18) 3px);
+  mix-blend-mode: multiply;
+}
+
+/* ---- Contenido interno de la pantalla (escala con viewport units del canvas)-- */
+#screen-inner {
+  position: absolute; inset: 0; z-index: 2;
+  display: flex; flex-direction: column;
+  font-family: 'Steelfish', 'Courier New', monospace;
+  color: var(--scr-green);
+  /* cqw hace que el texto escale con el ancho de la pantalla */
+}
+#screen { container-type: inline-size; }
+
+/* === STATUS BAR === */
+#statusbar {
+  display: flex; align-items: center; gap: 2.2cqw;
+  height: 11cqw;
+  padding: 0 2.6cqw;
+  font-size: 3.4cqw;
+  color: var(--scr-cyan);
+  border-bottom: 1px solid rgba(var(--scr-grid),.22);
+  background: linear-gradient(180deg, rgba(var(--scr-grid),.06), transparent);
+  text-shadow: 0 0 6px rgba(var(--scr-grid),.6);
+}
+#statusbar .material-icons { font-size: 4.6cqw; }
+#statusbar .sb-icon.off { opacity: .28; }
+#statusbar .sb-spacer { flex: 1; }
+#statusbar .sb-clock {
+  font-size: 4.4cqw; letter-spacing: .06em; color: var(--scr-green);
+  text-shadow: 0 0 8px rgba(var(--scr-grid),.7);
+}
+.sig-bars { display: inline-flex; align-items: flex-end; gap: 1px; height: 4.4cqw; }
+.sig-bars i {
+  width: 1.1cqw; background: var(--scr-green); opacity: .25;
+  box-shadow: 0 0 4px rgba(var(--scr-grid),.5);
+}
+.sig-bars i.on { opacity: 1; }
+.sig-bars i:nth-child(1){height:30%} .sig-bars i:nth-child(2){height:55%}
+.sig-bars i:nth-child(3){height:78%} .sig-bars i:nth-child(4){height:100%}
+
+/* === BODY (vistas) === */
+#view {
+  position: relative; flex: 1; min-height: 0;
+}
+.pane { position: absolute; inset: 0; display: none; }
+/* subvistas = columna (head / body scrolleable / foot). */
+.pane.active { display: flex; flex-direction: column; }
+
+/* ---- DASHBOARD ---- (excepcion: layout en fila izq/der) */
+#pane-dashboard.active { flex-direction: row; }
+#pane-dashboard { align-items: center; }
+#dash-left {
+  width: 60%; height: 100%;
+  display: flex; flex-direction: column; justify-content: center;
+  padding-left: 3cqw; gap: 2cqw;
+}
+#dash-title {
+  font-size: 5.2cqw; letter-spacing: .14em; color: var(--scr-cyan);
+  text-shadow: 0 0 8px rgba(var(--scr-grid),.6);
+}
+#dash-icons {
+  display: flex; align-items: center; gap: 2.4cqw;
+}
+.dicon {
+  position: relative;
+  width: 13cqw; height: 13cqw;
+  display: flex; align-items: center; justify-content: center;
+  transform: rotate(45deg);
+  background: linear-gradient(135deg, rgba(var(--scr-grid),.08), rgba(var(--scr-grid),.02));
+  border: 1px solid rgba(var(--scr-grid),.4);
+  box-shadow: inset 0 0 8px rgba(var(--scr-grid),.12);
+  transition: transform .12s, box-shadow .12s, border-color .12s;
+  flex: 0 0 auto;
+}
+.dicon .material-icons {
+  transform: rotate(-45deg);
+  font-size: 7cqw; color: var(--scr-green);
+  text-shadow: 0 0 6px rgba(var(--scr-grid),.5);
+}
+.dicon.sel {
+  transform: rotate(45deg) scale(1.28);
+  border-color: var(--scr-amber);
+  box-shadow: 0 0 14px rgba(var(--scr-amber-rgb),.7), inset 0 0 12px rgba(var(--scr-amber-rgb),.3);
+}
+.dicon.sel .material-icons { color: var(--scr-amber); text-shadow: 0 0 10px rgba(var(--scr-amber-rgb),.9); }
+#dash-label {
+  font-size: 4.4cqw; letter-spacing: .1em; color: var(--scr-amber);
+  min-height: 5cqw; text-shadow: 0 0 8px rgba(var(--scr-amber-rgb),.5);
+}
+
+/* panel grafico derecho (render del propio pager / gauge) */
+#dash-right {
+  width: 40%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  gap: 2cqw;
+  border-left: 1px solid rgba(var(--scr-grid),.2);
+}
+#dash-art {
+  width: 56%; filter: drop-shadow(0 0 8px rgba(var(--scr-grid),.5));
+  opacity: .9;
+}
+#dash-art svg { width: 100%; height: auto; }
+/* barra vertical de nivel */
+#level-bar {
+  width: 5cqw; height: 72%;
+  display: flex; flex-direction: column-reverse; gap: 1px;
+  border: 1px solid rgba(var(--scr-grid),.3); padding: 1px;
+}
+#level-bar i { flex: 1; opacity: .18; }
+#level-bar i.on { opacity: 1; }
+#level-bar i.g { background: var(--scr-green); box-shadow: 0 0 5px rgba(var(--scr-grid),.6); }
+#level-bar i.y { background: var(--scr-amber); box-shadow: 0 0 5px rgba(var(--scr-amber-rgb),.6); }
+#level-bar i.r { background: var(--led-red);  box-shadow: 0 0 5px rgba(255,43,43,.6); }
+
+/* ---- Cabecera comun de subvistas ---- */
+.pane-head {
+  display: flex; align-items: center; gap: 2cqw;
+  height: 10cqw; padding: 0 2.6cqw; flex: 0 0 auto;
+  font-size: 4.4cqw; letter-spacing: .12em; color: var(--scr-cyan);
+  border-bottom: 1px solid rgba(var(--scr-grid),.25);
+  text-shadow: 0 0 6px rgba(var(--scr-grid),.5);
+}
+.pane-head .hint { margin-left: auto; font-size: 3cqw; color: rgba(var(--scr-grid),.6); }
+.pane-body { flex: 1; min-height: 0; overflow: hidden; padding: 1.6cqw 2.6cqw; }
+
+/* ---- RECON (tabla terminal) ---- */
+#recon-table { width: 100%; border-collapse: collapse; font-size: 3.2cqw; }
+#recon-table th {
+  text-align: left; color: var(--scr-cyan); padding: .4cqw .8cqw;
+  border-bottom: 1px solid rgba(var(--scr-grid),.3); font-weight: normal; letter-spacing: .06em;
+}
+#recon-table td {
+  padding: .5cqw .8cqw; color: var(--scr-green);
+  border-bottom: 1px dotted rgba(var(--scr-grid),.12);
+}
+#recon-table tr.sel td { background: rgba(var(--scr-amber-rgb),.12); color: var(--scr-amber); }
+#recon-table .sig { color: var(--scr-cyan); }
+#recon-table .cli { color: var(--scr-amber); }
+.pane-foot {
+  flex: 0 0 auto; height: 8cqw; padding: 0 2.6cqw;
+  display: flex; align-items: center; gap: 3cqw;
+  font-size: 3cqw; color: rgba(var(--scr-grid),.75);
+  border-top: 1px solid rgba(var(--scr-grid),.2);
+}
+.blink { animation: blink 1s steps(2) infinite; }
+@keyframes blink { 50% { opacity: .2; } }
+
+/* ---- Filas genericas (pineap/settings) ---- */
+.row {
+  display: flex; align-items: center; gap: 2cqw;
+  padding: 1.4cqw 1cqw; font-size: 3.6cqw; color: var(--scr-green);
+  border-bottom: 1px dotted rgba(var(--scr-grid),.14);
+}
+.row.sel { background: rgba(var(--scr-amber-rgb),.12); color: var(--scr-amber); }
+.row .k { flex: 1; letter-spacing: .06em; }
+.row .v { color: var(--scr-cyan); }
+.row.sel .v { color: var(--scr-amber); }
+.toggle {
+  width: 11cqw; height: 5cqw; border-radius: 3cqw; position: relative;
+  border: 1px solid rgba(var(--scr-grid),.4); background: rgba(var(--scr-grid),.08);
+}
+.toggle i {
+  position: absolute; top: .6cqw; left: .6cqw; width: 3.4cqw; height: 3.4cqw;
+  border-radius: 50%; background: #0b3a16; transition: all .15s;
+}
+.toggle.on { background: rgba(var(--scr-grid),.3); box-shadow: 0 0 8px rgba(var(--scr-grid),.5); }
+.toggle.on i { left: 6.2cqw; background: var(--scr-green); box-shadow: 0 0 6px rgba(var(--scr-grid),.9); }
+
+/* ---- SSID pool chips ---- */
+#ssid-pool { display: flex; flex-wrap: wrap; gap: 1.4cqw; margin-top: 1.6cqw; }
+.chip {
+  font-size: 3cqw; padding: .6cqw 1.6cqw; border-radius: 2cqw;
+  border: 1px solid rgba(var(--scr-grid),.35); color: var(--scr-green);
+  background: rgba(var(--scr-grid),.06);
+}
+
+/* ---- ALERTAS / EVENTOS ---- */
+#alerts-list { display: flex; flex-direction: column; }
+.alert {
+  display: flex; align-items: flex-start; gap: 2cqw;
+  padding: 1.4cqw 1.2cqw;
+  border-bottom: 1px dotted rgba(var(--scr-grid),.14);
+  border-left: .8cqw solid transparent;
+}
+.alert.sel { background: rgba(var(--scr-amber-rgb),.12); border-left-color: var(--scr-amber); }
+.alert .ai { font-size: 4.6cqw; line-height: 1; flex: 0 0 auto; margin-top: .2cqw; }
+.alert .atext { display: flex; flex-direction: column; gap: .4cqw; min-width: 0; flex: 1; }
+.alert .amsg {
+  font-size: 3.4cqw; color: var(--scr-green); letter-spacing: .03em;
+  word-break: break-word;
+}
+.alert.sel .amsg { color: var(--scr-amber); }
+.alert .ameta { display: flex; align-items: center; gap: 2cqw; font-size: 2.8cqw; }
+.alert .alvl {
+  font-weight: 700; letter-spacing: .08em; padding: .1cqw 1.2cqw;
+  border-radius: 2cqw; border: 1px solid currentColor;
+}
+.alert .ats { color: rgba(var(--scr-grid),.6); }
+/* colores por nivel */
+.alert.lvl-info .ai  { color: var(--scr-cyan); }
+.alert.lvl-info .alvl { color: var(--scr-cyan); }
+.alert.lvl-warn .ai  { color: var(--scr-amber); }
+.alert.lvl-warn .alvl { color: var(--scr-amber); }
+.alert.lvl-crit .ai  { color: var(--led-red); }
+.alert.lvl-crit .alvl { color: var(--led-red); }
+.alert.lvl-crit .amsg { color: #ff8c8c; }
+/* estado vacio elegante */
+#alerts-empty {
+  height: 100%; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 1.4cqw;
+  color: rgba(var(--scr-grid),.45);
+}
+#alerts-empty[hidden] { display: none; }
+#alerts-empty .material-icons {
+  font-size: 16cqw; opacity: .5; text-shadow: 0 0 10px rgba(var(--scr-grid),.3);
+}
+#alerts-empty .ae-title { font-size: 5cqw; letter-spacing: .1em; color: var(--scr-cyan); }
+#alerts-empty .ae-sub { font-size: 3.2cqw; opacity: .8; }
+#alerts-count { font-size: 3cqw; color: rgba(var(--scr-grid),.6); }
+
+/* ---- TERMINAL ---- */
+#pane-terminal .pane-body { padding: 1cqw; }
+#terminal {
+  width: 100%; height: 100%; background: var(--scr-bg); border-radius: 1cqw;
+  overflow: hidden;
+}
+#term-placeholder {
+  width: 100%; height: 100%; padding: 2cqw;
+  font-family: 'Courier New', monospace; font-size: 3cqw; color: var(--scr-green);
+  overflow: auto; white-space: pre-wrap;
+}
+
+/* =============================================================================
+ * FILA DE BOTONES FISICOS
+ * -----------------------------------------------------------------------------
+ * Medidas en px FIJOS: la carcasa entera escala por transform:scale(--sc), asi
+ * que aqui no multiplicamos nada por --sc. Altura de fila fija (88px) para que
+ * los controles no se apilen ni deformen. Orden fiel al hardware:
+ *   [brand] ----(auto)---- [status-led] [SELECT] [<] [^ / v] [>] [back]
+ * ========================================================================== */
+#buttons {
+  flex: 0 0 auto;
+  height: 88px;
+  display: flex; align-items: center; gap: 22px;
+  padding: 0 12px;
+}
+
+/* logo pineapple (chico, abajo-izquierda) */
+#brand {
+  display: flex; align-items: center; gap: 10px;
+  margin-right: auto;   /* empuja los botones a la derecha */
+}
+#brand img { width: 44px; height: 44px; filter: brightness(0) invert(1); opacity: .92; }
+#brand .bt { line-height: 1.1; }
+#brand .bt .b1 { font-size: 13px; color: #fff; letter-spacing: .04em; opacity: .85; }
+#brand .bt .b2 { font-size: 18px; color: #fff; font-weight: 700; letter-spacing: .02em; }
+
+/* status LED strip (rojo) */
+#status-led {
+  display: flex; align-items: center; gap: 6px;
+}
+#status-led .big {
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--led-red-dim);
+  box-shadow: inset 0 0 4px rgba(0,0,0,.6);
+}
+#status-led.active .big {
+  background: var(--led-red);
+  box-shadow: 0 0 10px rgba(255,43,43,.9), inset 0 0 3px rgba(255,255,255,.5);
+}
+#status-led .dots { display: flex; flex-direction: column; gap: 3px; }
+#status-led .dots span {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--led-red-dim);
+}
+#status-led.active .dots span { background: var(--led-red); box-shadow: 0 0 5px rgba(255,43,43,.8); }
+
+/* boton base (negro con LED verde) */
+.hwbtn {
+  position: relative;
+  flex: 0 0 auto;
+  background: linear-gradient(180deg, var(--btn-black2), var(--btn-black));
+  color: #9a9a9a;
+  border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow:
+    inset 0 2px 2px rgba(255,255,255,.08),
+    inset 0 -3px 5px rgba(0,0,0,.7),
+    0 3px 5px rgba(0,0,0,.5);
+  transition: transform .06s, box-shadow .06s;
+  -webkit-user-select: none; user-select: none;
+}
+.hwbtn:active, .hwbtn.press {
+  transform: translateY(2px);
+  box-shadow: inset 0 3px 6px rgba(0,0,0,.8);
+}
+.hwbtn .material-icons { font-size: 28px; }
+
+/* LED verde de cada boton */
+.hwbtn .led {
+  position: absolute; width: 6px; height: 6px;
+  border-radius: 50%; top: 6px; right: 8px;
+  background: var(--led-green-dim);
+}
+.hwbtn.lit .led, .hwbtn:active .led {
+  background: var(--led-green);
+  box-shadow: 0 0 8px rgba(34,255,78,1), 0 0 2px #fff;
+}
+
+/* pill SELECT (alargada) */
+.pill {
+  width: 104px; height: 44px;
+  border-radius: 22px;
+  font-size: 13px; letter-spacing: .14em; font-weight: 700;
+  gap: 6px;
+}
+
+/* redondos flecha */
+.round {
+  width: 60px; height: 60px; border-radius: 50%;
+}
+
+/* d-pad up/down (dos pills apilados verticalmente -> UN control) */
+#dpad { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; }
+#dpad .hwbtn {
+  width: 100px; height: 30px;
+  border-radius: 16px;
+}
+
+/* =============================================================================
+ * ORIENTACION — LANDSCAPE SIEMPRE (nunca pedimos girar)
+ * -----------------------------------------------------------------------------
+ * El Pager es horizontal. Si el viewport esta en PORTRAIT (G82 kiosk,
+ * 1080x2400), rotamos el #stage 90deg y le damos dimensiones INTERCAMBIADAS
+ * (width=100vh, height=100vw) para que, tras rotar, ocupe VISUALMENTE todo el
+ * viewport apaisado. boot.js->fitPager detecta la orientacion y swapea las
+ * dimensiones al calcular --sc (ver boot.js). En landscape nativo no se rota.
+ * ========================================================================== */
+#rotate-hint { display: none !important; }  /* nunca pedimos girar */
+
+@media (orientation: portrait) {
+  /* viewport alto>ancho: rotamos a landscape */
+  #stage {
+    position: fixed;
+    top: 50%; left: 50%;
+    width: 100vh;   /* ancho VISUAL tras rotar = alto del viewport */
+    height: 100vw;  /* alto  VISUAL tras rotar = ancho del viewport */
+    transform: translate(-50%, -50%) rotate(90deg);
+    transform-origin: center center;
+  }
+}
+@media (orientation: landscape) {
+  /* ya es apaisado: ocupa el viewport normal */
+  #stage { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; transform: none; }
+}
+
+/* respeta la preferencia de menos movimiento */
+@media (prefers-reduced-motion: reduce) {
+  .blink { animation: none; }
+  .dicon, .toggle i, .hwbtn { transition: none; }
+}
+
+/* ---- toast feedback ---- */
+#toast {
+  position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%);
+  background: rgba(0,20,6,.92); color: var(--scr-green);
+  border: 1px solid rgba(var(--scr-grid),.4); border-radius: 8px;
+  padding: 6px 14px; font-family: 'Courier New', monospace; font-size: 13px;
+  opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 90;
+  box-shadow: 0 0 14px rgba(var(--scr-grid),.25);
+}
+#toast.show { opacity: 1; }

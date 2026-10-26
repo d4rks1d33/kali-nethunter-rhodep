@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>WiFi Pineapple Pager — Virtual Pager (firmware real)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0d0d0d">
+  <link rel="icon" type="image/png" href="assets/images/logo-light.png">
+  <link rel="apple-touch-icon" href="assets/images/logo-light.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="stage">
+  <!-- ======================== CARCASA AMARILLA ========================
+       Misma estetica/estructura que ../../frontend/index.html, pero el
+       #display se pinta con el STREAM BINARIO del firmware real (screen.ws),
+       no con el motor recreado. -->
+  <div id="pager">
+
+    <!-- ---- Pantalla: framebuffer 480x222 del firmware ---- -->
+    <div id="screen-bezel">
+      <div id="screen">
+        <canvas id="display" width="480" height="222"></canvas>
+
+        <!-- Overlay de estado/login (sobre la pantalla, estilo fosforo) -->
+        <div id="overlay">
+          <div id="ov-box">
+            <div id="ov-title">WiFi Pineapple Pager</div>
+            <div id="ov-sub">Virtual Pager — firmware real</div>
+            <div id="ov-msg">conectando&hellip;</div>
+            <form id="ov-form" hidden autocomplete="off">
+              <input id="ov-pass" type="password" placeholder="password root"
+                     minlength="8" autocomplete="current-password" spellcheck="false">
+              <button id="ov-go" type="submit">CONECTAR</button>
+            </form>
+            <div id="ov-host"></div>
+          </div>
+        </div>
+      </div><!-- /screen -->
+    </div><!-- /screen-bezel -->
+
+    <!-- ===================== CONTROLES FISICOS =====================
+         Layout fiel al Pager real (foto Hak5/Lab401), de izquierda a derecha:
+           [BACK: capsula con LEDs rojos] [A/SELECT: capsula LED verde]
+           [ < izquierda ]  [ d-pad arriba/abajo ]  [ > derecha ]
+         Mapeo de teclas del firmware (keys.ws):
+           Back=Escape  A/Select=Enter  Left/Right/Up/Down = flechas.
+         El boton de POWER (no existe en la cara frontal del hw; lo ubicamos
+         arriba-derecha de la carcasa) enciende/apaga el stack del Pager. -->
+    <div id="controls">
+
+      <!-- BACK (B) = capsula horizontal con 4 LEDs rojos en fila -->
+      <button class="hwbtn capsule back" id="btn-back" data-key="Escape" aria-label="back (B)">
+        <span class="leds red"><i></i><i></i><i></i><i></i></span>
+      </button>
+
+      <!-- A / SELECT = capsula con 1 LED verde LARGO (barra) + 1 punto -->
+      <button class="hwbtn capsule select" id="btn-select" data-key="Enter" aria-label="select (A)">
+        <span class="leds green"><i class="bar"></i><i class="dot"></i></span>
+      </button>
+
+      <!-- flecha IZQUIERDA (1 LED verde + triangulo) -->
+      <button class="hwbtn dkey left" id="btn-left" data-key="ArrowLeft" aria-label="left">
+        <span class="led-dot"></span><span class="tri"></span>
+      </button>
+
+      <!-- D-PAD arriba / abajo (cada mitad 1 LED verde + triangulo) -->
+      <div id="dpad">
+        <button class="hwbtn dup" id="btn-up" data-key="ArrowUp" aria-label="up">
+          <span class="tri"></span><span class="led-dot"></span>
+        </button>
+        <button class="hwbtn ddown" id="btn-down" data-key="ArrowDown" aria-label="down">
+          <span class="led-dot"></span><span class="tri"></span>
+        </button>
+      </div>
+
+      <!-- flecha DERECHA (1 LED verde + triangulo) -->
+      <button class="hwbtn dkey right" id="btn-right" data-key="ArrowRight" aria-label="right">
+        <span class="tri"></span><span class="led-dot"></span>
+      </button>
+
+    </div><!-- /controls -->
+
+    <!-- Logo WiFi Pineapple (sobre el swoosh negro, abajo-izquierda) -->
+    <div id="brand">
+      <img src="assets/images/pineapple.svg" alt="pineapple">
+      <span>WiFi Pineapple</span>
+    </div>
+
+    <!-- Boton de POWER: esquina superior IZQUIERDA, sobre el borde amarillo -->
+    <button id="btn-power" title="Encender / apagar el Pager" aria-label="power">
+      <span class="material-icons">power_settings_new</span>
+    </button>
+
+    <!-- LED de estado del stream (vive del screen.ws) -->
+    <div id="status-led" title="stream"></div>
+  </div><!-- /pager -->
+</div><!-- /stage -->
+
+<div id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

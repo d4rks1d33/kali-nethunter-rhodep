@@ -1,0 +1,25 @@
+# pineapd-pager.service -- native PineAP daemon of the WiFi Pineapple Pager port.
+#
+# Part of: extra-tools/pineapple-pager/systemd/
+# The C reimplementation of the Pager's pineapd (socket msgpack protocol). Serves
+# /opt/pineapple-pager/run/pineap_sock; the firmware (via pineap-bridge) talks to
+# it. Needs root (raw pcap + nl80211). Starts without a radio (degrades well).
+#
+# This is the WiFi back-end for the REAL firmware (qemu) mode: wlan0 internal =
+# STA+AP (karma/evil, never monitor), wlan1 Archer = monitor/deauth/scan.
+
+[Unit]
+Description=WiFi Pineapple Pager daemon (pineapd-pager, native aarch64)
+PartOf=pager-qemu.target
+
+[Service]
+Type=simple
+ExecStartPre=/bin/mkdir -p /opt/pineapple-pager/run /var/log/pineapple-pager
+ExecStart=/opt/pineapple-pager/bin/pineapd-pager --config /opt/pineapple-pager/etc/pineapd.conf
+Restart=on-failure
+RestartSec=3
+# Safety: never let the internal radio stay in monitor (same rule as the NANO).
+ExecStopPost=-/opt/pineapple-pager/net/pager-iface-restore.sh
+
+[Install]
+WantedBy=pager-qemu.target

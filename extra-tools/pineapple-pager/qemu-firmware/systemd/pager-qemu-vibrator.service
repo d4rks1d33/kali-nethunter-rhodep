@@ -1,0 +1,41 @@
+# pager-qemu-vibrator.service -- bridge the qemu firmware's FAKE vibrator
+# sysfs node to the Motorola G82's REAL vibrator.
+#
+# Part of: extra-tools/pineapple-pager/qemu-firmware/systemd/
+# The firmware (under qemu-mipsel, -L ROOTFS) writes "1"/"0" to
+#   ROOTFS/sys/class/gpio/vibrator/value  (a plain file prepare.sh made).
+# That never reaches hardware. This watcher drives the G82's real
+# gpio-vibrator force-feedback device (/dev/input/eventN, FF_RUMBLE) in
+# response to those writes.
+#
+# Runs as root: the real vibrator evdev node is root:input and the only
+# non-root access is a login-session (uaccess) ACL that a system service
+# does not get. The script itself only opens one evdev node + one sysfs file.
+
+[Unit]
+Description=WiFi Pineapple Pager qemu vibrator bridge (fake sysfs -> real G82 vibrator)
+# Needs the firmware running (it is the writer of the fake node).
+After=pager-qemu-firmware.service
+PartOf=pager-qemu.target
+
+[Service]
+Type=simple
+Environment=PAGER_VIB_WATCH=/opt/pineapple-pager/qemu/rootfs/sys/class/gpio/vibrator/value
+# PAGER_VIB_DEV is auto-detected (gpio-vibrator); override here if needed.
+# Environment=PAGER_VIB_DEV=/dev/input/event3
+Environment=PAGER_VIB_STRONG=65535
+Environment=PAGER_VIB_MAXMS=8000
+ExecStart=/opt/pineapple-pager/qemu/scripts/vibrator_bridge.py
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+# Hardening: it only needs the evdev node + the sysfs value file.
+ProtectHome=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=pager-qemu.target

@@ -1,0 +1,34 @@
+# pineape-creds.service -- import hostapd-mana WPE creds into pineape.db.
+#
+# Part of: extra-tools/pineapple-port/systemd/   (FASE 4, PineAPE Enterprise)
+#
+# hostapd-mana (pineapple-ap.service) appends harvested EAP credentials to its
+# WPE credout log (/tmp/pineap-creds.log). This service tails that log and
+# writes the parsed credentials into /etc/pineapple/pineape.db, into the exact
+# tables the PHP PineAP panel reads:
+#     chalresp(type, username, challenge, response, ...)   (MSCHAPv2 / CHAP)
+#     basic   (type, identity, password, ...)              (PAP plaintext)
+# so the panel's "Enterprise" view and its JTR/hashcat exports work unchanged,
+# reproducing the original Hak5 PineAPE behaviour (which wrote the DB directly).
+#
+# It runs alongside the AP and is torn down with the target.
+
+[Unit]
+Description=WiFi Pineapple PineAPE credential importer (mana WPE -> pineape.db)
+After=pineapple-ap.service
+Wants=pineapple-ap.service
+PartOf=pineapple.target
+
+[Service]
+Type=simple
+Environment=PINEAP_CREDOUT=/tmp/pineap-creds.log
+# /etc/pineapple is the install symlink to /opt/pineapple/etc; pineape.db lives
+# there alongside pineapple.db (the panel opens /etc/pineapple/pineape.db).
+ExecStart=/opt/pineapple/net/pineape-creds-import \
+    --db /etc/pineapple/pineape.db \
+    --log /tmp/pineap-creds.log
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=pineapple.target

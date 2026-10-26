@@ -1,0 +1,37 @@
+# pineapd.service -- the native PineAP daemon (pineapd-ng).
+#
+# Part of: extra-tools/pineapple-port/systemd/   (FASE 4)
+#
+# This is the unit the panel's /etc/init.d/pineapd shim maps to (PineAPHelper
+# enablePineAP/disablePineAP -> `/etc/init.d/pineapd start|stop`). It:
+#   ExecStartPre: render /tmp/pineap.conf from the UCI store (gen-pineap-config),
+#                 then best-effort put the capture iface into monitor mode.
+#   ExecStart:    /usr/sbin/pineapd /tmp/pineap.conf   (foreground; our main.c
+#                 does NOT fork, so systemd supervises it directly).
+# The daemon needs root (opens raw pcap + the /var/run/pineapd.sock the panel
+# and the `pineap` CLI talk to). It serves its socket/DB even without a radio.
+#
+# Starting pineapd needs the LAN up first so recon/handshake tooling and the
+# panel share one consistent environment -> After/Wants pineapple-net.
+
+[Unit]
+Description=WiFi Pineapple PineAP daemon (pineapd-ng)
+After=pineapple-net.service pineapple-firstboot.service
+Wants=pineapple-firstboot.service
+PartOf=pineapple.target
+
+[Service]
+Type=simple
+# Render the runtime config from the UCI store the panel writes.
+ExecStartPre=/opt/pineapple/net/gen-pineap-config.sh /tmp/pineap.conf
+# Best-effort monitor-mode setup for the configured capture iface (no-op w/o HW).
+ExecStartPre=-/opt/pineapple/net/pineapd-iface.sh
+ExecStart=/usr/sbin/pineapd /tmp/pineap.conf
+# Safety net: on stop/crash, never leave the internal radio in monitor mode.
+ExecStopPost=-/opt/pineapple/net/pineapd-iface-restore.sh
+Restart=on-failure
+RestartSec=3
+# The daemon manages its own socket/lock under /var/run.
+
+[Install]
+WantedBy=pineapple.target

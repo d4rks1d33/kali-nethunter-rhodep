@@ -1,0 +1,446 @@
+[sudo] password for kali: camss_top_gdsc
+cx
+cx_ao
+cx_vfl
+gpu_cx_gdsc
+gpu_gx_gdsc
+gx
+gx_ao
+hlos1_vote_mm_snoc_mmu_tbu_nrt_gdsc
+hlos1_vote_mm_snoc_mmu_tbu_rt_gdsc
+hlos1_vote_turing_mmu_tbu0_gdsc
+hlos1_vote_turing_mmu_tbu1_gdsc
+interrupt-controller
+lpi_cx
+lpi_mx
+mdss_gdsc
+mx
+mx_ao
+mx_vfl
+pm_genpd_summary
+power-domain-cpu-cluster0
+power-domain-cpu0
+power-domain-cpu1
+power-domain-cpu2
+power-domain-cpu3
+power-domain-cpu4
+power-domain-cpu5
+power-domain-cpu6
+power-domain-cpu7
+ufs_phy_gdsc
+usb30_prim_gdsc
+vcodec0_gdsc
+venus_gdsc
+===
+--- /sys/kernel/debug/pm_genpd/camss_top_gdsc/
+  active_time: 1247 ms
+  current_state: off-0
+  devices: 5c1b000.cci
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     429803         2          0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  sub_domains: 
+  total_idle_time: 429825 ms
+--- /sys/kernel/debug/pm_genpd/cx/
+  active_time: 430888 ms
+  current_state: on
+  devices: 4784000.mmc
+4a84000.serial
+5e01000.display-controller
+6080000.remoteproc
+4a80000.spi
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     410            2          0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  perf_state: 192
+  sub_domains: 
+  total_idle_time: 410 ms
+--- /sys/kernel/debug/pm_genpd/cx_ao/
+  active_time: 0 ms
+  current_state: off-0
+  devices: 
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     431377         0          0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  perf_state: 0
+  sub_domains: 
+  total_idle_time: 431405 ms
+--- /sys/kernel/debug/pm_genpd/cx_vfl/
+  active_time: 0 ms
+  current_state: off-0
+  devices: 
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     431431         0          0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  perf_state: 0
+  sub_domains: 
+  total_idle_time: 431455 ms
+--- /sys/kernel/debug/pm_genpd/gpu_cx_gdsc/
+  active_time: 9989 ms
+  current_state: off-0
+  devices: 5940000.iommu
+genpd:0:596a000.gmu
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     421249         61         0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  sub_domains: 
+  total_idle_time: 421269 ms
+--- /sys/kernel/debug/pm_genpd/gpu_gx_gdsc/
+  active_time: 9461 ms
+  current_state: off-0
+  devices: genpd:1:596a000.gmu
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     421827         55         0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  sub_domains: 
+  total_idle_time: 421847 ms
+--- /sys/kernel/debug/pm_genpd/gx/
+  active_time: 431316 ms
+  current_state: on
+  devices: 5990000.clock-controller
+5900000.gpu
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     242            0          0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  perf_state: 64
+  sub_domains: gpu_cx_gdsc
+gpu_gx_gdsc
+  total_idle_time: 242 ms
+--- /sys/kernel/debug/pm_genpd/gx_ao/
+  active_time: 0 ms
+  current_state: off-0
+  devices: 
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     431628         0          0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  perf_state: 0
+  sub_domains: 
+  total_idle_time: 431654 ms
+--- /sys/kernel/debug/pm_genpd/hlos1_vote_mm_snoc_mmu_tbu_nrt_gdsc/
+  active_time: 431443 ms
+  current_state: on
+  devices: 
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     0              0          0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  sub_domains: 
+  total_idle_time: 0 ms
+--- /sys/kernel/debug/pm_genpd/hlos1_vote_mm_snoc_mmu_tbu_rt_gdsc/
+  active_time: 431489 ms
+  current_state: on
+  devices: 
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     0              0          0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  sub_domains: 
+  total_idle_time: 0 ms
+--- /sys/kernel/debug/pm_genpd/hlos1_vote_turing_mmu_tbu0_gdsc/
+  active_time: 431534 ms
+  current_state: on
+  devices: 
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     0              0          0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  sub_domains: 
+  total_idle_time: 0 ms
+--- /sys/kernel/debug/pm_genpd/hlos1_vote_turing_mmu_tbu1_gdsc/
+  active_time: 0 ms
+  current_state: off-0
+  devices: 
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     431599         0          0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  sub_domains: 
+  total_idle_time: 431618 ms
+--- /sys/kernel/debug/pm_genpd/interrupt-controller/
+  active_time: 197153 ms
+  current_state: on
+  devices: 
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     234670         14970      0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  sub_domains: power-domain-cpu-cluster0
+  total_idle_time: 234670 ms
+--- /sys/kernel/debug/pm_genpd/lpi_cx/
+  active_time: 846 ms
+  current_state: off-0
+  devices: genpd:0:a400000.remoteproc
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     431061         1          0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  perf_state: 0
+  sub_domains: 
+  total_idle_time: 431087 ms
+--- /sys/kernel/debug/pm_genpd/lpi_mx/
+  active_time: 845 ms
+  current_state: off-0
+  devices: genpd:1:a400000.remoteproc
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     431113         1          0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  perf_state: 0
+  sub_domains: 
+  total_idle_time: 431138 ms
+--- /sys/kernel/debug/pm_genpd/mdss_gdsc/
+  active_time: 431749 ms
+  current_state: on
+  devices: 5e00000.display-subsystem
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     0              0          0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  sub_domains: 
+  total_idle_time: 0 ms
+--- /sys/kernel/debug/pm_genpd/mx/
+  active_time: 431792 ms
+  current_state: on
+  devices: 5e94400.phy
+5e94000.dsi
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     242            0          0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  perf_state: 256
+  sub_domains: gx
+  total_idle_time: 242 ms
+--- /sys/kernel/debug/pm_genpd/mx_ao/
+  active_time: 0 ms
+  current_state: off-0
+  devices: 
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     432102         0          0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  perf_state: 0
+  sub_domains: gx_ao
+  total_idle_time: 432128 ms
+--- /sys/kernel/debug/pm_genpd/mx_vfl/
+  active_time: 0 ms
+  current_state: off-0
+  devices: 
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     432154         0          0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  perf_state: 0
+  sub_domains: 
+  total_idle_time: 432178 ms
+--- /sys/kernel/debug/pm_genpd/power-domain-cpu-cluster0/
+  active_time: 197124 ms
+  current_state: on
+  devices: 
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     234845         13462      1508       7680       0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     5800         6118           N/A
+  sub_domains: power-domain-cpu0
+power-domain-cpu1
+power-domain-cpu2
+power-domain-cpu3
+power-domain-cpu4
+  total_idle_time: 234845 ms
+--- /sys/kernel/debug/pm_genpd/power-domain-cpu0/
+  active_time: 93227 ms
+  current_state: on
+  devices: genpd:0:cpu0
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     338790         63224      0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  sub_domains: 
+  total_idle_time: 338790 ms
+--- /sys/kernel/debug/pm_genpd/power-domain-cpu1/
+  active_time: 82399 ms
+  current_state: on
+  devices: genpd:0:cpu1
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     349662         12160      0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  sub_domains: 
+  total_idle_time: 349662 ms
+--- /sys/kernel/debug/pm_genpd/power-domain-cpu2/
+  active_time: 75722 ms
+  current_state: on
+  devices: genpd:0:cpu2
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     356383         10340      0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  sub_domains: 
+  total_idle_time: 356383 ms
+--- /sys/kernel/debug/pm_genpd/power-domain-cpu3/
+  active_time: 66797 ms
+  current_state: on
+  devices: genpd:0:cpu3
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     365353         9278       0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  sub_domains: 
+  total_idle_time: 365353 ms
+--- /sys/kernel/debug/pm_genpd/power-domain-cpu4/
+  active_time: 67420 ms
+  current_state: on
+  devices: genpd:0:cpu4
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     364775         17602      0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  sub_domains: 
+  total_idle_time: 364775 ms
+--- /sys/kernel/debug/pm_genpd/power-domain-cpu5/
+  active_time: 72991 ms
+  current_state: on
+  devices: genpd:0:cpu5
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     359247         8639       0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  sub_domains: 
+  total_idle_time: 359247 ms
+--- /sys/kernel/debug/pm_genpd/power-domain-cpu6/
+  active_time: 93374 ms
+  current_state: on
+  devices: genpd:0:cpu6
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     338909         21873      0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  sub_domains: 
+  total_idle_time: 338909 ms
+--- /sys/kernel/debug/pm_genpd/power-domain-cpu7/
+  active_time: 80356 ms
+  current_state: off-0
+  devices: genpd:0:cpu7
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     351987         22632      0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  sub_domains: 
+  total_idle_time: 352001 ms
+--- /sys/kernel/debug/pm_genpd/ufs_phy_gdsc/
+  active_time: 432367 ms
+  current_state: on
+  devices: 4807000.phy
+4804000.ufshc
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     0              0          0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  sub_domains: 
+  total_idle_time: 0 ms
+--- /sys/kernel/debug/pm_genpd/usb30_prim_gdsc/
+  active_time: 432412 ms
+  current_state: on
+  devices: 4ef8800.usb
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     0              0          0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  sub_domains: 
+  total_idle_time: 0 ms
+--- /sys/kernel/debug/pm_genpd/vcodec0_gdsc/
+  active_time: 0 ms
+  current_state: off-0
+  devices: 
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     432481         0          0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  sub_domains: 
+  total_idle_time: 432505 ms
+--- /sys/kernel/debug/pm_genpd/venus_gdsc/
+  active_time: 0 ms
+  current_state: off-0
+  devices: 
+  idle_states: State  Time(ms)       Usage      Rejected   Above      Below      S2idle
+S0     432533         0          0          0          0          0
+  idle_states_desc: State  Latency(us)  Residency(us)  Name
+S0     0            0              N/A
+  sub_domains: 
+  total_idle_time: 432554 ms
+===SUMMARY===
+domain                          status          children        performance
+    /device                         runtime status                  managed by
+------------------------------------------------------------------------------
+gpu_gx_gdsc                     off-0                           0
+    genpd:1:596a000.gmu             suspended                   0           SW
+gpu_cx_gdsc                     off-0                           0
+    5940000.iommu                   suspended                   0           SW
+    genpd:0:596a000.gmu             suspended                   0           SW
+mdss_gdsc                       on                              0
+    5e00000.display-subsystem       active                      0           SW
+hlos1_vote_turing_mmu_tbu1_gdsc  off-0                           0
+hlos1_vote_turing_mmu_tbu0_gdsc  on                              0
+hlos1_vote_mm_snoc_mmu_tbu_rt_gdsc  on                              0
+hlos1_vote_mm_snoc_mmu_tbu_nrt_gdsc  on                              0
+vcodec0_gdsc                    off-0                           0
+venus_gdsc                      off-0                           0
+camss_top_gdsc                  off-0                           0
+    5c1b000.cci                     suspended                   0           SW
+ufs_phy_gdsc                    on                              0
+    4807000.phy                     unsupported                 0           SW
+    4804000.ufshc                   suspended                   0           SW
+usb30_prim_gdsc                 on                              0
+    4ef8800.usb                     active                      0           SW
+power-domain-cpu-cluster0       on                              0
+                                                power-domain-cpu0, power-domain-cpu1, power-domain-cpu2, power-domain-cpu3, power-domain-cpu4, power-domain-cpu5, power-domain-cpu6, power-domain-cpu7
+power-domain-cpu7               off-0                           0
+    genpd:0:cpu7                    suspended                   0           SW
+power-domain-cpu6               off-0                           0
+    genpd:0:cpu6                    suspended                   0           SW
+power-domain-cpu5               on                              0
+    genpd:0:cpu5                    active                      0           SW
+power-domain-cpu4               on                              0
+    genpd:0:cpu4                    active                      0           SW
+power-domain-cpu3               on                              0
+    genpd:0:cpu3                    active                      0           SW
+power-domain-cpu2               on                              0
+    genpd:0:cpu2                    active                      0           SW
+power-domain-cpu1               on                              0
+    genpd:0:cpu1                    active                      0           SW
+power-domain-cpu0               on                              0
+    genpd:0:cpu0                    active                      0           SW
+interrupt-controller            on                              0
+                                                power-domain-cpu-cluster0
+lpi_mx                          off-0                           0
+    genpd:1:a400000.remoteproc      suspended                   0           SW
+lpi_cx                          off-0                           0
+    genpd:0:a400000.remoteproc      suspended                   0           SW
+gx_ao                           off-0                           0
+gx                              on                              64
+                                                gpu_cx_gdsc, gpu_gx_gdsc
+    5990000.clock-controller        active                      64          SW
+    5900000.gpu                     suspended                   0           SW
+mx_vfl                          off-0                           0
+mx_ao                           off-0                           0
+                                                gx_ao
+mx                              on                              256
+                                                gx
+    5e94400.phy                     active                      256         SW
+    5e94000.dsi                     active                      0           SW
+cx_vfl                          off-0                           0
+cx_ao                           off-0                           0
+cx                              on                              192
+    4784000.mmc                     suspended                   0           SW
+    4a84000.serial                  suspended                   0           SW
+    5e01000.display-controller      active                      192         SW
+    6080000.remoteproc              suspended                   0           SW
+    4a80000.spi                     suspended                   0           SW
+    b300000.remoteproc              suspended                   0           SW

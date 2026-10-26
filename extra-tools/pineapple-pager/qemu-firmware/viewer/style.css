@@ -1,0 +1,399 @@
+/* =============================================================================
+ * WiFi Pineapple Pager — VIEWER del firmware real (carcasa amarilla, landscape)
+ * -----------------------------------------------------------------------------
+ * Adaptado de ../../frontend/style.css. Misma carcasa amarilla apaisada, mismos
+ * botones negros con LED verde. La diferencia: el #display se pinta con el
+ * STREAM BINARIO (screen.ws) del firmware real (putImageData). Se quita todo el
+ * CSS de la UI recreada (#statusbar, panes, dashboard...) porque aqui NO existe:
+ * lo dibuja el propio firmware dentro del canvas.
+ *
+ * Fuentes Material Icons / Steelfish reutilizadas desde assets/.
+ * ========================================================================== */
+
+@font-face {
+  font-family: 'Material Icons';
+  font-style: normal; font-weight: 400;
+  src: local('Material Icons'), local('MaterialIcons-Regular'),
+       url(assets/MaterialIcons-Regular.ttf) format('truetype');
+}
+@font-face {
+  font-family: 'Steelfish';
+  font-style: normal; font-weight: 400;
+  src: local('Steelfish'), url(assets/Steelfish.ttf) format('truetype');
+}
+.material-icons {
+  font-family: 'Material Icons', serif;
+  font-weight: normal; font-style: normal;
+  display: inline-block; line-height: 1; text-transform: none;
+  letter-spacing: normal; white-space: nowrap; direction: ltr;
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  -moz-osx-font-smoothing: grayscale; font-feature-settings: 'liga';
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --pager-yellow:  #d7e000;
+  --pager-yellow2: #aeb800;
+  --pager-dark:    #1a1c05;
+  --btn-black:     #141414;
+  --btn-black2:    #262626;
+  --led-green:     #22ff4e;
+  --led-green-dim: #0b3a16;
+  --led-red:       #ff2b2b;
+  --led-red-dim:   #3a0b0b;
+
+  --scr-bg:    #020402;
+  --scr-green: #00ef35;
+  --scr-cyan:  #35f0e0;
+  --scr-amber: #ffd23a;
+  --scr-grid:  0,239,53;
+
+  --nat-w: 1040px;
+  --nat-h: 480px;
+}
+
+html, body {
+  height: 100%;
+  /* Fondo del color de la carcasa: si por el ratio del panel queda alguna franja
+   * minima fuera del #pager, se ve amarilla (no un borde negro feo). */
+  background: var(--pager-yellow2);
+  color: #d0d0d0;
+  font-family: Roboto, 'Helvetica Neue', sans-serif;
+  overflow: hidden;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+#stage {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+  min-width: 0; min-height: 0;
+}
+
+/* ---- Carcasa amarilla (natural 1040x480, escala para llenar el landscape) ---- */
+#pager {
+  /* Fallback antes de que fitPager() (app.js) calcule --sc. OVERSCAN con max()
+   * para cubrir todo el viewport sin franjas negras (igual que fitPager). */
+  --sc: max(100vw / 1040, 100vh / 480);
+  position: relative;
+  width: 1040px; height: 480px;
+  flex: 0 0 auto;
+  transform: scale(var(--sc));
+  transform-origin: center center;
+  display: flex; flex-direction: column;
+  padding: 22px 30px 18px;
+  border-radius: 46px;
+  background: linear-gradient(160deg, var(--pager-yellow) 0%, var(--pager-yellow2) 100%);
+  box-shadow:
+    inset 0 2px 0 rgba(255,255,255,.4),
+    inset 0 -14px 26px rgba(0,0,0,.28),
+    inset 0 0 60px rgba(120,130,0,.25),
+    0 20px 48px rgba(0,0,0,.6),
+    0 0 26px rgba(var(--scr-grid),.08);
+}
+#pager::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  pointer-events: none;
+  background-image: radial-gradient(rgba(0,0,0,.05) 1px, transparent 1px);
+  background-size: 6px 6px; opacity: .5;
+}
+/* Doble borde de la carcasa (como el Pager real): una linea interior sutil
+ * que recorre el perimetro del chasis amarillo. */
+#pager::before {
+  content: ''; position: absolute; inset: 9px; border-radius: 38px;
+  pointer-events: none; z-index: 1;
+  border: 2px solid rgba(0,0,0,.14);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.22);
+}
+
+/* ---- Marco negro de la pantalla ----
+ * Se deja un pequeño margen superior (y simetrico a los lados) para que quede
+ * una franja de borde amarillo arriba donde vive el boton de power SIN pisar
+ * la pantalla negra. */
+#screen-bezel {
+  position: relative;
+  flex: 1 1 auto; min-height: 0;
+  margin: 10px auto 14px;
+  /* un pelin mas angosto para dejar aire al boton de power en la esquina sup-izq */
+  width: calc(100% - 8px);
+  padding: 10px;
+  border-radius: 22px;
+  background: linear-gradient(180deg, #0c0c0c, #000);
+  box-shadow:
+    inset 0 2px 6px rgba(255,255,255,.08),
+    inset 0 -6px 14px rgba(0,0,0,.8),
+    0 2px 0 rgba(255,255,255,.25);
+  display: flex;
+}
+
+#screen {
+  position: relative;
+  width: 100%; height: 100%;
+  background: var(--scr-bg);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow:
+    inset 0 0 22px rgba(0,0,0,.95),
+    inset 0 0 26px rgba(0,255,55,.05);
+}
+
+/* Canvas del firmware real: llena la pantalla (ratio 480:222), pixelado. */
+#display {
+  position: absolute; inset: 0; z-index: 2;
+  width: 100%; height: 100%;
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+/* grilla retro + scanlines (puro cosmetico, por encima del stream) */
+#screen::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 5;
+  background-image:
+    linear-gradient(rgba(var(--scr-grid),.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--scr-grid),.05) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+#screen::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 6;
+  background: repeating-linear-gradient(
+    to bottom, rgba(0,0,0,0) 0, rgba(0,0,0,0) 2px, rgba(0,0,0,.18) 3px);
+  mix-blend-mode: multiply;
+}
+
+/* ---- Overlay de estado / login (sobre el canvas) ---- */
+#overlay {
+  position: absolute; inset: 0; z-index: 10;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(2,4,2,.82);
+  font-family: 'Steelfish', 'Courier New', monospace;
+  color: var(--scr-green);
+  text-shadow: 0 0 8px rgba(var(--scr-grid),.6);
+  transition: opacity .25s;
+}
+#overlay.hidden { opacity: 0; pointer-events: none; }
+#ov-box {
+  text-align: center; padding: 4cqw; max-width: 90%;
+  display: flex; flex-direction: column; align-items: center; gap: 2.4cqw;
+}
+#screen { container-type: inline-size; }
+#ov-title { font-size: 7cqw; letter-spacing: .12em; color: var(--scr-cyan); }
+#ov-sub   { font-size: 3.6cqw; letter-spacing: .1em; color: var(--scr-green); opacity: .85; }
+#ov-msg   { font-size: 4cqw; letter-spacing: .06em; color: var(--scr-amber); min-height: 4.4cqw; }
+#ov-msg.err { color: var(--led-red); }
+#ov-form  { display: flex; gap: 1.6cqw; align-items: center; flex-wrap: wrap; justify-content: center; }
+#ov-pass  {
+  font-family: 'Courier New', monospace; font-size: 4cqw;
+  padding: 1.4cqw 2cqw; width: 42cqw;
+  background: rgba(var(--scr-grid),.08); color: var(--scr-green);
+  border: 1px solid rgba(var(--scr-grid),.5); border-radius: 1.6cqw; outline: none;
+}
+#ov-pass:focus { border-color: var(--scr-amber); box-shadow: 0 0 10px rgba(var(--scr-grid),.4); }
+#ov-go {
+  font-family: 'Steelfish', monospace; font-size: 4cqw; letter-spacing: .1em;
+  padding: 1.4cqw 3cqw; cursor: pointer;
+  background: rgba(var(--scr-grid),.18); color: var(--scr-green);
+  border: 1px solid rgba(var(--scr-grid),.6); border-radius: 1.6cqw;
+}
+#ov-go:active { transform: translateY(1px); }
+#ov-host { font-size: 3cqw; opacity: .6; color: var(--scr-cyan); margin-top: 1cqw; }
+
+/* =============================================================================
+ * CONTROLES FISICOS — fieles al Pager real (foto Hak5/Lab401)
+ *   fila: [BACK capsula LEDs rojos] [A/SELECT capsula LED verde]
+ *         [ < ]  [ dpad arriba/abajo ]  [ > ]
+ * ========================================================================== */
+#controls {
+  flex: 0 0 auto;
+  height: 96px;
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: 20px;
+  padding: 0 20px 4px;
+}
+
+/* --- Botones genericos negros --- */
+.hwbtn {
+  position: relative; flex: 0 0 auto;
+  background: linear-gradient(180deg, #2b2b2b 0%, #0e0e0e 100%);
+  color: #9a9a9a; border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow:
+    inset 0 2px 2px rgba(255,255,255,.1),
+    inset 0 -4px 7px rgba(0,0,0,.75),
+    0 4px 7px rgba(0,0,0,.55);
+  transition: transform .06s, box-shadow .06s, filter .1s;
+  -webkit-user-select: none; user-select: none;
+}
+.hwbtn:active, .hwbtn.press {
+  transform: translateY(2px);
+  box-shadow: inset 0 3px 7px rgba(0,0,0,.85);
+  filter: brightness(1.15);
+}
+
+/* --- Capsulas BACK (4 LEDs rojos) y SELECT (1 barra verde + 1 punto) --- */
+.capsule {
+  width: 110px; height: 40px; border-radius: 22px;
+  margin-right: 4px;
+}
+.capsule .leds { display: flex; align-items: center; justify-content: center; gap: 6px; }
+/* BACK: 4 puntos rojos en fila */
+.capsule.back .leds.red i {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--led-red-dim); box-shadow: inset 0 0 2px rgba(0,0,0,.6);
+}
+/* SELECT: una barra verde larga + un punto */
+.capsule.select .leds.green i.bar {
+  width: 34px; height: 9px; border-radius: 5px;
+  background: var(--led-green-dim); box-shadow: inset 0 0 2px rgba(0,0,0,.6);
+}
+.capsule.select .leds.green i.dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--led-green-dim); box-shadow: inset 0 0 2px rgba(0,0,0,.6);
+}
+/* glow al presionar / cuando el firmware enciende el LED */
+.capsule.back:active .leds i, .capsule.back.lit .leds i {
+  background: var(--led-red);
+  box-shadow: 0 0 7px rgba(255,43,43,.95), inset 0 0 2px #fff;
+}
+.capsule.select:active .leds i, .capsule.select.lit .leds i {
+  background: var(--led-green);
+  box-shadow: 0 0 9px rgba(34,255,78,1), inset 0 0 2px #fff;
+}
+
+/* --- LED verde puntual de las flechas / dpad --- */
+.led-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--led-green-dim); box-shadow: inset 0 0 2px rgba(0,0,0,.6);
+  flex: 0 0 auto;
+  transition: background .12s, box-shadow .12s;
+}
+/* El flash local al presionar usa !important para ganarle al color inline que
+ * pinta el firmware (paintDot), asi el feedback de pulsacion siempre se ve. */
+.hwbtn:active .led-dot, .hwbtn.lit .led-dot {
+  background: var(--led-green) !important;
+  box-shadow: 0 0 8px rgba(34,255,78,1), inset 0 0 2px #fff !important;
+}
+/* LED del dpad pintado por el FIRMWARE (poller /leds). El color inline (JS)
+ * manda; al presionar, el flash local (.lit) lo sobreescribe un instante. */
+.led-dot.fw-lit { /* el background/box-shadow lo setea paintDot() inline */ }
+
+/* Botones A/SELECT y B/BACK: cuando el firmware tiene su LED encendido
+ * (a-button-led / b-button-led = 1) mostramos su color de reposo "vivo". */
+.capsule.back.fw-on .leds i {
+  background: var(--led-red);
+  box-shadow: 0 0 6px rgba(255,43,43,.9), inset 0 0 2px #fff;
+}
+.capsule.select.fw-on .leds i {
+  background: var(--led-green);
+  box-shadow: 0 0 8px rgba(34,255,78,1), inset 0 0 2px #fff;
+}
+
+/* --- Flechas izquierda / derecha (botones "D" grandes) --- */
+.dkey {
+  width: 74px; height: 72px; border-radius: 26px;
+  gap: 5px;
+}
+.dkey .tri {
+  width: 0; height: 0;
+  border-top: 13px solid transparent;
+  border-bottom: 13px solid transparent;
+}
+.dkey.left  { flex-direction: row; }
+.dkey.left .tri  { border-right: 20px solid #d6d6d6; }
+.dkey.right { flex-direction: row; }
+.dkey.right .tri { border-left: 20px solid #d6d6d6; }
+
+/* --- D-pad central: arriba (triangulo) / abajo (triangulo) --- */
+#dpad { flex: 0 0 auto; display: flex; flex-direction: column; gap: 7px; }
+#dpad .hwbtn { width: 88px; height: 33px; gap: 7px; }
+#dpad .dup   { border-radius: 20px 20px 10px 10px; }
+#dpad .ddown { border-radius: 10px 10px 20px 20px; }
+#dpad .tri { width: 0; height: 0; border-left: 13px solid transparent; border-right: 13px solid transparent; }
+#dpad .dup .tri   { border-bottom: 18px solid #d6d6d6; }
+#dpad .ddown .tri { border-top: 18px solid #d6d6d6; }
+
+/* =============================================================================
+ * Logo WiFi Pineapple (sobre el swoosh negro de la pantalla, abajo-izquierda)
+ * ========================================================================== */
+#brand {
+  /* Centrado verticalmente en la franja amarilla inferior (entre el display y
+   * el borde), alineado con la fila de botones. No pegado a la pantalla. */
+  position: absolute; left: 46px; bottom: 34px;
+  display: flex; align-items: center; gap: 10px;
+  pointer-events: none; z-index: 4;
+}
+#brand img { width: 34px; height: 34px; filter: brightness(0) invert(1); opacity: .95; }
+#brand span {
+  font-family: 'Roboto', sans-serif; font-style: italic; font-weight: 700;
+  font-size: 22px; color: #fff; letter-spacing: .01em;
+}
+
+/* =============================================================================
+ * Boton de POWER — EMPOTRADO en la franja amarilla superior IZQUIERDA, en la
+ * esquina redondeada de la carcasa. Queda CLARAMENTE sobre el borde amarillo,
+ * sin solaparse con el marco negro del display (gracias al margin-top del
+ * bezel que libera una franja amarilla arriba). Discreto y pequeño.
+ * ========================================================================== */
+#btn-power {
+  position: absolute; top: 14px; left: 20px; z-index: 30;
+  width: 26px; height: 26px; border-radius: 50%;
+  border: 1px solid rgba(0,0,0,.45);
+  background: radial-gradient(circle at 50% 35%, #2e2e2e, #0c0c0c);
+  color: #b9b9b9; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: inset 0 1px 1px rgba(255,255,255,.15),
+              inset 0 -2px 3px rgba(0,0,0,.6),
+              0 2px 4px rgba(0,0,0,.45);
+  transition: transform .06s, filter .1s, color .15s;
+}
+#btn-power .material-icons { font-size: 16px; }
+#btn-power:active { transform: translateY(1px); }
+#btn-power.on  { color: var(--led-green); text-shadow: 0 0 9px rgba(34,255,78,.9); }
+#btn-power.off { color: var(--led-red);   text-shadow: 0 0 9px rgba(255,43,43,.85); }
+#btn-power.busy { filter: brightness(.6); cursor: wait; }
+
+/* LED de estado del stream (chico, esquina superior DERECHA, franja amarilla) */
+#status-led {
+  /* Simetrico al boton de power (esquina sup-izq): mismo nivel vertical, dentro
+   * del borde amarillo, sin irse al extremo ni pisar la pantalla. */
+  position: absolute; top: 23px; right: 30px; z-index: 30;
+  width: 11px; height: 11px; border-radius: 50%;
+  background: var(--led-red-dim); box-shadow: inset 0 0 3px rgba(0,0,0,.6);
+}
+#status-led.active {
+  background: var(--led-red);
+  box-shadow: 0 0 9px rgba(255,43,43,.9), inset 0 0 2px rgba(255,255,255,.5);
+}
+
+/* =============================================================================
+ * ORIENTACION — LANDSCAPE SIEMPRE
+ * ========================================================================== */
+@media (orientation: portrait) {
+  #stage {
+    position: fixed; top: 50%; left: 50%;
+    width: 100vh; height: 100vw;
+    transform: translate(-50%, -50%) rotate(90deg);
+    transform-origin: center center;
+  }
+}
+@media (orientation: landscape) {
+  #stage { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hwbtn { transition: none; }
+}
+
+/* ---- toast feedback ---- */
+#toast {
+  position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%);
+  background: rgba(0,20,6,.92); color: var(--scr-green);
+  border: 1px solid rgba(var(--scr-grid),.4); border-radius: 8px;
+  padding: 6px 14px; font-family: 'Courier New', monospace; font-size: 13px;
+  opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 90;
+  box-shadow: 0 0 14px rgba(var(--scr-grid),.25);
+}
+#toast.show { opacity: 1; }

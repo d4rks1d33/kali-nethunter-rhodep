@@ -1,0 +1,70 @@
+#!/bin/bash
+# jshn - host shim that runs the STOCK MIPS jshn binary under qemu-mipsel.
+#
+# jshn (part of OpenWrt's libubox) is the JSON <-> shell bridge used by the
+# Pager's /lib/hak5/commands.sh (json_load / json_dump / HAK5_API_* response
+# parsing) via /usr/share/libubox/jshn.sh. The rootfs ships it as a MIPS ELF
+# (/usr/bin/jshn), which the HOST bash cannot exec directly under qemu-user.
+#
+# Rather than reimplement jshn (and risk divergence), we run Hak5's OWN binary
+# through the same patched qemu we use for the firmware, against the firmware
+# rootfs. 100% faithful: identical JSON parsing/formatting semantics.
+#
+# jshn.sh calls us as:  jshn -r "<json>"   /   jshn -R <file>   /   jshn ... -w
+# We pass all args straight through.
+#
+# RELIABILITY (why this is not a bare `exec qemu ... jshn`):
+# Each jshn call spawns a full qemu-mipsel process. A single DuckyScript picker
+# (LIST_PICKER / CONFIRMATION_DIALOG / *_PICKER) drives ~10+ jshn calls
+# (SAFE_JSON_STRING build, HAK5_API_POST response json_load + json_get_var ...).
+# While the FIRMWARE itself is a busy qemu-mipsel (GOMAXPROCS=1) and the kiosk
+# viewer is running, these short-lived jshn qemu spawns occasionally return
+# EMPTY output under CPU contention. jshn.sh then does `eval ""` -> the parsed
+# variables are silently unset -> json_get_var returns empty -> the picker
+# yields an EMPTY selection -> the payload hits its `*)` "Unknown selection"
+# branch and loops without ever running the install (verified by RE/strace on
+# the DOOM installer: firmware replied {"selected":"Install Doom"} but the
+# shell var came back UNSET).
+#
+# Fix: run the STOCK MIPS jshn (100% faithful semantics) but RETRY when it
+# yields empty output for non-empty input. This is transparent for the common
+# fast path and only engages under contention. We never fabricate output.
+PAGER_QEMU_ROOT="${PAGER_QEMU_ROOT:-/opt/pineapple-pager/qemu}"
+ROOTFS="${ROOTFS:-$PAGER_QEMU_ROOT/rootfs}"
+QEMU="${QEMU:-$PAGER_QEMU_ROOT/bin/qemu-mipsel}"
+
+# Decide whether this invocation is expected to PRODUCE stdout. The read/dump
+# ops (-r/-R parse JSON -> shell; -w serialize shell -> JSON) must emit text;
+# an empty result for non-empty input means the qemu spawn was starved.
+_expects_output=0
+for __a in "$@"; do
+    case "$__a" in
+        -r|-R|-w) _expects_output=1 ;;
+    esac
+done
+
+# Detect non-empty JSON input: `-r <json>` (inline) always has input; `-R
+# <file>`/`-w` read from a file/state and we can't cheaply know emptiness, so we
+# still retry on empty (bounded) which is safe.
+run_once() { "$QEMU" -L "$ROOTFS" "$ROOTFS/usr/bin/jshn" "$@"; }
+
+if [ "$_expects_output" -eq 1 ]; then
+    __out=""
+    __rc=0
+    for __try in 1 2 3 4 5; do
+        __out="$(run_once "$@")"; __rc=$?
+        # Success as soon as we get ANY stdout, or a hard non-zero rc with no
+        # output (genuine jshn error -> surface it unchanged).
+        if [ -n "$__out" ] || [ "$__rc" -ne 0 ]; then
+            break
+        fi
+        # empty stdout + rc 0 under contention -> brief backoff and retry
+        sleep 0.15
+    done
+    printf '%s' "$__out"
+    [ -n "$__out" ] && printf '\n'
+    exit "$__rc"
+fi
+
+# Non-output ops (e.g. -p prefix only / unknown): pass straight through.
+exec run_once "$@"

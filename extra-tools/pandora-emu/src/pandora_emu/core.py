@@ -35,11 +35,24 @@ BUTTON_NAMES = {
     B6: "B6",
 }
 
-# Firmware profiles understood by the core (pe_new argument).
-PROFILE_PANDORA = 0
-PROFILE_PANDORAMAX = 1
+# RF operating mode (PROTO_RF_*), as reported by the core's Si4432 model.
+RF_IDLE = 0
+RF_READY = 1
+RF_RX = 2
+RF_TX = 3
 
-# OLED framebuffer geometry (fixed for the D-605 keyfob). The raw buffer is
+# RF modulation (PROTO_MOD_*).
+MOD_UNMOD = 0
+MOD_OOK = 1
+MOD_FSK = 2
+MOD_GFSK = 3
+
+# The emulator is AGNOSTIC: there is ONE hardware model that runs ANY .hex for
+# this MCU, so there is NO firmware "profile" selection any more. pe_new() still
+# takes an int for ABI compatibility but ignores it; we pass this sentinel.
+PROFILE_AGNOSTIC = 0
+
+# OLED framebuffer geometry (fixed for the D650 keyfob). The raw buffer is
 # FB_COLS x FB_PAGES bytes; each page byte holds 4 logical pixels (2bpp). Only
 # FB_VISIBLE_COLS columns are on the physical glass (the rest are off-screen).
 FB_COLS = 92
@@ -71,12 +84,13 @@ class PandoraEmuError(RuntimeError):
 
 
 class PandoraEmu:
-    """One emulated Pandora D-605 keyfob.
+    """One emulated Pandora D650 keyfob.
 
     Typical lifecycle::
 
-        emu = PandoraEmu(PROFILE_PANDORAMAX)
-        emu.load_hex("/path/PANDORA_MAX.hex")   # or load_flat(bytes)
+        emu = PandoraEmu()                      # agnostic: no profile
+        emu.load_hex("/path/any_keyfob.hex")    # or load_flat(bytes)
+        emu.set_knock([B_UP, B_OK, ...], gate=B5)  # optional firmware knock
         emu.reset_unlock()
         while running:
             emu.run(200_000)
@@ -108,6 +122,11 @@ class PandoraEmu:
         lib.pe_nav.restype = ctypes.c_int
         lib.pe_nav.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
 
+        # Knock-code is FIRMWARE CONFIG set by the host (not baked into the core).
+        # pe_set_knock(h, const uint8_t* seq, int len, int gate).
+        lib.pe_set_knock.argtypes = [
+            ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int, ctypes.c_int]
+
         lib.pe_get_fb.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
 
         lib.pe_tx_pop.restype = ctypes.c_int
@@ -118,6 +137,17 @@ class PandoraEmu:
         ]
         lib.pe_rx_inject.argtypes = [
             ctypes.c_void_p, ctypes.c_int, ctypes.c_uint32]
+
+        # Radio state the firmware configured on the Si4432 (for the HackRF bridge
+        # to follow). These are read-only observables computed by the core.
+        lib.pe_rf_freq.restype = ctypes.c_uint32
+        lib.pe_rf_freq.argtypes = [ctypes.c_void_p]
+        lib.pe_rf_mode.restype = ctypes.c_int
+        lib.pe_rf_mode.argtypes = [ctypes.c_void_p]
+        lib.pe_rf_mod.restype = ctypes.c_int
+        lib.pe_rf_mod.argtypes = [ctypes.c_void_p]
+        lib.pe_buzzer_event.restype = ctypes.c_int
+        lib.pe_buzzer_event.argtypes = [ctypes.c_void_p]
 
         lib.pe_unlocked.restype = ctypes.c_int
         lib.pe_unlocked.argtypes = [ctypes.c_void_p]
@@ -134,12 +164,16 @@ class PandoraEmu:
         cls._lib = lib
         return lib
 
-    def __init__(self, profile: int = PROFILE_PANDORAMAX) -> None:
+    def __init__(self, profile: int = PROFILE_AGNOSTIC) -> None:
+        # `profile` is accepted for backwards call-site compatibility but is
+        # IGNORED by the agnostic core (single hardware model). Pass nothing.
         self._lib = self._load()
         self._h = self._lib.pe_new(int(profile))
         if not self._h:
             raise PandoraEmuError("pe_new failed (out of memory)")
         self._loaded = False
+        # Knock-code last set by set_knock(); None = none configured yet.
+        self._knock = None  # type: tuple[list[int], int] | None
         # Cache geometry once; it is fixed by the core (92x16, 88 visible).
         self.fb_size = self._lib.pe_fb_size()
         self.fb_cols = self._lib.pe_fb_cols()
@@ -173,10 +207,35 @@ class PandoraEmu:
     def profile_name(self) -> str:
         return self._lib.pe_profile_name(self._h).decode()
 
+    # -- unlock knock-code (FIRMWARE CONFIG, set by the host) ---------------
+
+    def set_knock(self, seq, gate: int = -1) -> None:
+        """Set the unlock knock-code pressed at reset_unlock().
+
+        The knock-code is FIRMWARE CONFIG (the user enters it), NOT hardware: the
+        agnostic core does not know it. ``seq`` is a sequence of button indices
+        (B_UP/B_DOWN/B_OK/B_BACK/B5/B6); ``gate`` is the index of the final held
+        gate button (-1 = none). Pass an empty ``seq`` to disable auto-unlock (the
+        user then unlocks manually with the buttons).
+
+        Call this BEFORE reset_unlock(). It is pure config; it does not run the
+        core.
+        """
+        seq = list(seq or [])
+        raw = bytes(int(b) & 0xFF for b in seq)
+        self._lib.pe_set_knock(self._h, raw, len(raw), int(gate))
+        self._knock = (seq, int(gate))
+
     # -- run / control -----------------------------------------------------
 
     def reset_unlock(self) -> bool:
-        """Reset and run the full boot + auto-unlock. Returns the unlock flag."""
+        """Reset and run the boot, then the configured knock (if any).
+
+        If a knock-code was installed with set_knock(), it is pressed purely over
+        GPIO as an autotest after boot. If no knock was set, auto_unlock does
+        nothing beyond settling the boot (the user then unlocks with the buttons).
+        Returns the OBSERVABLE unlock flag (framebuffer has content).
+        """
         self._require_loaded()
         self._lib.pe_reset_unlock(self._h)
         return self.unlocked
@@ -223,9 +282,9 @@ class PandoraEmu:
         """Drain the captured TX edge ring.
 
         Returns a list of (level, duration_us) tuples in emission order. The
-        firmware bit-bangs PB3; each edge is one carrier on/off segment. See
-        RE_TX_FRAME_MODEL_D605.md: cell 400us (pandora) / 500us (pmax),
-        symbols 1T/2T, repeated 5x/10x.
+        firmware bit-bangs PB3; each edge is one carrier on/off segment. The
+        firmware chooses the cell timing (~400-500us), the 1T/2T symbols and the
+        repeat count; the edge ring carries the exact per-edge microseconds.
         """
         edges: List[Tuple[int, int]] = []
         level = ctypes.c_int(0)
@@ -238,8 +297,24 @@ class PandoraEmu:
         return edges
 
     def rx_inject(self, level: int, duration_us: int) -> None:
-        """Inject one clean RX edge into the firmware demodulator (PB0)."""
+        """Inject one clean RX edge into the firmware demodulator (PB0 + TIMER1)."""
         self._lib.pe_rx_inject(self._h, 1 if level else 0, int(duration_us))
+
+    def rf_freq(self) -> int:
+        """Carrier frequency (Hz) the firmware configured on the Si4432, 0 if unset."""
+        return int(self._lib.pe_rf_freq(self._h))
+
+    def rf_mode(self) -> int:
+        """Si4432 operating mode (RF_IDLE / RF_READY / RF_RX / RF_TX)."""
+        return int(self._lib.pe_rf_mode(self._h))
+
+    def rf_mod(self) -> int:
+        """Si4432 modulation (MOD_UNMOD / MOD_OOK / MOD_FSK / MOD_GFSK)."""
+        return int(self._lib.pe_rf_mod(self._h))
+
+    def buzzer_event(self) -> bool:
+        """Consume the buzzer-activity flag (True if the fw toggled the buzzer)."""
+        return bool(self._lib.pe_buzzer_event(self._h))
 
     # -- teardown ----------------------------------------------------------
 
@@ -259,12 +334,3 @@ class PandoraEmu:
     def _require_loaded(self) -> None:
         if not self._loaded:
             raise PandoraEmuError("no firmware loaded (call load_hex/load_flat)")
-
-
-def guess_profile(path: str) -> int:
-    """Deduce the profile from a firmware filename.
-
-    "MAX" anywhere in the name (case-insensitive) -> pandoramax, else pandora.
-    """
-    base = os.path.basename(path).upper()
-    return PROFILE_PANDORAMAX if "MAX" in base else PROFILE_PANDORA

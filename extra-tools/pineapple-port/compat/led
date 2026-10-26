@@ -1,0 +1,20 @@
+#!/bin/sh
+# led -- OpenWrt LED-control compatibility shim (no-op) for the panel port.
+#
+# Part of: extra-tools/pineapple-port/compat/
+#
+# WHY:
+#   The panel toggles the device's status LED after setup:
+#     api/Setup.php:212  exec('led reset');
+#   On OpenWrt `led` drives /sys/class/leds via the ucidef/led subsystem. The
+#   Motorola G82 running Kali/NetHunter has no equivalent "pineapple LED", and
+#   the call is purely cosmetic (reset the LED to its idle pattern at end of
+#   setup). There is nothing to do, so this shim is a well-defined success no-op,
+#   which is exactly what the panel relies on (it ignores the output and only
+#   needs a clean exit). The panel PHP is NOT modified.
+#
+#   If a real LED mapping is ever wanted on specific hardware, implement the
+#   verb handling here (e.g. write to /sys/class/leds/<led>/trigger) -- not in
+#   the panel.
+
+exit 0

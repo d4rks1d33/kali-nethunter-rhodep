@@ -1,0 +1,27 @@
+# pineapple-net.service -- Pineapple LAN (br-lan) + NAT/forwarding, reversible.
+#
+# Part of: extra-tools/pineapple-port/systemd/   (FASE 4)
+#
+# Brings up the dedicated Pineapple network with net/pineapple-net.sh:
+#   br-lan 172.16.84.1/24 + ip_forward + nftables table inet/pineapple
+#   (masquerade towards the autodetected uplink + forward lan<->uplink).
+# ExecStop fully reverts it (deletes br-lan, removes our nft table, restores
+# ip_forward) so stopping the target leaves the phone's networking untouched.
+#
+# The panel's /etc/init.d/firewall shim maps to this unit (see compat map), and
+# the net bring-up and the NAT are one concern here.
+
+[Unit]
+Description=WiFi Pineapple LAN bridge + NAT (reversible)
+After=pineapple-firstboot.service network.target
+Wants=pineapple-firstboot.service
+PartOf=pineapple.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/pineapple/net/pineapple-net.sh up
+ExecStop=/opt/pineapple/net/pineapple-net.sh down
+
+[Install]
+WantedBy=pineapple.target

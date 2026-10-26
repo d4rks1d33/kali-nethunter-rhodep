@@ -1,0 +1,81 @@
+[sudo] password for kali:  regulator                      use open bypass  opmode voltage current     min     max
+---------------------------------------------------------------------------------------
+ regulator-dummy                 17   38      0 unknown     0mV     0mA     0mV     0mV 
+    c800000.wifi-vdd-3.3-ch1      1                                 0mA     0mV     0mV
+    a730000.codec-vdd-micb        0                                 0mA     0mV     0mV
+    4-0035-dvdd                   1                                 0mA     0mV     0mV
+    4-0034-dvdd                   1                                 0mA     0mV     0mV
+    5900000.gpu-vddcx             0                                 0mA     0mV     0mV
+    5900000.gpu-vdd               0                                 0mA     0mV     0mV
+    s5                            0    0      0 unknown   384mV     0mA   384mV  1120mV 
+    s6                            0    2      0 unknown   320mV     0mA   320mV  1368mV 
+       cam_vdig                   0    0      0 unknown  1056mV     0mA  1056mV  1056mV 
+       LDO2                       0    0      0 unknown  1824mV     0mA     0mV     0mV 
+    l1                            0    0      0 unknown   576mV     0mA   576mV   648mV 
+    s7                            0    0      0 unknown  1576mV     0mA  1576mV  2040mV 
+    l2                            1    1      0 unknown   640mV     0mA   640mV   640mV 
+       c800000.wifi-vdd-0.8-cx-mx   1                                 0mA     0mV     0mV
+    l2                            1    2      0 unknown  1176mV     0mA  1176mV  1304mV 
+       c800000.wifi-vdd-1.3-rfa   1                                 0mA     0mV     0mV
+       serial0-0-vddrf            0                               300mA*    0mV     0mV
+    l3                            0    0      0 unknown  1000mV     0mA  1000mV  1200mV 
+    l3                            1    1      0 unknown  1104mV     0mA  1104mV  1296mV 
+       5e94000.dsi.0-dvdd         1                                 0mA     0mV     0mV
+    l4                            0    0      0 unknown  1504mV     0mA  1504mV  2000mV 
+    l5                            0    0      0 unknown   752mV     0mA   752mV   824mV 
+    l4                            1    2      0 unknown  1232mV     0mA  1232mV  1232mV 
+       5e94000.dsi-vdda           1                                21mA     0mV     0mV
+       4807000.phy-vdda-pll       0                                18mA*    0mV     0mV
+    l5                            0    1      0 unknown  2900mV     0mA  1656mV  2960mV 
+       4784000.mmc-vqmmc          0                                 0mA  2900mV  2960mV
+    l6                            0    0      0 unknown   504mV     0mA   504mV   864mV 
+    l6                            0    0      0 unknown  1080mV     0mA  1080mV  1304mV 
+    l7                            1    1      0 unknown  3080mV     0mA  3080mV  3080mV 
+       162b000.phy-vdda33         1                                 0mA     0mV     0mV
+    l7                            1    2      0 unknown   880mV     0mA   880mV   880mV 
+       162b000.phy-vdda-pll       1                                 0mA     0mV     0mV
+       4807000.phy-vdda-phy       0                                97mA*    0mV     0mV
+    l8                            0    0      0 unknown  1104mV     0mA  1104mV  1304mV 
+    l9                            0    1      0 unknown  1800mV     0mA  1800mV  1800mV 
+       serial0-0-vddio            0                                15mA*    0mV     0mV
+    l10                           1    1      0 unknown  1800mV     0mA  1800mV  1800mV 
+       162b000.phy-vdda18         1                                 0mA     0mV     0mV
+    l11                           3    3      0 unknown  1800mV     0mA  1800mV  1800mV 
+       audio-codec-vdd-px         1                                 0mA     0mV     0mV
+       audio-codec-vdd-rxtx       1                                 0mA     0mV     0mV
+       4804000.ufshc-vccq2        1                               800mA     0mV     0mV
+    l12                           0    0      0 unknown  1624mV     0mA  1624mV  2000mV 
+    l13                           2    2      0 unknown  1656mV     0mA  1656mV  1976mV 
+       spi0.0-vddio               1                                 0mA     0mV     0mV
+       5e94000.dsi.0-vddio        1                                 0mA     0mV     0mV
+    l14                           1    1      0 unknown  1704mV     0mA  1704mV  1896mV 
+       audio-codec-vdd-buck       1                                 0mA     0mV     0mV
+    l15                           0    0      0 unknown  1656mV     0mA  1656mV  3544mV 
+    l16                           1    2      0 unknown  1624mV     0mA  1624mV  1976mV 
+       c800000.wifi-vdd-1.8-xo    1                                 0mA     0mV     0mV
+       serial0-0-vddxo            0                                80mA*    0mV     0mV
+    l18                           0    0      0 unknown   832mV     0mA   832mV   920mV 
+    l19                           0    0      0 unknown  1624mV     0mA  1624mV  3304mV 
+    l20                           0    0      0 unknown  1624mV     0mA  1624mV  3304mV 
+    l21                           0    0      0 unknown  3000mV     0mA  3000mV  3312mV 
+    l22                           0    1      0 unknown  2900mV     0mA  2704mV  2960mV 
+       4784000.mmc-vmmc           0                                 0mA  2900mV  2960mV
+    l23                           1    2      0 unknown  3000mV     0mA  3000mV  3312mV 
+       c800000.wifi-vdd-3.3-ch0   1                                 0mA     0mV     0mV
+       serial0-0-vddch0           0                               450mA*    0mV     0mV
+    l24                           1    1      0 unknown  2960mV     0mA  2960mV  2960mV 
+       4804000.ufshc-vcc          1                               800mA     0mV     0mV
+ vph_pwr                          2    2      0 unknown  3700mV     0mA  3700mV  3700mV 
+    vibrator-vcc                  0                                 0mA     0mV     0mV
+    audio-codec-vdd-mic-bias      1                                 0mA     0mV     0mV
+ panel_vci                        1    1      0 unknown  3000mV     0mA  3000mV  3000mV 
+    5e94000.dsi.0-vci             1                                 0mA     0mV     0mV
+ touch_avdd                       1    1      0 unknown     0mV     0mA     0mV     0mV 
+    spi0.0-avdd                   1                                 0mA     0mV     0mV
+ refgen                           1    1      0 unknown     0mV     0mA     0mV     0mV 
+    5e94000.dsi-refgen            1                                 0mA     0mV     0mV
+ LDO3                             0    0      0 unknown  2396mV     0mA     0mV     0mV 
+ cam_vana                         0    0      0 unknown  2804mV     0mA  2804mV  2804mV 
+ LDO5                             0    0      0 unknown  2668mV     0mA     0mV     0mV 
+ LDO6                             0    0      0 unknown  1756mV     0mA     0mV     0mV 
+ cam_vio                          0    0      0 unknown  1804mV     0mA  1804mV  1804mV 

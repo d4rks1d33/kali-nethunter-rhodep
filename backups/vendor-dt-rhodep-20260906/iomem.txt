@@ -1,0 +1,95 @@
+00208000-00208fff : 208000.mailbox mailbox@208000
+00340000-0037ffff : 340000.hwlock hwlock@340000
+00500000-00cfffff : 500000.pinctrl pinctrl@500000
+01400000-015effff : 1400000.clock-controller clock-controller@1400000
+0162b000-0162b3ff : 162b000.phy phy@162b000
+0162f000-0162f083 : 162f000.regulator regulator@162f000
+01880000-018df07f : 1880000.interconnect interconnect@1880000
+01900000-019061ff : 1900000.interconnect interconnect@1900000
+01c0a000-01c2ffff : 1c40000.spmi cnfg
+01e00000-03dfffff : 1c40000.spmi chnls
+03e00000-03efffff : 1c40000.spmi obsrvr
+03f00000-03f9ffff : 1c40000.spmi intr
+04410000-0441001f : 4411000.thermal-sensor thermal-sensor@4411000
+04411000-0441113f : 4411000.thermal-sensor thermal-sensor@4411000
+04412000-0441201f : 4413000.thermal-sensor thermal-sensor@4413000
+04413000-0441313f : 4413000.thermal-sensor thermal-sensor@4413000
+04480000-044fffff : 4480000.interconnect interconnect@4480000
+045f0000-045f6fff : 45f0000.sram sram@45f0000
+04690000-046903ff : 4690000.sram sram@4690000
+04784000-04784fff : 4784000.mmc mmc@4784000
+04804000-04806fff : 4804000.ufshc ufshc@4804000
+04807000-04807fff : 4807000.phy phy@4807000
+04a00000-04a5ffff : 4a00000.dma-controller dma-controller@4a00000
+04a80000-04a83fff : 4a80000.spi spi@4a80000
+04a84000-04a87fff : 4a84000.serial serial@4a84000
+04ac0000-04ac1fff : 4ac0000.geniqup geniqup@4ac0000
+04c00000-04c5ffff : 4c00000.dma-controller dma-controller@4c00000
+04c84000-04c87fff : 4c84000.i2c i2c@4c84000
+04c88000-04c8bfff : 4c88000.i2c i2c@4c88000
+04c90000-04c93fff : 4c90000.i2c i2c@4c90000
+04cc0000-04cc1fff : 4cc0000.geniqup geniqup@4cc0000
+04e0c100-04e0ccff : 4e00000.usb usb@4e00000
+04ef8800-04ef8bff : 4ef8800.usb usb@4ef8800
+05940000-0594ffff : 5940000.iommu iommu@5940000
+05990000-05998fff : 5990000.clock-controller clock-controller@5990000
+05c1b000-05c1bfff : 5c1b000.cci cci@5c1b000
+05e00000-05e00fff : 5e00000.display-subsystem mdss
+05f00000-05f1ffff : 5f00000.clock-controller clock-controller@5f00000
+0a600000-0a600fff : a600000.codec codec@a600000
+0a610000-0a611fff : a610000.soundwire soundwire@a610000
+0a620000-0a620fff : a620000.codec codec@a620000
+0a6a9000-0a6a9fff : a6a9000.clock-controller clock-controller@a6a9000
+0a730000-0a730fff : a730000.codec codec@a730000
+0a740000-0a741fff : a740000.soundwire soundwire@a740000
+0a7c0000-0a7dffff : a7c0000.pinctrl pinctrl@a7c0000
+0a7ec000-0a7ecfff : a7ec000.clock-controller clock-controller@a7ec000
+0a950000-0a95ffff : a7c0000.pinctrl pinctrl@a7c0000
+0c600000-0c6fffff : c600000.iommu iommu@c600000
+0f200000-0f20ffff : GICD
+0f240000-0f33ffff : GICR
+0f410000-0f410fff : f410000.watchdog watchdog@f410000
+0f421000-0f421fff : arch_mem_timer
+0fd90000-0fd90fff : fd90000.interconnect interconnect@fd90000
+0fd91000-0fd91fff : fd91000.cpufreq freq-domain0
+0fd92000-0fd92fff : fd91000.cpufreq freq-domain1
+80000000-805fffff : reserved
+80600000-806fffff : System RAM
+80700000-807fffff : reserved
+80800000-8087ffff : System RAM
+80880000-80893fff : reserved
+80894000-808fffff : System RAM
+80900000-829fffff : reserved
+82a00000-851fffff : System RAM
+85200000-85efffff : reserved
+85f00000-864fffff : System RAM
+86500000-8aa1bfff : reserved
+  86700000-886fffff : a400000.remoteproc pil-adsp@86700000
+  88700000-8a4fffff : b300000.remoteproc pil-cdsp@88700000
+8aa1c000-8b7fffff : System RAM
+8b800000-9b7fffff : reserved
+  8b800000-9b7fffff : 6080000.remoteproc pil-mpss-wlan@8b800000
+9b800000-aefa0fff : System RAM
+  a0080000-a292ffff : Kernel code
+  a2930000-a2bfffff : reserved
+  a2c00000-a325ffff : Kernel data
+  a4851000-a4863fff : reserved
+  a4a52000-a56fefff : reserved
+aefa1000-af0bffff : reserved
+af0c0000-bcbfffff : System RAM
+c0000000-c70fffff : reserved
+c7100000-f38fffff : System RAM
+f3900000-f3b7ffff : reserved
+f3b80000-ffafffff : System RAM
+  f9000000-ff7fffff : reserved
+ffb00000-ffc3ffff : reserved
+ffc40000-ffcfffff : System RAM
+ffd00000-ffd00fff : reserved
+ffd01000-1ffffffff : System RAM
+  1f8670000-1ff3fffff : reserved
+  1ff46d000-1ff46dfff : reserved
+  1ff46f000-1ff471fff : reserved
+  1ff472000-1ff472fff : reserved
+  1ff473000-1ff487fff : reserved
+  1ff488000-1ff505fff : reserved
+  1ff506000-1ffffffff : reserved

@@ -1,0 +1,57 @@
+#!/bin/sh
+# logread -- OpenWrt logread compatibility shim -> journalctl (with fallbacks).
+#
+# Part of: extra-tools/pineapple-port/compat/
+#
+# WHY:
+#   The panel's Logging module shows the system log via OpenWrt's `logread`:
+#     modules/Logging/api/module.php:73  exec("logread", $syslogOutput);
+#   On OpenWrt `logread` dumps the in-memory syslog (logd) ring buffer. Kali has
+#   no logd/logread; the equivalent is the systemd journal (journalctl) or, if
+#   journald is unavailable, the classic /var/log/syslog. This shim maps the one
+#   invocation the panel makes (bare `logread`, read the whole log) so the panel
+#   PHP is NOT modified.
+#
+# FLAG MAP (only what logread's callers might reasonably use):
+#   logread            -> journalctl --no-pager            (whole log)
+#   logread -f         -> journalctl -f                    (follow)
+#   logread -e <re>    -> journalctl --no-pager | grep <re>
+# Unknown flags are ignored so we never hard-fail the panel's syslog view.
+
+JCTL="$(command -v journalctl 2>/dev/null || true)"
+
+follow=0
+grep_re=""
+skip_next=0
+for a in "$@"; do
+    if [ "$skip_next" = "1" ]; then grep_re="$a"; skip_next=0; continue; fi
+    case "$a" in
+        -f) follow=1 ;;
+        -e) skip_next=1 ;;
+        *) : ;;   # ignore other OpenWrt-specific flags (-l, -r, -s, -p ...)
+    esac
+done
+
+dump() {
+    if [ -n "$JCTL" ]; then
+        if [ "$follow" = "1" ]; then
+            journalctl -f --no-pager 2>/dev/null
+        else
+            journalctl --no-pager 2>/dev/null
+        fi
+    elif [ -r /var/log/syslog ]; then
+        if [ "$follow" = "1" ]; then tail -f /var/log/syslog; else cat /var/log/syslog; fi
+    elif [ -r /var/log/messages ]; then
+        if [ "$follow" = "1" ]; then tail -f /var/log/messages; else cat /var/log/messages; fi
+    else
+        # Nothing to show; succeed with empty output (same as an empty logd buffer).
+        :
+    fi
+}
+
+if [ -n "$grep_re" ]; then
+    dump | grep -- "$grep_re"
+else
+    dump
+fi
+exit 0

@@ -1,0 +1,56 @@
+#!/bin/sh
+# uclient-fetch -- OpenWrt uclient-fetch compatibility shim -> curl.
+#
+# Part of: extra-tools/pineapple-port/compat/
+#
+# WHY:
+#   The panel downloads over HTTP(S) with OpenWrt's uclient-fetch:
+#     pineapple.php:147  uclient-fetch -q -T 10 -O - <url>        (fileGetContentsSSL)
+#     Advanced/module.php:186  uclient-fetch -q -T 10 -O <path> <url>
+#     ModuleManager/module.php:109  uclient-fetch -q -T 10 -O <path> <url>
+#   uclient-fetch does not exist on Kali. This shim maps the exact flags the
+#   panel passes to curl, so the panel PHP is NOT modified.
+#
+# FLAG MAP (only what the panel uses):
+#   -q          -> curl --silent --show-error    (quiet)
+#   -T <sec>    -> curl --max-time <sec>         (timeout)
+#   -O <file>   -> curl --output <file>  ('-' means stdout)
+#   <url>       -> positional URL
+# Extra uclient-fetch flags (-c, --no-check-certificate, etc) are tolerated.
+
+CURL="${CURL:-curl}"
+
+timeout=""
+output=""
+url=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -q|--quiet) ;;                       # curl is quiet by default below
+        -T) timeout="$2"; shift ;;
+        -T*) timeout="${1#-T}" ;;
+        -O) output="$2"; shift ;;
+        -O*) output="${1#-O}" ;;
+        --no-check-certificate) INSECURE="-k" ;;
+        -c|--continue) RESUME="-C -" ;;
+        -*) ;;                               # ignore unknown flags
+        *) url="$1" ;;
+    esac
+    shift
+done
+
+if [ -z "$url" ]; then
+    echo "uclient-fetch(shim): no URL given" >&2
+    exit 1
+fi
+
+set -- --silent --show-error --location --fail
+[ -n "$timeout" ] && set -- "$@" --max-time "$timeout"
+[ -n "$INSECURE" ] && set -- "$@" "$INSECURE"
+[ -n "$RESUME" ] && set -- "$@" $RESUME
+
+if [ -z "$output" ] || [ "$output" = "-" ]; then
+    exec "$CURL" "$@" "$url"
+else
+    exec "$CURL" "$@" --output "$output" "$url"
+fi

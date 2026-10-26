@@ -1,0 +1,128 @@
+============================================================
+bisect run: 45 opmode=standalone powermode=3,1000 recurrence=periodic events=min,engine,inject,meas,svpoly
+LOC client bound to (1, 16430) (qrtr 0:108)
+  INFORM_CLIENT_REVISION: qmi_result=(0, 0) loc_status=None
+before: constellations: gps=ENABLED_MANDATORY(0) glo=ENABLED_INTERNALLY(1) bds=DISABLED_INTERNALLY(101) qzss=DISABLED_INTERNALLY(101) gal=ENABLED_INTERNALLY(1) navic=DISABLED_NOT_SUPPORTED(100)
+before: multiband secondaryGnssConfig = 0x0000000000000000
+before: operation mode = standalone
+before: fix criteria = {'accuracy': 1, 'intermediate': 1, 'minInterval': 1000, 'minIntermediateInterval': 0, 'positionReportTimeout': 255000, 'sharePosition': 0}
+SET_OPERATION_MODE: standalone (4) from this client
+  SET_OPERATION_MODE: qmi_result=(0, 0) loc_status=SUCCESS(0)
+  read back: operation mode = standalone (4)
+REG_EVENTS mask 0x30001f7 (min,engine,inject,meas,svpoly)
+  REG_EVENTS: qmi_result=(0, 0) loc_status=None
+config verified: opmode=standalone, events=min,engine,inject,meas,svpoly
+------------------------------------------------------------
+QMI_LOC_START  session=11  recurrence=periodic  powerMode=3/1000ms
+start: qmi_result=(0, 0)
+session 11 started; listening 45 s
+fix criteria read back after start: {'accuracy': 1, 'intermediate': 1, 'minInterval': 1000, 'minIntermediateInterval': 0, 'positionReportTimeout': 1000, 'sharePosition': 1, 'powerMode': (3, 1000)}
+POSTSTART-VERIFY: powerMode = (3, 1000)  APPLIED
+------------------------------------------------------------
+FIXSESS state=STARTED  raw 0x01[4]=01000000
+REQUEST INJECT_TIME_REQ #1 0x10[62]=e8030000031274696d652e78747261636c6f75642e6e65741274696d652e78747261636c6f75642e6e65741274696d652e78747261636c6f75642e6e6574  [u32=1000 strings=time.xtracloud.net,time.xtracloud.net,time.xtracloud.net]
+POS    session=0(SUCCESS)
+POS    #1 raw 0x01[4]=00000000 0x02[1]=0b
+NMEA   $PSTIS,*61
+FIXSESS state=FINISHED  raw 0x01[4]=02000000
+FIXSESS state=STARTED  raw 0x01[4]=01000000
+EVENT  INJECT_TIME_REQ #2 0x10[62]=e8030000031274696d652e78747261636c6f75642e6e6574..
+POS    session=0(SUCCESS)
+POS    #2 raw 0x01[4]=00000000 0x02[1]=0b
+NMEA   $PSTIS,*61
+FIXSESS state=FINISHED  raw 0x01[4]=02000000
+FIXSESS state=STARTED  raw 0x01[4]=01000000
+EVENT  INJECT_TIME_REQ #3 0x10[62]=e8030000031274696d652e78747261636c6f75642e6e6574..
+POS    session=0(SUCCESS)
+POS    #3 raw 0x01[4]=00000000 0x02[1]=0b
+NMEA   $PSTIS,*61
+EVENT  INJECT_TIME_REQ #4 0x10[62]=e8030000031274696d652e78747261636c6f75642e6e6574..
+POS    session=0(SUCCESS)
+POS    #4 raw 0x01[4]=00000000 0x02[1]=0b
+NMEA   $PSTIS,*61
+EVENT  INJECT_TIME_REQ #5 0x10[62]=e8030000031274696d652e78747261636c6f75642e6e6574..
+POS    session=0(SUCCESS)
+POS    #5 raw 0x01[4]=00000000 0x02[1]=0b
+NMEA   $PSTIS,*61
+alive 101 ms (indications so far: 45)
+alive 205 ms (indications so far: 45)
+alive 306 ms (indications so far: 45)
+alive 410 ms (indications so far: 45)
+alive 513 ms (indications so far: 45)
+alive 616 ms (indications so far: 45)
+alive 718 ms (indications so far: 45)
+alive 823 ms (indications so far: 45)
+alive 926 ms (indications so far: 46)
+FIXSESS state=FINISHED  raw 0x01[4]=02000000
+alive 1032 ms (indications so far: 50)
+alive 1133 ms (indications so far: 50)
+alive 1234 ms (indications so far: 50)
+alive 1338 ms (indications so far: 50)
+alive 1439 ms (indications so far: 50)
+alive 1541 ms (indications so far: 50)
+alive 1642 ms (indications so far: 50)
+alive 1743 ms (indications so far: 50)
+alive 1847 ms (indications so far: 50)
+alive 1950 ms (indications so far: 51)
+alive 2081 ms (indications so far: 55)
+alive 2182 ms (indications so far: 55)
+alive 2284 ms (indications so far: 55)
+alive 2386 ms (indications so far: 55)
+alive 2491 ms (indications so far: 55)
+alive 2593 ms (indications so far: 55)
+alive 2696 ms (indications so far: 55)
+alive 2798 ms (indications so far: 55)
+alive 2899 ms (indications so far: 55)
+alive 3032 ms (indications so far: 60)
+alive 3135 ms (indications so far: 60)
+alive 3236 ms (indications so far: 60)
+alive 3340 ms (indications so far: 60)
+alive 3442 ms (indications so far: 60)
+alive 3548 ms (indications so far: 60)
+alive 3650 ms (indications so far: 60)
+alive 3752 ms (indications so far: 60)
+alive 3854 ms (indications so far: 60)
+alive 3959 ms (indications so far: 61)
+alive 4085 ms (indications so far: 65)
+alive 4188 ms (indications so far: 65)
+alive 4290 ms (indications so far: 65)
+alive 4393 ms (indications so far: 65)
+alive 4498 ms (indications so far: 65)
+alive 4602 ms (indications so far: 65)
+alive 4706 ms (indications so far: 65)
+alive 4807 ms (indications so far: 65)
+alive 4909 ms (indications so far: 65)
+alive 9945 ms (indications so far: 91)
+EVENT  INJECT_TIME_REQ #20 0x10[62]=e8030000031274696d652e78747261636c6f75642e6e6574..
+POS    session=0(SUCCESS)
+POS    #20 raw 0x01[4]=00000000 0x02[1]=0b
+NMEA   $PSTIS,*61
+FIXSESS state=FINISHED  raw 0x01[4]=02000000
+alive 14946 ms (indications so far: 116)
+alive 19982 ms (indications so far: 142)
+FIXSESS state=FINISHED  raw 0x01[4]=02000000
+alive 24982 ms (indications so far: 167)
+alive 29983 ms (indications so far: 192)
+EVENT  INJECT_TIME_REQ #40 0x10[62]=e8030000031274696d652e78747261636c6f75642e6e6574..
+POS    session=0(SUCCESS)
+POS    #40 raw 0x01[4]=00000000 0x02[1]=0b
+NMEA   $PSTIS,*61
+FIXSESS state=FINISHED  raw 0x01[4]=02000000
+alive 35031 ms (indications so far: 220)
+alive 40035 ms (indications so far: 245)
+FIXSESS state=FINISHED  raw 0x01[4]=02000000
+------------------------------------------------------------
+SURVIVED 45 s; indications received: 270
+  indication POSITION_REPORT            x54
+  indication NMEA                       x54
+  indication INJECT_TIME_REQ            x54
+  indication FIX_SESSION_STATE          x108
+MEASUREMENT REPORTS: 0   (0 = the correlator was never demonstrated to run)
+SATELLITE INFO INDICATIONS: 0
+REQUEST INVENTORY: 1 kind(s)
+  request INJECT_TIME_REQ              x54
+session stopped
+after:  constellations: gps=ENABLED_MANDATORY(0) glo=ENABLED_INTERNALLY(1) bds=DISABLED_INTERNALLY(101) qzss=DISABLED_INTERNALLY(101) gal=ENABLED_INTERNALLY(1) navic=DISABLED_NOT_SUPPORTED(100)
+after:  multiband secondaryGnssConfig = 0x0000000000000000
+after:  operation mode = standalone
+after:  fix criteria = {'accuracy': 1, 'intermediate': 1, 'minInterval': 1000, 'minIntermediateInterval': 0, 'positionReportTimeout': 1000, 'sharePosition': 1, 'powerMode': (3, 1000)}

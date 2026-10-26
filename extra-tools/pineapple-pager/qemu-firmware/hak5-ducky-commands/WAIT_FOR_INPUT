@@ -1,0 +1,17 @@
+#!/bin/bash
+# WAIT_FOR_INPUT - WiFi Pineapple Pager DuckyScript command (host bridge).
+# Blocks until the user presses a button on the Pager. The firmware endpoint
+# /payload/interact/wait_for_input is itself blocking (returns when the user
+# acts), so we just POST and wait -- faithful to the device behaviour.
+# Usage: WAIT_FOR_INPUT ["message"]
+. /lib/hak5/commands.sh
+
+__message="$*"
+
+json=$(cat << EOF
+{ "message": $(SAFE_JSON_STRING "${__message}") }
+EOF
+)
+
+HAK5_API_POST "payload/interact/wait_for_input" "${json}" && exit 0
+exit 1

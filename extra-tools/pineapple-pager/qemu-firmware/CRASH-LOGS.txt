@@ -1,0 +1,184 @@
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [AUTH] User 'root' logged in from 127.0.0.1:42732
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [Screen slept, sweeping up memory]
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [Screen dimmed, sweeping up memory]
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [PAYLOAD] Launching payload /root/payloads/user/games/doom-installer/payload.sh
+ [ERROR]  [PAYLOAD] Could not remove temp script: remove /tmp/payload-1831454673.sh: no such file or directory
+panic: runtime error: invalid memory address or nil pointer dereference
+[signal SIGSEGV: segmentation violation code=0x1 addr=0xc pc=0xc099fc]
+goroutine 68 [running]:
+github.com/hak5/golang-product-server/pineapplepager.RunPagerPayload.func2()
+	/platform/golang-product-server/pineapplepager/ui_payload_log.go:534 +0x2c70
+created by github.com/hak5/golang-product-server/pineapplepager.RunPagerPayload in goroutine 67
+	/platform/golang-product-server/pineapplepager/ui_payload_log.go:410 +0x4ac
+pager-qemu-firmware.service: Main process exited, code=exited, status=2/INVALIDARGUMENT
+pager-qemu-firmware.service: Killing process 113797 (sleep) with signal SIGKILL.
+pager-qemu-firmware.service: Failed with result 'exit-code'.
+pager-qemu-firmware.service: Consumed 9.850s CPU time over 1min 34.333s wall clock time, 143M memory peak.
+pager-qemu-firmware.service: Scheduled restart job, restart counter is at 2.
+Started pager-qemu-firmware.service - WiFi Pineapple Pager REAL firmware (qemu-mipsel, :1471).
+[fw_run] launching firmware: /opt/pineapple-pager/qemu/bin/qemu-mipsel -L /opt/pineapple-pager/qemu/rootfs ./pineapple/pineapple
+ [MAIN] Launching  Pineapple Pager  server
+ [CORE] Starting Pineapple Pager server
+ [CORE] Config Health Check Starting
+ [CORE] TCP API service starting
+ [BOOT] overlay filesystem mounted, continuing
+ [BOOT] OS Boot complete
+ [PAGER] id-I1krPAs3V2Z90fzu4EjunA
+ [MAIN] Starting PineAP
+ [CORE] local API service starting
+ [MAIN] PineAP already running
+ [BUTTONS] opened evdev device /dev/input/event0
+ [BUTTONS] opened evdev device /dev/input/event1
+ [BUTTONS] opened evdev device /dev/input/event2
+ [BUTTONS] opened evdev device /dev/input/event3
+ [BUTTONS] opened evdev device /dev/input/event4
+ [BUTTONS] opened evdev device /dev/input/event5
+ [Memory Manager] MemoryLimit:96
+ [Memory Manager] GC:75
+ [UI] Defaulting Theme
+ [AUTH] User 'root' logged in from 127.0.0.1:55954
+ [SYSTEM] Setting PIN Enabled false
+ [ERROR]  [UI] Error Dialog could not be shown before UI loaded: Error getting power data
+ [UI] UI Startup complete in 2.98390679s
+ [UI] Images: 142 / Refs: 1321 / Size: 16.36 MB, Saved: 22.86 MB -- Canvases: 26, Size: 11 MB
+ [Memory Manager] MaintainThreshold:30
+ [Memory Manager] LowThreshold:18
+ [Memory Manager] DangerThreshold:12
+ [Memory Manager] Check Interval: 2000000000
+ [MAIN] Starting PineAP related services
+ [Memory Manager] monitor goroutine started
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [SYSTEM] Setting theme {aiden-pearce /root/themes/aiden-pearce {  map[]     map[]                                          map[] map[] map[] map[] map[] map[] map[] map[] map[] map[] map[]              }}
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [Screen dimmed, sweeping up memory]
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [ERROR]  [KBWS] [root] websocket closed websocket: close 1000 (normal)
+ [EVENTBUS] Remove receiver: virtcanvas-9de30896-b357-4909-93fc-b0614acce258
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument
+ [Screen slept, sweeping up memory]
+ [CRITICAL]  [POWER] Unable to open power monitor: open /sys/class/power_supply/bq27546-0/uevent: no such file or directory
+ [CRITICAL]  [POWER] Unable to seek in power monitor: invalid argument

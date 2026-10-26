@@ -1,0 +1,35 @@
+#!/bin/sh
+# hciconfig.shim - replaces /usr/bin/hciconfig inside the qemu firmware rootfs.
+#
+# Runs under qemu-mipsel (busybox ash). The MIPS hciconfig cannot reach the G82's
+# real Bluetooth controller (qemu-user does not emulate the HCI ioctls), so instead
+# of talking to the (non-functional) HCI socket we forward our argv to the native
+# host helper bt_bridge.py on 127.0.0.1:PORT (qemu shares the host network) and
+# mirror its output + exit code. The host helper drives the REAL hci0.
+#
+# The original MIPS hciconfig is kept next to us as hciconfig.real for diagnostics.
+PORT="${PAGER_BT_PORT:-1473}"
+NC="/usr/bin/nc"
+
+# Build a tab-separated ARGV line: ARGV<TAB>arg0<TAB>arg1...
+LINE="ARGV	hciconfig"
+for a in "$@"; do
+    LINE="$LINE	$a"
+done
+
+# Talk to the host helper. The helper closes the connection after it replies,
+# so GNU netcat exits on EOF; -w is only a safety timeout. (Do NOT use -c: it
+# closes the socket on stdin EOF and truncates the reply.)
+REPLY="$(printf '%s\n' "$LINE" | "$NC" -w 8 127.0.0.1 "$PORT" 2>/dev/null)"
+
+if [ -z "$REPLY" ]; then
+    # Bridge unreachable: do NOT crash the firmware. Report a clean failure.
+    echo "hciconfig: bluetooth bridge unreachable (127.0.0.1:$PORT)" 1>&2
+    exit 1
+fi
+
+# Split off the trailing "__RC__ <n>" status line; print the rest verbatim.
+RC="$(printf '%s\n' "$REPLY" | sed -n 's/^__RC__ \([0-9][0-9]*\)$/\1/p' | tail -n1)"
+printf '%s\n' "$REPLY" | grep -v '^__RC__ ' 
+[ -n "$RC" ] || RC=0
+exit "$RC"

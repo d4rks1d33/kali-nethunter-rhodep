@@ -1,0 +1,166 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# iwinfo -- OpenWrt iwinfo compatibility shim, emulated on top of `iw`.
+#
+# Part of: extra-tools/pineapple-port/compat/
+#
+# WHY:
+#   The panel parses iwinfo text output in two places:
+#     Networking/AccessPoint.php:33  exec("iwinfo phy0 freqlist", $output)
+#         -> regex  /\(Channel (\d+)\)$/m   (wants lines ending "(Channel N)")
+#     Networking/ClientMode.php:24   exec("iwinfo <iface> scan", $apScan)
+#         -> splits on /^Cell/m and reads, per cell, lines:
+#            [0] "Cell NN - Address: AA:BB:CC:DD:EE:FF"   (mac = last 17 chars)
+#            [1] "          ESSID: \"<ssid>\""            (substr 8..-1)
+#            [2] "          Channel: N"                    (reads from col 9)
+#            [3] "          Signal: -NN dBm  Quality: X/Y" (two "  "-split fields)
+#            [4] "          Encryption: <sec>"            (substr 12)
+#   iwinfo is absent on Kali. This shim produces byte-compatible-enough output
+#   for those two parsers using `iw`, so the panel PHP is NOT modified.
+#
+# SUBCOMMANDS IMPLEMENTED:
+#   iwinfo <phy> freqlist      (phy0 -> `iw phy phy0 channels` / `iw list`)
+#   iwinfo <iface> scan        (`iw dev <iface> scan`)
+#
+# LIMITATION: the panel's scan parser is strict about the exact 5-line layout
+# per cell; we reproduce that layout. If `iw` is missing or the interface is
+# down, we print "No scan results" (what the panel checks for apScan[0]).
+
+import os
+import re
+import sys
+import subprocess
+
+IW = os.environ.get("IW", "iw")
+
+
+def run(cmd):
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        return out.returncode, out.stdout, out.stderr
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return 1, "", ""
+
+
+def resolve_phy(name):
+    # Accept "phy0" or an interface name; iw phy takes the phyN directly.
+    if name.startswith("phy"):
+        return name
+    # map iface -> phy via /sys
+    p = "/sys/class/net/%s/phy80211/name" % name
+    try:
+        with open(p) as f:
+            return f.read().strip()
+    except OSError:
+        return name
+
+
+def cmd_freqlist(target):
+    phy = resolve_phy(target)
+    rc, out, _ = run([IW, "phy", phy, "channels"])
+    if rc != 0 or not out:
+        # Fallback: `iw list` dumps all phys with "* 2412 MHz [1] ..." lines
+        rc, out, _ = run([IW, "list"])
+    # iw prints lines like:  "* 2412 MHz [1] (20.0 dBm)"
+    # The panel only needs trailing "(Channel N)". Emit one line per channel.
+    seen = []
+    for m in re.finditer(r"\[(\d+)\]", out):
+        ch = m.group(1)
+        if ch not in seen:
+            seen.append(ch)
+    if not seen:
+        # Last resort: emit the common 2.4GHz set so the UI is not empty.
+        seen = [str(c) for c in range(1, 12)]
+    for ch in seen:
+        # Format mimics iwinfo: "<freq> MHz (Channel <N>)"
+        print("         (Channel %s)" % ch)
+    return 0
+
+
+_CRYPTO_SPLIT = re.compile(r"\s{2,}")
+
+
+def cmd_scan(iface):
+    rc, out, _ = run([IW, "dev", iface, "scan"])
+    if rc != 0 or not out.strip():
+        print("No scan results")
+        return 0
+
+    cells = []
+    cur = None
+    for line in out.splitlines():
+        bss = re.match(r"^BSS ([0-9a-fA-F:]{17})", line)
+        if bss:
+            if cur:
+                cells.append(cur)
+            cur = {"mac": bss.group(1).upper(), "ssid": "", "channel": "",
+                   "signal": "", "enc": "none"}
+            continue
+        if cur is None:
+            continue
+        s = line.strip()
+        if s.startswith("SSID:"):
+            cur["ssid"] = s[5:].strip()
+        elif s.startswith("DS Parameter set: channel"):
+            cur["channel"] = s.split("channel", 1)[1].strip()
+        elif s.startswith("* primary channel:"):
+            if not cur["channel"]:
+                cur["channel"] = s.split(":", 1)[1].strip()
+        elif s.startswith("freq:") and not cur["channel"]:
+            # derive channel from freq if DS param absent
+            try:
+                f = int(float(s.split(":", 1)[1]))
+                if 2412 <= f <= 2472:
+                    cur["channel"] = str((f - 2407) // 5)
+                elif f == 2484:
+                    cur["channel"] = "14"
+                elif 5000 <= f <= 5900:
+                    cur["channel"] = str((f - 5000) // 5)
+            except ValueError:
+                pass
+        elif s.startswith("signal:"):
+            # "signal: -42.00 dBm"
+            cur["signal"] = s.split(":", 1)[1].strip().split()[0].split(".")[0]
+        elif "RSN:" in s or s.startswith("RSN:"):
+            cur["enc"] = "WPA2 PSK (CCMP)"
+        elif "WPA:" in s and cur["enc"] == "none":
+            cur["enc"] = "WPA PSK (TKIP)"
+    if cur:
+        cells.append(cur)
+
+    if not cells:
+        print("No scan results")
+        return 0
+
+    n = 1
+    for c in cells:
+        sig = c["signal"] or "-100"
+        ch = c["channel"] or "0"
+        # Reproduce iwinfo's fixed 5-line cell layout the panel parses.
+        print("Cell %02d - Address: %s" % (n, c["mac"]))
+        print("          ESSID: \"%s\"" % c["ssid"])
+        print("          Channel: %s" % ch)
+        print("          Signal: %s dBm  Quality: 0/70" % sig)
+        print("          Encryption: %s" % c["enc"])
+        print("")
+        n += 1
+    return 0
+
+
+def main(argv):
+    if len(argv) < 3:
+        sys.stderr.write("usage: iwinfo <device> <freqlist|scan>\n")
+        return 1
+    device = argv[1]
+    sub = argv[2]
+    if sub == "freqlist":
+        return cmd_freqlist(device)
+    if sub == "scan":
+        return cmd_scan(device)
+    sys.stderr.write("iwinfo(shim): unsupported subcommand '%s'\n" % sub)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

@@ -1,0 +1,24 @@
+# pager-server.service -- API/UI server of the WiFi Pineapple Pager port.
+#
+# Part of: extra-tools/pineapple-pager/systemd/
+# Replaces the Pager's golang-product-server: serves the "virtual Pager"
+# frontend + the REST/WS API, translating /api/* to pineapd socket commands.
+# Panel on http://172.16.52.1:1471 (and any bind). Runs as root like the daemon.
+
+[Unit]
+Description=WiFi Pineapple Pager UI+API server (virtual Pager)
+After=pineapd-pager.service pager-net.service
+Wants=pineapd-pager.service
+PartOf=pager.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/pineapple-pager/panel/pager-server.py \
+    --sock /opt/pineapple-pager/run/pineap_sock \
+    --root /opt/pineapple-pager/frontend \
+    --bind 0.0.0.0 --port 1471
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=pager.target

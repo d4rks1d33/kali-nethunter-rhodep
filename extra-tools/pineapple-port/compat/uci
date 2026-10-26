@@ -1,0 +1,278 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# uci  --  OpenWrt UCI compatibility shim for the WiFi Pineapple panel port.
+#
+# Part of: /opt/postmarket/nethunter-rhodep-repo/extra-tools/pineapple-port/compat/
+#
+# WHY:
+#   The Pineapple panel (api/pineapple.php uciGet/uciSet/uciAddList and ~40 call
+#   sites) shells out to `uci get/set/add_list/commit/show/delete`. On OpenWrt
+#   this reads/writes the UCI datamodel under /etc/config/*. Kali/NetHunter has
+#   no UCI, so this shim re-implements the exact command surface the panel uses
+#   and stores everything in a self-contained store under /opt/pineapple/etc/,
+#   so the panel PHP never needs to be edited for configuration.
+#
+# STORE:
+#   One flat key=value file per UCI "config" (package), e.g.
+#     /opt/pineapple/etc/uci/pineap
+#     /opt/pineapple/etc/uci/wireless
+#     /opt/pineapple/etc/uci/firewall
+#     /opt/pineapple/etc/uci/system
+#   Keys are the fully-qualified UCI option name WITHOUT the leading package,
+#   e.g.  "@config[0].karma"  ->  value.  Named sections like
+#   "allowssh.enabled" and "radio0.channel" are stored verbatim.
+#   Values are stored one per line as:  <key>=<value>
+#   Lists (add_list) are stored as repeated identical keys; `uci get` of a list
+#   returns the values space-joined (matches OpenWrt `uci get` on a list).
+#
+#   There is NO staging/commit separation in this store (every set is written
+#   through immediately); `uci commit` is therefore a well-defined no-op that
+#   still returns success, which is exactly what the panel relies on.
+#
+# SUPPORTED SYNTAX (only what the panel actually calls -- grepped from panel/):
+#   uci get     <pkg>.<section>[.<option>]
+#   uci set     <pkg>.<section>[.<option>]=<value>
+#   uci add_list <pkg>.<section>.<option>=<value>
+#   uci del_list <pkg>.<section>.<option>=<value>
+#   uci delete  <pkg>.<section>[.<option>]
+#   uci commit  [<pkg>]
+#   uci show    [<pkg>[.<section>[.<option>]]]
+#   uci add     <pkg> <type>        (minimal; returns a generated section id)
+#
+# EXIT CODES mirror uci: 0 ok; 1 "Entry not found" (get of a missing key prints
+# nothing to stdout and returns 1, like real uci).
+#
+import os
+import sys
+import re
+import fcntl
+
+STORE_DIR = os.environ.get("PINEAPPLE_UCI_DIR", "/opt/pineapple/etc/uci")
+
+
+def _die(msg, code=1):
+    sys.stderr.write("uci: %s\n" % msg)
+    sys.exit(code)
+
+
+def _pkg_path(pkg):
+    if not re.match(r"^[A-Za-z0-9_-]+$", pkg or ""):
+        _die("Invalid package name: %r" % pkg)
+    return os.path.join(STORE_DIR, pkg)
+
+
+def _ensure_dir():
+    try:
+        os.makedirs(STORE_DIR, exist_ok=True)
+    except OSError as e:
+        _die("cannot create store dir %s: %s" % (STORE_DIR, e))
+
+
+def _load(pkg):
+    """Return list of (key, value) pairs preserving order and duplicates (lists)."""
+    path = _pkg_path(pkg)
+    pairs = []
+    if not os.path.exists(path):
+        return pairs
+    with open(path, "r", encoding="utf-8", errors="surrogateescape") as f:
+        fcntl.flock(f, fcntl.LOCK_SH)
+        for line in f:
+            line = line.rstrip("\n")
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            pairs.append((k, v))
+    return pairs
+
+
+def _store(pkg, pairs):
+    _ensure_dir()
+    path = _pkg_path(pkg)
+    tmp = path + ".tmp.%d" % os.getpid()
+    with open(tmp, "w", encoding="utf-8", errors="surrogateescape") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        for k, v in pairs:
+            f.write("%s=%s\n" % (k, v))
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+
+
+def _split_ref(ref):
+    """pkg.section.option -> (pkg, 'section.option' or 'section')."""
+    if "." not in ref:
+        return ref, None
+    pkg, rest = ref.split(".", 1)
+    return pkg, rest
+
+
+# ---------------------------------------------------------------------------
+
+
+def cmd_get(args):
+    if not args:
+        _die("get requires an argument")
+    pkg, key = _split_ref(args[0])
+    if key is None:
+        # `uci get pkg` is not meaningful here
+        sys.exit(1)
+    pairs = _load(pkg)
+    values = [v for (k, v) in pairs if k == key]
+    if not values:
+        sys.exit(1)  # Entry not found, like real uci
+    # uci joins list values with spaces on a plain `get`
+    print(" ".join(values))
+    sys.exit(0)
+
+
+def cmd_set(args):
+    if not args or "=" not in args[0]:
+        _die("set requires <key>=<value>")
+    ref, value = args[0].split("=", 1)
+    pkg, key = _split_ref(ref)
+    if key is None:
+        _die("set requires an option")
+    pairs = _load(pkg)
+    out = [(k, v) for (k, v) in pairs if k != key]
+    out.append((key, value))
+    _store(pkg, out)
+    sys.exit(0)
+
+
+def cmd_add_list(args):
+    if not args or "=" not in args[0]:
+        _die("add_list requires <key>=<value>")
+    ref, value = args[0].split("=", 1)
+    pkg, key = _split_ref(ref)
+    if key is None:
+        _die("add_list requires an option")
+    pairs = _load(pkg)
+    # avoid duplicate identical entries (uci add_list dedups)
+    if (key, value) not in pairs:
+        pairs.append((key, value))
+    _store(pkg, pairs)
+    sys.exit(0)
+
+
+def cmd_del_list(args):
+    if not args or "=" not in args[0]:
+        _die("del_list requires <key>=<value>")
+    ref, value = args[0].split("=", 1)
+    pkg, key = _split_ref(ref)
+    pairs = _load(pkg)
+    out = [(k, v) for (k, v) in pairs if not (k == key and v == value)]
+    _store(pkg, out)
+    sys.exit(0)
+
+
+def cmd_delete(args):
+    if not args:
+        _die("delete requires an argument")
+    pkg, key = _split_ref(args[0])
+    pairs = _load(pkg)
+    if key is None:
+        # delete whole package
+        path = _pkg_path(pkg)
+        if os.path.exists(path):
+            os.remove(path)
+        sys.exit(0)
+    # delete exact option, OR a whole section (prefix "section.")
+    section_prefix = key + "."
+    out = [
+        (k, v) for (k, v) in pairs
+        if k != key and not k.startswith(section_prefix)
+    ]
+    _store(pkg, out)
+    sys.exit(0)
+
+
+def cmd_commit(args):
+    # No staging in this store: everything is written through on set/add_list.
+    # commit [pkg] is a success no-op, matching what the panel expects.
+    sys.exit(0)
+
+
+def cmd_show(args):
+    if args:
+        pkg, key = _split_ref(args[0])
+        pairs = _load(pkg)
+        for k, v in pairs:
+            if key is None or k == key or k.startswith((key or "") + "."):
+                print("%s.%s=%s" % (pkg, k, v))
+        sys.exit(0)
+    # show everything
+    if os.path.isdir(STORE_DIR):
+        for pkg in sorted(os.listdir(STORE_DIR)):
+            if pkg.endswith(".tmp") or ".tmp." in pkg:
+                continue
+            for k, v in _load(pkg):
+                print("%s.%s=%s" % (pkg, k, v))
+    sys.exit(0)
+
+
+def cmd_add(args):
+    # `uci add <pkg> <type>` -> create an anonymous section, echo its id.
+    # The panel uses fixed @section[0] indices, so this is rarely needed, but
+    # we support it minimally: we just echo a deterministic cfg id.
+    if len(args) < 2:
+        _die("add requires <config> <section-type>")
+    pkg, stype = args[0], args[1]
+    pairs = _load(pkg)
+    # count existing @type[n]
+    idx = 0
+    pat = re.compile(r"^@%s\[(\d+)\]\." % re.escape(stype))
+    for k, _ in pairs:
+        m = pat.match(k)
+        if m:
+            idx = max(idx, int(m.group(1)) + 1)
+    # materialize an empty marker so the section "exists"
+    marker = "@%s[%d].__exists" % (stype, idx)
+    if (marker, "1") not in pairs:
+        pairs.append((marker, "1"))
+    _store(pkg, pairs)
+    print("@%s[%d]" % (stype, idx))
+    sys.exit(0)
+
+
+DISPATCH = {
+    "get": cmd_get,
+    "set": cmd_set,
+    "add_list": cmd_add_list,
+    "del_list": cmd_del_list,
+    "delete": cmd_delete,
+    "commit": cmd_commit,
+    "show": cmd_show,
+    "add": cmd_add,
+}
+
+
+def main(argv):
+    # Strip uci global options we don't need (-q, -c <dir>, -P <dir>, etc.)
+    args = []
+    i = 1
+    while i < len(argv):
+        a = argv[i]
+        if a in ("-q", "-n", "-N", "-s", "-m"):
+            i += 1
+            continue
+        if a in ("-c", "-P", "-d", "-t"):
+            i += 2
+            continue
+        args.append(a)
+        i += 1
+
+    if not args:
+        _die("usage: uci [get|set|add_list|del_list|delete|commit|show|add] ...")
+
+    cmd = args[0]
+    handler = DISPATCH.get(cmd)
+    if handler is None:
+        _die("unknown or unsupported command: %s" % cmd)
+    handler(args[1:])
+
+
+if __name__ == "__main__":
+    main(sys.argv)

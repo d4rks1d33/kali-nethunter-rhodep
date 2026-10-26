@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=WiFi Pineapple Pager (Firmware)
+GenericName=WiFi Pineapple Pager (firmware real, qemu)
+Comment=Arranca el firmware REAL del Pager bajo qemu y abre su display a pantalla completa (kiosk, landscape)
+Comment[es]=Arranca el firmware REAL del Pager bajo qemu y abre su display a pantalla completa (kiosk, landscape)
+Exec=/opt/pineapple-pager/qemu/app/pager-qemu-kiosk.sh
+Icon=wifi-pineapple-pager-qemu
+Terminal=false
+Categories=Network;Security;System;
+Keywords=pineapple;wifi;pager;hak5;pentest;kiosk;qemu;firmware;
+StartupNotify=true
+StartupWMClass=wifi-pineapple-pager-qemu
+X-Purism-FormFactor=Workstation;Mobile;

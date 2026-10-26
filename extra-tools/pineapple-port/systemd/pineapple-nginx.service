@@ -1,0 +1,29 @@
+# pineapple-nginx.service -- dedicated nginx serving the panel on :1471.
+#
+# Part of: extra-tools/pineapple-port/systemd/   (FASE 4)
+#
+# Runs a DEDICATED nginx master with the port's config (net/nginx.conf), which
+# listens on :1471 with root /pineapple (-> /opt/pineapple/panel) and fastcgi to
+# the dedicated php-fpm socket. It does NOT reuse/disturb the system nginx: its
+# own pid file (/run/pineapple-nginx.pid) and config, so the phone's web stack
+# (if any) is untouched and the panel starts/stops on demand.
+#
+# `-g 'daemon off;'` keeps nginx in the foreground so systemd supervises it.
+
+[Unit]
+Description=WiFi Pineapple nginx (panel on :1471)
+After=pineapple-php-fpm.service pineapple-net.service
+Wants=pineapple-php-fpm.service
+PartOf=pineapple.target
+
+[Service]
+Type=simple
+ExecStartPre=/bin/mkdir -p /var/log/pineapple
+ExecStartPre=/usr/sbin/nginx -t -c /opt/pineapple/net/nginx.conf
+ExecStart=/usr/sbin/nginx -c /opt/pineapple/net/nginx.conf -g 'daemon off;'
+ExecReload=/usr/sbin/nginx -c /opt/pineapple/net/nginx.conf -s reload
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=pineapple.target

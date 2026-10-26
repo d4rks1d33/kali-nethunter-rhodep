@@ -1,0 +1,25 @@
+#!/bin/bash
+# IP_PICKER - WiFi Pineapple Pager DuckyScript command (host bridge).
+# Shows an IP entry dialog and returns the entered IP on stdout. BLOCKS until
+# the user confirms/cancels (the firmware endpoint is blocking).
+# Usage:  resp=$(IP_PICKER "Prompt?" "default.ip")
+# Exit codes mirror pineapple.sh: 0 confirmed, 2 cancelled, 3 rejected, 4 error.
+. /lib/hak5/pineapple.sh
+
+__message="$1"
+__default="$2"
+
+json=$(cat << EOF
+{ "message": $(SAFE_JSON_STRING "${__message}"), "default": $(SAFE_JSON_STRING "${__default}") }
+EOF
+)
+
+if HAK5_API_POST "payload/interact/ip_picker" "${json}"; then
+    # Response JSON is loaded into jshn by HAK5_API_POST. Emit the value.
+    json_get_var __val value 2>/dev/null
+    [ -z "$__val" ] && json_get_var __val result 2>/dev/null
+    [ -z "$__val" ] && json_get_var __val ip 2>/dev/null
+    printf '%s' "$__val"
+    exit ${DUCKYSCRIPT_USER_CONFIRMED}
+fi
+exit ${DUCKYSCRIPT_ERROR}

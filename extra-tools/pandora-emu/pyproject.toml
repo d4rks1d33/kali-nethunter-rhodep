@@ -5,16 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pandora-emu"
 version = "0.1.0"
-description = "Pandora D-605 keyfob emulator (GTK4/libadwaita) with a HackRF bridge"
+description = "Pandora D650 keyfob emulator (GTK4/libadwaita) with a HackRF bridge"
 readme = "README.md"
 license = { text = "GPL-2.0-or-later" }
 requires-python = ">=3.10"
 
-# Optional: direct libhackrf bindings. The app works without it (it shells out
-# to hackrf_transfer by default); install this extra and flip USE_PYHACKRF in
-# hackrf.py to use the direct backend.
-[project.optional-dependencies]
-pyhackrf = ["pyhackrf"]
+# numpy powers the vectorised real-time RX demod and TX I/Q synthesis in
+# hackrf.py (per-sample Python loops were far too slow for streaming SDR).
+dependencies = ["numpy>=1.21"]
 
 [project.scripts]
 pandora-emu = "pandora_emu.__main__:main"

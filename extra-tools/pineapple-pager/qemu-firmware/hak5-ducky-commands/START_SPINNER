@@ -1,0 +1,22 @@
+#!/bin/bash
+# START_SPINNER - WiFi Pineapple Pager DuckyScript command (host bridge).
+# Shows a spinner and returns its ID on stdout (payloads do
+# id=$(START_SPINNER "msg"); ... ; STOP_SPINNER $id). NON-blocking.
+# Usage: id=$(START_SPINNER "message")
+. /lib/hak5/pineapple.sh
+
+__message="$*"
+
+json=$(cat << EOF
+{ "message": $(SAFE_JSON_STRING "${__message}") }
+EOF
+)
+
+if HAK5_API_POST "payload/interact/spinner/start" "${json}"; then
+    json_get_var __id id 2>/dev/null
+    [ -z "$__id" ] && json_get_var __id spinner_id 2>/dev/null
+    [ -z "$__id" ] && json_get_var __id value 2>/dev/null
+    printf '%s' "$__id"
+    exit 0
+fi
+exit 1

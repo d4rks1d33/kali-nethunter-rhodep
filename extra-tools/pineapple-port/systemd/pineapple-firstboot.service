@@ -1,0 +1,27 @@
+# pineapple-firstboot.service -- one-shot provisioning of the Pineapple port.
+#
+# Part of: extra-tools/pineapple-port/systemd/   (FASE 4)
+#
+# Runs ONCE (ConditionPathExists=!) the first time the target is started:
+#   - create runtime dirs under /opt and /var/log/pineapple
+#   - seed the UCI store (if empty) with the port defaults
+#   - render /tmp/pineap.conf from the store
+#   - create the SQLite schema via `pineapd --initdbs`
+#   - seed the panel DB (auth + tables) if missing
+#   - mark /opt/pineapple/.provisioned so it never runs again
+#
+# It does NOT touch the OS; everything lives under /opt/pineapple.
+# Re-provision by deleting /opt/pineapple/.provisioned.
+
+[Unit]
+Description=WiFi Pineapple port first-boot provisioning (one-shot, idempotent)
+ConditionPathExists=!/opt/pineapple/.provisioned
+# No dependency on network; this only writes files/DBs.
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/pineapple/net/pineapple-firstboot.sh
+
+[Install]
+WantedBy=pineapple.target

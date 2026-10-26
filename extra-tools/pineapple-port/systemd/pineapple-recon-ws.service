@@ -1,0 +1,36 @@
+# pineapple-recon-ws.service -- OPTIONAL Recon live-scan WebSocket (:1337).
+#
+# Part of: extra-tools/pineapple-port/systemd/   (FASE 4)
+#
+# IMPORTANT / honesty note:
+#   In the original design the Recon WebSocket server (reconpp.py) is NOT a
+#   standing daemon: the panel launches it ON DEMAND for a specific scan with
+#   `python3 reconpp.py <database> <scanID>` (see modules/Recon/api/module.php),
+#   because it needs the scanID of the scan in progress, and it self-terminates
+#   when the scan ends (it also takes a lockfile to prevent double-starts).
+#
+#   Therefore this unit is PROVIDED BUT NOT PART OF pineapple.target by default
+#   (no [Install] WantedBy=pineapple.target). The normal flow is: the panel
+#   starts/stops reconpp.py itself. This unit exists only for debugging a live
+#   recon WS by hand, and requires RECON_SCANID to be set:
+#
+#     systemctl start pineapple-recon-ws@<scanID>   # (see the @ template note)
+#
+#   Since a plain service cannot know the scanID, we expose it as a simple unit
+#   that reads the current scanID from pineapd's get_status; if there is no
+#   active scan it exits cleanly. Prefer letting the panel manage recon.
+
+[Unit]
+Description=WiFi Pineapple Recon WebSocket (:1337) [optional, panel-managed]
+After=pineapd.service
+Requires=pineapd.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/pineapple/panel/modules/Recon/api
+Environment=PINEAPPLE_DB=/opt/pineapple/etc/pineapple.db
+# scanID 0 = "whatever is current"; reconpp.py exits if none/locked.
+ExecStart=/usr/bin/python3 /opt/pineapple/panel/modules/Recon/api/reconpp.py ${PINEAPPLE_DB} 0
+Restart=no
+
+# Intentionally NO [Install] section: not wired into pineapple.target.

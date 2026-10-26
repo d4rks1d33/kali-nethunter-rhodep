@@ -1,0 +1,5 @@
+{
+  "_comment": "Registro de temas de la pantalla del Pager. El backend (pager-server.py) regenera esta lista escaneando este directorio en GET /api/themes; este archivo es el fallback estatico para modo mock / sin backend.",
+  "default": "wargames",
+  "themes": ["wargames", "amber", "ice"]
+}

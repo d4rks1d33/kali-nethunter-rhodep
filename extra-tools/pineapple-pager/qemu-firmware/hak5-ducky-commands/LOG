@@ -1,0 +1,51 @@
+#!/bin/bash
+# LOG - WiFi Pineapple Pager DuckyScript command (qemu-user host bridge).
+#
+# Faithful re-implementation of the Pager's LOG command: it appends a line to
+# the on-screen "payload log" by POSTing to the firmware's local API endpoint
+# /api/payload/interact/log over the unix socket /tmp/api.sock -- EXACTLY the
+# same mechanism the stock Pager commands (LED, VIBRATE, UI_TAKEOVER, ...) use
+# via HAK5_API_POST in /lib/hak5/commands.sh.
+#
+# Why this file exists: under qemu-user the firmware writes /tmp/payload-*.sh
+# and runs it with the HOST /bin/bash. The stock rootfs ships LED/VIBRATE/etc
+# as bash scripts in /usr/bin, but does NOT ship LOG (nor ALERT, ERROR_DIALOG,
+# PROMPT, WAIT_FOR_*, the *_PICKER family, SPINNER...). On real hardware these
+# resolve in $PATH; under qemu they were "command not found", which is why
+# every payload died with exit 127. This provides them on the host, talking to
+# the very same /tmp/api.sock the firmware already serves.
+#
+# Usage (matches Pager semantics):
+#   LOG [color] "message"
+#   LOG "message"
+# color is one of: red green blue yellow purple cyan white (optional, leading).
+
+. /lib/hak5/commands.sh
+
+# Known color words that may lead the arguments (Pager convention).
+case "${1,,}" in
+    red|green|blue|yellow|purple|magenta|cyan|white|orange|amber|black)
+        __color="${1,,}"
+        shift
+        ;;
+    *)
+        __color=""
+        ;;
+esac
+
+__message="$*"
+
+if [ -n "$__color" ]; then
+    json=$(cat << EOF
+{ "message": $(SAFE_JSON_STRING "${__message}"), "color": $(SAFE_JSON_STRING "${__color}") }
+EOF
+)
+else
+    json=$(cat << EOF
+{ "message": $(SAFE_JSON_STRING "${__message}") }
+EOF
+)
+fi
+
+HAK5_API_POST "payload/interact/log" "${json}" && exit 0
+exit 1

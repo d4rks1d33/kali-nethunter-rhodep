@@ -65,7 +65,9 @@ class MainWindow(Adw.ApplicationWindow):
         scroller.set_vexpand(True)
 
         header = Adw.HeaderBar()
-        header.set_title_widget(Gtk.Label(label="NetHunter Pro"))
+        sidebar_title = Gtk.Label(label="NetHunter Pro")
+        sidebar_title.add_css_class("nh-title")  # cosmetic: monospace title
+        header.set_title_widget(sidebar_title)
         toolbar = Adw.ToolbarView(content=scroller)
         toolbar.add_top_bar(header)
 
@@ -77,6 +79,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.stack = Gtk.Stack()
         self.content_header = Adw.HeaderBar()
         self.title_label = Gtk.Label()
+        self.title_label.add_css_class("nh-title")  # cosmetic: monospace title
         self.content_header.set_title_widget(self.title_label)
 
         toolbar = Adw.ToolbarView(content=self.stack)
@@ -178,6 +181,11 @@ class NetHunterProApp(Adw.Application):
         super().__init__(application_id="org.kali.NetHunterPro")
 
     def do_activate(self) -> None:
+        # Force the dark "tactical terminal" palette regardless of the system
+        # theme, so the custom dark style.css always applies. (UI only.)
+        Adw.StyleManager.get_default().set_color_scheme(
+            Adw.ColorScheme.FORCE_DARK
+        )
         self._load_css()
         win = self.props.active_window or MainWindow(self)
         win.present()

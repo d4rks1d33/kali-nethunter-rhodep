@@ -1,0 +1,14 @@
+{
+  "id": "amber",
+  "name": "Amber CRT",
+  "author": "port",
+  "description": "Monitor monocromo ambar al estilo VT220: fosforo naranja calido, acento dorado.",
+  "colors": {
+    "bg":     "#0a0500",
+    "fg":     "#ffb000",
+    "accent": "#ffd27a",
+    "amber":  "#ff7a1a",
+    "grid":   "255,176,0",
+    "danger": "#ff4030"
+  }
+}

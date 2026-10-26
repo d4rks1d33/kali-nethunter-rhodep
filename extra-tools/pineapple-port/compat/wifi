@@ -1,0 +1,76 @@
+#!/bin/sh
+# wifi -- OpenWrt /sbin/wifi (netifd) compatibility shim.
+#
+# Part of: extra-tools/pineapple-port/compat/
+#
+# WHY:
+#   On OpenWrt, /sbin/wifi reads the `wireless` UCI config and (re)starts the
+#   wireless stack via netifd. The panel calls it to apply wireless changes:
+#     Networking/AccessPoint.php:24    execBackground('wifi')          (apply AP cfg)
+#     Networking/Interfaces.php:59,71  exec("wifi")
+#     Networking/ClientMode.php:57     '[ -n "$(wifi config)" ] && wifi config >> /etc/config/wireless'
+#     Networking/ClientMode.php:111,145 execBackground("wifi") / "wifi reload <r>"
+#     PineAP/module.php:578,640        "wifi down radio0 && wifi up radio0"
+#     Setup.php:122                    '/sbin/wifi config > /etc/config/wireless'
+#     Setup.php:149                    'wifi' (restart)
+#   Kali/NetHunter has no netifd. The port drives the management/open AP through
+#   its own hostapd-based service (FASE 4) and the rogue AP through pineapd-ng.
+#   This shim translates the sub-commands the panel uses into:
+#     - a hostapd config regeneration from the UCI store (compat/uci) and
+#     - a restart of the port's wireless service (pineapple-ap.service),
+#   OR safe no-ops where the sub-command has no meaning on Kali.
+#
+# SUB-COMMANDS:
+#   wifi                 -> regenerate + restart AP            (apply all)
+#   wifi reload [radio]  -> same as above
+#   wifi up [radio]      -> start AP service
+#   wifi down [radio]    -> stop AP service
+#   wifi config          -> emit nothing (OpenWrt prints auto-detected radio
+#                           stanzas to append to /etc/config/wireless; on Kali
+#                           the radios are already described in the UCI store,
+#                           so we emit nothing -> the `>> wireless` appends are
+#                           harmless no-ops). Exit 0.
+#   wifi status          -> systemctl status of the AP service
+#
+# The actual hostapd regeneration is delegated to the port helper
+# /opt/pineapple/compat/wifi-apply (installed alongside, FASE 4). If that helper
+# is absent (e.g. during panel-only testing) the shim degrades to a safe no-op
+# so the panel never errors out.
+
+SYSTEMCTL="${SYSTEMCTL:-systemctl}"
+AP_UNIT="${PINEAPPLE_AP_UNIT:-pineapple-ap.service}"
+APPLY="${WIFI_APPLY:-/opt/pineapple/compat/wifi-apply}"
+
+apply_and_restart() {
+    [ -x "$APPLY" ] && "$APPLY" >/dev/null 2>&1
+    "$SYSTEMCTL" restart "$AP_UNIT" >/dev/null 2>&1 || true
+}
+
+case "$1" in
+    ""|reload)
+        apply_and_restart
+        ;;
+    up)
+        [ -x "$APPLY" ] && "$APPLY" >/dev/null 2>&1
+        "$SYSTEMCTL" start "$AP_UNIT" >/dev/null 2>&1 || true
+        ;;
+    down)
+        "$SYSTEMCTL" stop "$AP_UNIT" >/dev/null 2>&1 || true
+        ;;
+    config)
+        # Emit nothing: radios already live in the UCI store on Kali.
+        exit 0
+        ;;
+    status)
+        exec "$SYSTEMCTL" status "$AP_UNIT"
+        ;;
+    *)
+        # Unknown sub-command (e.g. "up radio0"): treat leading verb.
+        case "$1" in
+            up) "$SYSTEMCTL" start "$AP_UNIT" >/dev/null 2>&1 || true ;;
+            down) "$SYSTEMCTL" stop "$AP_UNIT" >/dev/null 2>&1 || true ;;
+            *) apply_and_restart ;;
+        esac
+        ;;
+esac
+exit 0

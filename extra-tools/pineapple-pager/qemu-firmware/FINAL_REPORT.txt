@@ -1,0 +1,7 @@
+qemu pid=54201
+opened_evdev=6
+invalid_arg_errors=0
+broadcast_count=12
+fb_differing_bytes=0
+button_log_lines:
+DONE

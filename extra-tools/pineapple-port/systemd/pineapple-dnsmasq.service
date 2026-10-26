@@ -1,0 +1,25 @@
+# pineapple-dnsmasq.service -- dedicated dnsmasq (DHCP/DNS) for br-lan only.
+#
+# Part of: extra-tools/pineapple-port/systemd/   (FASE 4)
+#
+# A DEDICATED dnsmasq instance bound to br-lan ONLY (net/dnsmasq.conf). It is
+# NOT the system dnsmasq.service: it has its own conf, pid file and lease file
+# under /opt/pineapple/run, so it can never touch the phone's own DNS/DHCP.
+# The panel's /etc/init.d/dnsmasq shim is pointed at this unit (see compat map).
+
+[Unit]
+Description=WiFi Pineapple dnsmasq (DHCP/DNS on br-lan only)
+After=pineapple-net.service
+Requires=pineapple-net.service
+PartOf=pineapple.target
+
+[Service]
+Type=simple
+# --keep-in-foreground so systemd supervises it directly (no forking).
+ExecStart=/usr/sbin/dnsmasq --keep-in-foreground --conf-file=/opt/pineapple/net/dnsmasq.conf
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=pineapple.target

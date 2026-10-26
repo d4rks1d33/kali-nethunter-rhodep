@@ -1,0 +1,34 @@
+# pineap.conf.seed -- template for /tmp/pineap.conf
+#
+# Part of: extra-tools/pineapple-port/etc/
+#
+# /tmp/pineap.conf is the runtime config file that:
+#   - pineapd-ng reads on startup (see src/pineapd/, config.c), and
+#   - the panel's PineAPHelper reads/writes directly when the daemon is DOWN
+#     (getSetting/setSetting), as "key = value" lines.
+#
+# On OpenWrt the init script regenerates /tmp/pineap.conf from the UCI datamodel
+# every boot. On this port the equivalent is done by the pineapd systemd unit's
+# ExecStartPre (FASE 4), which should render /tmp/pineap.conf from the UCI store
+# (/opt/pineapple/etc/uci/pineap) before launching pineapd-ng. This file is the
+# seed/fallback copy used if that render step is skipped.
+#
+# Format: "key = value", one per line. Booleans are "on"/"off" (PineAPHelper
+# maps on->true, off->false). Keys mirror the pineap.@config[0].* UCI options.
+
+karma = off
+logging = off
+beacon_responses = off
+broadcast_ssid_pool = off
+capture_ssids = off
+connect_notifications = off
+disconnect_notifications = off
+beacon_interval = NORMAL
+beacon_response_interval = NORMAL
+pineap_interface = wlan1mon
+pineap_source_interface = wlan1
+pineap_mac = 00:00:00:00:00:00
+target_mac = 00:00:00:00:00:00
+ssid_db_path = /opt/pineapple/etc/pineapple.db
+recon_db_path = /opt/pineapple/etc/pineapple.db
+hostapd_db_path = /opt/pineapple/etc/pineapple.db

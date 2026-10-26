@@ -1,0 +1,16 @@
+#!/bin/bash
+# STOP_SPINNER - WiFi Pineapple Pager DuckyScript command (host bridge).
+# Stops a spinner started by START_SPINNER. The firmware endpoint is
+# /payload/interact/spinner/stop/{id}. Usage: STOP_SPINNER <id>
+. /lib/hak5/commands.sh
+
+__id="$1"
+
+# The id is a path parameter; stop needs no body.
+if [ -n "$__id" ]; then
+    HAK5_API_POST "payload/interact/spinner/stop/${__id}" "{}" && exit 0
+else
+    # No id: best-effort stop-all (some firmwares accept the base path).
+    HAK5_API_POST "payload/interact/spinner/stop" "{}" && exit 0
+fi
+exit 1

@@ -1,0 +1,15 @@
+# pager.target -- the whole WiFi Pineapple Pager stack (on-demand).
+#
+# Part of: extra-tools/pineapple-pager/systemd/
+# `systemctl start pager.target` brings up the Pager port:
+#   pager-net -> pager-dnsmasq -> pineapd-pager -> pager-server (UI :1471).
+# NOT enabled at boot; runs only when you start it, so it coexists with the
+# WiFi Pineapple NANO port (pineapple.target) -- use one or the other.
+
+[Unit]
+Description=WiFi Pineapple Pager (port) target
+Wants=pager-net.service pager-dnsmasq.service pineapd-pager.service pager-server.service
+After=pager-net.service
+
+[Install]
+WantedBy=multi-user.target

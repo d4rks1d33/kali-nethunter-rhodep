@@ -1,0 +1,56 @@
+#!/bin/sh
+# ttyd wrapper for the WiFi Pineapple port.
+#
+# The EvilPortal/Terminal community module launches ttyd with `/bin/login` as the
+# child command (that is what the firmware's busybox login does -- drop straight
+# into a root shell). On Kali, /bin/login is util-linux login, which needs a real
+# getty/utmp TTY and prompts for credentials; inside ttyd it exits immediately
+# and the web terminal shows "Press Enter to reconnect".
+#
+# This wrapper rewrites a `/bin/login` child argument into an interactive login
+# shell (root's shell, falling back to bash/sh), so the Terminal module opens a
+# usable root shell with zero changes to the module. Everything else is passed
+# through unchanged to the real ttyd binary (installed as ttyd.real).
+#
+# Installed by install.sh: the apt /usr/bin/ttyd is moved to /usr/bin/ttyd.real
+# and this script takes its place.
+
+REAL=/usr/bin/ttyd.real
+[ -x "$REAL" ] || REAL="$(command -v ttyd.real 2>/dev/null || echo /usr/bin/ttyd.real)"
+
+# Pick an interactive shell for the terminal session. Prefer bash: under ttyd a
+# bash login shell stays alive reliably, whereas root's zsh (without a tuned
+# /root/.zshrc) can exit immediately inside the PTY, which showed up as the
+# terminal looping on "Press Enter to reconnect".
+if   [ -x /bin/bash ];     then SHELL_BIN=/bin/bash
+elif [ -x /usr/bin/bash ]; then SHELL_BIN=/usr/bin/bash
+elif [ -x /bin/sh ];       then SHELL_BIN=/bin/sh
+else SHELL_BIN=/bin/sh
+fi
+
+# Rebuild argv:
+#  - replace a standalone /bin/login child command with the interactive shell.
+#    Kali's /bin/login needs a getty TTY and exits inside ttyd ("Press Enter to
+#    reconnect"). A plain interactive login shell is the right behaviour here
+#    (we're already root). Use `-i` so the shell stays interactive and does not
+#    read EOF and exit immediately.
+#  - force -W (writable): the module launches ttyd read-only, which makes the
+#    terminal useless (no keystrokes) and lets the shell see immediate EOF and
+#    die. Only add it if the module did not already pass it.
+HAS_W=0
+for a in "$@"; do
+    case "$a" in -W|--writable) HAS_W=1 ;; esac
+done
+
+NEWARGS=""
+[ "$HAS_W" -eq 0 ] && NEWARGS="\"-W\""
+for a in "$@"; do
+    case "$a" in
+        /bin/login|/usr/bin/login|login)
+            NEWARGS="$NEWARGS \"$SHELL_BIN\" \"-l\"" ;;
+        *)
+            NEWARGS="$NEWARGS \"$a\"" ;;
+    esac
+done
+
+eval exec "$REAL" $NEWARGS

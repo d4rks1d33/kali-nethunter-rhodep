@@ -1,0 +1,30 @@
+#!/bin/bash
+# CONFIRMATION_DIALOG - WiFi Pineapple Pager DuckyScript command (host bridge).
+# Shows a yes/no dialog, BLOCKS, and echoes the user's choice. Faithful to the
+# Pager: payloads use it as
+#     resp=$(CONFIRMATION_DIALOG "Exit?") ...
+#     [ "$resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ] && ...
+# so we echo DUCKYSCRIPT_USER_CONFIRMED (1) / DUCKYSCRIPT_USER_DENIED (0) and
+# set the matching exit code.
+. /lib/hak5/pineapple.sh
+
+__message="$*"
+
+json=$(cat << EOF
+{ "message": $(SAFE_JSON_STRING "${__message}") }
+EOF
+)
+
+if HAK5_API_POST "payload/interact/confirmation" "${json}"; then
+    # Response carries the choice. Try the known fields.
+    json_get_var __c confirm 2>/dev/null
+    [ -z "$__c" ] && json_get_var __c confirmed 2>/dev/null
+    [ -z "$__c" ] && json_get_var __c value 2>/dev/null
+    case "${__c,,}" in
+        true|1|yes|confirmed)
+            echo "${DUCKYSCRIPT_USER_CONFIRMED}"; exit 0 ;;
+        *)
+            echo "${DUCKYSCRIPT_USER_DENIED}"; exit 0 ;;
+    esac
+fi
+exit ${DUCKYSCRIPT_ERROR}

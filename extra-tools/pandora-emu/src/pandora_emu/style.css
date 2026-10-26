@@ -1,29 +1,123 @@
-/* Keyfob screen: dark bezel around the emulated OLED. */
+/* =========================================================================
+ * Pandora D650 keyfob emulator — visual system.
+ *
+ * Design intent (phone-first, Phosh/mobile):
+ *   - The emulated OLED is the HERO: a device-like bezel at the top.
+ *   - Everything else is grouped, calm, and sized for fingers (>=48px).
+ *   - Colours follow the Adwaita dark/light theme via @named accents; the
+ *     only hard-coded colour is the physical bezel/glass of the OLED, which
+ *     is a real object and must look the same in either theme.
+ *   - Spacing uses a 4/8 px rhythm; radii are consistent (12 / 16 / 999).
+ * ===================================================================== */
+
+/* ---- Hero: the keyfob device --------------------------------------------
+ * A dark, slightly glossy "slab" that reads as a physical fob. The inner
+ * glass sits inside with a soft inset so the OLED looks recessed. These are
+ * intentionally theme-independent (a real device looks the same day/night).
+ */
+.pe-device {
+    background-image: linear-gradient(to bottom, #15181d, #0a0c10);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 20px;
+    padding: 14px;
+}
+
 .pe-screen-frame {
     background-color: #050608;
-    border-radius: 14px;
+    border: 1px solid rgba(120, 170, 140, 0.18);
+    border-radius: 12px;
     padding: 10px;
+    /* a faint inner glow so the OLED reads as a lit panel */
+    box-shadow: inset 0 0 18px rgba(70, 120, 90, 0.10);
 }
 
-/* Touch pad buttons: large, rounded, finger-friendly. */
+.pe-device-caption {
+    font-size: 0.78em;
+    opacity: 0.45;
+}
+
+/* ---- Touch pad: the six keyfob buttons ----------------------------------
+ * Large, rounded, homogeneous. They stretch to the column width (hexpand in
+ * code) so the pad always fills the phone without ever overflowing.
+ */
+/* Fixed bottom pad bar (outside the ScrolledWindow) — a subtle raised surface
+ * so the always-visible keyfob pad reads as a distinct control strip. */
+.pe-pad-bar {
+    background-color: alpha(@window_bg_color, 0.65);
+    border-top: 1px solid alpha(@borders, 0.6);
+}
+
 .pe-pad {
     border-radius: 16px;
-    font-weight: bold;
+    padding: 10px 8px;
+    min-height: 60px;          /* comfortable finger target (> 48px) */
+    transition: background-color 120ms ease, box-shadow 120ms ease;
 }
-.pe-pad-name {
-    font-size: 1.05em;
-    font-weight: bold;
+.pe-pad:hover {
+    background-image: none;
+    background-color: alpha(@accent_bg_color, 0.10);
+}
+.pe-pad:focus-visible {
+    outline: 2px solid @accent_color;
+    outline-offset: 2px;
 }
 
-/* Pressed feedback. */
+.pe-pad-name {
+    font-size: 1.15em;
+    font-weight: 800;
+}
+.pe-pad-sub {
+    font-size: 0.70em;
+    opacity: 0.62;
+    margin-top: 1px;
+}
+
+/* Held feedback — AMBER while the raw GPIO pin is down (real long-press).
+ * Amber is deliberate: it signals "held / live", distinct from the blue
+ * accent used for primary actions, and reads in both themes. */
 .pe-pad-active {
     background-image: none;
-    background-color: #3584e4;
-    color: #ffffff;
+    background-color: #e8820c;
+    color: #1a1205;
+    box-shadow: 0 0 0 2px rgba(232, 130, 12, 0.35),
+                0 2px 10px rgba(232, 130, 12, 0.30);
+}
+.pe-pad-active .pe-pad-sub {
+    color: #1a1205;
+    opacity: 0.78;
 }
 
-/* Button subtitle (manual function). */
-.pe-pad-sub {
-    font-size: 0.72em;
-    opacity: 0.7;
+/* ---- Knock chips: compact "add button" pills ----------------------------
+ * Hosted in a FlowBox so they wrap to as many rows as the width needs and
+ * never push the window wider than the screen. */
+.pe-chip {
+    border-radius: 999px;
+    padding: 8px 14px;
+    min-height: 40px;
+    font-weight: 700;
+}
+.pe-chip:hover {
+    background-color: alpha(@accent_bg_color, 0.12);
+}
+
+/* The flowbox itself: no selection highlight, tidy gaps. */
+.pe-chip-flow > flowboxchild {
+    padding: 2px;
+    border-radius: 999px;
+}
+.pe-chip-flow > flowboxchild:selected {
+    background: none;
+}
+
+/* ---- Sequence readout ---------------------------------------------------
+ * A monospace, wrapping line so a long knock ("B1 -> B2 -> ...") flows onto
+ * new lines instead of clipping or widening the window. */
+.pe-seq {
+    font-family: monospace;
+    font-size: 0.92em;
+    padding: 2px 0;
+}
+.pe-seq-empty {
+    opacity: 0.5;
+    font-style: italic;
 }

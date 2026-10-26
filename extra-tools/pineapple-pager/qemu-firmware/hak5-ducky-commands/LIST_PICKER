@@ -1,0 +1,37 @@
+#!/bin/bash
+# LIST_PICKER - WiFi Pineapple Pager DuckyScript command (host bridge).
+# Shows a selectable list and echoes the CHOSEN ITEM'S TEXT (payloads switch on
+# it: resp=$(LIST_PICKER "Title" "A" "B" ...); case "$resp" in ...). BLOCKS until
+# the user selects (the firmware endpoint /payload/interact/list_picker blocks).
+# Usage: LIST_PICKER "title" "item1" "item2" ...
+. /lib/hak5/pineapple.sh
+
+__title="$1"; shift
+
+# Build the options JSON array by hand, escaping each item via SAFE_JSON_STRING
+# (jq-backed, faithful). Keep the raw items to map a returned index back to text.
+__items=("$@")
+__arr=""
+for __it in "$@"; do
+    __q="$(SAFE_JSON_STRING "${__it}")"
+    if [ -z "$__arr" ]; then __arr="${__q}"; else __arr="${__arr},${__q}"; fi
+done
+
+json=$(cat << EOF
+{ "message": $(SAFE_JSON_STRING "${__title}"), "title": $(SAFE_JSON_STRING "${__title}"), "options": [${__arr}], "items": [${__arr}] }
+EOF
+)
+
+if HAK5_API_POST "payload/interact/list_picker" "${json}"; then
+    # Prefer explicit selected text; else map selected_index -> item text.
+    json_get_var __sel selected 2>/dev/null
+    [ -z "$__sel" ] && json_get_var __sel selected_key 2>/dev/null
+    [ -z "$__sel" ] && json_get_var __sel value 2>/dev/null
+    if [ -z "$__sel" ]; then
+        json_get_var __idx selected_index 2>/dev/null
+        [ -n "$__idx" ] && __sel="${__items[$__idx]}"
+    fi
+    printf '%s' "$__sel"
+    exit ${DUCKYSCRIPT_USER_CONFIRMED}
+fi
+exit ${DUCKYSCRIPT_ERROR}

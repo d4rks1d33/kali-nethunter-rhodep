@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Icono del WiFi Pineapple Pager: carcasa amarilla + pantalla fosforo verde.
+     Simple, plano, legible a tamanos chicos (app launcher). -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="case" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e6ef12"/>
+      <stop offset="1" stop-color="#aeb800"/>
+    </linearGradient>
+    <linearGradient id="scr" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#021002"/>
+      <stop offset="1" stop-color="#010a01"/>
+    </linearGradient>
+  </defs>
+
+  <!-- carcasa amarilla (landscape) -->
+  <rect x="16" y="54" width="224" height="148" rx="26" ry="26" fill="url(#case)"
+        stroke="#7f8600" stroke-width="3"/>
+
+  <!-- marco negro de la pantalla -->
+  <rect x="36" y="74" width="140" height="108" rx="12" ry="12" fill="#0a0a0a"/>
+  <!-- pantalla fosforo -->
+  <rect x="44" y="82" width="124" height="92" rx="7" ry="7" fill="url(#scr)"/>
+
+  <!-- grilla retro -->
+  <g stroke="#00ef35" stroke-opacity="0.18" stroke-width="2">
+    <line x1="44" y1="105" x2="168" y2="105"/>
+    <line x1="44" y1="128" x2="168" y2="128"/>
+    <line x1="44" y1="151" x2="168" y2="151"/>
+    <line x1="75"  y1="82" x2="75"  y2="174"/>
+    <line x1="106" y1="82" x2="106" y2="174"/>
+    <line x1="137" y1="82" x2="137" y2="174"/>
+  </g>
+  <!-- "texto" de terminal -->
+  <g fill="#00ef35">
+    <rect x="52" y="90"  width="64" height="7" rx="2"/>
+    <rect x="52" y="104" width="92" height="6" rx="2" fill-opacity="0.8"/>
+    <rect x="52" y="116" width="48" height="6" rx="2" fill-opacity="0.8"/>
+    <rect x="52" y="128" width="80" height="6" rx="2" fill-opacity="0.8"/>
+  </g>
+  <!-- barras de senal wifi -->
+  <g fill="#35f0e0">
+    <rect x="128" y="150" width="7" height="8"  rx="1"/>
+    <rect x="138" y="144" width="7" height="14" rx="1"/>
+    <rect x="148" y="136" width="7" height="22" rx="1"/>
+  </g>
+
+  <!-- botonera derecha -->
+  <g>
+    <!-- LED de estado rojo -->
+    <circle cx="206" cy="86" r="8" fill="#ff2b2b"/>
+    <!-- SELECT pill verde -->
+    <rect x="186" y="104" width="40" height="18" rx="9" fill="#141414"/>
+    <circle cx="194" cy="113" r="4" fill="#22ff4e"/>
+    <!-- D-pad -->
+    <circle cx="206" cy="146" r="15" fill="#141414"/>
+    <path d="M206 136 l6 8 h-12 z" fill="#22ff4e"/>
+    <path d="M206 156 l6 -8 h-12 z" fill="#22ff4e"/>
+  </g>
+</svg>

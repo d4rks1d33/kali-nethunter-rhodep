@@ -1,0 +1,16 @@
+#!/bin/bash
+# PROMPT_QR - WiFi Pineapple Pager DuckyScript command (host bridge).
+# Displays a QR code of the given data and BLOCKS until dismissed.
+# Usage: PROMPT_QR "data/url" ["message"]
+. /lib/hak5/commands.sh
+
+__data="$1"
+__message="$2"
+
+json=$(cat << JEOF
+{ "data": $(SAFE_JSON_STRING "${__data}"), "message": $(SAFE_JSON_STRING "${__message}") }
+JEOF
+)
+
+HAK5_API_POST "payload/interact/prompt_qr" "${json}" && exit 0
+exit 1

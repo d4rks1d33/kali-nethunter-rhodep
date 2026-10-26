@@ -1,0 +1,14 @@
+{
+  "id": "wargames",
+  "name": "WarGames (default)",
+  "author": "Hak5 / port",
+  "description": "El look clasico de la pantalla del Pager: fosforo verde + cyan, estilo terminal 80s.",
+  "colors": {
+    "bg":     "#020402",
+    "fg":     "#00ef35",
+    "accent": "#35f0e0",
+    "amber":  "#ffd23a",
+    "grid":   "0,239,53",
+    "danger": "#ff2b2b"
+  }
+}

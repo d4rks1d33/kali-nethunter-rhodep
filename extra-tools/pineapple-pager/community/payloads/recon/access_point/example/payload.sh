@@ -1,0 +1,25 @@
+#!/bin/bash
+# Title: Targeted AP Example
+# Author: Korben
+# Description: Simple example logging selected AP info to payload log
+# Version: 1.0
+
+/usr/bin/LOG "Dumping Selected AP information"
+LOG "AP OUI: $_RECON_SELECTED_AP_OUI"
+LOG "AP BSSID: $_RECON_SELECTED_AP_BSSID"
+LOG "AP SSID: $_RECON_SELECTED_AP_SSID"
+LOG "AP Hidden: $_RECON_SELECTED_AP_HIDDEN"
+LOG "AP Channel: $_RECON_SELECTED_AP_CHANNEL"
+LOG "AP Encryption Type: $_RECON_SELECTED_AP_ENCRYPTION_TYPE"
+LOG "AP Client Count: $_RECON_SELECTED_AP_CLIENT_COUNT"
+LOG "AP RSSI: $_RECON_SELECTED_AP_RSSI"
+LOG "AP Timestamp: $_RECON_SELECTED_AP_TIMESTAMP"
+LOG "AP Frequency: $_RECON_SELECTED_AP_FREQ"
+LOG "AP Packets: $_RECON_SELECTED_AP_PACKETS"
+
+# Other optional variables included:
+# LOG "AP Beaconed SSIDs: $_RECON_SELECTED_AP_BEACONED_SSIDS  "
+# LOG "AP Responeded SSIDs: $_RECON_SELECTED_AP_RESPONDED_SSIDS "
+# LOG "AP Beaconed SSID: $_RECON_SELECTED_AP_BEACONED_SSID   "
+# LOG "AP Responeded SSID: $_RECON_SELECTED_AP_RESPONDED_SSID  "
+# LOG "AP MAC: $_RECON_SELECTED_AP_MAC_ADDRESS "

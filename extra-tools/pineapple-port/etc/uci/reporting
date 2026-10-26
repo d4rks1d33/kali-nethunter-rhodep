@@ -1,0 +1,9 @@
+@settings[0].log=0
+@settings[0].client=0
+@settings[0].survey=0
+@settings[0].tracking=0
+@settings[0].save_report=0
+@settings[0].send_email=0
+@settings[0].clear_log=0
+@settings[0].duration=0
+@settings[0].interval=daily

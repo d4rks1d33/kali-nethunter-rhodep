@@ -1,0 +1,98 @@
+{
+  "screen_name": "main_dashboard",
+  "status_bar": "default",
+  "windowed_canvas": false,
+  "cache_canvases": true,
+  "button_map": {
+    "a": "select",
+    "b": "noop",
+    "up": "previous",
+    "down": "next",
+    "left": "previous",
+    "right": "next"
+  },
+  "background": {
+    "layers": [
+      { "image_path": "assets/dashboard/background.png", "x": 0, "y": 0 }
+    ],
+    "background_color": { "r": 0, "g": 0, "b": 0 }
+  },
+  "menu_items": [
+    {
+      "id": "ALERTS",
+      "layers": [
+      ],
+      "selected_layers": [
+        { "text": "PINEAP", "x": 183, "y":  41, "text_size": "medium", "text_color_palette": "purple" },
+        { "text": "SETTINGS", "x": 231, "y":  75, "text_size": "medium", "text_color_palette": "purple" },
+        { "text": "ALERTS", "x": 255, "y":  111, "text_size": "large", "text_color_palette": "light_blue" },
+        { "text": "PAYLOADS", "x": 288, "y":  158, "text_size": "medium", "text_color_palette": "purple" },
+        { "text": "RECON", "x": 294, "y":  194, "text_size": "medium", "text_color_palette": "purple" }
+      ],
+      "x": 0,
+      "y": 0,
+      "target": "alerts_dashboard"
+    },
+    {
+      "id": "PAYLOADS",
+      "layers": [
+      ],
+      "selected_layers": [
+        { "text": "SETTINGS", "x": 183, "y":  41, "text_size": "medium", "text_color_palette": "purple" },
+        { "text": "ALERTS", "x": 231, "y":  75, "text_size": "medium", "text_color_palette": "purple" },
+        { "text": "PAYLOADS", "x": 255, "y":  111, "text_size": "large", "text_color_palette": "light_blue" },
+        { "text": "RECON", "x": 288, "y":  158, "text_size": "medium", "text_color_palette": "purple" },
+        { "text": "PINEAP", "x": 294, "y":  194, "text_size": "medium", "text_color_palette": "purple" }
+      ],
+      "x": 0,
+      "y": 0,
+      "target": "payloads_dashboard",
+      "variable": "$_PAYLOAD_CATEGORIES"
+    },
+    {
+      "id": "RECON",
+      "layers": [
+      ],
+      "selected_layers": [
+        { "text": "ALERTS", "x": 183, "y":  41, "text_size": "medium", "text_color_palette": "purple" },
+        { "text": "PAYLOADS", "x": 231, "y":  75, "text_size": "medium", "text_color_palette": "purple" },
+        { "text": "RECON", "x": 255, "y":  111, "text_size": "large", "text_color_palette": "light_blue" },
+        { "text": "PINEAP", "x": 288, "y":  158, "text_size": "medium", "text_color_palette": "purple" },
+        { "text": "SETTINGS", "x": 294, "y":  194, "text_size": "medium", "text_color_palette": "purple" }
+      ],
+      "x": 0,
+      "y": 0,
+      "target": "recon_dashboard"
+    },
+    {
+      "id": "PINEAP",
+      "layers": [
+      ],
+      "selected_layers": [
+        { "text": "PAYLOADS", "x": 183, "y":  41, "text_size": "medium", "text_color_palette": "purple" },
+        { "text": "RECON", "x": 231, "y":  75, "text_size": "medium", "text_color_palette": "purple" },
+        { "text": "PINEAP", "x": 255, "y":  111, "text_size": "large", "text_color_palette": "light_blue" },
+        { "text": "SETTINGS", "x": 288, "y":  158, "text_size": "medium", "text_color_palette": "purple" },
+        { "text": "ALERTS", "x": 294, "y":  194, "text_size": "medium", "text_color_palette": "purple" }
+      ],
+      "x": 0,
+      "y": 0,
+      "target": "pineap_menu"
+    },
+    {
+      "id": "SETTINGS",
+      "layers": [
+      ],
+      "selected_layers": [
+        { "text": "RECON", "x": 183, "y":  41, "text_size": "medium", "text_color_palette": "purple" },
+        { "text": "PINEAP", "x": 231, "y":  75, "text_size": "medium", "text_color_palette": "purple" },
+        { "text": "SETTINGS", "x": 255, "y":  111, "text_size": "large", "text_color_palette": "light_blue" },
+        { "text": "ALERTS", "x": 288, "y":  158, "text_size": "medium", "text_color_palette": "purple" },
+        { "text": "PAYLOADS", "x": 294, "y":  194, "text_size": "medium", "text_color_palette": "purple" }
+      ],
+      "x": 0,
+      "y": 0,
+      "target": "settings_menu"
+    }
+  ]
+}

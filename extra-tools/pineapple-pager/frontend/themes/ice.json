@@ -1,0 +1,14 @@
+{
+  "id": "ice",
+  "name": "Ice Blue",
+  "author": "community-example",
+  "description": "Ejemplo de tema de comunidad: fosforo azul hielo con acento blanco frio.",
+  "colors": {
+    "bg":     "#01040a",
+    "fg":     "#6ad2f9",
+    "accent": "#9ce2ff",
+    "amber":  "#e0f4ff",
+    "grid":   "106,210,249",
+    "danger": "#ff5c7a"
+  }
+}

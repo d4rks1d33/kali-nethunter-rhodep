@@ -7,10 +7,6 @@
 *.sqfs
 *.bmap
 
-# Vendor firmware blobs (NOT redistributable)
-packages/firmware-motorola-rhodep/lib/firmware/**
-!packages/firmware-motorola-rhodep/lib/firmware/.gitkeep
-
 # Pandora keyfob .hex firmwares (not ours to redistribute - users supply their own)
 extra-tools/pandora-emu/firmwares/*.hex
 # Pandora emu build artifacts (install.sh runs `make` to regenerate them)
@@ -18,48 +14,7 @@ extra-tools/pandora-emu/src/pandora_emu/libpandora.so
 extra-tools/pandora-emu/src/pandora_emu/native/libpandora.so
 extra-tools/pandora-emu/src/pandora_emu/native/*.o
 
-# Local backups kept on disk but NOT pushed. Track the folder structure, notes,
-# and small text/RE helpers; ignore blobs and any snapshots of source that is
-# already versioned elsewhere in the repo (avoid duplicating files that already
-# live under kernel/, userspace/, extra-tools/, etc.).
-backups/**/*.mbn
-backups/**/*.mbn.*
-backups/**/*.bin
-backups/**/*.ko
-backups/**/*.ko.*
-backups/**/*.c.wip
-backups/**/*.img
-backups/**/*.elf
-# repo snapshots inside backups/*/repo/ are duplicates of tracked source
-backups/**/repo/**
-# systemd/config snapshots that shadow tracked files
-backups/**/*.service
-backups/**/*.toml
-backups/**/*.toml.*
-# device tarballs (uname, config, /etc snapshots)
-backups/**/*.tar.gz
-backups/**/*.tar.xz
-
-# Stock Motorola device tree and vendor configuration, read off the phone's own
-# factory partitions (slot _b, which the pmOS install never touched). Kept on
-# disk because it is the single most useful reference artifact this port has --
-# every earlier session argued about the vendor tree from hand transcriptions,
-# and two of those turned out to be wrong. NOT pushed: it is Motorola's, and
-# decompiled or not, it is not ours to redistribute.
-#
-# See backups/vendor-dt-rhodep-*/README.md for provenance and for the findings
-# that came out of it. The conclusions are quoted in docs/ where they matter,
-# which is the part that does travel.
-backups/vendor-dt-rhodep-*/
-
-# debos build output
-debos/rootfs*.tar.xz
-
 # ...but DO include the documentation screenshots
 !docs/screenshots/
 !docs/screenshots/*.png
 !docs/screenshots/*.jpg
-__pycache__/
-backups/diag-gnss-20260906/
-research/motorola/
-out/

@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=WiFi Pineapple Pager
+GenericName=WiFi Pineapple Pager (kiosk)
+Comment=Abre el Pager virtual a pantalla completa (modo kiosk, landscape)
+Comment[es]=Abre el Pager virtual a pantalla completa (modo kiosk, landscape)
+Exec=/opt/pineapple-pager/app/pager-kiosk.sh
+Icon=wifi-pineapple-pager
+Terminal=false
+Categories=Network;Security;System;
+Keywords=pineapple;wifi;pager;hak5;pentest;kiosk;
+StartupNotify=true
+StartupWMClass=wifi-pineapple-pager
+X-Purism-FormFactor=Workstation;Mobile;

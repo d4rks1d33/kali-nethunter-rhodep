@@ -1,0 +1,190 @@
+#!/bin/sh
+# wifi-apply -- render the mana-hostapd config(s) from the UCI store.
+#
+# Part of: extra-tools/pineapple-port/compat/
+#
+# Called by compat/wifi (the OpenWrt /sbin/wifi shim) whenever the panel applies
+# wireless changes ("wifi", "wifi reload", "wifi up", or
+# "wifi down radio0 && wifi up radio0" from PineAP/module.php). It is the port's
+# equivalent of OpenWrt netifd regenerating hostapd from UCI.
+#
+# It reads the SAME UCI store the panel writes (via compat/uci) and emits ONE
+# hostapd config at $HOSTAPD_CONF that contains:
+#   - the KARMA open AP on the AP radio (wlan1), from vendor hostapd-karma.conf.in
+#   - IF the Enterprise VAP (wireless.@wifi-iface[2]) is enabled, a second BSS
+#     from vendor hostapd-enterprise.conf.in (PineAPE Enterprise, WPA2-EAP+WPE).
+#
+# The pineapple-ap.service runs `hostapd-mana $HOSTAPD_CONF`. One hostapd
+# instance serves BOTH the open karma BSS and the enterprise VAP, so the
+# compat/hostapd_cli wrapper can address them by iface (wlan1 / wlan1_0).
+#
+# This script only WRITES a config file; it does not touch any radio itself.
+
+set -eu
+
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+PREFIX="${PINEAPPLE_PREFIX:-/opt/pineapple}"
+UCI="${UCI:-$PREFIX/compat/uci}"
+export PINEAPPLE_UCI_DIR="${PINEAPPLE_UCI_DIR:-$PREFIX/etc/uci}"
+
+# Where the vendor templates live (installed under $PREFIX/vendor/hostapd).
+TPL_DIR="${HOSTAPD_TPL_DIR:-$PREFIX/vendor/hostapd}"
+[ -d "$TPL_DIR" ] || TPL_DIR="$SELF_DIR/../vendor/hostapd"
+
+HOSTAPD_CONF="${HOSTAPD_CONF:-/tmp/hostapd-pineapple.conf}"
+
+# certs dir (overridable for testing; the Enterprise VAP needs server.crt here)
+CERT_DIR="${PINEAPPLE_CERT_DIR:-/etc/pineape/certs}"
+
+# AP radio: evil-twin reparto runs the fake AP on the INTERNAL radio (wlan0) so
+# it shares the uplink's internet+channel, leaving the Archer free for deauth.
+# Accept AP_IFACE or legacy PINEAPPLE_AP_IFACE; default wlan0.
+AP_IFACE="${AP_IFACE:-${PINEAPPLE_AP_IFACE:-wlan0}}"
+# Enterprise VAP rides on the same radio as the open AP (<ap>_0).
+ENT_IFACE="${ENT_IFACE:-${PINEAPPLE_ENT_IFACE:-${AP_IFACE}_0}}"
+
+uget() { v="$("$UCI" get "$1" 2>/dev/null || true)"; [ -n "$v" ] && printf '%s' "$v" || printf '%s' "$2"; }
+
+# Is $1 the phone's INTERNAL radio (SoC/platform WCN3990)? Classify by bus path.
+is_internal_radio() {
+    _dev="/sys/class/net/$1/device"; [ -e "$_dev" ] || return 1
+    _p="$(readlink -f "$_dev" 2>/dev/null || true)"
+    case "$_p" in *"/usb"*) return 1 ;; esac
+    case "$_p" in *platform*|*soc*|*snoc*|*ahb*) return 0 ;; esac
+    return 1
+}
+
+# When the fake AP runs on the INTERNAL radio, it is a single-channel chip that
+# is ALSO the internet STA. hostapd MUST use the exact channel the STA is on, or
+# the concurrent STA+AP combo fails (and, worse, off-channel TX disturbs the
+# home router). Resolve the live STA channel from the uplink link info.
+sta_channel_of() {
+    _if="$1"
+    # Prefer `iw dev <if> info` which prints "channel 60 (5300 MHz)" directly and
+    # is populated as soon as the AP/STA has a channel. Fall back to parsing the
+    # STA link freq if needed.
+    _ch="$(iw dev "$_if" info 2>/dev/null | sed -n 's/.*channel \([0-9]\+\).*/\1/p' | head -n1)"
+    if [ -n "$_ch" ]; then echo "$_ch"; return 0; fi
+    _freq="$(iw dev "$_if" link 2>/dev/null | sed -n 's/.*freq:[[:space:]]*\([0-9]\+\).*/\1/p' | head -n1)"
+    [ -z "$_freq" ] && return 1
+    # 2.4GHz: 2412 + (ch-1)*5 ; ch14=2484.  5GHz: 5000 + ch*5.
+    if [ "$_freq" -ge 2412 ] && [ "$_freq" -le 2472 ]; then
+        echo $(( (_freq - 2412) / 5 + 1 )); return 0
+    elif [ "$_freq" = 2484 ]; then
+        echo 14; return 0
+    elif [ "$_freq" -ge 5000 ]; then
+        echo $(( (_freq - 5000) / 5 )); return 0
+    fi
+    return 1
+}
+
+onoff_to_01() { case "$(printf '%s' "$1" | tr 'A-Z' 'a-z')" in 1|on|true|yes) echo 1;; *) echo 0;; esac; }
+
+# A 5GHz channel is DFS (radar detection, cannot host an AP on WCN3990) if it is
+# in UNII-2/UNII-2e: channels 52..64 and 100..144. UNII-1 (36-48) and UNII-3
+# (149-165) are NON-DFS and CAN host an AP.
+is_dfs_channel() {
+    _c="$1"
+    case "$_c" in ''|*[!0-9]*) return 1 ;; esac
+    if { [ "$_c" -ge 52 ] && [ "$_c" -le 64 ]; } || { [ "$_c" -ge 100 ] && [ "$_c" -le 144 ]; }; then
+        return 0
+    fi
+    return 1
+}
+
+# Where wifi-apply records a human-readable reason it COULD NOT build a usable AP
+# config (read by the panel to show a popup). Empty/absent = OK.
+AP_STATUS_FILE="${AP_STATUS_FILE:-/tmp/pineapple-ap-status}"
+rm -f "$AP_STATUS_FILE" 2>/dev/null || true
+ap_block() {  # $1 = machine code, $2 = english message for the popup
+    printf '%s\n%s\n' "$1" "$2" > "$AP_STATUS_FILE" 2>/dev/null || true
+    echo "[wifi-apply] AP BLOCKED ($1): $2"
+}
+
+# ---- gather values from UCI ------------------------------------------------
+OPEN_SSID="$(uget 'wireless.@wifi-iface[0].ssid' Pineapple_Open)"
+# max clients on the open AP. hostapd treats max_num_sta=0 as "reject all"
+# (that produced the 'AP full / cannot connect' symptom), so default to a
+# usable value. The original Pineapple shipped maxassoc=100.
+MAX_ASSOC="$(uget 'wireless.@wifi-iface[0].maxassoc' 100)"
+case "$MAX_ASSOC" in ''|0|*[!0-9]*) MAX_ASSOC=100 ;; esac
+AP_CHANNEL="$(uget 'pineap.@config[0].ap_channel' 1)"
+
+# EVIL-TWIN channel selection on the INTERNAL radio (single-channel WCN3990 that
+# is ALSO the internet STA). Three cases:
+#   1. STA associated on a NON-DFS channel  -> AP shares that channel (2.4 or 5G). OK.
+#   2. STA associated on a DFS channel (52-64/100-144) -> CANNOT host an AP there
+#      (firmware blocks beaconing without CAC). Block + tell the panel to popup.
+#   3. STA NOT associated (no uplink) -> the fake AP still works (no internet for
+#      victims); pick a safe NON-DFS channel (2.4GHz ch1), no channel constraint.
+if is_internal_radio "$AP_IFACE"; then
+    _stach="$(sta_channel_of "$AP_IFACE" || true)"
+    if [ -n "${_stach:-}" ] && iw dev "$AP_IFACE" link 2>/dev/null | grep -qi 'Connected to'; then
+        # Case 1/2: STA is associated on channel $_stach.
+        if is_dfs_channel "$_stach"; then
+            ap_block "DFS_CHANNEL" "Cannot start a 5 GHz fake AP: your Wi-Fi uplink is on DFS channel ${_stach} (radar-protected). The internal radio can only host an AP on the same channel as the uplink, and this chip cannot beacon on a DFS channel. Connect your uplink to a non-DFS 5 GHz channel (36/40/44/48 or 149/153/157/161/165) or a 2.4 GHz channel, or disconnect Wi-Fi to run an internet-less AP."
+            exit 2
+        fi
+        AP_CHANNEL="$_stach"
+        echo "[wifi-apply] fake AP shares internal radio '$AP_IFACE'; channel=$AP_CHANNEL (non-DFS uplink channel)"
+    else
+        # Case 3: no uplink -> internet-less AP on a safe non-DFS channel.
+        AP_CHANNEL=1
+        echo "[wifi-apply] '$AP_IFACE' has no uplink; starting an internet-less fake AP on channel 1 (2.4GHz)."
+    fi
+fi
+
+# hw_mode from channel: >=36 => 5GHz ('a'); else 2.4GHz ('g').
+case "$AP_CHANNEL" in
+    ''|*[!0-9]*) HW_MODE=g ;;
+    *) [ "$AP_CHANNEL" -ge 36 ] && HW_MODE=a || HW_MODE=g ;;
+esac
+
+KARMA="$(onoff_to_01 "$(uget 'pineap.@config[0].karma' 0)")"
+# "broadcast_ssid_pool" drives mana loud mode (respond with the SSID pool).
+MANA_LOUD="$(onoff_to_01 "$(uget 'pineap.@config[0].broadcast_ssid_pool' 0)")"
+
+ENT_SSID="$(uget 'wireless.@wifi-iface[2].ssid' '')"
+ENT_DISABLED="$(uget 'wireless.@wifi-iface[2].disabled' 1)"
+ENT_MAC="$(uget 'wireless.@wifi-iface[2].macaddr' '')"
+PASSTHROUGH="$(onoff_to_01 "$(uget 'pineap.@config[0].pineape_passthrough' 0)")"
+CERT_PASSWORD="$(uget 'pineap.@config[0].cert_password' pineapplesareyummy)"
+CREDOUT="${PINEAP_CREDOUT:-/tmp/pineap-creds.log}"
+
+# ---- render the KARMA (open) AP -------------------------------------------
+render() {
+    sed \
+        -e "s|@@AP_IFACE@@|$AP_IFACE|g" \
+        -e "s|@@ENT_IFACE@@|$ENT_IFACE|g" \
+        -e "s|@@OPEN_SSID@@|$OPEN_SSID|g" \
+        -e "s|@@AP_CHANNEL@@|$AP_CHANNEL|g" \
+        -e "s|@@HW_MODE@@|$HW_MODE|g" \
+        -e "s|@@MAX_ASSOC@@|$MAX_ASSOC|g" \
+        -e "s|@@MANA@@|$KARMA|g" \
+        -e "s|@@MANA_LOUD@@|$MANA_LOUD|g" \
+        -e "s|@@ENT_SSID@@|$ENT_SSID|g" \
+        -e "s|@@PASSTHROUGH@@|$PASSTHROUGH|g" \
+        -e "s|@@CERT_PASSWORD@@|$CERT_PASSWORD|g" \
+        -e "s|@@CREDOUT@@|$CREDOUT|g" \
+        -e "s|@@ENT_BSSID_LINE@@|$1|g" \
+        "$2"
+}
+
+TMP="${HOSTAPD_CONF}.tmp.$$"
+render "" "$TPL_DIR/hostapd-karma.conf.in" > "$TMP"
+
+# ---- append the Enterprise VAP if enabled + SSID set ----------------------
+if [ "$ENT_DISABLED" = "0" ] && [ -n "$ENT_SSID" ]; then
+    if [ -f "$CERT_DIR/server.crt" ]; then
+        if [ -n "$ENT_MAC" ]; then bssid_line="bssid=$ENT_MAC"; else bssid_line=""; fi
+        echo "" >> "$TMP"
+        render "$bssid_line" "$TPL_DIR/hostapd-enterprise.conf.in" >> "$TMP"
+    else
+        echo "# PineAPE Enterprise enabled but no server cert yet;" >> "$TMP"
+        echo "# run the panel's 'generate certificate' first." >> "$TMP"
+    fi
+fi
+
+mv -f "$TMP" "$HOSTAPD_CONF"
+echo "[wifi-apply] wrote $HOSTAPD_CONF (karma=$KARMA ent=$([ "$ENT_DISABLED" = 0 ] && echo on || echo off))"
+exit 0

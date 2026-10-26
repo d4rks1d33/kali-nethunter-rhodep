@@ -1,0 +1,21 @@
+# HakOS
+- Author: Cribbit
+- Version: 1.1.0
+
+## Discription
+HakOS is built around a dropdown menu. Once you reach the Home screen press the A/Green button and the menu will appear.
+From there you can navigate to the section you need.
+
+![Demo](demo.gif)
+
+## Change Log
+| Version | Changes         |
+| ------- | --------------- |
+| 1.1.0     | Initial release |
+
+## Installation
+
+1. Copy the `HakOS` folder to `/root/themes/` on your pager
+2. Navigate to **Settings > General > Theme**
+3. Select **HakOS**
+4. Enjoy!

@@ -1,0 +1,17 @@
+#!/bin/bash
+# WAIT_FOR_BUTTON_PRESS - WiFi Pineapple Pager DuckyScript command (host bridge).
+# Blocks until a button is pressed. On the Pager this waits for the physical
+# button; here it maps to the same blocking /payload/interact/wait_for_input
+# endpoint the firmware serves (the firmware resolves it against the Virtual
+# Pager / real buttons). Usage: WAIT_FOR_BUTTON_PRESS ["prompt"]
+. /lib/hak5/commands.sh
+
+__message="$*"
+
+json=$(cat << EOF
+{ "message": $(SAFE_JSON_STRING "${__message}") }
+EOF
+)
+
+HAK5_API_POST "payload/interact/wait_for_input" "${json}" && exit 0
+exit 1

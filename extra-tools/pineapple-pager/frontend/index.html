@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>WiFi Pineapple Pager</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0d0d0d">
+  <link rel="icon" type="image/png" href="assets/images/logo-light.png">
+  <link rel="apple-touch-icon" href="assets/images/logo-light.png">
+  <link rel="stylesheet" href="assets/xterm.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="stage">
+  <!-- ======================== CARCASA AMARILLA ======================== -->
+  <div id="pager">
+
+    <!-- ---- Pantalla ---- -->
+    <!-- El display fisico es un framebuffer 480x222 que el firmware Go dibuja
+         interpretando los theme JSON + assets PNG reales. Aqui va UN canvas
+         que el motor (engine/) pinta con EXACTAMENTE esos mismos datos: el
+         "Virtual Pager". Reemplaza la UI recreada que vivia en #screen-inner. -->
+    <div id="screen-bezel">
+      <div id="screen">
+        <canvas id="display" width="480" height="222"></canvas>
+      </div><!-- /screen -->
+    </div><!-- /screen-bezel -->
+
+    <!-- ======================== BOTONES FISICOS ======================== -->
+    <div id="buttons">
+
+      <!-- logo -->
+      <div id="brand">
+        <img src="assets/images/pineapple.svg" alt="pineapple">
+        <div class="bt">
+          <div class="b1">(((pineapple)))</div>
+          <div class="b2">WiFi Pineapple</div>
+        </div>
+      </div>
+
+      <!-- LED de estado (rojo) -->
+      <div id="status-led" title="status">
+        <div class="big"></div>
+        <div class="dots"><span></span><span></span><span></span></div>
+      </div>
+
+      <!-- SELECT / power (pill, LED verde) -->
+      <button class="hwbtn pill" id="btn-select" data-key="Enter" aria-label="select">
+        <span class="led"></span>SELECT
+      </button>
+
+      <!-- flecha izquierda -->
+      <button class="hwbtn round" id="btn-left" data-key="ArrowLeft" aria-label="left">
+        <span class="led"></span><span class="material-icons">chevron_left</span>
+      </button>
+
+      <!-- d-pad up/down -->
+      <div id="dpad">
+        <button class="hwbtn" id="btn-up" data-key="ArrowUp" aria-label="up">
+          <span class="led"></span><span class="material-icons">keyboard_arrow_up</span>
+        </button>
+        <button class="hwbtn" id="btn-down" data-key="ArrowDown" aria-label="down">
+          <span class="led"></span><span class="material-icons">keyboard_arrow_down</span>
+        </button>
+      </div>
+
+      <!-- flecha derecha -->
+      <button class="hwbtn round" id="btn-right" data-key="ArrowRight" aria-label="right">
+        <span class="led"></span><span class="material-icons">chevron_right</span>
+      </button>
+
+      <!-- back / esc -->
+      <button class="hwbtn round" id="btn-back" data-key="Escape" aria-label="back">
+        <span class="led"></span><span class="material-icons">undo</span>
+      </button>
+
+    </div><!-- /buttons -->
+  </div><!-- /pager -->
+</div><!-- /stage -->
+
+<div id="toast"></div>
+
+<!-- Motor del Virtual Pager: dibuja el display real (theme JSON + assets PNG). -->
+<script type="module" src="boot.js"></script>
+</body>
+</html>

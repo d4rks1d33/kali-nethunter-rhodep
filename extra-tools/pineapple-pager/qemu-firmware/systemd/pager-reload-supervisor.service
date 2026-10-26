@@ -1,0 +1,13 @@
+[Unit]
+Description=WiFi Pineapple Pager theme-reload supervisor (restarts firmware after a UI theme apply so the "Reloading UI" screen completes under qemu-user)
+After=pager-qemu-firmware.service
+Wants=pager-qemu-firmware.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/pineapple-pager/qemu/scripts/pager-reload-supervisor.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

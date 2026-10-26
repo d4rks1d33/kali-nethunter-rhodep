@@ -1,0 +1,39 @@
+# pineapple.target -- umbrella for the whole WiFi Pineapple port.
+#
+# Part of: extra-tools/pineapple-port/systemd/   (FASE 4)
+#
+# Starting this target brings up the entire Pineapple stack ON DEMAND:
+#   systemctl start pineapple.target
+# Stopping it tears everything down (and pineapple-net's ExecStop reverts the
+# bridge/NAT/ip_forward), leaving the phone's own networking untouched:
+#   systemctl stop pineapple.target
+#
+# The target is DELIBERATELY NOT enabled at boot (no WantedBy=multi-user.target),
+# so the phone boots normally and the Pineapple only runs when you ask for it.
+#
+# Order (via each unit's After=/Wants=):
+#   pineapple-firstboot  (one-shot provisioning, only the 1st time)
+#     -> pineapple-net        (br-lan + NAT + ip_forward)
+#        -> pineapple-dnsmasq (DHCP/DNS on br-lan)
+#        -> pineapple-php-fpm (dedicated pool)
+#           -> pineapple-nginx (panel :1471)
+#        -> pineapd           (PineAP daemon; After=pineapple-net)
+#        -> pineapple-ap      (hostapd-mana: karma + PineAPE Enterprise; wlan1)
+#           -> pineape-creds  (import mana WPE creds -> pineape.db)
+#   (pineapple-recon-ws is optional and panel-managed; not wanted here.)
+
+[Unit]
+Description=WiFi Pineapple (full stack, on-demand)
+Wants=pineapple-firstboot.service
+Wants=pineapple-net.service
+Wants=pineapple-dnsmasq.service
+Wants=pineapple-php-fpm.service
+Wants=pineapple-nginx.service
+Wants=pineapd.service
+Wants=pineapple-ap.service
+Wants=pineape-creds.service
+After=pineapple-firstboot.service
+
+# Not enabled at boot on purpose. Start/stop explicitly:
+#   systemctl start  pineapple.target
+#   systemctl stop   pineapple.target

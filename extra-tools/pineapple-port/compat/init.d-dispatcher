@@ -1,0 +1,76 @@
+#!/bin/sh
+# init.d-dispatcher -- OpenWrt /etc/init.d/<svc> compatibility shim.
+#
+# Part of: extra-tools/pineapple-port/compat/
+#
+# WHY:
+#   The panel calls OpenWrt procd init scripts directly, e.g.
+#     exec("/etc/init.d/pineapd start")   (PineAPHelper.php)
+#     exec("/etc/init.d/dnsmasq restart") (Networking/module.php)
+#     exec("/etc/init.d/firewall restart")(Setup.php, Networking)
+#     exec("/etc/init.d/sshd enable|start")(Setup.php)
+#     exec("/etc/init.d/cron start|restart")(Reporting/module.php)
+#   On Kali/NetHunter there is no procd. This dispatcher is installed as every
+#   /etc/init.d/<svc> the panel references (via symlinks to this file) and
+#   translates <svc> <action> into `systemctl <action> <unit>` for the systemd
+#   units created in the port's FASE 4 (see extra-tools/pineapple-port/systemd/).
+#
+# INSTALL (done by the port installer, NOT by touching the OS by hand):
+#   for svc in pineapd dnsmasq firewall cron sshd; do
+#     ln -sf /opt/pineapple/compat/init.d-dispatcher /etc/init.d/$svc
+#   done
+#   (The script derives <svc> from $0 basename, so one file serves all.)
+#
+# SERVICE -> SYSTEMD UNIT MAP (documented):
+#   pineapd   -> pineapd.service          (the native pineapd-ng daemon, FASE 4)
+#   dnsmasq   -> pineapple-dnsmasq.service (DEDICATED dnsmasq on br-lan, FASE 4;
+#                                          NOT the system dnsmasq, so the panel
+#                                          restarting "dnsmasq" only cycles the
+#                                          Pineapple DHCP/DNS, never the phone's)
+#   firewall  -> pineapple-net.service     (br-lan + NAT/forwarding, FASE 4; the
+#                                          panel's Setup/Networking "restart
+#                                          firewall" re-applies LAN+NAT only)
+#   cron      -> cron.service        (stock Kali cron; Debian unit name is 'cron')
+#   sshd      -> ssh.service         (stock Kali OpenSSH; Debian unit name is 'ssh')
+#
+# ACTION MAP: start|stop|restart|reload|enable|disable -> same systemctl verb.
+#             'reload' falls back to restart if the unit has no reload.
+
+svc="$(basename "$0")"
+action="$1"
+
+case "$svc" in
+    pineapd)  unit="pineapd.service" ;;
+    dnsmasq)  unit="pineapple-dnsmasq.service" ;;
+    firewall) unit="pineapple-net.service" ;;
+    cron)     unit="cron.service" ;;
+    sshd)     unit="ssh.service" ;;
+    *)
+        echo "init.d-dispatcher: unknown service '$svc'" >&2
+        exit 1
+        ;;
+esac
+
+# Allow override of the systemctl binary (for testing)
+SYSTEMCTL="${SYSTEMCTL:-systemctl}"
+
+case "$action" in
+    start|stop|restart|enable|disable)
+        exec "$SYSTEMCTL" "$action" "$unit"
+        ;;
+    reload)
+        "$SYSTEMCTL" reload "$unit" 2>/dev/null || exec "$SYSTEMCTL" restart "$unit"
+        ;;
+    status)
+        exec "$SYSTEMCTL" status "$unit"
+        ;;
+    "")
+        echo "usage: /etc/init.d/$svc {start|stop|restart|reload|enable|disable|status}" >&2
+        exit 1
+        ;;
+    *)
+        # OpenWrt init scripts accept arbitrary subcommands; be permissive.
+        echo "init.d-dispatcher: unsupported action '$action' for $svc" >&2
+        exit 0
+        ;;
+esac

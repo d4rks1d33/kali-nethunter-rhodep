@@ -1,0 +1,21 @@
+# pager-qemu-battery.service -- bridge the G82 real battery to the firmware.
+#
+# Mirrors the phone's real battery (cw2217-battery) into the fake
+# /sys/class/power_supply/bq27546-0/{uevent,capacity,status} the firmware reads
+# under qemu. Without it the firmware spams "[POWER] Unable to open power
+# monitor" and the UI gets stuck (e.g. "Reloading UI" after a theme change).
+
+[Unit]
+Description=WiFi Pineapple Pager qemu battery bridge (real G82 battery -> fake bq27546-0)
+PartOf=pager-qemu.target
+Before=pager-qemu-firmware.service
+
+[Service]
+Type=simple
+Environment=PAGER_BAT_ROOTFS=/opt/pineapple-pager/qemu/rootfs
+ExecStart=/usr/bin/python3 /opt/pineapple-pager/qemu/scripts/battery_bridge.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=pager-qemu.target

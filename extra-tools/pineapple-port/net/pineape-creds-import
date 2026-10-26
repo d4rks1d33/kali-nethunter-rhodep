@@ -1,0 +1,204 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# pineape-creds-import -- bridge hostapd-mana WPE credential logs into pineape.db
+#
+# Part of: extra-tools/pineapple-port/net/
+#
+# WHY:
+#   The original Hak5 PineAPE patch wrote harvested EAP credentials DIRECTLY into
+#   /etc/pineapple/pineape.db, into two tables the panel reads:
+#
+#     chalresp(type, username, challenge BLOB, response BLOB, verified, log_time)
+#     basic   (type, identity, password,       verified, log_time)
+#
+#   hostapd-mana (our hostapd) instead emits credentials to its WPE "credout"
+#   log file (mana_credout), one flavour per auth, in hostapd-wpe format:
+#
+#     MSCHAPv2 -> [EAP-MSCHAPV2 JTR]\t<user>:$NETNTLM$<chal>$<resp>:::::::
+#                 [EAP-MSCHAPV2 HASHCAT]\t<user>::::<resp>:<chal>
+#                 [EAP-MSCHAPV2 ASLEAP user=<user>]\tasleap -C .. -R ..
+#     CHAP     -> [EAP-TTLS/CHAP JTR user=<user>]\t$chap$<id>*<salt>*<hash>
+#     PAP      -> [EAP-TTLS/PAP]\t<user>:<password>
+#
+#   This daemon tails that log and INSERTS the parsed credentials into
+#   pineape.db using the EXACT schema the panel's PineAP module reads
+#   (getEnterpriseData / downloadJTRHashes / downloadHashcatHashes). So the panel
+#   and the `pineape.db` contract are reproduced without touching the panel.
+#
+#   challenge/response are stored as the raw bytes (BLOB) so that the panel's
+#   `hex(challenge)` / `hex(response)` queries and its $NETNTLM$ / hashcat export
+#   produce identical output to the original.
+#
+# USAGE:
+#   pineape-creds-import [--db PATH] [--log PATH] [--once] [--from-start]
+#     --db        pineape.db           (default /etc/pineapple/pineape.db)
+#     --log       mana credout file    (default /tmp/pineap-creds.log)
+#     --once      process existing lines then exit (no follow); for testing
+#     --from-start process from byte 0 (default: only new lines when following)
+#
+# The mana hostapd is launched with `mana_credout=<log>` by pineapple-ap.service,
+# and this importer is run by pineape-creds.service. Both default to the same log.
+
+import argparse
+import os
+import re
+import sqlite3
+import sys
+import time
+
+DEFAULT_DB = "/etc/pineapple/pineape.db"
+DEFAULT_LOG = "/tmp/pineap-creds.log"
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS basic (
+id INT PRIMARY KEY,
+log_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+type TEXT,
+identity TEXT,
+password TEXT,
+verified INT NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS chalresp (
+id INT PRIMARY KEY,
+log_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+type TEXT,
+username TEXT,
+challenge BLOB,
+response BLOB,
+verified INT NOT NULL DEFAULT 0
+);
+"""
+
+# [<source> JTR]\t<user>:$NETNTLM$<chal_hex>$<resp_hex>:::::::
+RE_NETNTLM = re.compile(
+    r"\[(?P<src>[^\]]*?)\s+JTR\]\t(?P<user>.*?):\$NETNTLM\$(?P<chal>[0-9A-Fa-f]+)\$(?P<resp>[0-9A-Fa-f]+):+\s*$"
+)
+# [<source> JTR user=<user>]\t$chap$<id>*<salt_hex>*<hash_hex>
+RE_CHAP = re.compile(
+    r"\[(?P<src>[^\]]*?)\s+JTR\s+user=(?P<user>.*?)\]\t\$chap\$(?P<id>[0-9A-Fa-f]+)\*(?P<salt>[0-9A-Fa-f]+)\*(?P<hash>[0-9A-Fa-f]+)\s*$"
+)
+# [<source>]\t<user>:<password>   (PAP plaintext; avoid matching JTR/HASHCAT/ASLEAP lines)
+RE_PAP = re.compile(
+    r"\[(?P<src>(?!.*(?:JTR|HASHCAT|ASLEAP))[^\]]*?)\]\t(?P<user>[^:]*):(?P<password>.*)$"
+)
+
+
+def open_db(path):
+    # Create parent dir if needed (don't fail if it already exists as a symlink).
+    d = os.path.dirname(path)
+    if d and not os.path.exists(d):
+        os.makedirs(d, exist_ok=True)
+    con = sqlite3.connect(path)
+    con.executescript(SCHEMA)
+    con.commit()
+    return con
+
+
+def insert_chalresp(con, ctype, user, chal_hex, resp_hex):
+    con.execute(
+        "INSERT INTO chalresp(type, username, challenge, response) VALUES(?,?,?,?)",
+        (ctype, user, bytes.fromhex(chal_hex), bytes.fromhex(resp_hex)),
+    )
+    con.commit()
+
+
+def insert_basic(con, ctype, identity, password):
+    con.execute(
+        "INSERT INTO basic(type, identity, password) VALUES(?,?,?)",
+        (ctype, identity, password),
+    )
+    con.commit()
+
+
+def parse_line(con, line):
+    """Parse one mana credout line; insert into the right table. Return table or None."""
+    line = line.rstrip("\n")
+    if not line:
+        return None
+
+    m = RE_NETNTLM.search(line)
+    if m:
+        insert_chalresp(con, m.group("src").strip(), m.group("user"),
+                        m.group("chal"), m.group("resp"))
+        return "chalresp"
+
+    m = RE_CHAP.search(line)
+    if m:
+        # Store CHAP as chalresp too: challenge=salt, response=hash (the panel's
+        # chalresp view is generic type/username/challenge/response).
+        insert_chalresp(con, m.group("src").strip(), m.group("user"),
+                        m.group("salt"), m.group("hash"))
+        return "chalresp"
+
+    m = RE_PAP.search(line)
+    if m:
+        insert_basic(con, m.group("src").strip(), m.group("user"),
+                     m.group("password"))
+        return "basic"
+
+    return None
+
+
+def process_once(con, log_path):
+    n = 0
+    if not os.path.exists(log_path):
+        return 0
+    with open(log_path, "r", errors="replace") as f:
+        for line in f:
+            if parse_line(con, line):
+                n += 1
+    return n
+
+
+def follow(con, log_path, from_start):
+    # tail -F behaviour: wait for the file, re-open on truncation/rotation.
+    pos = 0
+    while True:
+        if not os.path.exists(log_path):
+            time.sleep(1.0)
+            continue
+        with open(log_path, "r", errors="replace") as f:
+            if not from_start:
+                f.seek(0, os.SEEK_END)
+                pos = f.tell()
+                from_start = True  # after first attach, keep reading new data
+            else:
+                f.seek(pos)
+            while True:
+                line = f.readline()
+                if line:
+                    parse_line(con, line)
+                    pos = f.tell()
+                else:
+                    # detect truncation/rotation
+                    try:
+                        if os.path.getsize(log_path) < pos:
+                            break  # reopen
+                    except OSError:
+                        break
+                    time.sleep(0.5)
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description="Import hostapd-mana WPE creds into pineape.db")
+    ap.add_argument("--db", default=DEFAULT_DB)
+    ap.add_argument("--log", default=DEFAULT_LOG)
+    ap.add_argument("--once", action="store_true", help="process existing log then exit")
+    ap.add_argument("--from-start", action="store_true", help="when following, read from byte 0")
+    args = ap.parse_args(argv)
+
+    con = open_db(args.db)
+    if args.once:
+        n = process_once(con, args.log)
+        print("imported %d credential record(s) into %s" % (n, args.db))
+        return 0
+    try:
+        follow(con, args.log, args.from_start)
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

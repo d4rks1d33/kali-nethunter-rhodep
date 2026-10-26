@@ -1,14 +1,371 @@
-/* Terminal-style output views: dark background, green-ish text. */
+/* =====================================================================
+ * NetHunter Pro — Dark "Tactical Terminal" theme
+ * ---------------------------------------------------------------------
+ * Direction: declassified / military terminal / blueprint. Dark, technical,
+ * crisp. Cyan accent (NOT matrix green). Monospace for technical readouts.
+ *
+ * Built on Refactoring-UI scales:
+ *   - a 9-step cool (blue-grey) ramp, starting at a very dark grey (NOT pure
+ *     black), HSL ~222deg / ~16% sat.
+ *   - ONE strong non-green accent: electric cyan (HSL ~190deg), with shades.
+ *   - utilitarian red (destructive) and amber (warning) kept for semantics.
+ *   - fixed spacing / radius / shadow steps — no ad-hoc values.
+ *
+ * Almost everything is themed by overriding libadwaita's *named colors*, so
+ * the whole app inherits the palette without touching widgets one by one.
+ * A handful of targeted selectors refine surfaces that need the terminal look.
+ * ===================================================================== */
+
+/* ---------------------------------------------------------------------
+ * 1. PALETTE — 9-step blue-grey ramp (900 darkest .. 100 lightest)
+ *    HSL written out so related shades read as related.
+ * ------------------------------------------------------------------- */
+@define-color nh_grey_950 #0c0e13; /* hsl(222 14% 6%)  — deepest well */
+@define-color nh_grey_900 #10131a; /* hsl(222 16% 8%)  — app background */
+@define-color nh_grey_850 #141821; /* hsl(222 17% 10%) — sunken */
+@define-color nh_grey_800 #181d28; /* hsl(222 18% 12%) — surface / cards */
+@define-color nh_grey_700 #1f2633; /* hsl(222 17% 16%) — raised surface */
+@define-color nh_grey_600 #2a3342; /* hsl(216 22% 21%) — hairline borders */
+@define-color nh_grey_500 #3a4556; /* hsl(216 19% 28%) — strong borders */
+@define-color nh_grey_400 #64748b; /* hsl(215 15% 47%) — disabled / dim text */
+@define-color nh_grey_300 #94a3b8; /* hsl(214 20% 65%) — secondary text */
+@define-color nh_grey_200 #c7d0dd; /* hsl(216 25% 82%) — primary-ish text */
+@define-color nh_grey_100 #e6ebf2; /* hsl(216 33% 92%) — off-white, headings */
+
+/* ---------------------------------------------------------------------
+ * 2. ACCENT — electric cyan (NOT green). 5 usable shades.
+ * ------------------------------------------------------------------- */
+@define-color nh_cyan_700 #0b7285; /* hsl(190 85% 28%) — pressed */
+@define-color nh_cyan_600 #0c8fa8; /* hsl(190 86% 35%) — hover */
+@define-color nh_cyan_500 #15b8d4; /* hsl(190 82% 46%) — base accent / buttons */
+@define-color nh_cyan_400 #38cde6; /* hsl(190 77% 56%) — links / focus */
+@define-color nh_cyan_300 #7fe0f0; /* hsl(190 77% 72%) — highlight on dark */
+
+/* Utilitarian semantics */
+@define-color nh_red_500   #e5484d; /* hsl(358 76% 59%) — destructive */
+@define-color nh_red_600   #c73a3f;
+@define-color nh_amber_500 #e8a317; /* hsl(39 83% 50%)  — warning */
+@define-color nh_green_ok  #30c88a; /* used ONLY for tiny status dots, never text */
+
+/* ---------------------------------------------------------------------
+ * 3. libadwaita NAMED COLORS — override so the whole app inherits the theme.
+ *    (These are the documented Adwaita palette hooks.)
+ * ------------------------------------------------------------------- */
+
+/* Accent (suggested-action, switches, focus rings, links, selection) */
+@define-color accent_color            @nh_cyan_400;
+@define-color accent_bg_color         @nh_cyan_500;
+@define-color accent_fg_color         #04121a;   /* dark ink on cyan = AA */
+
+/* Destructive */
+@define-color destructive_color       @nh_red_500;
+@define-color destructive_bg_color    @nh_red_500;
+@define-color destructive_fg_color    #1a0405;
+
+/* Status */
+@define-color success_color  @nh_green_ok;
+@define-color warning_color  @nh_amber_500;
+@define-color error_color    @nh_red_500;
+
+/* Windows / views */
+@define-color window_bg_color  @nh_grey_900;
+@define-color window_fg_color  @nh_grey_100;
+@define-color view_bg_color    @nh_grey_850;
+@define-color view_fg_color    @nh_grey_100;
+
+/* Header bars */
+@define-color headerbar_bg_color            @nh_grey_950;
+@define-color headerbar_fg_color            @nh_grey_100;
+@define-color headerbar_border_color        @nh_grey_100;
+@define-color headerbar_backdrop_color      @nh_grey_900;
+@define-color headerbar_shade_color         rgba(0, 0, 0, 0.5);
+
+/* Sidebar (NavigationSplitView + .navigation-sidebar) */
+@define-color sidebar_bg_color          @nh_grey_950;
+@define-color sidebar_fg_color          @nh_grey_200;
+@define-color sidebar_backdrop_color    @nh_grey_900;
+@define-color sidebar_border_color      @nh_grey_600;
+@define-color sidebar_shade_color       rgba(0, 0, 0, 0.4);
+
+/* Cards / boxed lists (PreferencesGroup rows live here) */
+@define-color card_bg_color     @nh_grey_800;
+@define-color card_fg_color     @nh_grey_100;
+@define-color card_shade_color  rgba(0, 0, 0, 0.45);
+
+/* Popovers / dialogs */
+@define-color popover_bg_color  @nh_grey_800;
+@define-color popover_fg_color  @nh_grey_100;
+@define-color dialog_bg_color   @nh_grey_800;
+@define-color dialog_fg_color   @nh_grey_100;
+
+/* Misc surfaces */
+@define-color thumbnail_bg_color  @nh_grey_800;
+@define-color thumbnail_fg_color  @nh_grey_100;
+@define-color shade_color         rgba(0, 0, 0, 0.5);
+@define-color scrollbar_outline_color  rgba(0, 0, 0, 0.5);
+
+/* ---------------------------------------------------------------------
+ * 4. GLOBAL TONE — base window + crisp dividers for the "blueprint" look
+ * ------------------------------------------------------------------- */
+window {
+    background-color: @nh_grey_900;
+    color: @nh_grey_200;
+}
+
+/* Secondary text (subtitles, descriptions) one step dimmer for hierarchy */
+.subtitle,
+.dim-label,
+row subtitle {
+    color: @nh_grey_300;
+}
+
+/* ---------------------------------------------------------------------
+ * 5. HEADER BARS — darkest band, thin cyan underline = command bar feel
+ * ------------------------------------------------------------------- */
+headerbar {
+    background-color: @nh_grey_950;
+    color: @nh_grey_100;
+    box-shadow: inset 0 -1px 0 0 @nh_grey_600;
+}
+headerbar:backdrop {
+    background-color: @nh_grey_900;
+    box-shadow: inset 0 -1px 0 0 @nh_grey_700;
+}
+headerbar .title {
+    font-weight: 700;
+    color: @nh_grey_100;
+}
+
+/* App/section titles in a monospace to reinforce the terminal identity. */
+.nh-title {
+    font-family: "JetBrains Mono", "IBM Plex Mono", monospace;
+    font-weight: 700;
+    color: @nh_grey_100;
+}
+
+/* ---------------------------------------------------------------------
+ * 6. SIDEBAR — recessed, dim rows; active row gets a cyan edge marker
+ * ------------------------------------------------------------------- */
+.navigation-sidebar {
+    background-color: @nh_grey_950;
+    padding: 4px 6px;
+}
+.navigation-sidebar row {
+    color: @nh_grey_300;
+    border-radius: 6px;
+    margin: 2px 0;
+    min-height: 44px;              /* comfortable touch target (mobile) */
+    border-left: 2px solid transparent;
+}
+.navigation-sidebar row image {
+    color: @nh_grey_400;
+}
+.navigation-sidebar row:hover {
+    background-color: @nh_grey_800;
+    color: @nh_grey_100;
+}
+.navigation-sidebar row:selected {
+    background-color: @nh_grey_700;
+    color: @nh_grey_100;
+    border-left: 2px solid @nh_cyan_500;
+    box-shadow: inset 0 0 0 1px @nh_grey_600;
+}
+.navigation-sidebar row:selected image {
+    color: @nh_cyan_400;
+}
+
+/* ---------------------------------------------------------------------
+ * 7. CARDS / BOXED LISTS / ROWS — hairline framed surfaces (blueprint)
+ * ------------------------------------------------------------------- */
+list.boxed-list,
+.card {
+    background-color: @nh_grey_800;
+    border: 1px solid @nh_grey_600;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+list.boxed-list > row {
+    background-color: transparent;
+    min-height: 48px;              /* roomy touch rows */
+    color: @nh_grey_200;
+}
+list.boxed-list > row:not(:last-child) {
+    box-shadow: inset 0 -1px 0 0 @nh_grey_700;
+}
+row.activatable:hover {
+    background-color: @nh_grey_700;
+}
+row > box > label.title,
+row .title {
+    color: @nh_grey_100;
+    font-weight: 500;
+}
+
+/* PreferencesGroup section headers: small, technical, slightly brighter. */
+.preferences-group > box > label.heading,
+preferencesgroup label.heading {
+    color: @nh_grey_100;
+    font-weight: 700;
+}
+
+/* ---------------------------------------------------------------------
+ * 8. BUTTONS — hierarchy by contrast (RefUI): primary cyan, destructive red
+ * ------------------------------------------------------------------- */
+button {
+    border-radius: 6px;
+    min-height: 36px;
+    font-weight: 600;
+}
+button.suggested-action {
+    background-color: @nh_cyan_500;
+    color: #04121a;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+button.suggested-action:hover {
+    background-color: @nh_cyan_400;
+}
+button.suggested-action:active {
+    background-color: @nh_cyan_600;
+    box-shadow: 0 0 0 rgba(0, 0, 0, 0.4);   /* shrink shadow = pressed */
+}
+button.destructive-action {
+    background-color: @nh_red_500;
+    color: #ffffff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+button.destructive-action:hover {
+    background-color: @nh_red_600;
+}
+/* Secondary / flat buttons: low-contrast surface with a hairline. */
+button.flat,
+button:not(.suggested-action):not(.destructive-action) {
+    color: @nh_grey_100;
+}
+button:not(.suggested-action):not(.destructive-action):not(.flat) {
+    background-color: @nh_grey_700;
+    border: 1px solid @nh_grey_600;
+}
+button:not(.suggested-action):not(.destructive-action):not(.flat):hover {
+    background-color: @nh_grey_600;
+}
+
+/* ---------------------------------------------------------------------
+ * 9. ENTRIES / COMBOS / SWITCHES — dark fields, cyan focus
+ * ------------------------------------------------------------------- */
+entry,
+.entry,
+row.entry,
+spinbutton {
+    background-color: @nh_grey_850;
+    color: @nh_grey_100;
+    border-radius: 6px;
+}
+entry:focus-within,
+row.entry:focus-within,
+.entry:focus-within {
+    box-shadow: inset 0 0 0 1px @nh_cyan_500;
+}
+/* EntryRow / ComboRow surfaces inside boxed lists */
+row.entry,
+row.combo {
+    background-color: @nh_grey_800;
+}
+
+/* Switches: off = grey well, on = cyan (via accent_bg_color already). */
+switch {
+    background-color: @nh_grey_600;
+    border-radius: 14px;
+}
+switch:checked {
+    background-color: @nh_cyan_500;
+}
+
+/* Combo/dropdown popovers */
+popover > contents,
+popover.menu > contents {
+    background-color: @nh_grey_800;
+    border: 1px solid @nh_grey_600;
+    border-radius: 8px;
+}
+
+/* ---------------------------------------------------------------------
+ * 10. EXPANDERS (services banner, etc.)
+ * ------------------------------------------------------------------- */
+row.expander {
+    background-color: @nh_grey_800;
+}
+row.expander:hover {
+    background-color: @nh_grey_700;
+}
+row.expander list.nested > row {
+    background-color: @nh_grey_850;
+    box-shadow: inset 2px 0 0 0 @nh_grey_600;
+}
+
+/* ---------------------------------------------------------------------
+ * 11. TOASTS — floating, elevated card (higher shadow step)
+ * ------------------------------------------------------------------- */
+toast {
+    background-color: @nh_grey_700;
+    color: @nh_grey_100;
+    border: 1px solid @nh_grey_500;
+    border-radius: 8px;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.55);
+}
+
+/* ---------------------------------------------------------------------
+ * 12. STATUS PAGES (missing tools / broken module / empty states)
+ * ------------------------------------------------------------------- */
+statuspage > box > clamp > box > .icon {
+    color: @nh_grey_400;
+}
+statuspage .title {
+    color: @nh_grey_100;
+}
+
+/* ---------------------------------------------------------------------
+ * 13. SCROLLBARS — thin, unobtrusive, cyan on active
+ * ------------------------------------------------------------------- */
+scrollbar {
+    background-color: transparent;
+}
+scrollbar slider {
+    background-color: @nh_grey_500;
+    border-radius: 6px;
+    min-width: 7px;
+    min-height: 7px;
+}
+scrollbar slider:hover {
+    background-color: @nh_grey_400;
+}
+scrollbar slider:active {
+    background-color: @nh_cyan_500;
+}
+
+/* ---------------------------------------------------------------------
+ * 14. TERMINAL OUTPUT (.nh-output) — the signature surface.
+ *     Deep well, monospace, off-white text, cyan prompt + amber meta.
+ *     A thin cyan top edge frames it like a console pane.
+ * ------------------------------------------------------------------- */
 .nh-output {
-    background-color: #1a1a24;
-    color: #d4d4dc;
+    background-color: @nh_grey_950;
+    color: @nh_grey_200;
+    font-family: "JetBrains Mono", "IBM Plex Mono", monospace;
     font-size: 0.95em;
+    border: 1px solid @nh_grey_600;
+    border-top: 2px solid @nh_cyan_600;
+    border-radius: 6px;
+    box-shadow: inset 0 1px 6px rgba(0, 0, 0, 0.5);
 }
 .nh-output text {
-    background-color: #1a1a24;
-    color: #d4d4dc;
+    background-color: @nh_grey_950;
+    color: @nh_grey_200;
 }
 .nh-output text selection {
-    background-color: #3584e4;
-    color: #ffffff;
+    background-color: @nh_cyan_600;
+    color: #04121a;
 }
+/* Note: the "$ cmd" prompt lines and "[exit 0]" meta lines are distinguished
+ * in widgets.py via GtkTextTags (weight=bold / style=italic) applied at the
+ * buffer level; GTK renders those from the tag props, so no CSS is needed for
+ * them here (styling text tags by name via CSS is not reliable in GTK4). */

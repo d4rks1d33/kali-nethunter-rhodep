@@ -1,0 +1,28 @@
+# pager-qemu.target -- the "REAL firmware (qemu)" mode of the Pineapple Pager.
+#
+# Part of: extra-tools/pineapple-pager/qemu-firmware/systemd/
+# `systemctl start pager-qemu.target` brings up the firmware-under-qemu stack:
+#   pineapd-pager (native WiFi) + pineap-bridge (endianness relay)
+#     -> pager-qemu-firmware (qemu, API/Virtual Pager on :1471)
+#        -> pager-qemu-viewer (same-origin proxy/viewer on :8471).
+#
+# NOT enabled at boot (like pager.target). It is MUTUALLY EXCLUSIVE with the
+# native pager.target: both drive :1471. Starting this target stops the native
+# one (Conflicts), and vice-versa, so they never fight over the port.
+
+[Unit]
+Description=WiFi Pineapple Pager -- REAL firmware (qemu) mode
+Wants=pineapd-pager.service pineap-bridge.service pager-qemu-battery.service pager-qemu-firmware.service pager-qemu-viewer.service pager-qemu-vibrator.service pager-reload-supervisor.service
+# NOTE: pager-qemu-bt.service (the Bluetooth host helper) is intentionally NOT
+# in Wants: it works (drives the real hci0) but cannot be wired to the firmware
+# yet (qemu-user can't exec the guest-side shim; no MIPS compiler to build a
+# native front-end). The unit + scripts/bt_bridge.py stay installed; enable it
+# manually once a native MIPS hciconfig front-end exists. See README.
+After=pineapd-pager.service pineap-bridge.service
+# Exclusive with the native UI server (they share :1471). We conflict with
+# pager-server.service -- NOT pager.target -- because pineapd-pager/pineap-bridge
+# are shared; stopping pager-server is enough to free :1471 for the firmware.
+Conflicts=pager-server.service
+
+[Install]
+WantedBy=multi-user.target

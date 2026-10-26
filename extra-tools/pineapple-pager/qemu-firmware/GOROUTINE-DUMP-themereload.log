@@ -1,0 +1,730 @@
+ [AUTH] User 'root' logged in from 127.0.0.1:49522
+ [SYSTEM] Setting theme {aiden-pearce /rom/lib/pager/themes/aiden-pearce {  map[]     map[]                                          map[] map[] map[] map[] map[] map[] map[] map[] map[] map[] map[]              }}
+ [Screen dimmed, sweeping up memory]
+SIGQUIT: quit
+PC=0x4d3978 m=0 sigcode=0
+goroutine 13 gp=0x3803b88 m=0 mp=0x14efd80 [syscall, 10 minutes]:
+runtime.notetsleepg(0x14fad40, 0xffffffffffffffff)
+	/usr/local/go/src/runtime/lock_futex.go:123 +0x4c fp=0x3f1bfcc sp=0x3f1bfb4 pc=0x430b88
+os/signal.signal_recv()
+	/usr/local/go/src/runtime/sigqueue.go:152 +0x15c fp=0x3f1bfe0 sp=0x3f1bfcc pc=0x4cd320
+os/signal.loop()
+	/usr/local/go/src/os/signal/signal_unix.go:23 +0x38 fp=0x3f1bfec sp=0x3f1bfe0 pc=0x59540c
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x3f1bfec sp=0x3f1bfec pc=0x4d2d5c
+created by os/signal.Notify.func2.1 in goroutine 1
+	/usr/local/go/src/os/signal/signal.go:164 +0x4c
+goroutine 1 gp=0x3802148 m=nil [select, 10 minutes]:
+runtime.gopark(0x147bce4, 0x0, 0x12, 0x3, 0x1)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x40bcd70 sp=0x40bcd64 pc=0x4ca208
+runtime.selectgo(0x40bcef8, 0x420fe8c, 0x0, 0x0, 0x2, 0x1)
+	/usr/local/go/src/runtime/select.go:351 +0xbc8 fp=0x40bce18 sp=0x40bcd70 pc=0x495950
+main.run()
+	/platform/golang-product-server/cmd/cmd.go:113 +0xd80 fp=0x40bcf5c sp=0x40bce18 pc=0xca2618
+main.main()
+	/platform/golang-product-server/cmd/cmd.go:124 +0x38 fp=0x40bcf60 sp=0x40bcf5c pc=0xca27fc
+runtime.main()
+	/usr/local/go/src/runtime/proc.go:302 +0x4b4 fp=0x40bcfec sp=0x40bcf60 pc=0x47c198
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x40bcfec sp=0x40bcfec pc=0x4d2d5c
+goroutine 2 gp=0x38028c8 m=nil [force gc (idle), 3 minutes]:
+runtime.gopark(0x147bcb0, 0x14eda00, 0xb, 0xa, 0x1)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x3850fd4 sp=0x3850fc8 pc=0x4ca208
+runtime.goparkunlock(...)
+	/usr/local/go/src/runtime/proc.go:480
+runtime.forcegchelper()
+	/usr/local/go/src/runtime/proc.go:387 +0x128 fp=0x3850fec sp=0x3850fd4 pc=0x47c5cc
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x3850fec sp=0x3850fec pc=0x4d2d5c
+created by runtime.init.6 in goroutine 1
+	/usr/local/go/src/runtime/proc.go:375 +0x44
+goroutine 3 gp=0x3802a08 m=nil [GC sweep wait]:
+runtime.gopark(0x147bcb0, 0x14ede50, 0x8, 0x9, 0x1)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x38517c8 sp=0x38517bc pc=0x4ca208
+runtime.goparkunlock(...)
+	/usr/local/go/src/runtime/proc.go:480
+runtime.bgsweep(0x3834050)
+	/usr/local/go/src/runtime/mgcsweep.go:324 +0x220 fp=0x38517e4 sp=0x38517c8 pc=0x45e034
+runtime.gcenable.gowrap1()
+	/usr/local/go/src/runtime/mgc.go:214 +0x40 fp=0x38517ec sp=0x38517e4 pc=0x4bca0c
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x38517ec sp=0x38517ec pc=0x4d2d5c
+created by runtime.gcenable in goroutine 1
+	/usr/local/go/src/runtime/mgc.go:214 +0xb4
+goroutine 4 gp=0x3802b48 m=nil [GC scavenge wait]:
+runtime.gopark(0x147bcb0, 0x14eeca0, 0x9, 0xa, 0x2)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x3851fbc sp=0x3851fb0 pc=0x4ca208
+runtime.goparkunlock(...)
+	/usr/local/go/src/runtime/proc.go:480
+runtime.(*scavengerState).park(0x14eeca0)
+	/usr/local/go/src/runtime/mgcscavenge.go:425 +0x98 fp=0x3851fd0 sp=0x3851fbc pc=0x45a54c
+runtime.bgscavenge(0x3834050)
+	/usr/local/go/src/runtime/mgcscavenge.go:658 +0xa8 fp=0x3851fe4 sp=0x3851fd0 pc=0x45af5c
+runtime.gcenable.gowrap2()
+	/usr/local/go/src/runtime/mgc.go:215 +0x40 fp=0x3851fec sp=0x3851fe4 pc=0x4bc9bc
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x3851fec sp=0x3851fec pc=0x4d2d5c
+created by runtime.gcenable in goroutine 1
+	/usr/local/go/src/runtime/mgc.go:215 +0x114
+goroutine 5 gp=0x3802f08 m=nil [GOMAXPROCS updater (idle), 10 minutes]:
+runtime.gopark(0x147bcb0, 0x14edd30, 0xc, 0xa, 0x1)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x38527a4 sp=0x3852798 pc=0x4ca208
+runtime.goparkunlock(...)
+	/usr/local/go/src/runtime/proc.go:480
+runtime.updateMaxProcsGoroutine()
+	/usr/local/go/src/runtime/proc.go:7146 +0x17c fp=0x38527ec sp=0x38527a4 pc=0x48f0a8
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x38527ec sp=0x38527ec pc=0x4d2d5c
+created by runtime.defaultGOMAXPROCSUpdateEnable in goroutine 1
+	/usr/local/go/src/runtime/proc.go:7134 +0x78
+goroutine 6 gp=0x38032c8 m=nil [finalizer wait]:
+runtime.gopark(0x147baf4, 0x14fa278, 0xa, 0xa, 0x1)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x3850790 sp=0x3850784 pc=0x4ca208
+runtime.runFinalizers()
+	/usr/local/go/src/runtime/mfinal.go:210 +0x160 fp=0x38507ec sp=0x3850790 pc=0x44588c
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x38507ec sp=0x38507ec pc=0x4d2d5c
+created by runtime.createfing in goroutine 1
+	/usr/local/go/src/runtime/mfinal.go:172 +0x98
+goroutine 7 gp=0x3803408 m=nil [GC worker (idle)]:
+runtime.gopark(0x147bb04, 0x3c16200, 0x1c, 0xa, 0x0)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x3852f94 sp=0x3852f88 pc=0x4ca208
+runtime.gcBgMarkWorker(0x3ac45c0)
+	/usr/local/go/src/runtime/mgc.go:1807 +0x12c fp=0x3852fe4 sp=0x3852f94 pc=0x44a648
+runtime.gcBgMarkStartWorkers.gowrap1()
+	/usr/local/go/src/runtime/mgc.go:1711 +0x40 fp=0x3852fec sp=0x3852fe4 pc=0x4bd1f0
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x3852fec sp=0x3852fec pc=0x4d2d5c
+created by runtime.gcBgMarkStartWorkers in goroutine 1
+	/usr/local/go/src/runtime/mgc.go:1711 +0x198
+goroutine 8 gp=0x3803548 m=nil [cleanup wait, 10 minutes]:
+runtime.gopark(0x147bcb0, 0x14eef20, 0x2e, 0xa, 0x1)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x384d7a0 sp=0x384d794 pc=0x4ca208
+runtime.goparkunlock(...)
+	/usr/local/go/src/runtime/proc.go:480
+runtime.(*cleanupQueue).dequeue(0x14eeec0)
+	/usr/local/go/src/runtime/mcleanup.go:522 +0x17c fp=0x384d7c0 sp=0x384d7a0 pc=0x43f5f8
+runtime.runCleanups()
+	/usr/local/go/src/runtime/mcleanup.go:718 +0xa0 fp=0x384d7ec sp=0x384d7c0 pc=0x4400dc
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x384d7ec sp=0x384d7ec pc=0x4d2d5c
+created by runtime.(*cleanupQueue).createGs in goroutine 1
+	/usr/local/go/src/runtime/mcleanup.go:672 +0x150
+goroutine 9 gp=0x3803688 m=nil [chan receive, 10 minutes]:
+runtime.gopark(0x147bad8, 0x3878238, 0x13, 0x7, 0x2)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x384def0 sp=0x384dee4 pc=0x4ca208
+runtime.chanrecv(0x3878200, 0x384dfb8, 0x1)
+	/usr/local/go/src/runtime/chan.go:667 +0x678 fp=0x384df2c sp=0x384def0 pc=0x428e14
+runtime.chanrecv2(0x3878200, 0x384dfb8)
+	/usr/local/go/src/runtime/chan.go:514 +0x2c fp=0x384df40 sp=0x384df2c pc=0x428784
+github.com/hak5/golang-product-server/pineapplepager.init.0.func1()
+	/platform/golang-product-server/pineapplepager/util_debug.go:286 +0x7c fp=0x384dfec sp=0x384df40 pc=0xc0cb24
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x384dfec sp=0x384dfec pc=0x4d2d5c
+created by github.com/hak5/golang-product-server/pineapplepager.init.0 in goroutine 1
+	/platform/golang-product-server/pineapplepager/util_debug.go:285 +0x44
+goroutine 10 gp=0x38037c8 m=nil [chan receive]:
+runtime.gopark(0x147bad8, 0x3878278, 0x13, 0x7, 0x2)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x3864f20 sp=0x3864f14 pc=0x4ca208
+runtime.chanrecv(0x3878240, 0x3864fe0, 0x1)
+	/usr/local/go/src/runtime/chan.go:667 +0x678 fp=0x3864f5c sp=0x3864f20 pc=0x428e14
+runtime.chanrecv1(0x3878240, 0x3864fe0)
+	/usr/local/go/src/runtime/chan.go:509 +0x2c fp=0x3864f70 sp=0x3864f5c pc=0x428748
+github.com/hak5/golang-product-server/eventbus.New.func1()
+	/platform/golang-product-server/eventbus/eventbus.go:75 +0x58 fp=0x3864fec sp=0x3864f70 pc=0x5e675c
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x3864fec sp=0x3864fec pc=0x4d2d5c
+created by github.com/hak5/golang-product-server/eventbus.New in goroutine 1
+	/platform/golang-product-server/eventbus/eventbus.go:73 +0x1e4
+goroutine 11 gp=0x3803908 m=nil [chan receive]:
+runtime.gopark(0x147bad8, 0x3878778, 0x13, 0x7, 0x2)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x40b6ef8 sp=0x40b6eec pc=0x4ca208
+runtime.chanrecv(0x3878740, 0x40b6f90, 0x1)
+	/usr/local/go/src/runtime/chan.go:667 +0x678 fp=0x40b6f34 sp=0x40b6ef8 pc=0x428e14
+runtime.chanrecv1(0x3878740, 0x40b6f90)
+	/usr/local/go/src/runtime/chan.go:509 +0x2c fp=0x40b6f48 sp=0x40b6f34 pc=0x428748
+github.com/hak5/golang-product-server/utils.LEDAnimator.func1()
+	/platform/golang-product-server/utils/led.go:131 +0x3f8 fp=0x40b6fec sp=0x40b6f48 pc=0xabaf50
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x40b6fec sp=0x40b6fec pc=0x4d2d5c
+created by github.com/hak5/golang-product-server/utils.LEDAnimator in goroutine 1
+	/platform/golang-product-server/utils/led.go:60 +0x278
+goroutine 12 gp=0x3803a48 m=nil [select, 10 minutes, locked to thread]:
+runtime.gopark(0x147bce4, 0x0, 0x12, 0x3, 0x1)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x3f1b6e8 sp=0x3f1b6dc pc=0x4ca208
+runtime.selectgo(0x3f1b7d8, 0x3f1b7b8, 0x0, 0x0, 0x2, 0x1)
+	/usr/local/go/src/runtime/select.go:351 +0xbc8 fp=0x3f1b790 sp=0x3f1b6e8 pc=0x495950
+runtime.ensureSigM.func1()
+	/usr/local/go/src/runtime/signal_unix.go:1093 +0x238 fp=0x3f1b7ec sp=0x3f1b790 pc=0x4c2434
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x3f1b7ec sp=0x3f1b7ec pc=0x4d2d5c
+created by runtime.ensureSigM in goroutine 1
+	/usr/local/go/src/runtime/signal_unix.go:1076 +0x138
+goroutine 21 gp=0x3e18008 m=nil [IO wait, 10 minutes]:
+runtime.gopark(0x147bca0, 0x2b662a10, 0x2, 0x2, 0x5)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x3d59e0c sp=0x3d59e00 pc=0x4ca208
+runtime.netpollblock(0x2b662a00, 0x72, 0x0)
+	/usr/local/go/src/runtime/netpoll.go:575 +0x1b4 fp=0x3d59e24 sp=0x3d59e0c pc=0x472e54
+internal/poll.runtime_pollWait(0x2b662a00, 0x72)
+	/usr/local/go/src/runtime/netpoll.go:351 +0x120 fp=0x3d59e44 sp=0x3d59e24 pc=0x4c8d0c
+internal/poll.(*pollDesc).wait(0x40ac398, 0x72, 0x1)
+	/usr/local/go/src/internal/poll/fd_poll_runtime.go:84 +0x54 fp=0x3d59e60 sp=0x3d59e44 pc=0x563a94
+internal/poll.(*pollDesc).waitRead(...)
+	/usr/local/go/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x40ac380, {0x3d59efb, 0x10000, 0x10000})
+	/usr/local/go/src/internal/poll/fd_unix.go:170 +0x314 fp=0x3d59eac sp=0x3d59e60 pc=0x564d8c
+os.(*File).read(...)
+	/usr/local/go/src/os/file_posix.go:30
+os.(*File).Read(0x40727d8, {0x3d59efb, 0x10000, 0x10000})
+	/usr/local/go/src/os/file.go:144 +0xb0 fp=0x3d59ed0 sp=0x3d59eac pc=0x5722d0
+github.com/fsnotify/fsnotify.(*Watcher).readEvents(0x388f440)
+	/go/pkg/mod/github.com/fsnotify/fsnotify@v1.7.0/backend_inotify.go:483 +0x170 fp=0x3d69fe4 sp=0x3d59ed0 pc=0x5c5fc8
+github.com/fsnotify/fsnotify.NewBufferedWatcher.gowrap1()
+	/go/pkg/mod/github.com/fsnotify/fsnotify@v1.7.0/backend_inotify.go:270 +0x40 fp=0x3d69fec sp=0x3d69fe4 pc=0x5c6e50
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x3d69fec sp=0x3d69fec pc=0x4d2d5c
+created by github.com/fsnotify/fsnotify.NewBufferedWatcher in goroutine 1
+	/go/pkg/mod/github.com/fsnotify/fsnotify@v1.7.0/backend_inotify.go:270 +0x2ac
+goroutine 19 gp=0x4066b48 m=nil [IO wait, 10 minutes]:
+runtime.gopark(0x147bca0, 0x2b662e10, 0x2, 0x2, 0x5)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x3863da0 sp=0x3863d94 pc=0x4ca208
+runtime.netpollblock(0x2b662e00, 0x72, 0x0)
+	/usr/local/go/src/runtime/netpoll.go:575 +0x1b4 fp=0x3863db8 sp=0x3863da0 pc=0x472e54
+internal/poll.runtime_pollWait(0x2b662e00, 0x72)
+	/usr/local/go/src/runtime/netpoll.go:351 +0x120 fp=0x3863dd8 sp=0x3863db8 pc=0x4c8d0c
+internal/poll.(*pollDesc).wait(0x408d3c8, 0x72, 0x0)
+	/usr/local/go/src/internal/poll/fd_poll_runtime.go:84 +0x54 fp=0x3863df4 sp=0x3863dd8 pc=0x563a94
+internal/poll.(*pollDesc).waitRead(...)
+	/usr/local/go/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Accept(0x408d3b0)
+	/usr/local/go/src/internal/poll/fd_unix.go:618 +0x2e8 fp=0x3863e40 sp=0x3863df4 pc=0x5683d0
+net.(*netFD).accept(0x408d3b0)
+	/usr/local/go/src/net/fd_unix.go:149 +0x44 fp=0x3863ea8 sp=0x3863e40 pc=0x622fac
+net.(*UnixListener).accept(0x405e980)
+	/usr/local/go/src/net/unixsock_posix.go:172 +0x44 fp=0x3863ec4 sp=0x3863ea8 pc=0x647340
+net.(*UnixListener).Accept(0x405e980)
+	/usr/local/go/src/net/unixsock.go:275 +0x54 fp=0x3863ee4 sp=0x3863ec4 pc=0x645a5c
+net/http.(*Server).Serve(0x40a89c8, {0x1478a14, 0x405e980})
+	/usr/local/go/src/net/http/server.go:3551 +0x410 fp=0x3863f80 sp=0x3863ee4 pc=0xa3a544
+github.com/hak5/golang-product-server/server.(*Server).Run.func1()
+	/platform/golang-product-server/server/server.go:62 +0x2dc fp=0x3863fec sp=0x3863f80 pc=0xc9fbb8
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x3863fec sp=0x3863fec pc=0x4d2d5c
+created by github.com/hak5/golang-product-server/server.(*Server).Run in goroutine 18
+	/platform/golang-product-server/server/server.go:42 +0xc0
+goroutine 20 gp=0x4066c88 m=nil [IO wait, 1 minutes]:
+runtime.gopark(0x147bca0, 0x2b662c10, 0x2, 0x2, 0x5)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x3860d58 sp=0x3860d4c pc=0x4ca208
+runtime.netpollblock(0x2b662c00, 0x72, 0x0)
+	/usr/local/go/src/runtime/netpoll.go:575 +0x1b4 fp=0x3860d70 sp=0x3860d58 pc=0x472e54
+internal/poll.runtime_pollWait(0x2b662c00, 0x72)
+	/usr/local/go/src/runtime/netpoll.go:351 +0x120 fp=0x3860d90 sp=0x3860d70 pc=0x4c8d0c
+internal/poll.(*pollDesc).wait(0x408c0b8, 0x72, 0x0)
+	/usr/local/go/src/internal/poll/fd_poll_runtime.go:84 +0x54 fp=0x3860dac sp=0x3860d90 pc=0x563a94
+internal/poll.(*pollDesc).waitRead(...)
+	/usr/local/go/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Accept(0x408c0a0)
+	/usr/local/go/src/internal/poll/fd_unix.go:618 +0x2e8 fp=0x3860df8 sp=0x3860dac pc=0x5683d0
+net.(*netFD).accept(0x408c0a0)
+	/usr/local/go/src/net/fd_unix.go:149 +0x44 fp=0x3860e60 sp=0x3860df8 pc=0x622fac
+net.(*TCPListener).accept(0x388f3e0)
+	/usr/local/go/src/net/tcpsock_posix.go:159 +0x44 fp=0x3860eac sp=0x3860e60 pc=0x63f014
+net.(*TCPListener).Accept(0x388f3e0)
+	/usr/local/go/src/net/tcpsock.go:387 +0x54 fp=0x3860ecc sp=0x3860eac pc=0x63dd90
+net/http.(*Server).Serve(0x40a88f8, {0x14789fc, 0x388f3e0})
+	/usr/local/go/src/net/http/server.go:3551 +0x410 fp=0x3860f68 sp=0x3860ecc pc=0xa3a544
+net/http.(*Server).ListenAndServe(0x40a88f8)
+	/usr/local/go/src/net/http/server.go:3462 +0xd8 fp=0x3860f8c sp=0x3860f68 pc=0xa39fa0
+github.com/hak5/golang-product-server/server.(*Server).Run.func2()
+	/platform/golang-product-server/server/server.go:84 +0x22c fp=0x3860fec sp=0x3860f8c pc=0xc9f7e8
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x3860fec sp=0x3860fec pc=0x4d2d5c
+created by github.com/hak5/golang-product-server/server.(*Server).Run in goroutine 18
+	/platform/golang-product-server/server/server.go:72 +0x140
+goroutine 22 gp=0x4066288 m=nil [IO wait, 10 minutes]:
+runtime.gopark(0x147bca0, 0x2b662610, 0x2, 0x2, 0x5)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x384c5cc sp=0x384c5c0 pc=0x4ca208
+runtime.netpollblock(0x2b662600, 0x72, 0x0)
+	/usr/local/go/src/runtime/netpoll.go:575 +0x1b4 fp=0x384c5e4 sp=0x384c5cc pc=0x472e54
+internal/poll.runtime_pollWait(0x2b662600, 0x72)
+	/usr/local/go/src/runtime/netpoll.go:351 +0x120 fp=0x384c604 sp=0x384c5e4 pc=0x4c8d0c
+internal/poll.(*pollDesc).wait(0x40ac558, 0x72, 0x1)
+	/usr/local/go/src/internal/poll/fd_poll_runtime.go:84 +0x54 fp=0x384c620 sp=0x384c604 pc=0x563a94
+internal/poll.(*pollDesc).waitRead(...)
+	/usr/local/go/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x40ac540, {0x40b2a90, 0x10, 0x10})
+	/usr/local/go/src/internal/poll/fd_unix.go:170 +0x314 fp=0x384c66c sp=0x384c620 pc=0x564d8c
+os.(*File).read(...)
+	/usr/local/go/src/os/file_posix.go:30
+os.(*File).Read(0x40728d0, {0x40b2a90, 0x10, 0x10})
+	/usr/local/go/src/os/file.go:144 +0xb0 fp=0x384c690 sp=0x384c66c pc=0x5722d0
+io.ReadAtLeast({0x147619c, 0x40728d0}, {0x40b2a90, 0x10, 0x10}, 0x10)
+	/usr/local/go/src/io/io.go:335 +0xbc fp=0x384c6bc sp=0x384c690 pc=0x528654
+io.ReadFull(...)
+	/usr/local/go/src/io/io.go:354
+encoding/binary.Read({0x147619c, 0x40728d0}, {0x1479b9c, 0x14fa1a0}, {0x136b480, 0x40b2a80})
+	/usr/local/go/src/encoding/binary/binary.go:286 +0x3e8 fp=0x384c738 sp=0x384c6bc pc=0x5b4cd0
+github.com/holoplot/go-evdev.(*InputDevice).ReadOne(0x4072828)
+	/platform/golang-product-server/deps/go-evdev-hak5/device.go:273 +0xa4 fp=0x384c760 sp=0x384c738 pc=0xaccc2c
+github.com/hak5/golang-product-server/inputdev.evdevLoopHandler({0x3fb04b0, 0x11})
+	/platform/golang-product-server/inputdev/inputdev.go:52 +0x2c4 fp=0x384c7e0 sp=0x384c760 pc=0xacef78
+github.com/hak5/golang-product-server/inputdev.New.gowrap1()
+	/platform/golang-product-server/inputdev/inputdev.go:75 +0x48 fp=0x384c7ec sp=0x384c7e0 pc=0xacf4a8
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x384c7ec sp=0x384c7ec pc=0x4d2d5c
+created by github.com/hak5/golang-product-server/inputdev.New in goroutine 1
+	/platform/golang-product-server/inputdev/inputdev.go:75 +0x1e4
+goroutine 23 gp=0x40663c8 m=nil [IO wait, 10 minutes]:
+runtime.gopark(0x147bca0, 0x2b662410, 0x2, 0x2, 0x5)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x3f19dcc sp=0x3f19dc0 pc=0x4ca208
+runtime.netpollblock(0x2b662400, 0x72, 0x0)
+	/usr/local/go/src/runtime/netpoll.go:575 +0x1b4 fp=0x3f19de4 sp=0x3f19dcc pc=0x472e54
+internal/poll.runtime_pollWait(0x2b662400, 0x72)
+	/usr/local/go/src/runtime/netpoll.go:351 +0x120 fp=0x3f19e04 sp=0x3f19de4 pc=0x4c8d0c
+internal/poll.(*pollDesc).wait(0x40ac598, 0x72, 0x1)
+	/usr/local/go/src/internal/poll/fd_poll_runtime.go:84 +0x54 fp=0x3f19e20 sp=0x3f19e04 pc=0x563a94
+internal/poll.(*pollDesc).waitRead(...)
+	/usr/local/go/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x40ac580, {0x40b2ab0, 0x10, 0x10})
+	/usr/local/go/src/internal/poll/fd_unix.go:170 +0x314 fp=0x3f19e6c sp=0x3f19e20 pc=0x564d8c
+os.(*File).read(...)
+	/usr/local/go/src/os/file_posix.go:30
+os.(*File).Read(0x4072908, {0x40b2ab0, 0x10, 0x10})
+	/usr/local/go/src/os/file.go:144 +0xb0 fp=0x3f19e90 sp=0x3f19e6c pc=0x5722d0
+io.ReadAtLeast({0x147619c, 0x4072908}, {0x40b2ab0, 0x10, 0x10}, 0x10)
+	/usr/local/go/src/io/io.go:335 +0xbc fp=0x3f19ebc sp=0x3f19e90 pc=0x528654
+io.ReadFull(...)
+	/usr/local/go/src/io/io.go:354
+encoding/binary.Read({0x147619c, 0x4072908}, {0x1479b9c, 0x14fa1a0}, {0x136b480, 0x40b2aa0})
+	/usr/local/go/src/encoding/binary/binary.go:286 +0x3e8 fp=0x3f19f38 sp=0x3f19ebc pc=0x5b4cd0
+github.com/holoplot/go-evdev.(*InputDevice).ReadOne(0x4072848)
+pager-qemu-firmware.service: Main process exited, code=exited, status=2/INVALIDARGUMENT
+	/platform/golang-product-server/deps/go-evdev-hak5/device.go:273 +0xa4 fp=0x3f19f60 sp=0x3f19f38 pc=0xaccc2c
+github.com/hak5/golang-product-server/inputdev.evdevLoopHandler({0x3fb04f8, 0x11})
+	/platform/golang-product-server/inputdev/inputdev.go:52 +0x2c4 fp=0x3f19fe0 sp=0x3f19f60 pc=0xacef78
+github.com/hak5/golang-product-server/inputdev.New.gowrap1()
+	/platform/golang-product-server/inputdev/inputdev.go:75 +0x48 fp=0x3f19fec sp=0x3f19fe0 pc=0xacf4a8
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x3f19fec sp=0x3f19fec pc=0x4d2d5c
+created by github.com/hak5/golang-product-server/inputdev.New in goroutine 1
+	/platform/golang-product-server/inputdev/inputdev.go:75 +0x1e4
+goroutine 24 gp=0x4066508 m=nil [IO wait, 10 minutes]:
+runtime.gopark(0x147bca0, 0x2b662210, 0x2, 0x2, 0x5)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x3f1a5cc sp=0x3f1a5c0 pc=0x4ca208
+runtime.netpollblock(0x2b662200, 0x72, 0x0)
+	/usr/local/go/src/runtime/netpoll.go:575 +0x1b4 fp=0x3f1a5e4 sp=0x3f1a5cc pc=0x472e54
+internal/poll.runtime_pollWait(0x2b662200, 0x72)
+	/usr/local/go/src/runtime/netpoll.go:351 +0x120 fp=0x3f1a604 sp=0x3f1a5e4 pc=0x4c8d0c
+internal/poll.(*pollDesc).wait(0x40ac5d8, 0x72, 0x1)
+	/usr/local/go/src/internal/poll/fd_poll_runtime.go:84 +0x54 fp=0x3f1a620 sp=0x3f1a604 pc=0x563a94
+internal/poll.(*pollDesc).waitRead(...)
+	/usr/local/go/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x40ac5c0, {0x40b2ad0, 0x10, 0x10})
+	/usr/local/go/src/internal/poll/fd_unix.go:170 +0x314 fp=0x3f1a66c sp=0x3f1a620 pc=0x564d8c
+os.(*File).read(...)
+	/usr/local/go/src/os/file_posix.go:30
+os.(*File).Read(0x4072950, {0x40b2ad0, 0x10, 0x10})
+	/usr/local/go/src/os/file.go:144 +0xb0 fp=0x3f1a690 sp=0x3f1a66c pc=0x5722d0
+io.ReadAtLeast({0x147619c, 0x4072950}, {0x40b2ad0, 0x10, 0x10}, 0x10)
+	/usr/local/go/src/io/io.go:335 +0xbc fp=0x3f1a6bc sp=0x3f1a690 pc=0x528654
+io.ReadFull(...)
+	/usr/local/go/src/io/io.go:354
+encoding/binary.Read({0x147619c, 0x4072950}, {0x1479b9c, 0x14fa1a0}, {0x136b480, 0x40b2ac0})
+pager-qemu-firmware.service: Killing process 117557 (sleep) with signal SIGKILL.
+	/usr/local/go/src/encoding/binary/binary.go:286 +0x3e8 fp=0x3f1a738 sp=0x3f1a6bc pc=0x5b4cd0
+github.com/holoplot/go-evdev.(*InputDevice).ReadOne(0x4072850)
+	/platform/golang-product-server/deps/go-evdev-hak5/device.go:273 +0xa4 fp=0x3f1a760 sp=0x3f1a738 pc=0xaccc2c
+github.com/hak5/golang-product-server/inputdev.evdevLoopHandler({0x3fb0510, 0x11})
+	/platform/golang-product-server/inputdev/inputdev.go:52 +0x2c4 fp=0x3f1a7e0 sp=0x3f1a760 pc=0xacef78
+github.com/hak5/golang-product-server/inputdev.New.gowrap1()
+	/platform/golang-product-server/inputdev/inputdev.go:75 +0x48 fp=0x3f1a7ec sp=0x3f1a7e0 pc=0xacf4a8
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x3f1a7ec sp=0x3f1a7ec pc=0x4d2d5c
+created by github.com/hak5/golang-product-server/inputdev.New in goroutine 1
+	/platform/golang-product-server/inputdev/inputdev.go:75 +0x1e4
+goroutine 25 gp=0x4066648 m=nil [IO wait, 10 minutes]:
+runtime.gopark(0x147bca0, 0x2b7ad410, 0x2, 0x2, 0x5)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x3f1adcc sp=0x3f1adc0 pc=0x4ca208
+runtime.netpollblock(0x2b7ad400, 0x72, 0x0)
+	/usr/local/go/src/runtime/netpoll.go:575 +0x1b4 fp=0x3f1ade4 sp=0x3f1adcc pc=0x472e54
+internal/poll.runtime_pollWait(0x2b7ad400, 0x72)
+	/usr/local/go/src/runtime/netpoll.go:351 +0x120 fp=0x3f1ae04 sp=0x3f1ade4 pc=0x4c8d0c
+internal/poll.(*pollDesc).wait(0x40ac618, 0x72, 0x1)
+	/usr/local/go/src/internal/poll/fd_poll_runtime.go:84 +0x54 fp=0x3f1ae20 sp=0x3f1ae04 pc=0x563a94
+internal/poll.(*pollDesc).waitRead(...)
+	/usr/local/go/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x40ac600, {0x40b2af0, 0x10, 0x10})
+	/usr/local/go/src/internal/poll/fd_unix.go:170 +0x314 fp=0x3f1ae6c sp=0x3f1ae20 pc=0x564d8c
+os.(*File).read(...)
+	/usr/local/go/src/os/file_posix.go:30
+os.(*File).Read(0x4072970, {0x40b2af0, 0x10, 0x10})
+	/usr/local/go/src/os/file.go:144 +0xb0 fp=0x3f1ae90 sp=0x3f1ae6c pc=0x5722d0
+io.ReadAtLeast({0x147619c, 0x4072970}, {0x40b2af0, 0x10, 0x10}, 0x10)
+pager-qemu-firmware.service: Failed with result 'exit-code'.
+	/usr/local/go/src/io/io.go:335 +0xbc fp=0x3f1aebc sp=0x3f1ae90 pc=0x528654
+io.ReadFull(...)
+	/usr/local/go/src/io/io.go:354
+encoding/binary.Read({0x147619c, 0x4072970}, {0x1479b9c, 0x14fa1a0}, {0x136b480, 0x40b2ae0})
+	/usr/local/go/src/encoding/binary/binary.go:286 +0x3e8 fp=0x3f1af38 sp=0x3f1aebc pc=0x5b4cd0
+github.com/holoplot/go-evdev.(*InputDevice).ReadOne(0x4072858)
+	/platform/golang-product-server/deps/go-evdev-hak5/device.go:273 +0xa4 fp=0x3f1af60 sp=0x3f1af38 pc=0xaccc2c
+github.com/hak5/golang-product-server/inputdev.evdevLoopHandler({0x3fb0588, 0x11})
+	/platform/golang-product-server/inputdev/inputdev.go:52 +0x2c4 fp=0x3f1afe0 sp=0x3f1af60 pc=0xacef78
+github.com/hak5/golang-product-server/inputdev.New.gowrap1()
+	/platform/golang-product-server/inputdev/inputdev.go:75 +0x48 fp=0x3f1afec sp=0x3f1afe0 pc=0xacf4a8
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x3f1afec sp=0x3f1afec pc=0x4d2d5c
+created by github.com/hak5/golang-product-server/inputdev.New in goroutine 1
+	/platform/golang-product-server/inputdev/inputdev.go:75 +0x1e4
+goroutine 26 gp=0x4066788 m=nil [IO wait, 10 minutes]:
+runtime.gopark(0x147bca0, 0x2b7ad210, 0x2, 0x2, 0x5)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x384cdcc sp=0x384cdc0 pc=0x4ca208
+runtime.netpollblock(0x2b7ad200, 0x72, 0x0)
+	/usr/local/go/src/runtime/netpoll.go:575 +0x1b4 fp=0x384cde4 sp=0x384cdcc pc=0x472e54
+internal/poll.runtime_pollWait(0x2b7ad200, 0x72)
+	/usr/local/go/src/runtime/netpoll.go:351 +0x120 fp=0x384ce04 sp=0x384cde4 pc=0x4c8d0c
+internal/poll.(*pollDesc).wait(0x40ac658, 0x72, 0x1)
+	/usr/local/go/src/internal/poll/fd_poll_runtime.go:84 +0x54 fp=0x384ce20 sp=0x384ce04 pc=0x563a94
+internal/poll.(*pollDesc).waitRead(...)
+	/usr/local/go/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x40ac640, {0x40b2b10, 0x10, 0x10})
+	/usr/local/go/src/internal/poll/fd_unix.go:170 +0x314 fp=0x384ce6c sp=0x384ce20 pc=0x564d8c
+os.(*File).read(...)
+	/usr/local/go/src/os/file_posix.go:30
+os.(*File).Read(0x40729a8, {0x40b2b10, 0x10, 0x10})
+pager-qemu-firmware.service: Consumed 19.673s CPU time over 10min 34.489s wall clock time, 121.7M memory peak.
+	/usr/local/go/src/os/file.go:144 +0xb0 fp=0x384ce90 sp=0x384ce6c pc=0x5722d0
+io.ReadAtLeast({0x147619c, 0x40729a8}, {0x40b2b10, 0x10, 0x10}, 0x10)
+	/usr/local/go/src/io/io.go:335 +0xbc fp=0x384cebc sp=0x384ce90 pc=0x528654
+io.ReadFull(...)
+	/usr/local/go/src/io/io.go:354
+encoding/binary.Read({0x147619c, 0x40729a8}, {0x1479b9c, 0x14fa1a0}, {0x136b480, 0x40b2b00})
+	/usr/local/go/src/encoding/binary/binary.go:286 +0x3e8 fp=0x384cf38 sp=0x384cebc pc=0x5b4cd0
+github.com/holoplot/go-evdev.(*InputDevice).ReadOne(0x4072860)
+	/platform/golang-product-server/deps/go-evdev-hak5/device.go:273 +0xa4 fp=0x384cf60 sp=0x384cf38 pc=0xaccc2c
+github.com/hak5/golang-product-server/inputdev.evdevLoopHandler({0x3fb05a0, 0x11})
+	/platform/golang-product-server/inputdev/inputdev.go:52 +0x2c4 fp=0x384cfe0 sp=0x384cf60 pc=0xacef78
+github.com/hak5/golang-product-server/inputdev.New.gowrap1()
+	/platform/golang-product-server/inputdev/inputdev.go:75 +0x48 fp=0x384cfec sp=0x384cfe0 pc=0xacf4a8
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x384cfec sp=0x384cfec pc=0x4d2d5c
+created by github.com/hak5/golang-product-server/inputdev.New in goroutine 1
+	/platform/golang-product-server/inputdev/inputdev.go:75 +0x1e4
+goroutine 27 gp=0x40668c8 m=nil [IO wait, 10 minutes]:
+runtime.gopark(0x147bca0, 0x2b662810, 0x2, 0x2, 0x5)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x384f5cc sp=0x384f5c0 pc=0x4ca208
+runtime.netpollblock(0x2b662800, 0x72, 0x0)
+	/usr/local/go/src/runtime/netpoll.go:575 +0x1b4 fp=0x384f5e4 sp=0x384f5cc pc=0x472e54
+internal/poll.runtime_pollWait(0x2b662800, 0x72)
+	/usr/local/go/src/runtime/netpoll.go:351 +0x120 fp=0x384f604 sp=0x384f5e4 pc=0x4c8d0c
+internal/poll.(*pollDesc).wait(0x40ac498, 0x72, 0x1)
+	/usr/local/go/src/internal/poll/fd_poll_runtime.go:84 +0x54 fp=0x384f620 sp=0x384f604 pc=0x563a94
+internal/poll.(*pollDesc).waitRead(...)
+	/usr/local/go/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x40ac480, {0x40b2a40, 0x10, 0x10})
+	/usr/local/go/src/internal/poll/fd_unix.go:170 +0x314 fp=0x384f66c sp=0x384f620 pc=0x564d8c
+os.(*File).read(...)
+	/usr/local/go/src/os/file_posix.go:30
+os.(*File).Read(0x4072870, {0x40b2a40, 0x10, 0x10})
+	/usr/local/go/src/os/file.go:144 +0xb0 fp=0x384f690 sp=0x384f66c pc=0x5722d0
+io.ReadAtLeast({0x147619c, 0x4072870}, {0x40b2a40, 0x10, 0x10}, 0x10)
+	/usr/local/go/src/io/io.go:335 +0xbc fp=0x384f6bc sp=0x384f690 pc=0x528654
+io.ReadFull(...)
+	/usr/local/go/src/io/io.go:354
+encoding/binary.Read({0x147619c, 0x4072870}, {0x1479b9c, 0x14fa1a0}, {0x136b480, 0x40b2a30})
+	/usr/local/go/src/encoding/binary/binary.go:286 +0x3e8 fp=0x384f738 sp=0x384f6bc pc=0x5b4cd0
+github.com/holoplot/go-evdev.(*InputDevice).ReadOne(0x4072868)
+	/platform/golang-product-server/deps/go-evdev-hak5/device.go:273 +0xa4 fp=0x384f760 sp=0x384f738 pc=0xaccc2c
+github.com/hak5/golang-product-server/inputdev.evdevLoopHandler({0x3fb0618, 0x11})
+	/platform/golang-product-server/inputdev/inputdev.go:52 +0x2c4 fp=0x384f7e0 sp=0x384f760 pc=0xacef78
+github.com/hak5/golang-product-server/inputdev.New.gowrap1()
+	/platform/golang-product-server/inputdev/inputdev.go:75 +0x48 fp=0x384f7ec sp=0x384f7e0 pc=0xacf4a8
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x384f7ec sp=0x384f7ec pc=0x4d2d5c
+created by github.com/hak5/golang-product-server/inputdev.New in goroutine 1
+	/platform/golang-product-server/inputdev/inputdev.go:75 +0x1e4
+goroutine 28 gp=0x4066a08 m=nil [select, 10 minutes]:
+runtime.gopark(0x147bce4, 0x0, 0x12, 0x3, 0x1)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x384fec4 sp=0x384feb8 pc=0x4ca208
+runtime.selectgo(0x384ffb4, 0x384ff94, 0x0, 0x0, 0x2, 0x1)
+	/usr/local/go/src/runtime/select.go:351 +0xbc8 fp=0x384ff6c sp=0x384fec4 pc=0x495950
+github.com/hak5/golang-product-server/inputdev.New.func1()
+	/platform/golang-product-server/inputdev/inputdev.go:84 +0xcc fp=0x384ffec sp=0x384ff6c pc=0xacf584
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x384ffec sp=0x384ffec pc=0x4d2d5c
+created by github.com/hak5/golang-product-server/inputdev.New in goroutine 1
+	/platform/golang-product-server/inputdev/inputdev.go:78 +0x200
+goroutine 30 gp=0x40677c8 m=nil [sleep]:
+runtime.gopark(0x147bccc, 0x0, 0xe, 0xe, 0x1)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x3f16f0c sp=0x3f16f00 pc=0x4ca208
+time.Sleep(0x12a05f200)
+	/usr/local/go/src/runtime/time.go:368 +0x220 fp=0x3f16f40 sp=0x3f16f0c pc=0x4cf968
+github.com/hak5/golang-product-server/utils.startCpuSampler.func1()
+	/platform/golang-product-server/utils/utils.go:74 +0x4b4 fp=0x3f16fec sp=0x3f16f40 pc=0xabab50
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x3f16fec sp=0x3f16fec pc=0x4d2d5c
+created by github.com/hak5/golang-product-server/utils.startCpuSampler in goroutine 29
+	/platform/golang-product-server/utils/utils.go:28 +0x44
+goroutine 44 gp=0x4067048 m=nil [select]:
+runtime.gopark(0x147bce4, 0x0, 0x12, 0x3, 0x1)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x385feac sp=0x385fea0 pc=0x4ca208
+runtime.selectgo(0x385ff9c, 0x385ff7c, 0x0, 0x0, 0x3, 0x1)
+	/usr/local/go/src/runtime/select.go:351 +0xbc8 fp=0x385ff54 sp=0x385feac pc=0x495950
+github.com/hak5/golang-product-server/pineapplepager.(*PineapplePager).LaunchScreenSaver.func1()
+	/platform/golang-product-server/pineapplepager/pineapplepager_screen.go:49 +0x124 fp=0x385ffec sp=0x385ff54 pc=0xbfd9d8
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x385ffec sp=0x385ffec pc=0x4d2d5c
+created by github.com/hak5/golang-product-server/pineapplepager.(*PineapplePager).LaunchScreenSaver in goroutine 1
+	/platform/golang-product-server/pineapplepager/pineapplepager_screen.go:30 +0xa8
+goroutine 38 gp=0x40672c8 m=nil [chan receive, 10 minutes]:
+runtime.gopark(0x147bad8, 0x3f2e478, 0x13, 0x7, 0x2)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x3f1778c sp=0x3f17780 pc=0x4ca208
+runtime.chanrecv(0x3f2e440, 0x0, 0x1)
+	/usr/local/go/src/runtime/chan.go:667 +0x678 fp=0x3f177c8 sp=0x3f1778c pc=0x428e14
+runtime.chanrecv1(0x3f2e440, 0x0)
+	/usr/local/go/src/runtime/chan.go:509 +0x2c fp=0x3f177dc sp=0x3f177c8 pc=0x428748
+github.com/hak5/golang-product-server/utils.initPowerFiles.func1()
+	/platform/golang-product-server/utils/powersupply_pager.go:43 +0x44 fp=0x3f177ec sp=0x3f177dc pc=0xab9e88
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x3f177ec sp=0x3f177ec pc=0x4d2d5c
+created by github.com/hak5/golang-product-server/utils.initPowerFiles in goroutine 1
+	/platform/golang-product-server/utils/powersupply_pager.go:42 +0x398
+goroutine 45 gp=0x3e18148 m=nil [chan receive]:
+runtime.gopark(0x147bad8, 0x40ad978, 0x13, 0x7, 0x2)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x3865ea4 sp=0x3865e98 pc=0x4ca208
+runtime.chanrecv(0x40ad940, 0x3865f90, 0x1)
+	/usr/local/go/src/runtime/chan.go:667 +0x678 fp=0x3865ee0 sp=0x3865ea4 pc=0x428e14
+runtime.chanrecv2(0x40ad940, 0x3865f90)
+	/usr/local/go/src/runtime/chan.go:514 +0x2c fp=0x3865ef4 sp=0x3865ee0 pc=0x428784
+github.com/hak5/golang-product-server/pineapplepager.startMonitoringMemory.func1()
+	/platform/golang-product-server/pineapplepager/pineapplepager_memory_manager.go:284 +0x138 fp=0x3865fec sp=0x3865ef4 pc=0xbfce88
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x3865fec sp=0x3865fec pc=0x4d2d5c
+created by github.com/hak5/golang-product-server/pineapplepager.startMonitoringMemory in goroutine 1
+	/platform/golang-product-server/pineapplepager/pineapplepager_memory_manager.go:273 +0x414
+goroutine 43 gp=0x3e18648 m=nil [select]:
+runtime.gopark(0x147bce4, 0x0, 0x12, 0x3, 0x1)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x385edd8 sp=0x385edcc pc=0x4ca208
+runtime.selectgo(0x385eefc, 0x385eeb8, 0x0, 0x0, 0x5, 0x1)
+	/usr/local/go/src/runtime/select.go:351 +0xbc8 fp=0x385ee80 sp=0x385edd8 pc=0x495950
+github.com/hak5/golang-product-server/pineapplepager.(*ScreenManager).WaitForNextFrameTrigger(0x409b608)
+	/platform/golang-product-server/pineapplepager/screen_manager.go:1154 +0x4d8 fp=0x385ef80 sp=0x385ee80 pc=0xb3938c
+github.com/hak5/golang-product-server/pineapplepager.(*ScreenManager).Run.func1()
+	/platform/golang-product-server/pineapplepager/screen_manager.go:1106 +0x1fc fp=0x385efac sp=0x385ef80 pc=0xbfe3d0
+sync.(*Once).doSlow(0x409ba64, 0x3864fdc)
+	/usr/local/go/src/sync/once.go:78 +0x108 fp=0x385efd0 sp=0x385efac pc=0x4e45b4
+sync.(*Once).Do(...)
+	/usr/local/go/src/sync/once.go:69
+github.com/hak5/golang-product-server/pineapplepager.(*ScreenManager).Run(0x409b608)
+	/platform/golang-product-server/pineapplepager/screen_manager.go:1068 +0x78 fp=0x385efe4 sp=0x385efd0 pc=0xb38ea4
+github.com/hak5/golang-product-server/pineapplepager.(*PineapplePager).LaunchUI.gowrap1()
+	/platform/golang-product-server/pineapplepager/pineapplepager.go:405 +0x40 fp=0x385efec sp=0x385efe4 pc=0xbfc974
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x385efec sp=0x385efec pc=0x4d2d5c
+created by github.com/hak5/golang-product-server/pineapplepager.(*PineapplePager).LaunchUI in goroutine 1
+	/platform/golang-product-server/pineapplepager/pineapplepager.go:405 +0x102c
+goroutine 46 gp=0x3e188c8 m=nil [sleep]:
+runtime.gopark(0x147bccc, 0x0, 0xe, 0xe, 0x1)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x40bbe54 sp=0x40bbe48 pc=0x4ca208
+time.Sleep(0x77359400)
+	/usr/local/go/src/runtime/time.go:368 +0x220 fp=0x40bbe88 sp=0x40bbe54 pc=0x4cf968
+github.com/hak5/golang-product-server/services.NewGpsService.func1()
+	/platform/golang-product-server/services/gps_pineapple.go:175 +0x54 fp=0x40bbfec sp=0x40bbe88 pc=0xaedf3c
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x40bbfec sp=0x40bbfec pc=0x4d2d5c
+created by github.com/hak5/golang-product-server/services.NewGpsService in goroutine 1
+	/platform/golang-product-server/services/gps_pineapple.go:91 +0x94
+goroutine 47 gp=0x3e18a08 m=nil [sleep]:
+runtime.gopark(0x147bccc, 0x0, 0xe, 0xe, 0x1)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x40b7f2c sp=0x40b7f20 pc=0x4ca208
+time.Sleep(0x3b9aca00)
+	/usr/local/go/src/runtime/time.go:368 +0x220 fp=0x40b7f60 sp=0x40b7f2c pc=0x4cf968
+github.com/hak5/golang-product-server/services.NewPagerPowerService.func1()
+	/platform/golang-product-server/services/power_pineapplepager.go:479 +0x54 fp=0x40b7fec sp=0x40b7f60 pc=0xaed4e4
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x40b7fec sp=0x40b7fec pc=0x4d2d5c
+created by github.com/hak5/golang-product-server/services.NewPagerPowerService in goroutine 1
+	/platform/golang-product-server/services/power_pineapplepager.go:454 +0x8c
+goroutine 48 gp=0x3e18b48 m=nil [sleep]:
+runtime.gopark(0x147bccc, 0x0, 0xe, 0xe, 0x1)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x40bae40 sp=0x40bae34 pc=0x4ca208
+time.Sleep(0x3b9aca00)
+	/usr/local/go/src/runtime/time.go:368 +0x220 fp=0x40bae74 sp=0x40bae40 pc=0x4cf968
+github.com/hak5/golang-product-server/services.NewPineapStatusService.func1()
+	/platform/golang-product-server/services/pineap_pineapple.go:138 +0x54 fp=0x40bafec sp=0x40bae74 pc=0xaedae8
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x40bafec sp=0x40bafec pc=0x4d2d5c
+created by github.com/hak5/golang-product-server/services.NewPineapStatusService in goroutine 1
+	/platform/golang-product-server/services/pineap_pineapple.go:86 +0x8c
+goroutine 49 gp=0x3e19188 m=nil [sleep]:
+runtime.gopark(0x147bccc, 0x0, 0xe, 0xe, 0x1)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x3f18f40 sp=0x3f18f34 pc=0x4ca208
+time.Sleep(0x6fc23ac00)
+	/usr/local/go/src/runtime/time.go:368 +0x220 fp=0x3f18f74 sp=0x3f18f40 pc=0x4cf968
+github.com/hak5/golang-product-server/services.NewPineapSsidPoolService.func1()
+	/platform/golang-product-server/services/pineap_pineapple.go:200 +0x54 fp=0x3f18fec sp=0x3f18f74 pc=0xaed800
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x3f18fec sp=0x3f18fec pc=0x4d2d5c
+created by github.com/hak5/golang-product-server/services.NewPineapSsidPoolService in goroutine 1
+	/platform/golang-product-server/services/pineap_pineapple.go:180 +0x13c
+goroutine 58 gp=0x3e192c8 m=nil [IO wait]:
+runtime.gopark(0x147bca0, 0x2b7acc10, 0x2, 0x2, 0x5)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x40b9d0c sp=0x40b9d00 pc=0x4ca208
+runtime.netpollblock(0x2b7acc00, 0x72, 0x0)
+	/usr/local/go/src/runtime/netpoll.go:575 +0x1b4 fp=0x40b9d24 sp=0x40b9d0c pc=0x472e54
+internal/poll.runtime_pollWait(0x2b7acc00, 0x72)
+	/usr/local/go/src/runtime/netpoll.go:351 +0x120 fp=0x40b9d44 sp=0x40b9d24 pc=0x4c8d0c
+internal/poll.(*pollDesc).wait(0x3f3c2e8, 0x72, 0x0)
+	/usr/local/go/src/internal/poll/fd_poll_runtime.go:84 +0x54 fp=0x40b9d60 sp=0x40b9d44 pc=0x563a94
+internal/poll.(*pollDesc).waitRead(...)
+	/usr/local/go/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x3f3c2d0, {0x3f30000, 0x400, 0x400})
+	/usr/local/go/src/internal/poll/fd_unix.go:170 +0x314 fp=0x40b9dac sp=0x40b9d60 pc=0x564d8c
+net.(*netFD).Read(0x3f3c2d0, {0x3f30000, 0x400, 0x400})
+	/usr/local/go/src/net/fd_posix.go:68 +0x5c fp=0x40b9dd8 sp=0x40b9dac pc=0x620edc
+net.(*conn).Read(0x4868f70, {0x3f30000, 0x400, 0x400})
+	/usr/local/go/src/net/net.go:196 +0x6c fp=0x40b9e04 sp=0x40b9dd8 pc=0x63272c
+bufio.(*Reader).fill(0x3d0c810)
+	/usr/local/go/src/bufio/bufio.go:113 +0x150 fp=0x40b9e28 sp=0x40b9e04 pc=0x5d6f7c
+bufio.(*Reader).Peek(0x3d0c810, 0x2)
+	/usr/local/go/src/bufio/bufio.go:152 +0x94 fp=0x40b9e30 sp=0x40b9e28 pc=0x5d7144
+github.com/gorilla/websocket.(*Conn).read(0x3cf8688, 0x2)
+	/go/pkg/mod/github.com/gorilla/websocket@v1.5.0/conn.go:371 +0x4c fp=0x40b9e64 sp=0x40b9e30 pc=0xc372d8
+github.com/gorilla/websocket.(*Conn).advanceFrame(0x3cf8688)
+	/go/pkg/mod/github.com/gorilla/websocket@v1.5.0/conn.go:809 +0xbc fp=0x40b9f58 sp=0x40b9e64 pc=0xc39abc
+github.com/gorilla/websocket.(*Conn).NextReader(0x3cf8688)
+	/go/pkg/mod/github.com/gorilla/websocket@v1.5.0/conn.go:1009 +0xd0 fp=0x40b9f7c sp=0x40b9f58 pc=0xc3b008
+github.com/gorilla/websocket.(*Conn).ReadMessage(0x3cf8688)
+	/go/pkg/mod/github.com/gorilla/websocket@v1.5.0/conn.go:1093 +0x40 fp=0x40b9fa0 sp=0x40b9f7c pc=0xc3b8d0
+github.com/hak5/golang-product-server/api/server.(*ServerApi).screenAsJpegWs.func1()
+	/platform/golang-product-server/api/server/display_pineapplepager.go:110 +0x100 fp=0x40b9fec sp=0x40b9fa0 pc=0xc8e424
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x40b9fec sp=0x40b9fec pc=0x4d2d5c
+created by github.com/hak5/golang-product-server/api/server.(*ServerApi).screenAsJpegWs in goroutine 56
+	/platform/golang-product-server/api/server/display_pineapplepager.go:102 +0x484
+goroutine 59 gp=0x3e197c8 m=nil [select]:
+runtime.gopark(0x147bce4, 0x0, 0x12, 0x3, 0x1)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x3f1861c sp=0x3f18610 pc=0x4ca208
+runtime.selectgo(0x3f1878c, 0x3f186ec, 0x0, 0x0, 0x3, 0x1)
+	/usr/local/go/src/runtime/select.go:351 +0xbc8 fp=0x3f186c4 sp=0x3f1861c pc=0x495950
+github.com/hak5/golang-product-server/api/server.(*ServerApi).screenAsJpegWs.func2()
+	/platform/golang-product-server/api/server/display_pineapplepager.go:171 +0x454 fp=0x3f187ec sp=0x3f186c4 pc=0xc8d920
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x3f187ec sp=0x3f187ec pc=0x4d2d5c
+created by github.com/hak5/golang-product-server/api/server.(*ServerApi).screenAsJpegWs in goroutine 56
+	/platform/golang-product-server/api/server/display_pineapplepager.go:118 +0x52c
+goroutine 60 gp=0x3e19a48 m=nil [sync.WaitGroup.Wait, 1 minutes]:
+runtime.gopark(0x147bcb0, 0x14f47e0, 0x19, 0x5, 0x4)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x3f17f68 sp=0x3f17f5c pc=0x4ca208
+runtime.goparkunlock(...)
+	/usr/local/go/src/runtime/proc.go:480
+runtime.semacquire1(0x3f87418, 0x0, 0x1, 0x0, 0x19)
+	/usr/local/go/src/runtime/sema.go:192 +0x320 fp=0x3f17f90 sp=0x3f17f68 pc=0x49683c
+sync.runtime_SemacquireWaitGroup(0x3f87418, 0x0)
+	/usr/local/go/src/runtime/sema.go:114 +0x70 fp=0x3f17fa8 sp=0x3f17f90 pc=0x4cc174
+sync.(*WaitGroup).Wait(0x3f87410)
+	/usr/local/go/src/sync/waitgroup.go:206 +0xf8 fp=0x3f17fcc sp=0x3f17fa8 pc=0x4e6364
+github.com/hak5/golang-product-server/api/server.(*ServerApi).screenAsJpegWs.func3()
+	/platform/golang-product-server/api/server/display_pineapplepager.go:202 +0x40 fp=0x3f17fec sp=0x3f17fcc pc=0xc8d460
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x3f17fec sp=0x3f17fec pc=0x4d2d5c
+created by github.com/hak5/golang-product-server/api/server.(*ServerApi).screenAsJpegWs in goroutine 56
+	/platform/golang-product-server/api/server/display_pineapplepager.go:201 +0x59c
+goroutine 63 gp=0x3e19b88 m=nil [IO wait]:
+runtime.gopark(0x147bca0, 0x2b7ad010, 0x2, 0x2, 0x5)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x40bdc6c sp=0x40bdc60 pc=0x4ca208
+runtime.netpollblock(0x2b7ad000, 0x72, 0x0)
+	/usr/local/go/src/runtime/netpoll.go:575 +0x1b4 fp=0x40bdc84 sp=0x40bdc6c pc=0x472e54
+internal/poll.runtime_pollWait(0x2b7ad000, 0x72)
+	/usr/local/go/src/runtime/netpoll.go:351 +0x120 fp=0x40bdca4 sp=0x40bdc84 pc=0x4c8d0c
+internal/poll.(*pollDesc).wait(0x3f3c888, 0x72, 0x0)
+	/usr/local/go/src/internal/poll/fd_poll_runtime.go:84 +0x54 fp=0x40bdcc0 sp=0x40bdca4 pc=0x563a94
+internal/poll.(*pollDesc).waitRead(...)
+	/usr/local/go/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x3f3c870, {0x3f30400, 0x400, 0x400})
+	/usr/local/go/src/internal/poll/fd_unix.go:170 +0x314 fp=0x40bdd0c sp=0x40bdcc0 pc=0x564d8c
+net.(*netFD).Read(0x3f3c870, {0x3f30400, 0x400, 0x400})
+	/usr/local/go/src/net/fd_posix.go:68 +0x5c fp=0x40bdd38 sp=0x40bdd0c pc=0x620edc
+net.(*conn).Read(0x4869228, {0x3f30400, 0x400, 0x400})
+	/usr/local/go/src/net/net.go:196 +0x6c fp=0x40bdd64 sp=0x40bdd38 pc=0x63272c
+bufio.(*Reader).fill(0x3d0ca20)
+	/usr/local/go/src/bufio/bufio.go:113 +0x150 fp=0x40bdd88 sp=0x40bdd64 pc=0x5d6f7c
+bufio.(*Reader).Peek(0x3d0ca20, 0x2)
+	/usr/local/go/src/bufio/bufio.go:152 +0x94 fp=0x40bdd90 sp=0x40bdd88 pc=0x5d7144
+github.com/gorilla/websocket.(*Conn).read(0x3cf8758, 0x2)
+	/go/pkg/mod/github.com/gorilla/websocket@v1.5.0/conn.go:371 +0x4c fp=0x40bddc4 sp=0x40bdd90 pc=0xc372d8
+github.com/gorilla/websocket.(*Conn).advanceFrame(0x3cf8758)
+	/go/pkg/mod/github.com/gorilla/websocket@v1.5.0/conn.go:809 +0xbc fp=0x40bdeb8 sp=0x40bddc4 pc=0xc39abc
+github.com/gorilla/websocket.(*Conn).NextReader(0x3cf8758)
+	/go/pkg/mod/github.com/gorilla/websocket@v1.5.0/conn.go:1009 +0xd0 fp=0x40bdedc sp=0x40bdeb8 pc=0xc3b008
+github.com/gorilla/websocket.(*Conn).ReadMessage(0x3cf8758)
+	/go/pkg/mod/github.com/gorilla/websocket@v1.5.0/conn.go:1093 +0x40 fp=0x40bdf00 sp=0x40bdedc pc=0xc3b8d0
+github.com/hak5/golang-product-server/api/server.(*ServerApi).keyboardWs.func1()
+	/platform/golang-product-server/api/server/display_pineapplepager.go:244 +0xc8 fp=0x40bdfec sp=0x40bdf00 pc=0xc8e6c0
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x40bdfec sp=0x40bdfec pc=0x4d2d5c
+created by github.com/hak5/golang-product-server/api/server.(*ServerApi).keyboardWs in goroutine 61
+	/platform/golang-product-server/api/server/display_pineapplepager.go:238 +0x1e0
+goroutine 67 gp=0x3e19cc8 m=nil [sleep]:
+runtime.gopark(0x147bccc, 0x0, 0xe, 0xe, 0x1)
+	/usr/local/go/src/runtime/proc.go:474 +0x11c fp=0x3f15770 sp=0x3f15764 pc=0x4ca208
+time.Sleep(0xdf8475800)
+	/usr/local/go/src/runtime/time.go:368 +0x220 fp=0x3f157a4 sp=0x3f15770 pc=0x4cf968
+github.com/hak5/golang-product-server/pineapplepager.SetThemes.func1.1()
+	/platform/golang-product-server/pineapplepager/settings_general.go:196 +0x200 fp=0x3f157ec sp=0x3f157a4 pc=0xc01e14
+runtime.goexit({})
+	/usr/local/go/src/runtime/asm_mipsx.s:647 +0x4 fp=0x3f157ec sp=0x3f157ec pc=0x4d2d5c
+created by github.com/hak5/golang-product-server/pineapplepager.SetThemes.func1 in goroutine 43
+	/platform/golang-product-server/pineapplepager/settings_general.go:186 +0x160
+r0   0x0	r1   0x0
+r2   0x1146	r3   0x14fad40
+r4   0x14fad40	r5   0x80
+r6   0x0	r7   0x0
+r8   0x0	r9   0x0
+r10  0x1	r11  0x0
+r12  0x10	r13  0x0
+r14  0x1	r15  0xc
+r16  0x1	r17  0x0
+r18  0x8	r19  0x0
+r20  0x1	r21  0x8
+r22  0x0	r23  0x1500000
+r24  0x14972515	r25  0x2b33af08
+r26  0x0	r27  0x0
+r28  0x14f4e40	r29  0x3f1bf20
+r30  0x3803b88	r31  0x4762e4
+pc   0x4d3978	link 0x4762e4
+lo   0x0	hi   0x0
+pager-qemu-firmware.service: Scheduled restart job, restart counter is at 5.
+Started pager-qemu-firmware.service - WiFi Pineapple Pager REAL firmware (qemu-mipsel, :1471).
+[fw_run] launching firmware: /opt/pineapple-pager/qemu/bin/qemu-mipsel -L /opt/pineapple-pager/qemu/rootfs ./pineapple/pineapple
+ [MAIN] Launching  Pineapple Pager  server
+ [CORE] Starting Pineapple Pager server
+ [CORE] Config Health Check Starting
+ [BOOT] overlay filesystem mounted, continuing
+ [BOOT] OS Boot complete
+ [PAGER] id-I1krPAs3V2Z90fzu4EjunA
+ [MAIN] Starting PineAP
+ [CORE] TCP API service starting
+ [MAIN] PineAP already running
+ [CORE] local API service starting
+ [BUTTONS] opened evdev device /dev/input/event0
+ [BUTTONS] opened evdev device /dev/input/event1
+ [BUTTONS] opened evdev device /dev/input/event2
+ [BUTTONS] opened evdev device /dev/input/event3
+ [BUTTONS] opened evdev device /dev/input/event4
+ [BUTTONS] opened evdev device /dev/input/event5
+ [Memory Manager] MemoryLimit:96
+ [Memory Manager] GC:75
+ [UI] Defaulting Theme
+ [SYSTEM] Setting PIN Enabled false
+ [AUTH] User 'root' logged in from 127.0.0.1:38214
+ [UI] UI Startup complete in 2.754416549s
+ [UI] Images: 142 / Refs: 1321 / Size: 16.36 MB, Saved: 22.86 MB -- Canvases: 26, Size: 11 MB
+ [Memory Manager] MaintainThreshold:30
+ [Memory Manager] LowThreshold:18
+ [Memory Manager] DangerThreshold:12
+ [Memory Manager] Check Interval: 2000000000
+ [MAIN] Starting PineAP related services
+ [Memory Manager] monitor goroutine started
+ [Screen dimmed, sweeping up memory]
+ [Screen slept, sweeping up memory]

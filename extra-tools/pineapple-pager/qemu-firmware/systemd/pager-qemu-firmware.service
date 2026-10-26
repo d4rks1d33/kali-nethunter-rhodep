@@ -1,0 +1,39 @@
+# pager-qemu-firmware.service -- the REAL Pineapple Pager firmware under qemu.
+#
+# Part of: extra-tools/pineapple-pager/qemu-firmware/systemd/
+# Runs the original MIPSel firmware (rootfs/pineapple/pineapple) under the
+# patched qemu-mipsel. The firmware's PineAP is wired, via the socket bridge,
+# to the NATIVE aarch64 pineapd-pager so WiFi actually works on the G82.
+#
+# It exposes the firmware's own API + Virtual Pager on :1471 -- the SAME port
+# the native pager-server uses -- so this mode CONFLICTS with pager.target.
+# On-demand only (started by pager-qemu.target), never enabled at boot.
+
+[Unit]
+Description=WiFi Pineapple Pager REAL firmware (qemu-mipsel, :1471)
+# The native WiFi back-end + endianness bridge MUST be up first.
+Requires=pineapd-pager.service pineap-bridge.service
+After=pineapd-pager.service pineap-bridge.service
+PartOf=pager-qemu.target
+# Native pager-server owns :1471 -- the two firmware modes are exclusive.
+# NOTE: we conflict ONLY with pager-server.service (the :1471 holder), NOT with
+# pager.target as a whole: pineapd-pager + pineap-bridge are SHARED by both modes
+# (pineapd-pager is PartOf=pager.target), so conflicting the target would tear
+# down the native WiFi back-end we actually need here.
+Conflicts=pager-server.service
+
+[Service]
+Type=simple
+# Foreground launcher: systemd owns the qemu process directly.
+ExecStart=/opt/pineapple-pager/qemu/scripts/fw_run.sh
+Restart=on-failure
+RestartSec=3
+# Firmware chat + bridge handshake show up in the journal.
+StandardOutput=journal
+StandardError=journal
+# Clean up the qemu + fifo holder on stop (SIGTERM kills the whole group).
+KillMode=mixed
+TimeoutStopSec=10
+
+[Install]
+WantedBy=pager-qemu.target

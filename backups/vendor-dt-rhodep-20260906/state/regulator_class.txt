@@ -1,0 +1,94 @@
+=== /proc/cmdline ===
+pmos_root_uuid=d3f420ff-55cd-4e90-aba9-adf089dcf1e4 pmos_rootfsopts=defaults panel_novatek_nt37701.clk_scale=100 ignore_loglevel watchdog_thresh=5 quiet androidboot.verifiedbootstate=orange androidboot.keymaster=1 androidboot.bootdevice=4804000.ufshc androidboot.fstab_suffix=default androidboot.boot_devices=soc/4804000.ufshc androidboot.serialno=ZY22FSKMWF androidboot.device=rhodep androidboot.revision=pvt androidboot.hwrev=0xC000 androidboot.radio=ROW androidboot.powerup_reason=0x00004000 androidboot.bootreason=reboot msm_poweroff.download_mode=0 wifimacaddr=E4:26:D5:01:11:10,E4:26:D5:01:11:11 androidboot.btmacaddr=E4:26:D5:01:11:0F androidboot.bootloader=MBM-3.0-uefi-2b5f70e4f9c-250326 androidboot.carrier= androidboot.hardware.sku=XT2225-1 androidboot.mode=recovery androidboot.baseband=msm msm_drm.dsi_display0=qcom,mdss_dsi_mot_csot_nt37701_655_1080x2400_dsc_cmd_v1:timing1: androidboot.slot_suffix=_a rootwait ro init=/init storage_mfrid=0x1AD androidboot.sku_variant=n androidboot.secure_hardware=1 androidboot.cid=0x0032 androidboot.write_protect=0 androidboot.bl_state=2 androidboot.ssm_data=0000000000003331
+
+=== ls /sys/class/regulator ===
+regulator.0
+regulator.1
+regulator.10
+regulator.11
+regulator.12
+regulator.13
+regulator.14
+regulator.15
+regulator.16
+regulator.17
+regulator.18
+regulator.19
+regulator.2
+regulator.20
+regulator.21
+regulator.22
+regulator.23
+regulator.24
+regulator.25
+regulator.26
+regulator.27
+regulator.28
+regulator.29
+regulator.3
+regulator.30
+regulator.31
+regulator.32
+regulator.33
+regulator.34
+regulator.35
+regulator.36
+regulator.37
+regulator.38
+regulator.39
+regulator.4
+regulator.40
+regulator.41
+regulator.42
+regulator.43
+regulator.5
+regulator.6
+regulator.7
+regulator.8
+regulator.9
+
+=== TABLE ===
+regulator.0                  regulator-dummy                            users=17  voltage
+regulator.1                  vph_pwr                         3700000    users=2   voltage
+regulator.10                 l4                       disabled 1504000    users=0   voltage
+regulator.11                 l4                       enabled 1232000    users=1   voltage
+regulator.12                 l5                       disabled 752000     users=0   voltage
+regulator.13                 l6                       disabled 504000     users=0   voltage
+regulator.14                 l5                       disabled 2900000    users=0   voltage
+regulator.15                 l6                       disabled 1080000    users=0   voltage
+regulator.16                 l7                       enabled 3080000    users=1   voltage
+regulator.17                 l7                       enabled 880000     users=1   voltage
+regulator.18                 l8                       disabled 1104000    users=0   voltage
+regulator.19                 l9                       disabled 1800000    users=0   voltage
+regulator.2                  s5                       disabled 384000     users=0   voltage
+regulator.20                 l10                      enabled 1800000    users=1   voltage
+regulator.21                 l11                      enabled 1800000    users=3   voltage
+regulator.22                 l12                      disabled 1624000    users=0   voltage
+regulator.23                 l13                      enabled 1656000    users=2   voltage
+regulator.24                 l14                      enabled 1704000    users=1   voltage
+regulator.25                 l15                      disabled 1656000    users=0   voltage
+regulator.26                 l16                      enabled 1624000    users=1   voltage
+regulator.27                 l18                      disabled 832000     users=0   voltage
+regulator.28                 l19                      disabled 1624000    users=0   voltage
+regulator.29                 l20                      disabled 1624000    users=0   voltage
+regulator.3                  s6                       disabled 320000     users=0   voltage
+regulator.30                 l21                      disabled 3000000    users=0   voltage
+regulator.31                 l22                      disabled 2900000    users=0   voltage
+regulator.32                 l23                      enabled 3000000    users=1   voltage
+regulator.33                 l24                      enabled 2960000    users=1   voltage
+regulator.34                 panel_vci                enabled 3000000    users=1   voltage
+regulator.35                 touch_avdd               enabled            users=1   voltage
+regulator.36                 refgen                   enabled            users=1   voltage
+regulator.37                 cam_vdig                 disabled 1056000    users=0   voltage
+regulator.38                 LDO2                     disabled 1824000    users=0   voltage
+regulator.39                 LDO3                     enabled 2396000    users=0   voltage
+regulator.4                  l1                       disabled 576000     users=0   voltage
+regulator.40                 cam_vana                 disabled 2804000    users=0   voltage
+regulator.41                 LDO5                     disabled 2668000    users=0   voltage
+regulator.42                 LDO6                     enabled 1756000    users=0   voltage
+regulator.43                 cam_vio                  disabled 1804000    users=0   voltage
+regulator.5                  s7                       disabled 1576000    users=0   voltage
+regulator.6                  l2                       enabled 640000     users=1   voltage
+regulator.7                  l2                       enabled 1176000    users=1   voltage
+regulator.8                  l3                       disabled 1000000    users=0   voltage
+regulator.9                  l3                       enabled 1104000    users=1   voltage

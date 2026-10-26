@@ -1,0 +1,12 @@
+<!--
+    Input:
+        device/motorola/sm6375-common/gps/android/2.1/android.hardware.gnss@2.1-service-qti.xml
+-->
+<manifest version="9.0" type="device">
+    <hal format="hidl">
+        <name>android.hardware.gnss</name>
+        <transport>hwbinder</transport>
+        <fqname>@1.1::IGnss/default</fqname>
+        <fqname>@2.1::IGnss/default</fqname>
+    </hal>
+</manifest>

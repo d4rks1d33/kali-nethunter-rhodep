@@ -1,0 +1,23 @@
+#!/bin/bash
+# MAC_PICKER - WiFi Pineapple Pager DuckyScript command (host bridge).
+# MAC address entry dialog. BLOCKS until the user confirms/cancels; echoes the entered value.
+# Usage: resp=$(MAC_PICKER "Prompt?" ["default"])
+# Exit codes mirror pineapple.sh (0 confirmed, 2 cancelled, 4 error).
+. /lib/hak5/pineapple.sh
+
+__message="$1"
+__default="$2"
+
+json=$(cat << JEOF
+{ "message": $(SAFE_JSON_STRING "${__message}"), "default": $(SAFE_JSON_STRING "${__default}") }
+JEOF
+)
+
+if HAK5_API_POST "payload/interact/mac_picker" "${json}"; then
+    json_get_var __val value 2>/dev/null
+    [ -z "$__val" ] && json_get_var __val result 2>/dev/null
+    [ -z "$__val" ] && json_get_var __val text 2>/dev/null
+    printf '%s' "$__val"
+    exit ${DUCKYSCRIPT_USER_CONFIRMED}
+fi
+exit ${DUCKYSCRIPT_ERROR}

@@ -1,0 +1,15 @@
+#!/bin/bash
+# ERROR_DIALOG - WiFi Pineapple Pager DuckyScript command (host bridge).
+# Shows an error dialog on the Pager by POSTing to /payload/interact/error.
+# Usage: ERROR_DIALOG "message"
+. /lib/hak5/commands.sh
+
+__message="$*"
+
+json=$(cat << EOF
+{ "message": $(SAFE_JSON_STRING "${__message}") }
+EOF
+)
+
+HAK5_API_POST "payload/interact/error" "${json}" && exit 0
+exit 1

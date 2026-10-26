@@ -1,0 +1,37 @@
+# pager-qemu-bt.service -- host-side Bluetooth helper for the qemu firmware.
+#
+# Part of: extra-tools/pineapple-pager/qemu-firmware/systemd/
+# The firmware (under qemu-mipsel) toggles Bluetooth by exec'ing `hciconfig
+# <iface> up|down`. qemu-user does not emulate the HCI ioctls, so the MIPS
+# hciconfig cannot reach the G82's real controller. The rootfs hciconfig is
+# replaced by a shim (scripts/hciconfig.shim) that forwards argv to THIS helper
+# over TCP 127.0.0.1:1473; the helper drives the REAL hci0 with the native
+# aarch64 hciconfig + rfkill.
+#
+# Runs as root: controlling hci0 (HCIDEVUP) and rfkill unblock need CAP_NET_ADMIN.
+
+[Unit]
+Description=WiFi Pineapple Pager qemu Bluetooth bridge (firmware hciconfig -> real hci0)
+# bluetoothd owns the controller; have it available first.
+After=bluetooth.service pager-qemu-firmware.service
+Wants=bluetooth.service
+PartOf=pager-qemu.target
+
+[Service]
+Type=simple
+Environment=PAGER_BT_PORT=1473
+Environment=PAGER_BT_BIND=127.0.0.1
+ExecStart=/opt/pineapple-pager/qemu/scripts/bt_bridge.py
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+# Only ever runs hciconfig/rfkill/bluetoothctl; keep the rest locked down.
+# AF_BLUETOOTH is required: the hciconfig children open an HCI control socket.
+ProtectHome=yes
+ProtectKernelModules=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_BLUETOOTH AF_NETLINK
+
+[Install]
+WantedBy=pager-qemu.target

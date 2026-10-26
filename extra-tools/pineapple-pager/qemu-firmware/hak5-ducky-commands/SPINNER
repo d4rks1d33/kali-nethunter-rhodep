@@ -1,0 +1,3 @@
+#!/bin/bash
+# SPINNER - alias that starts a spinner (see START_SPINNER). Returns its id.
+exec START_SPINNER "$@"

@@ -1,0 +1,15 @@
+#!/bin/bash
+# ALERT - WiFi Pineapple Pager DuckyScript command (host bridge).
+# Shows an alert dialog on the Pager by POSTing to /payload/interact/alert.
+# Usage: ALERT "message"
+. /lib/hak5/commands.sh
+
+__message="$*"
+
+json=$(cat << EOF
+{ "message": $(SAFE_JSON_STRING "${__message}") }
+EOF
+)
+
+HAK5_API_POST "payload/interact/alert" "${json}" && exit 0
+exit 1

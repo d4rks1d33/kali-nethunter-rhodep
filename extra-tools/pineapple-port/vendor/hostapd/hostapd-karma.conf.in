@@ -1,0 +1,41 @@
+# hostapd (mana) config -- KARMA evil-twin AP, rendered by compat/wifi-apply.
+# @@VAR@@ tokens are substituted from the UCI store (wireless.* / pineap.*).
+#
+# This is the OPEN "answer-all-probes" AP, the port's equivalent of the
+# original Pineapple's management/open AP on wlan0 + the karma responder.
+# Runs on wlan1 (the TP-Link Archer USB), which is the port's AP radio.
+
+interface=@@AP_IFACE@@
+driver=nl80211
+ctrl_interface=/var/run/hostapd
+ctrl_interface_group=0
+
+ssid=@@OPEN_SSID@@
+# hw_mode is resolved by wifi-apply: 'g' for 2.4GHz channels, 'a' for 5GHz.
+# When the fake AP shares the internal radio with the uplink STA, the channel
+# is forced to the STA's live channel (single-radio chip).
+hw_mode=@@HW_MODE@@
+channel=@@AP_CHANNEL@@
+auth_algs=1
+wmm_enabled=1
+ignore_broadcast_ssid=0
+# low max to behave like the original management AP; 0 = unlimited
+max_num_sta=@@MAX_ASSOC@@
+
+# ------------------------------------------------------------------ MANA/karma
+# enable_mana=1 makes the AP respond to directed probe requests for ANY SSID
+# (classic karma). mana_loud additionally responds with the broadcast SSID pool.
+# These are also toggle-able at runtime via the control interface: the
+# compat/hostapd_cli wrapper maps Hak5 karma_enable -> `raw MANA_ENABLE` (+
+# `raw LOUD_ENABLE`), which the mana daemon applies live (flips
+# iconf->enable_mana / iconf->mana_loud). Starting value here is just the
+# boot default rendered from UCI pineap.@config[0].karma.
+enable_mana=@@MANA@@
+mana_loud=@@MANA_LOUD@@
+mana_macacl=0
+
+# Where the WPE EAP credential harvester appends captured creds (asleap/JTR/
+# hashcat lines). net/pineape-creds-import tails this and writes them into
+# pineape.db (chalresp/basic) for the panel. This is a global option (applies to
+# the EAP server used by the Enterprise VAP defined further below).
+mana_credout=@@CREDOUT@@

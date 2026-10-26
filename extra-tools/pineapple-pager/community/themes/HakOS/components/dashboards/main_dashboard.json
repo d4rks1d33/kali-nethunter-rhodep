@@ -1,0 +1,1470 @@
+{
+  "screen_name": "main_dashboard",
+  "status_bar": "default",
+  "windowed_canvas": false,
+  "cache_canvases": true,
+  "button_map": {
+    "a": "select",
+    "b": "noop",
+    "up": "previous",
+    "down": "next",
+    "left": "previous",
+    "right": "next"
+  },
+  "background": {
+    "layers": [
+      { "image_path": "assets/dashboard/background.png", "x": 0, "y": 0 }
+    ],
+    "background_color": { "r": 0, "g": 0, "b": 0 }
+  },
+  "menu_items": [
+	{
+		"id": "start",
+		"layers": [
+			{ "image_path": "assets/dashboard/start.png","x": 0, "y": 0 }
+		],
+		"selected_layers": [
+		],
+	  "x": 0,
+	  "y": 0,
+		"button_map": {
+		  "a": "goto pagerportal",
+		  "b": "noop",
+		  "up": "noop",
+		  "down": "goto pagerportal",
+		  "left": "noop",
+		  "right": "noop"
+		}
+	},
+	{
+      "id": "pagerportal",
+      "layers": [
+      ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "goto portal_payloads",
+		"b": "goto start",
+		"up": "goto power",
+		"down": "next",
+		"left": "noop",
+		"right": "goto portal_payloads"
+	  }
+    },
+    {
+      "id": "alerts",
+      "layers": [
+      ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": -4, "y": 25 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "goto alerts_auth_captured",
+		"b": "goto start",
+		"up": "previous",
+		"down": "next",
+		"left": "noop",
+		"right": "goto alerts_auth_captured"
+	  }
+    },
+    {
+      "id": "payloads",
+      "layers": [
+      ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": -4, "y": 50 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto start",
+		"up": "previous",
+		"down": "next",
+		"left": "noop",
+		"right": "noop"
+	  },
+      "target": "payloads_dashboard",
+      "variable": "$_PAYLOAD_CATEGORIES"
+    },
+    {
+      "id": "recon",
+      "layers": [
+      ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": -4, "y": 75 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto start",
+		"up": "previous",
+		"down": "next",
+		"left": "noop",
+		"right": "noop"
+	  },
+      "target": "recon_dashboard"
+    },
+    {
+      "id": "pineap",
+      "layers": [
+      ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": -4, "y": 100 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "goto pineap_pineap",
+		"b": "goto start",
+		"up": "previous",
+		"down": "next",
+		"left": "noop",
+		"right": "goto pineap_pineap"
+	  },
+      "target": "pineap_menu"
+    },
+    {
+      "id": "settings",
+      "layers": [
+      ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": -4, "y": 125 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "goto General",
+		"b": "goto start",
+		"up": "previous",
+		"down": "next",
+		"left": "noop",
+		"right": "goto General"
+	  },
+      "target": "settings_menu"
+    },
+    {
+      "id": "power",
+      "layers": [
+      ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": -4, "y": 150 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "goto sleepscreen",
+		"b": "goto start",
+		"up": "previous",
+		"down": "goto pagerportal",
+		"left": "noop",
+		"right": "goto sleepscreen"
+	  },
+      "target": "settings_menu"
+    },
+	{
+	  "id": "portal_payloads",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu2.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/highlight2.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 277, "y": 6 },
+		{ "text": "Payloads", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Themes", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "goto get_payloads",
+		"b": "goto pagerportal",
+		"up": "goto portal_themes",
+		"down": "goto portal_themes",
+		"left": "goto pagerportal",
+		"right": "goto get_payloads"
+	  },
+	  "target": "pager_portal_payloads_dashboard"
+	},
+	{
+	  "id": "portal_themes",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu2.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/highlight2.png","x": 169, "y": 25 },
+        { "image_path": "assets/dashboard/triangle.png","x": 277, "y": 6 },
+		{ "text": "Payloads", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Themes", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto pagerportal",
+		"up": "goto portal_payloads",
+		"down": "goto portal_payloads",
+		"left": "goto pagerportal",
+		"right": "noop"
+	  },
+	  "target": "pager_portal_themes_dashboard"
+	},	
+	{
+	  "id": "get_payloads",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu5.png","x": 289, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": 289, "y": 0 },
+		{ "text": "Get", "x": 292, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Update", "x": 292, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Uninstall", "x": 292, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu2.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 277, "y": 6 },
+		{ "text": "Payloads", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Themes", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto portal_payloads",
+		"up": "goto uninstall_payloads",
+		"down": "next",
+		"left": "goto portal_payloads",
+		"right": "noop"
+	  },
+	  "target": "pager_portal_get_payloads_dashboard"
+	},
+	{
+	  "id": "Update Payloads",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu5.png","x": 289, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": 289, "y": 25 },
+		{ "text": "Get", "x": 292, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Update", "x": 292, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Uninstall", "x": 292, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu2.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 277, "y": 6 },
+		{ "text": "Payloads", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Themes", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto portal_payloads",
+		"up": "previous",
+		"down": "next",
+		"left": "goto portal_payloads",
+		"right": "noop"
+	  },
+	  "target": "pager_portal_update_payloads_dashboard"
+	},
+	{
+	  "id": "uninstall_payloads",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu5.png","x": 289, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": 289, "y": 50 },
+		{ "text": "Get", "x": 292, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Update", "x": 292, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Uninstall", "x": 292, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu2.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 277, "y": 6 },
+		{ "text": "Payloads", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Themes", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto portal_payloads",
+		"up": "previous",
+		"down": "goto get_payloads",
+		"left": "goto portal_payloads",
+		"right": "noop"
+	  },
+	  "target": "pager_portal_installed_payloads_list",
+	  "variable": "$_INSTALLED_PAYLOADS_LIST"
+	},
+	{
+	  "id": "alerts_auth_captured",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu3.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/highlight3.png","x": 169, "y": 0 },
+		{ "text": "Evil AP Auth Captured", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Deauth Flood Detected", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "New Client Connected", "x": 172, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Handshake Captured", "x": 172, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto alerts",
+		"up": "goto alerts_handshake_capture",
+		"down": "next",
+		"left": "goto alerts",
+		"right": "noop"
+	  },
+	  "target": "alerts_dialog_submenu",
+	  "variable": "$_ALERTS_AUTH_CAPTURED"
+	},
+	{
+	  "id": "alerts_deauth_flood",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu3.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/highlight3.png","x": 169, "y": 25 },
+		{ "text": "Evil AP Auth Captured", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Deauth Flood Detected", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "New Client Connected", "x": 172, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Handshake Captured", "x": 172, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto alerts",
+		"up": "previous",
+		"down": "next",
+		"left": "goto alerts",
+		"right": "noop"
+	  },
+	  "target": "alerts_dialog_submenu",
+	  "variable": "$_ALERTS_DEAUTH_FLOOD"
+	},
+	{
+	  "id": "alerts_new_client",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu3.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/highlight3.png","x": 169, "y": 50 },
+		{ "text": "Evil AP Auth Captured", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Deauth Flood Detected", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "New Client Connected", "x": 172, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Handshake Captured", "x": 172, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto alerts",
+		"up": "previous",
+		"down": "next",
+		"left": "goto alerts",
+		"right": "noop"
+	  },
+	  "target": "alerts_dialog_submenu",
+	  "variable": "$_ALERTS_NEW_CLIENT"
+	},
+	{
+	  "id": "alerts_handshake_capture",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu3.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/highlight3.png","x": 169, "y": 75 },
+		{ "text": "Evil AP Auth Captured", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Deauth Flood Detected", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "New Client Connected", "x": 172, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Handshake Captured", "x": 172, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto alerts",
+		"up": "previous",
+		"down": "goto alerts_auth_captured",
+		"left": "goto alerts",
+		"right": "noop"
+	  },
+	  "target": "alerts_dialog_submenu",
+	  "variable": "$_ALERTS_HANDSHAKE_CAPTURE"
+	},
+	{
+	  "id": "pineap_pineap",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu1.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": 169, "y": 0 },
+		{ "text": "Pine AP", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Open AP", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Evil WPA", "x": 172, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "SSID Pool", "x": 172, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Filters", "x": 172, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Clients", "x": 172, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto pineap",
+		"up": "goto pineap_clients",
+		"down": "next",
+		"left": "goto pineap",
+		"right": "noop"
+	  },
+	  "target": "pineap_pineap_submenu"
+	},
+	{
+	  "id": "Open AP",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu1.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": 169, "y": 25 },
+		{ "text": "Pine AP", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Open AP", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Evil WPA", "x": 172, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "SSID Pool", "x": 172, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Filters", "x": 172, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Clients", "x": 172, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto pineap",
+		"up": "previous",
+		"down": "next",
+		"left": "goto pineap",
+		"right": "noop"
+	  },
+	  "target": "pineap_openap_submenu"
+	},
+	{
+	  "id": "Evil WPA",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu1.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": 169, "y": 50 },
+		{ "text": "Pine AP", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Open AP", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Evil WPA", "x": 172, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "SSID Pool", "x": 172, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Filters", "x": 172, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Clients", "x": 172, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto pineap",
+		"up": "previous",
+		"down": "next",
+		"left": "goto pineap",
+		"right": "noop"
+	  },
+	  "target": "pineap_evilwpa_submenu"
+	},
+	{
+	  "id": "SSID Pool",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu1.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": 169, "y": 75 },
+		{ "text": "Pine AP", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Open AP", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Evil WPA", "x": 172, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "SSID Pool", "x": 172, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Filters", "x": 172, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Clients", "x": 172, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto pineap",
+		"up": "previous",
+		"down": "next",
+		"left": "goto pineap",
+		"right": "noop"
+	  },
+	  "target": "pineap_ssidpool_submenu"
+	},
+	{
+	  "id": "Filters",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu1.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": 169, "y": 100 },
+		{ "text": "Pine AP", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Open AP", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Evil WPA", "x": 172, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "SSID Pool", "x": 172, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Filters", "x": 172, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Clients", "x": 172, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto pineap",
+		"up": "previous",
+		"down": "next",
+		"left": "goto pineap",
+		"right": "noop"
+	  },
+	  "target": "pineap_filters_submenu"
+	},	
+	{
+	  "id": "pineap_clients",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu1.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": 169, "y": 125 },
+		{ "text": "Pine AP", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Open AP", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Evil WPA", "x": 172, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "SSID Pool", "x": 172, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Filters", "x": 172, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Clients", "x": 172, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto pineap",
+		"up": "previous",
+		"down": "goto pineap_pineap",
+		"left": "goto pineap",
+		"right": "noop"
+	  },
+	  "target": "pineap_clients_list",
+	  "variable": "$_PINEAPPLE_CLIENTS"
+	},	
+	{
+	  "id": "General",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu4.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": 169, "y": 0 },
+		{ "image_path": "assets/down.png", "x": 320, "y": 160, "recolor_palette": "white"},
+		{ "text": "General", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Display", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Ringtone", "x": 172, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Network", "x": 172, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "System", "x": 172, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Date/Time", "x": 172, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "GPS", "x": 172, "y": 150, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto settings",
+		"up": "goto About",
+		"down": "next",
+		"left": "goto settings",
+		"right": "noop"
+	  },
+	  "target": "settings_general_submenu"
+	},
+	{
+	  "id": "Display",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu4.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": 169, "y": 25 },
+		{ "image_path": "assets/down.png", "x": 320, "y": 160, "recolor_palette": "white"},
+		{ "text": "General", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Display", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Ringtone", "x": 172, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Network", "x": 172, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "System", "x": 172, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Date/Time", "x": 172, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "GPS", "x": 172, "y": 150, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto settings",
+		"up": "previous",
+		"down": "next",
+		"left": "goto settings",
+		"right": "noop"
+	  },
+	  "target": "settings_display_submenu"
+	},
+	{
+	  "id": "Ringtone",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu4.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": 169, "y": 50 },
+		{ "image_path": "assets/down.png", "x": 320, "y": 160, "recolor_palette": "white"},
+		{ "text": "General", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Display", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Ringtone", "x": 172, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Network", "x": 172, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "System", "x": 172, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Date/Time", "x": 172, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "GPS", "x": 172, "y": 150, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto settings",
+		"up": "previous",
+		"down": "next",
+		"left": "goto settings",
+		"right": "noop"
+	  },
+	  "target": "settings_ringtone_submenu"
+	},
+	{
+	  "id": "Network",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu4.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": 169, "y": 75 },
+		{ "image_path": "assets/down.png", "x": 320, "y": 160, "recolor_palette": "white"},
+		{ "text": "General", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Display", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Ringtone", "x": 172, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Network", "x": 172, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "System", "x": 172, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "Date/Time", "x": 172, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+		{ "text": "GPS", "x": 172, "y": 150, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto settings",
+		"up": "previous",
+		"down": "next",
+		"left": "goto settings",
+		"right": "noop"
+	  },
+	  "target": "settings_network_submenu"
+	},
+	{
+	  "id": "System",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu4.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": 169, "y": 100 },
+        { "image_path": "assets/down.png", "x": 320, "y": 160, "recolor_palette": "white"},
+        { "text": "General", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Display", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Ringtone", "x": 172, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Network", "x": 172, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "System", "x": 172, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Date/Time", "x": 172, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "GPS", "x": 172, "y": 150, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto settings",
+		"up": "previous",
+		"down": "next",
+		"left": "goto settings",
+		"right": "noop"
+	  },
+	  "target": "settings_system_submenu"
+	},
+	{
+	  "id": "Date/Time",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu4.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": 169, "y": 125 },
+        { "image_path": "assets/down.png", "x": 320, "y": 160, "recolor_palette": "white"},
+        { "text": "General", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Display", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Ringtone", "x": 172, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Network", "x": 172, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "System", "x": 172, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Date/Time", "x": 172, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "GPS", "x": 172, "y": 150, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto settings",
+		"up": "previous",
+		"down": "next",
+		"left": "goto settings",
+		"right": "noop"
+	  },
+	  "target": "settings_datetime_submenu"
+	},
+	{
+	  "id": "GPS",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu4.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": 169, "y": 150 },
+        { "image_path": "assets/down.png", "x": 320, "y": 160, "recolor_palette": "white"},
+        { "text": "General", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Display", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Ringtone", "x": 172, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Network", "x": 172, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "System", "x": 172, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Date/Time", "x": 172, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "GPS", "x": 172, "y": 150, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto settings",
+		"up": "previous",
+		"down": "next",
+		"left": "goto settings",
+		"right": "noop"
+	  },
+	  "target": "settings_gps_submenu"
+	},
+	{
+	  "id": "Updates",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu5.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": 169, "y": 0 },
+        { "image_path": "assets/up.png", "x": 320, "y": 0, "recolor_palette": "white"},
+        { "text": "Updates", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Help", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "About", "x": 172, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto settings",
+		"up": "previous",
+		"down": "next",
+		"left": "goto settings",
+		"right": "noop"
+	  },
+	  "target": "settings_updates_submenu"
+	},
+	{
+	  "id": "Help",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu5.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": 169, "y": 25 },
+        { "image_path": "assets/up.png", "x": 320, "y": 0, "recolor_palette": "white"},
+        { "text": "Updates", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Help", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "About", "x": 172, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto settings",
+		"up": "previous",
+		"down": "next",
+		"left": "goto settings",
+		"right": "noop"
+	  },
+	  "target": "settings_help_submenu"
+	},
+	{
+	  "id": "About",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu5.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": 169, "y": 50 },
+        { "image_path": "assets/up.png", "x": 320, "y": 0, "recolor_palette": "white"},
+        { "text": "Updates", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Help", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "About", "x": 172, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto settings",
+		"up": "previous",
+		"down": "goto General",
+		"left": "goto settings",
+		"right": "noop"
+	  },
+	  "target": "settings_about_submenu"
+	},	
+	{
+	  "id": "sleepscreen",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu1.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/hr.png","x": 169, "y": 112 },
+        { "text": "Sleep Screen", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Lock Screen", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Lock Buttons", "x": 172, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Nerd Stats", "x": 172, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Shutdown", "x": 172, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto power",
+		"up": "goto shutdown",
+		"down": "next",
+		"left": "goto power",
+		"right": "noop"
+	  },
+	  "target": "function_sleep_screen"
+	},
+	{
+	  "id": "Lock Screen",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu1.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": 169, "y": 25 },
+        { "image_path": "assets/dashboard/hr.png","x": 169, "y": 112 },
+        { "text": "Sleep Screen", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Lock Screen", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Lock Buttons", "x": 172, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Nerd Stats", "x": 172, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Shutdown", "x": 172, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto power",
+		"up": "previous",
+		"down": "next",
+		"left": "goto power",
+		"right": "noop"
+	  },
+	  "target": "function_lock_screen"
+	},
+	{
+	  "id": "Lock Buttons",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu1.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": 169, "y": 50 },
+        { "image_path": "assets/dashboard/hr.png","x": 169, "y": 112 },
+        { "text": "Sleep Screen", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Lock Screen", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Lock Buttons", "x": 172, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Nerd Stats", "x": 172, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Shutdown", "x": 172, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto power",
+		"up": "previous",
+		"down": "next",
+		"left": "goto power",
+		"right": "noop"
+	  },
+	  "target": "function_lock_buttons"
+	},
+	{
+	  "id": "Nerd Stats",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu1.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": 169, "y": 75 },
+        { "image_path": "assets/dashboard/hr.png","x": 169, "y": 112 },
+        { "text": "Sleep Screen", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Lock Screen", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Lock Buttons", "x": 172, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Nerd Stats", "x": 172, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Shutdown", "x": 172, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto power",
+		"up": "previous",
+		"down": "next",
+		"left": "goto power",
+		"right": "noop"
+	  },
+	  "target": "inline_toggle",
+	  "variable": "$_STATS_FOR_NERDS"
+	},
+	{
+	  "id": "shutdown",
+	  "layers": [
+	  ],
+      "selected_layers": [
+        { "image_path": "assets/dashboard/menu1.png","x": 169, "y": 0 },
+        { "image_path": "assets/dashboard/highlight1.png","x": 169, "y": 125 },
+        { "image_path": "assets/dashboard/hr.png","x": 169, "y": 112 },
+        { "text": "Sleep Screen", "x": 172, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Lock Screen", "x": 172, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Lock Buttons", "x": 172, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Nerd Stats", "x": 172, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Shutdown", "x": 172, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+		
+        { "image_path": "assets/dashboard/menu4.png","x": -4, "y": 0 },
+        { "image_path": "assets/dashboard/triangle.png","x": 154, "y": 5 },
+        { "text": "Pager Portal", "x": 0, "y": 0, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 80, "y": 32 },
+        { "text": "Alerts", "x": 0, "y": 25, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Payloads", "x": 0, "y": 50, "text_size": "medium", "text_color_palette": "white" },
+        { "text": "Recon", "x": 0, "y": 75, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 92, "y": 105 },
+        { "text": "Pine AP", "x": 0, "y": 100, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 105, "y": 132 },
+        { "text": "Settings", "x": 0, "y": 125, "text_size": "medium", "text_color_palette": "white" },
+        { "image_path": "assets/dashboard/triangle.png","x": 65, "y": 157 },
+        { "text": "Power", "x": 0, "y": 150, "text_size": "medium", "text_color_palette": "white" }
+      ],
+      "x": 5,
+      "y": 29,
+	  "button_map": {
+		"a": "select",
+		"b": "goto power",
+		"up": "previous",
+		"down": "goto sleepscreen",
+		"left": "goto power",
+		"right": "noop"
+	  },
+	  "target": "function_shutdown"
+	}
+  ]
+}

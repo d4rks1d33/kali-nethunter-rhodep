@@ -1,0 +1,34 @@
+# pineapple-php-fpm.service -- dedicated php-fpm master for the panel pool.
+#
+# Part of: extra-tools/pineapple-port/systemd/   (FASE 4)
+#
+# Runs a DEDICATED php-fpm master with ONLY the Pineapple pool
+# (net/php-fpm-pineapple.conf), listening on /run/php/php-fpm-pineapple.sock.
+# This does NOT reuse / disturb the system php-fpm service: it uses --fpm-config
+# pointed at the port's pool and its own pid file, so the phone's PHP stack is
+# untouched and the panel starts/stops strictly on demand.
+#
+# The php-fpm binary path (php-fpm8.3, php-fpm8.2, ...) is resolved at install
+# time by install.sh, which writes the concrete ExecStart via a drop-in override
+# at /etc/systemd/system/pineapple-php-fpm.service.d/10-binary.conf. The
+# ExecStart below is a sane default for php8.3.
+
+[Unit]
+Description=WiFi Pineapple php-fpm (dedicated pool for the panel)
+After=pineapple-firstboot.service
+Wants=pineapple-firstboot.service
+PartOf=pineapple.target
+
+[Service]
+Type=simple
+RuntimeDirectory=php
+RuntimeDirectoryPreserve=yes
+# NOTE: install.sh overrides ExecStart with the detected php-fpm binary.
+ExecStartPre=/bin/mkdir -p /run/php /var/log/pineapple
+ExecStart=/usr/sbin/php-fpm8.3 -R --nodaemonize --fpm-config /opt/pineapple/net/php-fpm-pineapple-main.conf
+ExecReload=/bin/kill -USR2 $MAINPID
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=pineapple.target

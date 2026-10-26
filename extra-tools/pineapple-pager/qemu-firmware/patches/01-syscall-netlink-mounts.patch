@@ -1,0 +1,200 @@
+--- /tmp/opencode/qemu-orig/qemu-8.2.2/linux-user/syscall.c	2024-03-04 17:48:16.000000000 +0000
++++ qemu-8.2.2/linux-user/syscall.c	2026-10-19 18:57:13.675191006 +0000
+@@ -144,6 +144,13 @@
+ #include "fd-trans.h"
+ #include "cpu_loop-common.h"
+ 
++/* PINEAPPLE PAGER SHIM: fake nl80211 genl responder + fd tracking */
++#include "nl80211-fake.c.inc"
++static unsigned char pager_fake_nl_fd[65536];
++static inline int pager_is_fake_nl(int fd) {
++    return (fd >= 0 && fd < 65536 && pager_fake_nl_fd[fd]);
++}
++
+ #ifndef CLONE_IO
+ #define CLONE_IO                0x80000000      /* Clone io context */
+ #endif
+@@ -3135,6 +3142,29 @@
+         return ret;
+     }
+ 
++    /* PINEAPPLE PAGER SHIM: emulate NETLINK_GENERIC (nl80211) with a
++     * socketpair + host-side fake genl responder thread. */
++    if (domain == PF_NETLINK && protocol == NETLINK_GENERIC) {
++        int sp[2];
++        int base = SOCK_DGRAM;
++        if (type & SOCK_CLOEXEC)  base |= SOCK_CLOEXEC;
++        if (type & SOCK_NONBLOCK) base |= SOCK_NONBLOCK;
++        if (socketpair(AF_UNIX, base, 0, sp) < 0) {
++            return -host_to_target_errno(errno);
++        }
++        /* sp[1] stays on the qemu side (always blocking for the responder) */
++        {
++            int fl = fcntl(sp[1], F_GETFL, 0);
++            if (fl >= 0) fcntl(sp[1], F_SETFL, fl & ~O_NONBLOCK);
++        }
++        qemu_nl80211_start_responder(sp[1]);
++        if (sp[0] >= 0 && sp[0] < 65536) {
++            pager_fake_nl_fd[sp[0]] = 1;
++        }
++        ret = sock_flags_fixup(sp[0], target_type);
++        return ret;
++    }
++
+     if (domain == PF_NETLINK && !(
+ #ifdef CONFIG_RTNETLINK
+          protocol == NETLINK_ROUTE ||
+@@ -3189,6 +3219,11 @@
+         return -TARGET_EINVAL;
+     }
+ 
++    /* PINEAPPLE PAGER SHIM: bind on fake nl80211 socket is a no-op */
++    if (pager_is_fake_nl(sockfd)) {
++        return 0;
++    }
++
+     addr = alloca(addrlen+1);
+ 
+     ret = target_to_host_sockaddr(sockfd, addr, target_addr, addrlen);
+@@ -3228,7 +3263,11 @@
+     struct iovec *vec;
+     abi_ulong target_vec;
+ 
+-    if (msgp->msg_name) {
++    /* PINEAPPLE PAGER SHIM: ignore sockaddr_nl on fake nl80211 (AF_UNIX) fd */
++    if (pager_is_fake_nl(fd)) {
++        msg.msg_name = NULL;
++        msg.msg_namelen = 0;
++    } else if (msgp->msg_name) {
+         msg.msg_namelen = tswap32(msgp->msg_namelen);
+         msg.msg_name = alloca(msg.msg_namelen+1);
+         ret = target_to_host_sockaddr(fd, msg.msg_name,
+@@ -3496,6 +3535,22 @@
+         return -TARGET_EFAULT;
+     }
+ 
++    /* PINEAPPLE PAGER SHIM: synthesize a sockaddr_nl for fake nl80211 fds.
++     * struct sockaddr_nl { __u16 family; __u16 pad; __u32 pid; __u32 groups; } */
++    if (pager_is_fake_nl(fd)) {
++        unsigned char nl[12];
++        socklen_t n = addrlen < 12 ? addrlen : 12;
++        memset(nl, 0, sizeof(nl));
++        nl[0] = PF_NETLINK & 0xff;
++        nl[1] = (PF_NETLINK >> 8) & 0xff;
++        *(uint32_t *)(nl + 4) = (uint32_t)(getpid() + fd);
++        memcpy(g2h(thread_cpu, target_addr), nl, n);
++        if (put_user_u32(12, target_addrlen_addr)) {
++            return -TARGET_EFAULT;
++        }
++        return 0;
++    }
++
+     addr = alloca(addrlen);
+ 
+     ret_addrlen = addrlen;
+@@ -3552,7 +3607,10 @@
+             goto fail;
+         }
+     }
+-    if (target_addr) {
++    /* PINEAPPLE PAGER SHIM: ignore sockaddr_nl dest on fake nl80211 fd */
++    if (pager_is_fake_nl(fd)) {
++        ret = get_errno(safe_sendto(fd, host_msg, len, flags, NULL, 0));
++    } else if (target_addr) {
+         addr = alloca(addrlen+1);
+         ret = target_to_host_sockaddr(fd, addr, target_addr, addrlen);
+         if (ret) {
+@@ -3616,7 +3674,19 @@
+                 goto fail;
+             }
+         }
+-        if (target_addr) {
++        if (target_addr && pager_is_fake_nl(fd)) {
++            /* synthesize a sockaddr_nl source address */
++            unsigned char nl[12];
++            socklen_t n = addrlen < 12 ? addrlen : 12;
++            memset(nl, 0, sizeof(nl));
++            nl[0] = PF_NETLINK & 0xff;
++            nl[1] = (PF_NETLINK >> 8) & 0xff;
++            memcpy(g2h(thread_cpu, target_addr), nl, n);
++            if (put_user_u32(12, target_addrlen)) {
++                ret = -TARGET_EFAULT;
++                goto fail;
++            }
++        } else if (target_addr) {
+             host_to_target_sockaddr(target_addr, addr,
+                                     MIN(addrlen, ret_addrlen));
+             if (put_user_u32(ret_addrlen, target_addrlen)) {
+@@ -8305,6 +8375,32 @@
+ }
+ #endif
+ 
++/* PINEAPPLE PAGER SHIM: fake /proc/mounts so the firmware's overlay-ready
++ * check passes. It polls /proc/mounts for an "overlayfs /overlay" entry. */
++static int pager_is_proc(const char *filename, const char *entry)
++{
++    return strcmp(filename, entry) == 0;
++}
++static int open_pager_mounts(CPUArchState *cpu_env, int fd)
++{
++    static const char *mounts =
++        "rootfs / rootfs rw 0 0\n"
++        "proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0\n"
++        "sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0\n"
++        "tmpfs /tmp tmpfs rw,nosuid,nodev,relatime 0 0\n"
++        "ubi0:rootfs /rom squashfs ro,relatime 0 0\n"
++        "overlayfs:/overlay /overlay overlay rw,noatime,"
++        "lowerdir=/,upperdir=/overlay/upper,workdir=/overlay/work 0 0\n"
++        "overlayfs:/overlay / overlay rw,noatime,"
++        "lowerdir=/,upperdir=/overlay/upper,workdir=/overlay/work 0 0\n"
++        "tmpfs /dev tmpfs rw,relatime,size=512k,mode=755 0 0\n";
++    size_t n = strlen(mounts);
++    if (write(fd, mounts, n) != (ssize_t)n) {
++        return -1;
++    }
++    return 0;
++}
++
+ int do_guest_openat(CPUArchState *cpu_env, int dirfd, const char *fname,
+                     int flags, mode_t mode, bool safe)
+ {
+@@ -8322,6 +8418,8 @@
+         { "stat", open_self_stat, is_proc_myself },
+         { "auxv", open_self_auxv, is_proc_myself },
+         { "cmdline", open_self_cmdline, is_proc_myself },
++        /* PINEAPPLE PAGER SHIM */
++        { "/proc/mounts", open_pager_mounts, pager_is_proc },
+ #if HOST_BIG_ENDIAN != TARGET_BIG_ENDIAN
+         { "/proc/net/route", open_net_route, is_proc },
+ #endif
+@@ -8334,6 +8432,20 @@
+         { NULL, NULL, NULL }
+     };
+ 
++    /* PINEAPPLE PAGER SHIM: match /proc/mounts and /proc/self/mountinfo on the
++     * raw guest path BEFORE realpath() resolves the host symlink away. */
++    if (strcmp(fname, "/proc/mounts") == 0 ||
++        strcmp(fname, "/proc/self/mounts") == 0) {
++        int mfd = memfd_create("qemu-mounts", 0);
++        if (mfd >= 0) {
++            if (open_pager_mounts(cpu_env, mfd) == 0) {
++                lseek(mfd, 0, SEEK_SET);
++                return mfd;
++            }
++            close(mfd);
++        }
++    }
++
+     /* if this is a file from /proc/ filesystem, expand full name */
+     proc_name = realpath(fname, NULL);
+     if (proc_name && strncmp(proc_name, "/proc/", 6) == 0) {
+@@ -9120,6 +9232,9 @@
+ #endif
+     case TARGET_NR_close:
+         fd_trans_unregister(arg1);
++        if (arg1 >= 0 && arg1 < 65536) {
++            pager_fake_nl_fd[arg1] = 0;
++        }
+         return get_errno(close(arg1));
+ #if defined(__NR_close_range) && defined(TARGET_NR_close_range)
+     case TARGET_NR_close_range:

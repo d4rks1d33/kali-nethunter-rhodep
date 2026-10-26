@@ -1,0 +1,222 @@
+#!/bin/sh
+# hostapd_cli -- Hak5-vocabulary shim over hostapd-mana's hostapd_cli.
+#
+# Part of: extra-tools/pineapple-port/compat/
+#
+# WHY:
+#   pineap-ng and the PHP PineAP panel were written for Hak5's patched hostapd
+#   (`wpad`), which exposes these control-interface commands (RE'd from the MIPS
+#   binary, see docs/INFORME-hostapd-RE.md):
+#
+#     karma_enable / karma_disable           (KARMA_ENABLE / KARMA_DISABLE)
+#     karma_black  / karma_white             (SSID filter: KARMA_BLACK/WHITE)
+#     karma_mac_black / karma_mac_white      (MAC filter:  KARMA_MAC_BLACK/WHITE)
+#     karma_change_ssid <ssid>               (KARMA_CHANGE_SSID <ssid>)
+#     karma_get_ssid / karma_state           (KARMA_GET_SSID / KARMA_STATE)
+#     pineape_enable / pineape_disable       (PINEAPE_ENABLE / PINEAPE_DISABLE)
+#     pineape_auth_passthrough_on/off        (PINEAPE_AUTH_PASSTHROUGH_ON/OFF)
+#     pineape_enable_status                  (PINEAPE_ENABLE_STATUS)
+#     pineape_auth_passthrough_status        (PINEAPE_AUTH_PASSTHROUGH_STATUS)
+#     pineap_reconnect <mac>                 (PINEAP_RECONNECT)
+#
+#   hostapd-mana implements the SAME capabilities under DIFFERENT names. These
+#   are the ctrl-interface PROTOCOL tokens the mana daemon matches in
+#   ctrl_iface.c (RE of hostapd-mana 2.6.5+git20240805, aarch64 binary; see
+#   docs/INFORME-hostapd-mana-RE.md):
+#     MANA_ENABLE/MANA_DISABLE, LOUD_ENABLE/LOUD_DISABLE,
+#     MANAACL_ENABLE/DISABLE, MANA_ACLMODE, MANA_CHANGE_SSID,
+#     MANA_GET_SSID/MANA_STATE/MANA_MODE, WPE_ENABLE/WPE_DISABLE/WPE_MODE,
+#     EAPSUCCESS_ENABLE/EAPSUCCESS_DISABLE/EAPSUCCESS_MODE.
+#
+#   CRITICAL (the karma bug): those UPPERCASE tokens are NOT hostapd_cli
+#   subcommands. mana's hostapd_cli command table only has LOWERCASE verbs
+#   (mana_enable, mana_loud_on, mana_wpe_on, ...); the uppercase strings are
+#   what those verbs send over the socket. Passing an uppercase token straight
+#   to hostapd_cli made it print  "Unknown command 'MANA_ENABLE'"  and never hit
+#   the socket. We therefore send every mana token via the cli's `raw <TOKEN>`
+#   passthrough (see rawc() below), which forwards it verbatim to the daemon.
+#
+#   This wrapper translates Hak5 verbs -> mana raw tokens so pineap-ng AND the
+#   panel run UNCHANGED. Any command it does not recognise is passed through
+#   verbatim to the real hostapd_cli (so STATUS, GET_CONFIG, DEAUTHENTICATE,
+#   etc. still work).
+#
+# REAL cli:
+#   The genuine mana hostapd_cli is installed as hostapd_cli-mana (see
+#   vendor/hostapd/build-mana.sh). Override with HOSTAPD_CLI_REAL for testing.
+#
+# IFACE REMAP:
+#   The panel hardcodes `-i wlan0-2` for the Enterprise VAP and pineap-ng uses
+#   `-i wlan1` for karma. On the port both live on the wlan1 radio: karma on the
+#   primary BSS (wlan1) and Enterprise on a VAP. We remap the legacy iface names
+#   to the port's actual ones via the env overrides below, so neither caller
+#   needs editing.
+#     PINEAPPLE_AP_IFACE   (karma BSS)        default wlan1
+#     PINEAPPLE_ENT_IFACE  (enterprise VAP)   default wlan1_0
+
+set -u
+
+# ---- recursion guard --------------------------------------------------------
+# If the real-cli resolution ever points back at this wrapper (e.g. a bad
+# symlink chain where hostapd_cli-mana -> /usr/sbin/hostapd_cli -> this wrapper),
+# calling "$REAL" would re-enter this script forever and exhaust PIDs with the
+# classic "Cannot fork" error. Fail loudly on the SECOND entry instead of
+# fork-bombing the phone.
+if [ "${_HOSTAPD_WRAP_ACTIVE:-}" = "1" ]; then
+    echo "hostapd_cli(wrapper): refusing to recurse into myself via '${HOSTAPD_CLI_REAL:-hostapd_cli-mana}'" >&2
+    echo "hostapd_cli(wrapper): the real mana cli (hostapd_cli-mana) is mis-linked to this wrapper" >&2
+    exit 97
+fi
+export _HOSTAPD_WRAP_ACTIVE=1
+
+# ---- resolve the REAL mana hostapd_cli --------------------------------------
+# Prefer an explicit override, else an ABSOLUTE path to the mana ELF so PATH
+# ordering cannot accidentally resolve "hostapd_cli-mana" back to this wrapper.
+# Fall back to the bare name only if no known absolute path exists.
+_resolve_real() {
+    if [ -n "${HOSTAPD_CLI_REAL:-}" ]; then echo "$HOSTAPD_CLI_REAL"; return; fi
+    for c in /usr/sbin/hostapd_cli-mana /usr/local/sbin/hostapd_cli-mana \
+             /usr/bin/hostapd_cli-mana /usr/sbin/hostapd_cli.stock-mana; do
+        if [ -x "$c" ]; then
+            # never accept a path that loops back to this very wrapper
+            rp="$(readlink -f "$c" 2>/dev/null || echo "$c")"
+            sp="$(readlink -f "$0" 2>/dev/null || echo "$0")"
+            [ "$rp" = "$sp" ] && continue
+            echo "$c"; return
+        fi
+    done
+    echo "hostapd_cli-mana"   # last resort: bare name via PATH
+}
+
+REAL="$(_resolve_real)"
+AP_IFACE="${PINEAPPLE_AP_IFACE:-wlan1}"
+ENT_IFACE="${PINEAPPLE_ENT_IFACE:-wlan1_0}"
+
+# ---- parse a leading "-i <iface>" (the only global option pineap/panel pass) --
+IFACE=""
+if [ "${1:-}" = "-i" ]; then
+    IFACE="$2"
+    shift 2
+fi
+
+# Remap legacy iface names to the port's real ifaces.
+case "$IFACE" in
+    wlan0|wlan1)          IFACE="$AP_IFACE" ;;   # karma AP radio
+    wlan0-2|wlan0_2|wlan1-2|wlan1_2) IFACE="$ENT_IFACE" ;;  # enterprise VAP
+    "")                   IFACE="$AP_IFACE" ;;   # default to the AP radio
+esac
+
+CMD="${1:-}"
+[ -n "$CMD" ] && shift || true
+
+# run the real hostapd_cli with the (possibly remapped) iface
+real() { "$REAL" -i "$IFACE" "$@"; }
+
+# Send a RAW control-interface token to hostapd-mana.
+#
+# WHY NOT `real MANA_ENABLE`:
+#   hostapd-mana's hostapd_cli exposes mana as *lowercase verbs* in its command
+#   table (mana_enable, mana_loud_on, mana_wpe_on, ...). The UPPERCASE strings
+#   (MANA_ENABLE / LOUD_ENABLE / WPE_ENABLE / ...) are the ctrl-PROTOCOL tokens
+#   the cli sends over the socket to the daemon -- they are NOT cli subcommands.
+#   Passing them as subcommands makes hostapd_cli print
+#       Unknown command 'MANA_ENABLE'
+#   and never touch the socket (RE'd: hostapd_cli.c command table has only the
+#   lowercase verbs; ctrl_iface.c daemon-side matches the uppercase tokens).
+#
+#   The cli's `raw <TOKEN> [args..]` command forwards its argument verbatim as
+#   the ctrl request, so `raw MANA_ENABLE` reaches the daemon's
+#   hostapd_ctrl_iface_mana_enable_disable() handler, which flips
+#   hapd->iconf->enable_mana live (no restart, no beacon rebuild needed). Using
+#   `raw` keeps us independent of the cli's verb naming and works for tokens that
+#   have no lowercase verb at all (WPE_ENABLE, EAPSUCCESS_ENABLE, MANA_ACLMODE).
+rawc() { real raw "$@"; }
+
+# mana returns "MANA ENABLED\n"/"MANA DISABLED\n" etc.; the panel expects the
+# bare word "ENABLED"/"DISABLED" (it compares $out[0] == "ENABLED"). Normalise.
+emit_status() {
+    # $1 = mana query token (WPE_MODE / EAPSUCCESS_MODE / MANA_STATE); sent RAW.
+    out="$(rawc "$1" 2>/dev/null)"
+    case "$out" in
+        *ENABLED*) echo "ENABLED" ;;
+        *) echo "DISABLED" ;;
+    esac
+}
+
+# The panel's Filters module queries the current filter mode with
+# karma_get_black_white / karma_get_mac_black_white and compares the output
+# against the bare word "WHITE" (allow-list) vs "BLACK" (deny-list). mana has no
+# SSID allow/deny ctrl cmd; the MAC-ACL mode (MANA_ACLMODE -> "MANA ACL MODE
+# ENABLED/DISABLED") is the runtime toggle both karma_white/karma_black and
+# karma_mac_white/karma_mac_black flip (ENABLE=whitelist/allow). Map ACL
+# ENABLED -> WHITE, DISABLED -> BLACK so the panel reads the mode correctly.
+emit_white_black() {
+    out="$(rawc MANA_ACLMODE 2>/dev/null)"
+    case "$out" in
+        *ENABLED*) echo "WHITE" ;;
+        *) echo "BLACK" ;;
+    esac
+}
+
+case "$CMD" in
+    # ---- KARMA core -------------------------------------------------------
+    # SAFETY (red-takedown bug): karma_enable must enable ONLY classic/NORMAL
+    # karma (MANA_ENABLE), which responds to *directed* probe requests for the
+    # SSIDs clients actually ask for. It must NOT enable LOUD mode.
+    #
+    # LOUD mode (LOUD_ENABLE -> iconf->mana_loud) makes mana answer broadcast
+    # probe requests with forged probe-responses for EVERY SSID it has ever
+    # seen -- including the user's own real networks captured during recon
+    # ("MANA: Generating broadcast response for SSID '%s'"). On a congested
+    # channel (ch1) that floods the air with evil-twin responses for the user's
+    # real APs, so legit clients bounce off their real router toward the fake
+    # BSS, fail to associate (handle_auth_cb: STA not found), and the whole
+    # home network drops. LOUD is a loud, active attack and must be OPT-IN.
+    #
+    # Enabling LOUD is now gated behind the explicit beaconer/broadcast-pool
+    # toggle, which maps to karma_loud_enable below (driven by the panel's
+    # "Broadcast SSID pool" switch / pineap broadcast_pool on). Plain karma on
+    # no longer takes down nearby networks.
+    karma_enable)        rawc MANA_ENABLE ;;
+    karma_disable)       rawc MANA_DISABLE; rawc LOUD_DISABLE ;;
+    # Explicit, user-driven LOUD toggle (the broadcast SSID pool). Only reached
+    # when the user turns the beaconer ON; never from plain karma on.
+    karma_loud_enable)   rawc LOUD_ENABLE ;;
+    karma_loud_disable)  rawc LOUD_DISABLE ;;
+    karma_state)         emit_status MANA_STATE ;;
+    karma_get_ssid)      rawc MANA_GET_SSID ;;
+    karma_change_ssid)   rawc MANA_CHANGE_SSID "$@" ;;
+
+    # ---- SSID filter (mana has no SSID allow/deny ctrl cmd; MAC-ACL is the
+    #      closest runtime toggle). We keep karma responding and only flip the
+    #      MAC ACL mode, which is what actually gates association. The SSID
+    #      allow/deny list itself is enforced by pineapd's own filter DB on the
+    #      port (src/pineapd), so this is a no-op side of a hybrid, matching the
+    #      original where ssid_filter was hostapd-only cosmetic state. --------
+    karma_black)         rawc MANAACL_DISABLE ;;   # deny-by-SSID -> respond widely
+    karma_white)         rawc MANAACL_ENABLE  ;;   # allow-list    -> ACL on
+    karma_get_black_white)     emit_white_black ;; # panel queries SSID filter mode
+
+    # ---- MAC filter -------------------------------------------------------
+    karma_mac_black)     rawc MANAACL_DISABLE ;;   # blacklist mode (respond to all but denied)
+    karma_mac_white)     rawc MANAACL_ENABLE  ;;   # whitelist mode (only accept-listed)
+    karma_get_mac_black_white) emit_white_black ;; # panel queries MAC filter mode
+
+    # ---- PineAPE Enterprise ----------------------------------------------
+    pineape_enable)                  rawc WPE_ENABLE ;;
+    pineape_disable)                 rawc WPE_DISABLE ;;
+    pineape_enable_status)           emit_status WPE_MODE ;;
+    pineape_auth_passthrough_on)     rawc EAPSUCCESS_ENABLE ;;
+    pineape_auth_passthrough_off)    rawc EAPSUCCESS_DISABLE ;;
+    pineape_auth_passthrough_status) emit_status EAPSUCCESS_MODE ;;
+
+    # ---- reconnect: nudge a client to re-associate (deauth; it comes back) --
+    pineap_reconnect)
+        # DEAUTHENTICATE *is* a real cli subcommand (takes a STA addr), so it
+        # goes through the normal path, not raw.
+        if [ -n "${1:-}" ]; then real DEAUTHENTICATE "$1"; fi ;;
+
+    # ---- everything else: pass through unchanged --------------------------
+    "")   real ;;                       # interactive / no command
+    *)    real "$CMD" "$@" ;;
+esac

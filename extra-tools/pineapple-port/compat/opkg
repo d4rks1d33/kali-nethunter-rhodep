@@ -1,0 +1,71 @@
+#!/bin/sh
+# opkg -- OpenWrt opkg package-manager compatibility shim -> apt.
+#
+# Part of: extra-tools/pineapple-port/compat/
+#
+# WHY:
+#   The panel installs per-module dependencies with opkg:
+#     Module.php:118  exec("opkg update")
+#     Module.php:119  exec("opkg install <dep> [--dest sd]")
+#   Dependency *presence* is checked with `which` (checkDependency in
+#   pineapple.php), which already works on Kali. Only the install path needs
+#   mapping. opkg does not exist on Kali; this shim maps the two verbs the panel
+#   uses to apt, so the panel PHP is NOT modified.
+#
+# VERB MAP:
+#   opkg update            -> apt-get update
+#   opkg install <pkg> ... -> apt-get install -y <pkg> ...
+#   opkg remove  <pkg> ... -> apt-get remove  -y <pkg> ...
+#   opkg list-installed    -> dpkg -l
+# The OpenWrt-only "--dest sd" flag (install to SD) has no apt equivalent and is
+# silently dropped: on the G82 everything lives on internal storage under /opt.
+#
+# NOTE: OpenWrt and Debian package names differ. This shim does a 1:1 name pass
+#       through to apt; community modules that request opkg-only package names
+#       will fail the apt install and the panel's post-install `which` check will
+#       report the dependency as still missing (same user-visible behaviour as a
+#       failed opkg install). Package-name remapping, if ever needed, belongs
+#       here, not in the panel.
+
+APT="${APT_GET:-apt-get}"
+
+cmd="$1"
+shift 2>/dev/null
+
+# Drop opkg-specific flags we can't honour (--dest <x>, -A, --force-*).
+args=""
+skip_next=0
+for a in "$@"; do
+    if [ "$skip_next" = "1" ]; then skip_next=0; continue; fi
+    case "$a" in
+        --dest) skip_next=1; continue ;;
+        --dest=*) continue ;;
+        --force-*|-A|--autoremove) continue ;;
+        -*) continue ;;
+        *) args="$args $a" ;;
+    esac
+done
+
+case "$cmd" in
+    update)
+        exec "$APT" update
+        ;;
+    install)
+        # DEBIAN_FRONTEND noninteractive so it never blocks on a tty prompt.
+        exec env DEBIAN_FRONTEND=noninteractive "$APT" install -y $args
+        ;;
+    remove)
+        exec env DEBIAN_FRONTEND=noninteractive "$APT" remove -y $args
+        ;;
+    list-installed)
+        exec dpkg -l
+        ;;
+    "")
+        echo "opkg(shim): no subcommand" >&2
+        exit 1
+        ;;
+    *)
+        echo "opkg(shim): unsupported subcommand '$cmd'" >&2
+        exit 1
+        ;;
+esac

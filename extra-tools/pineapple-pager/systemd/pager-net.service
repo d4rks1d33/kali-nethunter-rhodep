@@ -1,0 +1,22 @@
+# pager-net.service -- dedicated LAN (br-pager 172.16.52.1) + NAT for the Pager.
+#
+# Part of: extra-tools/pineapple-pager/systemd/
+# Brings up br-pager (172.16.52.1/24) + a dedicated nft table (pineapple_pager)
+# for masquerade/forward towards the uplink. Separate from the NANO's br-lan
+# (172.16.84.1) and from usb0 (172.16.42.1, the SSH lifeline). Fully reverted
+# on stop; never touches the phone's own firewall.
+
+[Unit]
+Description=WiFi Pineapple Pager network (br-pager 172.16.52.1 + NAT)
+After=network.target
+PartOf=pager.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/bin/mkdir -p /opt/pineapple-pager/run /var/log/pineapple-pager
+ExecStart=/opt/pineapple-pager/net/pager-net.sh up
+ExecStop=/opt/pineapple-pager/net/pager-net.sh down
+
+[Install]
+WantedBy=pager.target

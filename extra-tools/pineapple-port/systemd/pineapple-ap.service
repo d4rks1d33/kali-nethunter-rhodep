@@ -1,0 +1,69 @@
+# pineapple-ap.service -- the KARMA + PineAPE Enterprise AP (hostapd-mana).
+#
+# Part of: extra-tools/pineapple-port/systemd/   (FASE 4, hostapd piece)
+#
+# This is the unit the compat/wifi shim starts/stops/restarts (the panel's
+# `wifi up/down/reload`, and PineAP/module.php's "wifi down radio0 && wifi up
+# radio0"). It runs the patched hostapd (hostapd-mana) that provides:
+#   - the KARMA evil-twin (answers probes, associates clients) on wlan1, and
+#   - the PineAPE Enterprise VAP (WPA2-EAP credential harvest) on wlan1_0
+#     when enabled + a server cert exists.
+#
+# ExecStartPre regenerates /tmp/hostapd-pineapple.conf from the UCI store (the
+# same store the panel writes) via compat/wifi-apply, so the config always
+# reflects the panel's current settings -- mirroring how OpenWrt netifd rebuilt
+# hostapd from UCI on the original.
+#
+# hostapd-mana is launched with mana_credout=<log>; pineape-creds.service tails
+# that log and writes captured EAP creds into pineape.db for the panel.
+#
+# wlan1 is the TP-Link Archer USB (the AP radio). This unit NEVER touches the
+# phone's internal wlan0 (monitor/uplink) or any rmnet* interface.
+
+[Unit]
+Description=WiFi Pineapple AP (hostapd-mana: karma + PineAPE Enterprise)
+After=pineapple-net.service
+Wants=pineapple-net.service
+PartOf=pineapple.target
+# Stop the restart storm when the AP adapter is absent: if the unit fails more
+# than 5 times in 60s (e.g. no wlan1 because the TP-Link Archer is unplugged),
+# systemd gives up instead of looping every 3s and burning battery.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+Environment=PINEAPPLE_PREFIX=/opt/pineapple
+Environment=HOSTAPD_CONF=/tmp/hostapd-pineapple.conf
+Environment=PINEAP_CREDOUT=/tmp/pineap-creds.log
+# EVIL-TWIN reparto: the fake AP runs on the INTERNAL radio (wlan0), sharing it
+# with the internet STA on the SAME channel (the chip advertises STA+AP, 1 chan).
+# This gives the fake AP internet to hand to victims via NAT, and leaves the
+# Archer (wlan1) FREE for multi-channel deauth/scan/capture. wifi-apply forces
+# the AP onto the uplink's live channel so STA+AP coexist safely.
+#   To run the AP on the Archer instead (independent channel), set AP_IFACE=wlan1
+#   (requires a 2nd USB adapter for deauth).
+Environment=AP_IFACE=wlan0
+# Fail fast if the chosen AP radio is absent. For the internal radio this is
+# effectively always present; for an external AP_IFACE it tells the user to plug
+# the adapter in.
+ExecStartPre=/bin/sh -c 'iw dev "${AP_IFACE}" info >/dev/null 2>&1 || { echo "[pineapple-ap] AP interface ${AP_IFACE} not found"; exit 1; }'
+# If the AP shares the INTERNAL radio with the uplink STA, the STA must be
+# associated FIRST so wifi-apply can read its live channel (single-radio chip:
+# AP channel MUST equal STA channel). Wait up to ~20s for wlan0 to associate.
+ExecStartPre=/bin/sh -c 'case "${AP_IFACE}" in wlan0) for i in $(seq 1 20); do iw dev wlan0 link 2>/dev/null | grep -qi "Connected to" && exit 0; sleep 1; done; echo "[pineapple-ap] WARNING: wlan0 not associated after 20s; AP channel may be wrong"; exit 0;; esac'
+# Regenerate the hostapd config from the UCI store. wifi-apply exits:
+#   0 = config written OK
+#   2 = cannot build a usable AP (e.g. uplink on a DFS channel) -> it wrote the
+#       reason to /tmp/pineapple-ap-status for the panel popup. We must NOT start
+#       hostapd AND must NOT restart-storm: SIGTERM ourselves to stop cleanly.
+ExecStartPre=/bin/sh -c '/opt/pineapple/compat/wifi-apply; rc=$?; if [ "$rc" = 2 ]; then echo "[pineapple-ap] AP not started (see /tmp/pineapple-ap-status). Stopping cleanly."; systemctl stop pineapple-ap.service; exit 1; fi; exit $rc'
+# Run the patched hostapd. -dd keeps the WPE cred lines flowing to the journal
+# as a backup to the credout file. hostapd-mana is installed by
+# vendor/hostapd/build-mana.sh (apt hostapd-mana, or built for aarch64).
+ExecStart=/usr/sbin/hostapd-mana /tmp/hostapd-pineapple.conf
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=pineapple.target

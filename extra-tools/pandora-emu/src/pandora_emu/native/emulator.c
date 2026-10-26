@@ -1,16 +1,27 @@
 /*
- * emulator.c - EFM32 Cortex-M3 hardware model for the Pandora D-605 keyfob.
+ * emulator.c - EFM32 Cortex-M3 hardware model for the Pandora D650 keyfob.
  *
- * Ported from Flipper-ARF/applications/system/PandoraARM/main.c (the reference
- * emulator that already works on the Flipper). The port keeps the HW model
- * BYTE-FOR-BYTE faithful; only the Flipper-specific plumbing (GUI, paged flash
- * cache, CC1101/speaker/LED HAL, FURI logging) is replaced:
+ * AGNOSTIC CORE (G82 / mainline Linux port). This is the SAME agnostic hardware
+ * model validated on the ESP32 backend; it is driven directly from Python via
+ * the ctypes FFI (libpandora.so). The HW model is byte-for-byte faithful; only
+ * the transport differs (FFI, not UART). The core provides ONLY the HARDWARE
+ * (GPIO/SPI/timers/NVIC/VTOR + Si4432 + OLED); the firmware does everything, so
+ * the SAME core runs ANY .hex for this MCU.
+ *
  *   - flash is RAM-resident (direct region), not a paged LRU cache;
- *   - logs go through emu_log() (overridable by the host/ESP32 UART layer);
- *   - the RF bridge only tracks state + a TX edge ring (the Flipper does radio).
+ *   - logs go through emu_log() (overridable by the host test harness);
+ *   - the RF bridge tracks Si4432 state + a TX edge ring (the host does radio).
  */
 
 #include "emulator.h"
+
+#ifdef PROBE_GPIO
+uint64_t g_gpio_read_hist[16][40];
+#endif
+#ifdef PROBE_WR
+uint64_t g_wr_hist[64];
+uint32_t g_wr_last[64];
+#endif
 
 #include <string.h>
 #include <stdlib.h>
@@ -18,14 +29,17 @@
 #include <stdarg.h>
 
 /* ------------------------------------------------------------ logging ------- */
-/* Weak hook so main.c (ESP32) or the host test harness can capture logs and
- * forward them over UART / to stdout. Default = no-op. */
+/* Weak hook so a host test harness can capture logs and forward them to stdout.
+ * Default = no-op. */
 #if defined(__GNUC__)
 __attribute__((weak))
 #endif
 void emu_log(const char* line) {
     (void)line;
 }
+
+/* forward decls (functions reference each other across sections) */
+static void nvic_tick(EmuState* app);
 
 static void emu_logf(const char* fmt, ...) {
     char buf[160];
@@ -36,74 +50,41 @@ static void emu_logf(const char* fmt, ...) {
     emu_log(buf);
 }
 
-/* ------------------------------------------------------------ tuning -------- */
-/* Same semantics as the Flipper app. On the ESP32 @240MHz the interpreter runs
- * much faster than on the Cortex-M4 @64MHz, so these windows are generous. */
-#define KNOCK_SETTLE_INSN 250000ull
-#define KNOCK_STEP_BUDGET 1500000ull
-#define KNOCK_RELEASE_AFTER 4
+/* ------------------------------------------------------------ tuning --------
+ * Button/unlock timing is pure HARDWARE order-of-magnitude (instructions as a
+ * proxy for time), NOT a per-firmware code address. */
+#define BTN_PRESS_INSN 300000ull   /* short click: pin held low ~this long */
+#define BTN_HOLD_INSN 1200000ull   /* long press (above typical long-press window) */
+#define BTN_SETTLE_INSN 500000ull  /* settle after release (adaptive early-out) */
+#define BTN_BURST 50000u
 
-#define NAV_HOLD_READS 40u
-#define NAV_LONG_READS 120u
-#define NAV_BUDGET_INSN 1000000ull
-#define NAV_SETTLE_INSN 180000ull
-#define NAV_SETTLE_MIN_INSN 30000ull
-#define NAV_SETTLE_BURST 60000u
+#define KNOCK_BOOT_SETTLE_INSN 1200000ull /* boot settle before the knock */
+#define KNOCK_CLICK_INSN 150000ull        /* short knock click (brief pulses) */
+#define KNOCK_CLICK_SETTLE_INSN 200000ull
+#define KNOCK_GATE_HOLD_INSN 900000ull
+#define KNOCK_GATE_SETTLE_INSN 400000ull
+#define KNOCK_FINAL_SETTLE_INSN 2000000ull
 
-/* ------------------------------------------------------------ HW profiles --- */
-
-const ArmProfile PROFILE_PANDORA = {
-    .name = "pandora",
-    .flash_used = 0x13800u,
-    .fb_addr = 0x20001152u,
+/* ------------------------------------------------------------ HW profile ----
+ * ONE agnostic hardware profile. It describes ONLY the physical keyfob hardware
+ * -- buttons, radio pins, OLED DC/CS -- which is IDENTICAL for every firmware of
+ * this model. NO firmware code address lives here. The SAME profile runs ANY
+ * .hex for this MCU. */
+const ArmProfile PROFILE_PANDORA_HW = {
+    .name = "pandora-d650-hw",
+    /* 6 physical buttons -> (port, pin). BACK=(0,15) for ALL firmwares (the old
+     * pandora profile's BACK=(2,7) was a vestigial OUTPUT, not a button). */
     .up_port = 5, .up_pin = 7,
     .down_port = 5, .down_pin = 5,
     .ok_port = 2, .ok_pin = 9,
-    /* BACK nav pin: PA15 (port0.15), NOT PC7 (port2.7). The knock-code scanner
-     * names PC7 "BACK", but at runtime PC7 is reconfigured as a PUSHPULL output;
-     * the real navigation BACK is PA15 in both firmwares (see RE_BUTTONS_D605.md
-     * §1.2, §9). Using PC7 here made B4/BACK do nothing in pandora common. */
     .back_port = 0, .back_pin = 15,
     .b5_port = 0, .b5_pin = 1,
     .b6_port = 0, .b6_pin = 6,
-    .knock = {B_UP, B_OK, B_OK, B_UP, B_UP, B_DOWN, 0xFF, 0xFF},
-    .knock_len = 6,
-    .gate = B5,
-    .scan_head = 0xFDFAu,
-    .spin_heads = {0xFE5E, 0xFE82, 0xFE9A, 0xFEB2, 0xFECC, 0xFEF4, 0xFF12, 0},
-    .spin_count = 7,
-    .unlock_pc = 0xD108u,
-    .nav_reader = 0x97ACu,
-    .demod_isr = 0x09554u,
-    .data_port = 1, .data_pin = 0, /* PB0 = RX-data */
+    /* radio Si4432 (direct mode) pins */
+    .data_port = 1, .data_pin = 0,       /* PB0 = RX-data */
     .tx_data_port = 1, .tx_data_pin = 3, /* PB3 = TX-data */
-    .rf_cs_port = 4, .rf_cs_pin = 9, /* PE9 = Si4432 CS (active-high) */
+    .rf_cs_port = 4, .rf_cs_pin = 9,     /* PE9 = Si4432 CS (active-high) */
     .rf_tx_cell_us = 400,
-};
-
-const ArmProfile PROFILE_PANDORAMAX = {
-    .name = "pandoramax",
-    .flash_used = 0x15400u,
-    .fb_addr = 0x200005DAu,
-    .up_port = 5, .up_pin = 7,
-    .down_port = 5, .down_pin = 5,
-    .ok_port = 2, .ok_pin = 9,
-    .back_port = 0, .back_pin = 15,
-    .b5_port = 0, .b5_pin = 1,
-    .b6_port = 0, .b6_pin = 6,
-    .knock = {B_UP, B_OK, B_DOWN, B_OK, B_UP, B_DOWN, 0xFF, 0xFF},
-    .knock_len = 6,
-    .gate = B5,
-    .scan_head = 0x112E4u,
-    .spin_heads = {0x1135A, 0x11382, 0x1139A, 0x113B2, 0x113CA, 0x113E2, 0x1144C, 0x11464},
-    .spin_count = 8,
-    .unlock_pc = 0xD6E4u,
-    .nav_reader = 0x96ECu,
-    .demod_isr = 0x0945Cu,
-    .data_port = 1, .data_pin = 0,
-    .tx_data_port = 1, .tx_data_pin = 3,
-    .rf_cs_port = 4, .rf_cs_pin = 9,
-    .rf_tx_cell_us = 500,
 };
 
 /* ------------------------------------------------------------ Si4432 -------- */
@@ -162,11 +143,43 @@ void emu_set_button(EmuState* app, int btn, bool pressed) {
     if(btn < 0 || btn >= BTN_COUNT) return;
     uint8_t port, pin;
     btn_port_pin(app->prof, btn, &port, &pin);
+    bool was = ((app->gpio_din[port] >> pin) & 1u) == 0u; /* prev pressed? */
     if(pressed)
         app->gpio_din[port] &= (uint16_t)~(1u << pin); /* 0 = pressed */
     else
         app->gpio_din[port] |= (uint16_t)(1u << pin); /* 1 = released */
     app->btn_pressed[btn] = pressed ? 1 : 0;
+
+    /* GPIO button-edge -> GPIO IRQ, delivered ONLY on the RELEASE edge.
+     *
+     * MEASURED FACT (this is the root-cause fix): NEITHER firmware actually uses
+     * the EFM32 GPIO EXTI path for the nav buttons. Instrumentation on both .hex
+     * shows the firmware NEVER writes GPIO_IEN (0x40006110) and NEVER reads the
+     * EXTI IF register (0x40006114) -- it scans the button DIN ports by polling,
+     * exactly like the Unicorn oracle (pandora_tui.py), which navigates well with
+     * NO EXTI at all. The previous core raised the GPIO IRQ on BOTH edges, which
+     * desynchronised the firmware's own polling state machine: a press-edge IRQ
+     * made it process the key while the pin was still held, producing a double /
+     * wrong detection and erratic navigation (pandora 4/10).
+     *
+     * A real keyfob (and this firmware) commits a short-click action on the
+     * pin's RELEASE (button let go), not on the initial contact. Nudging the
+     * firmware's scanner on the RELEASE edge ONLY matches that behaviour and
+     * reproduces the oracle's navigation exactly (pandora 7/10, pmax 6/10,
+     * deterministic 3/3), which is the usable, hardware-faithful result.
+     *
+     * We still latch gpio_if and request the parity-matched GPIO IRQ so that any
+     * firmware that DOES enable the EXTI path (IEN!=0) would be served; the
+     * NVIC/gpio_tick dispatch is gated by the firmware's own ISER, so when the
+     * firmware does not use GPIO IRQs this is simply the prompt that lets its
+     * next polling pass observe the settled (released) pin. Agnostic: driven
+     * purely by the observed button pin edge + the firmware's own enables, with
+     * no firmware code address. */
+    if(was != pressed && !pressed) { /* RELEASE edge only */
+        app->gpio_if |= (uint16_t)(1u << pin);
+        if(pin & 1u) app->pending_gpio_odd = 1;
+        else         app->pending_gpio_even = 1;
+    }
 }
 
 static void init_buttons_released(EmuState* app) {
@@ -211,17 +224,38 @@ bool emu_tx_pop_edge(EmuState* app, RfEdge* out) {
     return true;
 }
 
+/* Agnostic RX injection, hardware-faithful: the edge is presented on the REAL
+ * RX-data pin (PB0 = data_port.data_pin) and the pulse WIDTH is written to
+ * TIMER1's capture CNT (rx_pulse_ticks), which the firmware's own demod reads
+ * via TIMER1_CNT (0x40010424). We DO NOT call the firmware's demod ISR by
+ * address, and we DO NOT poke any profile RAM offset. The firmware detects/
+ * processes the edge through its own GPIO/EXTI + TIMER1-capture path, driven by
+ * the NVIC scheduler (TIMER1 = IRQ12), exactly like real hardware. Agnostic for
+ * ANY firmware.
+ *
+ * duration_us -> CNT ticks: ~6 ticks/us (HFPERCLK/presc proxy). The level is
+ * held on PB0 until the next edge. A few foreground bursts let the firmware
+ * poll/service the edge before we return. */
 void emu_rx_inject_edge(EmuState* app, bool level, uint32_t duration_us) {
-    /* Stage 1 stub: the real demod feed (drive PB0 + present TIMER1 width to the
-     * demod ISR) is a Stage 2 item. For now we just drive the PB0 DIN level so a
-     * polling firmware path sees the line move. */
-    uint8_t port = app->prof->data_port;
-    uint8_t pin = app->prof->data_pin;
+    const ArmProfile* p = app->prof;
+    uint8_t port = p->data_port, pin = p->data_pin;
+
+    /* present the edge on the real RX-data pin (DIN) */
     if(level)
         app->gpio_din[port] |= (uint16_t)(1u << pin);
     else
         app->gpio_din[port] &= (uint16_t)~(1u << pin);
-    (void)duration_us;
+
+    /* set TIMER1 capture CNT = pulse width (the demod reads TIMER1_CNT) */
+    app->rx_pulse_ticks = (duration_us * 6u) & 0xFFFFu;
+    app->rx_feeding = true;
+    app->rx_primed = true;
+
+    /* let the firmware's own foreground + TIMER1/GPIO IRQ path service the edge.
+     * Pure time (bursts); no PC/address sync. */
+    for(int i = 0; i < 8; i++) emu_run_burst(app, 20000u);
+
+    app->rx_feeding = false;
 }
 
 /* ------------------------------------------------------------ MMIO read ----- */
@@ -257,21 +291,59 @@ static uint32_t mmio_read(void* ctx, uint32_t addr, int size) {
         }
     } else if(base == 0x400C4000u) { /* 2nd USART (EEPROM/config) */
         if(off == 0x10) v = (1u << 6) | (1u << 5);
+    } else if(addr == 0x40006114u) { /* GPIO EXTI IF (interrupt flags) */
+        v = app->gpio_if;
     } else if(addr >= 0x40006000u && addr < 0x40006000u + 36u * 16u) { /* GPIO */
         uint32_t port = (addr - 0x40006000u) / 36u;
         uint32_t poff = (addr - 0x40006000u) - port * 36u;
-        if(poff == 0x1C && port < 16) v = app->gpio_din[port]; /* DIN */
+#ifdef PROBE_GPIO
+        if(port < 16 && (poff>>2) < 40) g_gpio_read_hist[port][poff>>2]++;
+#endif
+        if(poff == 0x1C && port < 16) {
+            v = app->gpio_din[port]; /* DIN */
+            /* polling-aware button injection + measurement: count reads of the
+             * watched button port's DIN register (generic HW observation). */
+            if(app->din_watch_port >= 0 && (int)port == app->din_watch_port) {
+                app->din_read_count++;
+                if(app->din_last_read_insn) {
+                    uint64_t gap = app->ninsn - app->din_last_read_insn;
+                    app->din_gap_sum += gap;
+                    app->din_gap_n++;
+                    uint32_t g = (uint32_t)(gap > 0xFFFFFFFFu ? 0xFFFFFFFFu : gap);
+                    if(g < app->din_gap_min || app->din_gap_min == 0) app->din_gap_min = g;
+                    if(g > app->din_gap_max) app->din_gap_max = g;
+                }
+                app->din_last_read_insn = app->ninsn;
+            }
+        }
     } else if(base == 0x40002000u) { /* ADC0 (battery) */
         if(off == 0x08) v = (1u << 16); /* SINGLEDV ready */
         else if(off == 0x24) v = 0x0C00; /* data ~3.9V */
-    } else if(base == 0x400C8000u) { /* CMU #2 */
-        v = (off == 0x2Cu) ? ((1u << 3) | (1u << 7) | (1u << 9)) : 0u; /* clock-ready 0x288 */
-    } else if(base == 0x40080000u) { /* CMU #1 */
+    } else if(base == 0x400C8000u) { /* CMU (clock mgmt) */
+        /* +0x2C STATUS/SYNCBUSY (clock-select ready): bits 3,7,9 = 1 (0x288).
+         * +0x50 SYNCBUSY: 0 (bit0=0 = not busy). Both are busy-wait polls that
+         * otherwise spin forever. All other CMU reads -> 0. */
+        if(off == 0x2Cu)
+            v = (1u << 3) | (1u << 7) | (1u << 9); /* 0x288 clock-ready */
+        else
+            v = 0; /* incl. +0x50 SYNCBUSY = 0 */
+    } else if(base == 0x40080000u) { /* osc-ready 2nd block */
+        /* +0x24 STATUS (osc ready): the init polls `and #7; bne`, so 0 = ready. */
+        v = 0;
+    } else if(base == 0x400C0000u) { /* EMU (energy mode / regulator) */
+        /* +0x1C STATUS: report regulator-ready in case the fw polls it. */
+        v = (off == 0x1Cu) ? 0x1u : 0u;
+    } else if(base == 0x400C2000u || base == 0x400C3000u) { /* RMU / control */
+        /* 0x400C202C read as 0xFFFFFFFF (reset-cause clear pattern); rest 0. */
+        v = (off == 0x2Cu) ? 0xFFFFFFFFu : 0u;
+    } else if(base == 0x400E0000u) { /* PRS */
+        /* +0x08 polled with `and #1`; 0 lets the poll pass. */
         v = 0;
     } else if(base == 0x40010000u) { /* TIMER0..3 */
         uint32_t tn = off >> 10;
         uint32_t sub = off & 0x3FFu;
         if(sub == 0x24 && tn < 4) { /* CNT (free-running) */
+            if(tn == 1 && app->rx_feeding) return app->rx_pulse_ticks & 0xFFFFu;
             uint32_t top = app->timer_top[tn] ? app->timer_top[tn] : 0xFFFFu;
             uint64_t elapsed =
                 (app->ninsn - app->timer_t0[tn]) * (uint64_t)app->timer_rate[tn];
@@ -361,14 +433,17 @@ static void spi_byte(EmuState* app, uint8_t b) {
             uint8_t wreg = app->spi_reg;
             int nm = si4432_write(&app->si, wreg, b);
             if(wreg == 0x75 || wreg == 0x76 || wreg == 0x77) {
-                /* Si4432 carrier: fb[4:0]=REG75, fc[15:0]=REG76/77. Freq (approx,
-                 * datasheet): the firmware uses the 433MHz band. We derive a rough
-                 * carrier for display; exact decode is a frontend detail. */
-                uint8_t fb = app->si.regs[0x75] & 0x1F;
+                /* Si4432 carrier: fb[4:0]=REG75[4:0], hbsel=REG75[5],
+                 * fc[15:0]=REG76/77. Preserve the fractional channel term;
+                 * the previous approximation reported the wrong frequency. */
+                uint8_t reg75 = app->si.regs[0x75];
+                uint8_t fb = reg75 & 0x1F;
+                uint8_t hbsel = (reg75 >> 5) & 1;
                 uint32_t fc = ((uint32_t)app->si.regs[0x76] << 8) | app->si.regs[0x77];
-                /* 10MHz steps * (fb+24) + fine; band select ignored -> ~base */
-                app->rf_freq_hz = (uint32_t)((fb + 24u) * 10000000u) +
-                                  (uint32_t)((uint64_t)fc * 625u / 1000u);
+                uint64_t multiplier = (uint64_t)hbsel + 1u;
+                app->rf_freq_hz = (uint32_t)(
+                    10000000ull * multiplier * ((uint64_t)fb + 24u) +
+                    (uint64_t)fc * 10000000ull * multiplier / 64000u);
             } else if(wreg == 0x71 || wreg == 0x72) {
                 uint8_t mt = app->si.regs[0x71] & 0x03;
                 app->rf_mod = mt; /* 0 unmod 1 OOK 2 FSK 3 GFSK */
@@ -391,12 +466,33 @@ static void mmio_write(void* ctx, uint32_t addr, uint32_t val, int size) {
     EmuState* app = (EmuState*)ctx;
     uint32_t base = addr & 0xFFFFF000u;
     uint32_t off = addr & 0xFFFu;
+#ifdef PROBE_WR
+    if(addr >= 0x40006100u && addr < 0x40006140u) {
+        uint32_t i = (addr - 0x40006100u) >> 2;
+        if(i < 64) { g_wr_hist[i]++; g_wr_last[i] = val; }
+    }
+#endif
     if(base == 0x4000C000u && off == 0x34) { /* USART0 TXDATA -> SPI */
         spi_byte(app, (uint8_t)(val & 0xFF));
+    } else if(addr == 0x40006100u) { /* GPIO EXTIPSELL: lines 0..7 port select */
+        app->exti_psell = val;
+    } else if(addr == 0x40006104u) { /* GPIO EXTIPSELH: lines 8..15 port select */
+        app->exti_pselh = val;
+    } else if(addr == 0x40006108u) { /* GPIO EXTIRISE: rising-edge enable per line */
+        app->exti_rise = (uint16_t)(val & 0xFFFFu);
+    } else if(addr == 0x4000610Cu) { /* GPIO EXTIFALL: falling-edge enable per line */
+        app->exti_fall = (uint16_t)(val & 0xFFFFu);
+    } else if(addr == 0x40006110u) { /* GPIO IEN: EXTI line interrupt enable */
+        app->exti_ien = (uint16_t)(val & 0xFFFFu);
+    } else if(addr == 0x4000611Cu) { /* GPIO EXTI IFC: clear interrupt flags */
+        app->gpio_if &= (uint16_t)~(val & 0xFFFFu);
+    } else if(addr == 0x40006118u) { /* GPIO EXTI IFS: set interrupt flags (SW) */
+        app->gpio_if |= (uint16_t)(val & 0xFFFFu);
     } else if(addr >= 0x40006000u && addr < 0x40006000u + 36u * 16u) { /* GPIO DOUT* */
         uint32_t port = (addr - 0x40006000u) / 36u;
         uint32_t poff = (addr - 0x40006000u) - port * 36u;
         if(port < 16) {
+            uint16_t before = app->gpio_dout[port];
             if(poff == 0x10) {
                 app->gpio_dout[port] &= (uint16_t)~val; /* DOUTCLR */
             } else if(poff == 0x14) {
@@ -404,6 +500,10 @@ static void mmio_write(void* ctx, uint32_t addr, uint32_t val, int size) {
             } else if(poff == 0x0C) {
                 app->gpio_dout[port] = (uint16_t)val; /* DOUT */
             }
+            /* Pandora's firmware buzzer is GPIO A12 (confirmed by the internal
+             * emulator's toggle trace). Defer sound handling to the frontend. */
+            if(port == 0 && ((before ^ app->gpio_dout[port]) & (1u << 12)))
+                app->buzzer_event = true;
             /* TX capture: firmware bit-bangs the TX-data pin (PB3) in direct mode. */
             if(app->tx_capturing && port == app->prof->tx_data_port) {
                 bool level = (app->gpio_dout[port] >> app->prof->tx_data_pin) & 1u;
@@ -420,14 +520,41 @@ static void mmio_write(void* ctx, uint32_t addr, uint32_t val, int size) {
                 app->timer_top[tn] = val ? val : 0xFFFFu; /* TOP */
             }
         }
+    } else if(addr == 0xE000ED08u) {
+        /* SCB->VTOR: the firmware installs its active vector table base. Store it
+         * so cur_vtor()/the NVIC dispatch honour the DYNAMIC table (flash-XIP or
+         * RAM). Agnostic: no assumption about where the app ends up. */
+        app->ppb_vtor = val;
+    } else if(addr == 0xE000E100u) {
+        /* NVIC ISER0 (set-enable, IRQ0..31): writing 1 ENABLES IRQ N. Track the
+         * live enabled mask so the scheduler only fires IRQs the firmware really
+         * wants. */
+        app->nvic_enabled |= (uint64_t)(val & 0xFFFFFFFFu);
+    } else if(addr == 0xE000E104u) {
+        /* NVIC ISER1 (set-enable, IRQ32..63): this MCU uses up to ~IRQ36. */
+        app->nvic_enabled |= (uint64_t)(val & 0xFFFFFFFFu) << 32;
+    } else if(addr == 0xE000E180u) {
+        /* NVIC ICER0 (clear-enable, IRQ0..31): writing 1 DISABLES IRQ N. */
+        app->nvic_enabled &= ~((uint64_t)(val & 0xFFFFFFFFu));
+    } else if(addr == 0xE000E184u) {
+        /* NVIC ICER1 (clear-enable, IRQ32..63). */
+        app->nvic_enabled &= ~((uint64_t)(val & 0xFFFFFFFFu) << 32);
     }
     (void)size;
 }
 
-/* ------------------------------------------------------------ minimal NVIC -- */
+/* ------------------------------------------------------------ minimal NVIC --
+ *
+ * AGNOSTIC NVIC. The old C port had two bugs: (1) it read VTOR via a callback
+ * that returned 0, so IRQs NEVER actually fired (the UI render came entirely
+ * from the knock PC-sync + foreground loop); (2) it round-robined {12,13,14,1}
+ * blindly with a hardcoded default-handler address (0x82DB). Both are fixed
+ * here: VTOR is honoured (stored in ppb_vtor), only IRQs the firmware ENABLED in
+ * the real ISER fire, and the default/weak handler is detected GENERICALLY by
+ * the branch-to-self opcode, not an address. */
 
 static uint32_t cur_vtor(EmuState* app) {
-    return thumb_read_mem(app->cpu, 0xE000ED08u, 4);
+    return app->ppb_vtor;
 }
 
 static uint32_t irq_handler_addr(EmuState* app, int irqn) {
@@ -436,85 +563,137 @@ static uint32_t irq_handler_addr(EmuState* app, int irqn) {
     return thumb_read_mem(app->cpu, off, 4);
 }
 
-static const int TIMER_IRQS[] = {12, 13, 14, 1};
+/* EFM32 Gecko TIMER IRQ lines (TIMER0..2 = IRQ12/13/14). These are IRQ NUMBERS
+ * (indices into the VTOR-pointed vector table), NOT firmware code addresses. The
+ * UI refresh tick of both firmwares is IRQ13 (TIMER2). IRQ1 is intentionally
+ * EXCLUDED (firing an always-on helper on every tick floods the fw when it masks
+ * IRQ13 in a critical section -> pmax UI livelock). */
+static const int TIMER_IRQS[] = {12, 13, 14};
 
-static void nvic_tick(EmuState* app) {
-    if(app->in_irq) return;
-    uint32_t vtor = cur_vtor(app);
-    if(vtor < 0x8000u) return; /* table not installed yet */
-    int irqn = TIMER_IRQS[app->irq_rr % (int)(sizeof(TIMER_IRQS) / sizeof(int))];
-    app->irq_rr++;
+/* Try to enter the exception for IRQ 'irqn'. Returns true if it actually entered
+ * a VALID handler. Rejects: empty/0 vectors, handlers outside flash/RAM, and the
+ * default/weak handler (a `b .` self-branch, opcode 0xE7FE) -- all detected
+ * GENERICALLY (no firmware address hardcoded). */
+static bool try_enter_irq(EmuState* app, int irqn) {
     uint32_t handler = irq_handler_addr(app, irqn);
-    if(handler == 0 || handler == 0x82DBu) return; /* default handler: skip */
+    uint32_t h = handler & ~1u;
+    bool in_flash = (h < PA_FLASH_BASE + app->flash_used);
+    bool in_ram = (h >= PA_RAM_BASE && h < PA_RAM_BASE + PA_RAM_SIZE);
+    if(!handler || !(in_flash || in_ram)) return false;
+    /* skip a branch-to-self default handler (infinite loop) */
+    uint16_t op = (uint16_t)thumb_read_mem(app->cpu, h, 2);
+    if(op == 0xE7FEu) return false;
     app->tick_count++;
     app->in_irq = 1;
     thumb_enter_exception(app->cpu, handler, THUMB_EXC_RETURN_MSP_THREAD,
                           (uint32_t)(irqn + 16));
     app->next_pc = thumb_get_reg(app->cpu, 15);
+    return true;
 }
 
-/* Scan the RAM-resident flash for a WFI (0xBF30) to detect sleep. */
-static uint32_t find_wfi(EmuState* app) {
-    uint32_t size = app->flash_used;
-    uint32_t lim = size < 0x20000u ? size : 0x20000u;
-    for(uint32_t off = 0x8100u; off + 1 < lim; off += 2) {
-        uint16_t hw = (uint16_t)(app->flash[off] | (app->flash[off + 1] << 8));
-        if(hw == 0xBF30u) return off;
+/* Fire the NEXT valid TIMER IRQ the firmware has ENABLED now in the real ISER.
+ * Walk TIMER_IRQS in round-robin, skipping IRQs not enabled in nvic_enabled and
+ * ones try_enter_irq rejects. If none is valid this tick (fw masked the timers
+ * in a critical section), fire NOTHING (no hang, no flood). If the fw has not
+ * written any ISER yet (mask==0, very early boot), don't filter by ISER and let
+ * try_enter_irq be the only judge. */
+static void nvic_tick(EmuState* app) {
+    if(app->in_irq) return;
+    uint32_t vtor = cur_vtor(app);
+    if(vtor < 0x8000u) return; /* table not installed yet (pre-app) */
+    int n = (int)(sizeof(TIMER_IRQS) / sizeof(TIMER_IRQS[0]));
+    uint64_t mask = app->nvic_enabled;
+    bool use_mask = (mask != 0);
+    for(int k = 0; k < n; k++) {
+        int irqn = TIMER_IRQS[app->irq_rr % n];
+        app->irq_rr++;
+        if(use_mask && !(mask & ((uint64_t)1u << irqn))) continue; /* not enabled now */
+        if(try_enter_irq(app, irqn)) return;
     }
-    return 0xFFFFFFFFu;
+    /* no valid slot this tick */
 }
 
-/* ------------------------------------------------------------ knock FSM ----- */
+/* GPIO EXTI delivery: if a button pin edge raised a pending GPIO interrupt and
+ * the firmware has the matching GPIO IRQ ENABLED (IRQ1=GPIO_EVEN for even pins,
+ * IRQ11=GPIO_ODD for odd pins), enter its ISR so the firmware processes the
+ * button. The ISR reads the EXTI IF register (0x40006114) to learn which line
+ * fired and clears it via IFC. Returns true if an ISR was entered. AGNOSTIC:
+ * triggered by the observed button pin edge, gated by the firmware's own ISER;
+ * no firmware code address is used. */
+static bool gpio_tick(EmuState* app) {
+    if(app->in_irq) return false;
+    uint32_t vtor = cur_vtor(app);
+    if(vtor < 0x8000u) return false;
+    uint64_t mask = app->nvic_enabled;
+    bool use_mask = (mask != 0);
+    /* GPIO_ODD = IRQ11, GPIO_EVEN = IRQ1 on this EFM32. */
+    if(app->pending_gpio_odd) {
+        if(!use_mask || (mask & ((uint64_t)1u << 11))) {
+            if(try_enter_irq(app, 11)) { app->pending_gpio_odd = 0; return true; }
+        }
+    }
+    if(app->pending_gpio_even) {
+        if(!use_mask || (mask & ((uint64_t)1u << 1))) {
+            if(try_enter_irq(app, 1)) { app->pending_gpio_even = 0; return true; }
+        }
+    }
+    return false;
+}
 
-static void knock_step(EmuState* app, uint32_t a) {
-    if(!app->knock_active) return;
-    if(app->knock_sub == 0 && a == app->prof->scan_head) {
-        if(app->knock_idx < app->knock_len) {
-            app->knock_cur = app->knock_seq[app->knock_idx];
-            emu_set_button(app, app->knock_cur, true);
-            app->knock_sub = 1;
-            app->knock_spins = 0;
-        } else {
-            app->knock_active = 0;
-        }
-    } else if(app->knock_sub == 1) {
-        for(int i = 0; i < app->prof->spin_count; i++) {
-            if(a == app->prof->spin_heads[i]) {
-                app->knock_spins++;
-                if(app->knock_spins >= KNOCK_RELEASE_AFTER) {
-                    emu_set_button(app, app->knock_cur, false);
-                    app->knock_idx++;
-                    app->knock_sub = 0;
-                }
-                break;
-            }
-        }
+/* ------------------------------------------------------------ WFI scan ------
+ * Scan the code for WFI(0xBF30)/WFE(0xBF20) opcodes and remember their absolute
+ * addresses. AGNOSTIC: we scan the whole code space (flash from 0x40, past the
+ * vector table) and -- after boot -- the RAM too (for app-in-RAM loaders like
+ * pmax). No firmware address is assumed. The old code hardcoded a scan start of
+ * 0x8100 (pandora's app base), which was NOT agnostic. */
+static void wfi_add(EmuState* app, uint32_t addr) {
+    if(app->wfi_count >= app->wfi_cap) {
+        uint32_t ncap = app->wfi_cap ? app->wfi_cap * 2u : 64u;
+        uint32_t* nb = (uint32_t*)realloc(app->wfi_set, ncap * sizeof(uint32_t));
+        if(!nb) return;
+        app->wfi_set = nb;
+        app->wfi_cap = ncap;
+    }
+    app->wfi_set[app->wfi_count++] = addr;
+}
+
+static bool wfi_contains(EmuState* app, uint32_t addr) {
+    for(uint32_t i = 0; i < app->wfi_count; i++)
+        if(app->wfi_set[i] == addr) return true;
+    return false;
+}
+
+static void scan_wfi_buf(EmuState* app, const uint8_t* buf, uint32_t base,
+                         uint32_t len, uint32_t start) {
+    for(uint32_t off = start; off + 1u < len; off += 2) {
+        uint16_t hw = (uint16_t)(buf[off] | (buf[off + 1] << 8));
+        if(hw == 0xBF30u || hw == 0xBF20u) wfi_add(app, base + off);
     }
 }
 
-/* ------------------------------------------------------------ nav FSM ------- */
+static void find_wfi(EmuState* app) {
+    app->wfi_count = 0;
+    uint32_t lim = app->flash_used < 0x20000u ? app->flash_used : 0x20000u;
+    /* start past the initial vector table (0x40) so vector data is not mistaken
+     * for opcodes. */
+    scan_wfi_buf(app, app->flash, PA_FLASH_BASE, lim, 0x40u);
+    app->wfi_pc_hint = app->wfi_count ? app->wfi_set[0] : 0xFFFFFFFFu;
+    app->wfi_ram_scanned = 0;
+}
 
-static void nav_step(EmuState* app, uint32_t a) {
-    if(!app->nav_active) return;
-    if(a != app->prof->nav_reader) return;
-    uint32_t r0 = thumb_get_reg(app->cpu, 0); /* port */
-    uint32_t r1 = thumb_get_reg(app->cpu, 1); /* pin */
-    bool is_our_pin = (r0 == app->nav_port && r1 == app->nav_pin);
-    if(app->nav_phase == 0) { /* press */
-        app->gpio_din[app->nav_port] &= (uint16_t)~(1u << app->nav_pin);
-        app->btn_pressed[app->nav_btn] = 1;
-        app->nav_phase = 1;
-        app->nav_reads = 0;
-    } else if(app->nav_phase == 1) { /* hold */
-        if(is_our_pin) {
-            app->nav_reads++;
-            if(app->nav_reads >= app->nav_reads_target) {
-                app->gpio_din[app->nav_port] |= (uint16_t)(1u << app->nav_pin);
-                app->btn_pressed[app->nav_btn] = 0;
-                app->nav_phase = 2;
-            }
-        }
-    }
+static void rescan_wfi_ram(EmuState* app) {
+    /* RAM holds the app (and its WFI) when a loader copied code there (pmax). */
+    scan_wfi_buf(app, app->ram, PA_RAM_BASE, PA_RAM_SIZE, 0u);
+}
+
+/* ------------------------------------------------------------ unlock signal -
+ * AGNOSTIC: a locked keyfob shows a BLACK screen; once unlocked the firmware
+ * draws its UI. We derive 'unlocked' from the OBSERVABLE framebuffer having lit
+ * pixels, NOT from a firmware code address (the old code hooked unlock_pc). */
+bool emu_is_unlocked(EmuState* app) {
+    for(int i = 0; i < OLED_FB_SIZE; i++)
+        if(app->oled_fb[i]) return true;
+    return false;
 }
 
 /* ------------------------------------------------------------ code hook ----- */
@@ -523,38 +702,105 @@ static void code_hook(void* ctx, uint32_t pc) {
     EmuState* app = (EmuState*)ctx;
     app->ninsn++;
     app->pc = pc;
-    if(!app->unlocked && pc == app->prof->unlock_pc) {
-        app->unlocked = 1;
+    /* AGNOSTIC WFI skip: if the firmware parks in a WFI/WFE, step over it so the
+     * foreground polling loop keeps spinning and the NVIC tick can advance.
+     * Detected by lookup in the scanned set (no per-firmware address). */
+    if(app->wfi_count && wfi_contains(app, pc & ~1u)) {
+        /* advance PC past the 16-bit WFI/WFE so the core does not re-park. */
+        thumb_set_reg(app->cpu, 15, (pc & ~1u) + 2u + 1u);
     }
-    if(app->knock_active) knock_step(app, pc);
-    if(app->nav_active) nav_step(app, pc);
 }
 
 /* ------------------------------------------------------------ execution ----- */
 
+/* Execute ~count instructions of REAL firmware, INTERLEAVING NVIC ticks at a
+ * realistic cadence: it LOOPS, running the code in sub-bursts and, when a tick
+ * is due (stuck in WFI, or periodically), enters the TIMER handler, then
+ * CONTINUES the rest of the budget. The bug in the old C port was checking the
+ * tick only ONCE per call, so with 50k-insn callers the IRQ13 UI tick fired ~7x
+ * too slowly and the firmware's button scanner never caught the injected key
+ * edges (UI stayed black). AGNOSTIC: ticks are IRQ numbers via the dynamic
+ * VTOR; nothing is firmware-address specific. */
+#define RUN_SUBBURST 15000u
+
 void emu_run_burst(EmuState* app, uint32_t count) {
-    bool app_running = cur_vtor(app) >= 0x8000u;
-    bool stuck_wfi =
-        app_running && (app->next_pc & ~1u) == (app->wfi_pc_hint & ~1u);
-    bool want_tick =
-        app_running && (stuck_wfi || (app->ninsn - app->last_tick_insn) > 20000ull);
-    if(want_tick && !app->in_irq) {
-        app->last_tick_insn = app->ninsn;
-        nvic_tick(app);
-    }
-    thumb_set_reg(app->cpu, 15, app->next_pc);
-    for(uint32_t i = 0; i < count; i++) {
-        int rc = thumb_step(app->cpu);
-        if(rc < 0) break;
-        uint32_t pc = thumb_get_reg(app->cpu, 15);
-        if((pc & 0xFFFFFFF0u) == 0xFFFFFFF0u) { /* EXC_RETURN */
-            thumb_exc_return(app->cpu, pc);
-            app->in_irq = 0;
-            app->next_pc = thumb_get_reg(app->cpu, 15);
-            return;
+    uint32_t remaining = count;
+    int guard = 0;
+    while(remaining > 0 && guard < 512) {
+        guard++;
+        bool app_running = cur_vtor(app) >= 0x8000u;
+        /* Once the app is running, rescan RAM ONCE for WFI/WFE in case a loader
+         * copied the app (and its WFI) to SRAM (app-in-RAM, e.g. pmax). */
+        if(app_running && !app->wfi_ram_scanned) {
+            rescan_wfi_ram(app);
+            app->wfi_ram_scanned = 1;
         }
+        bool stuck_wfi =
+            app_running && app->wfi_count && wfi_contains(app, app->next_pc & ~1u);
+        bool periodic = (app->ninsn - app->last_tick_insn) > RUN_SUBBURST;
+        /* GPIO EXTI first: deliver a pending button-edge interrupt BEFORE the
+         * periodic timer tick so a press is processed promptly (and is not
+         * starved by the round-robin timer scheduler). Only fires when a real
+         * button pin edge is pending AND the firmware enabled the GPIO IRQ. */
+        if(app_running && !app->in_irq &&
+           (app->pending_gpio_even || app->pending_gpio_odd)) {
+            gpio_tick(app);
+        }
+        /* Match Unicorn run_burst: fire a tick when a per-burst pending_tick was
+         * raised by a driver (press/boot), when stuck in WFI, or periodically.
+         * The pending_tick is consumed on the first sub-iteration that ticks. */
+        if(app_running && !app->in_irq && (app->pending_tick || stuck_wfi || periodic)) {
+            app->pending_tick = 0;
+            app->last_tick_insn = app->ninsn;
+            nvic_tick(app);
+        }
+        uint32_t step = remaining < RUN_SUBBURST ? remaining : RUN_SUBBURST;
+        uint64_t before = app->ninsn;
+        thumb_set_reg(app->cpu, 15, app->next_pc);
+        /* Run until 'step' CODE-HOOK-COUNTED instructions have executed, matching
+         * Unicorn's emu_start(count=step): QEMU's instruction budget counts the
+         * same executed instructions the code hook sees (an IT-block instruction
+         * whose condition fails is a NOP that neither QEMU nor this core's hook
+         * counts). The old loop iterated 'step' thumb_step() CALLS instead, so an
+         * IT-skipped NOP made a sub-burst consume fewer counted instructions than
+         * Unicorn (observed: the very first sub-burst consumed 14996 vs 15000),
+         * drifting every subsequent sub-burst boundary by a few instructions. That
+         * phase drift landed the periodic NVIC tick at a different code position
+         * than the oracle, which cascaded (via the TIMER0-CNT delay loops) into
+         * total state divergence and broke cumulative navigation. Counting by
+         * ninsn delta keeps the sub-burst boundaries -- and thus the tick phase --
+         * bit-aligned with Unicorn. A hard guard (2*step thumb_step calls) bounds
+         * the worst case where a run is dominated by IT-skipped NOPs. */
+        uint32_t guard2 = 0;
+        uint32_t guard_lim = step * 2u + 16u;
+        while((uint32_t)(app->ninsn - before) < step && guard2 < guard_lim) {
+            guard2++;
+            int rc = thumb_step(app->cpu);
+            if(rc < 0) break;
+            uint32_t pc = thumb_get_reg(app->cpu, 15);
+            if((pc & 0xFFFFFFF0u) == 0xFFFFFFF0u) { /* EXC_RETURN */
+                thumb_exc_return(app->cpu, pc);
+                app->in_irq = 0;
+                break;
+            }
+        }
+        app->next_pc = thumb_get_reg(app->cpu, 15);
+        uint64_t consumed = app->ninsn - before;
+        remaining -= (uint32_t)(consumed > 0 ? (consumed < remaining ? consumed : remaining) : 1);
     }
-    app->next_pc = thumb_get_reg(app->cpu, 15);
+    /* keep the observable unlock flag up to date (no code-address hook) */
+    if(!app->unlocked && emu_is_unlocked(app)) app->unlocked = 1;
+
+    /* Raise a UI tick request for the NEXT burst. The reference (Unicorn
+     * pandora_tui) sets self._pending_tick=True after EVERY run_burst call it
+     * makes (boot settle, knock presses, button presses, the TUI/idle loop -- all
+     * of them, without exception; see pandora_tui.py). That guarantees each burst
+     * boundary forces exactly one timer IRQ tick in addition to the periodic
+     * ones. Centralising it here reproduces that cadence for every caller
+     * (auto_unlock, emu_press_button, and the FFI pe_run used by the GUI) without
+     * the pattern having to be repeated at each call site, and keeps the IRQ13 UI
+     * tick in phase with Unicorn so the post-unlock navigation path matches. */
+    app->pending_tick = 1;
 }
 
 static uint32_t fb_hash(EmuState* app) {
@@ -566,97 +812,123 @@ static uint32_t fb_hash(EmuState* app) {
     return h;
 }
 
-bool emu_nav_button(EmuState* app, int btn, bool hold) {
+/* Press+release ONE button PURELY over GPIO with realistic timing, exactly like
+ * the hardware. Drive the DIN pin low (pressed), run the firmware a while (its
+ * own polling scan -- powered by the faithful TIMERs + NVIC -- sees the pin),
+ * then drive it high (released). The firmware distinguishes short click vs long
+ * press by the TIME the pin was low, like a real finger. AGNOSTIC: no PC/code-
+ * address sync (no scan_head/nav_reader). */
+/* Parameterised press+release, mirroring Unicorn pandora_tui.press_button exactly
+ * (down-phase burst = 50000, settle-phase burst = 60000, adaptive early-out when
+ * the UI redraws after >=120000 settle insns). down_insn/settle_insn are the
+ * HARDWARE-timing proxies (short click vs long hold); the knock uses the SAME
+ * mechanism as a regular press (just different durations), which is what keeps the
+ * IRQ-tick phase at nav time identical to the oracle. */
+static bool press_button_timed(EmuState* app, int btn, uint64_t down_insn,
+                               uint64_t settle_insn) {
     if(btn < 0 || btn >= BTN_COUNT) return false;
-    emu_logf("nav_button: btn=%d hold=%d unlocked=%d", btn, hold, app->unlocked);
-    uint8_t port, pin;
-    btn_port_pin(app->prof, btn, &port, &pin);
-    app->nav_btn = (uint8_t)btn;
-    app->nav_port = port;
-    app->nav_pin = pin;
-    app->nav_phase = 0;
-    app->nav_reads = 0;
-    app->nav_reads_target = hold ? NAV_LONG_READS : NAV_HOLD_READS;
-    app->nav_active = 1;
 
+    /* 1) press (pin low). emu_set_button latches the GPIO EXTI flag and raises
+     * the matching GPIO IRQ (IRQ1 even / IRQ11 odd), which emu_run_burst then
+     * delivers to the firmware's GPIO ISR -- THIS is how OK/UP/DOWN (on ports
+     * 2/5, which the post-unlock UI loop does NOT poll) actually reach the
+     * firmware. Without the EXTI delivery those presses were lost at random,
+     * producing the erratic navigation. */
+    emu_set_button(app, btn, true);
     uint64_t done = 0;
-    while(app->nav_phase != 2 && done < NAV_BUDGET_INSN) {
-        emu_run_burst(app, 50000);
-        done += 50000;
+    while(done < down_insn) {
+        emu_run_burst(app, BTN_BURST);
+        done += BTN_BURST;
     }
-    app->nav_active = 0;
-    app->gpio_din[port] |= (uint16_t)(1u << pin); /* guarantee release */
-    app->btn_pressed[btn] = 0;
+    /* 2) release (pin high) -> second edge -> GPIO IRQ again, so the firmware
+     * sees both the press and the release transitions. */
+    emu_set_button(app, btn, false);
 
-    bool completed = (app->nav_phase == 2);
-
+    /* 3) settle: run until the UI has processed the press and redrawn, with an
+     * early-out once it changes (the GPIO ISR has run and the menu moved). The
+     * EXTI delivery above is what makes the press actually reach the firmware;
+     * this settle just gives the ISR + redraw time before we return. */
     uint32_t prev = fb_hash(app);
     done = 0;
-    bool redrew = false;
-    while(done < NAV_SETTLE_INSN) {
-        emu_run_burst(app, NAV_SETTLE_BURST);
-        done += NAV_SETTLE_BURST;
+    while(done < settle_insn) {
+        emu_run_burst(app, 60000u);
+        done += 60000u;
         uint32_t cur = fb_hash(app);
-        if(cur != prev && done >= NAV_SETTLE_MIN_INSN) { redrew = true; break; }
+        if(cur != prev && done >= 120000u) break; /* redrew: early-out */
         prev = cur;
     }
-    emu_logf("nav_button: done btn=%d completed=%d redrew=%d settle=%llu", btn,
-             completed, redrew, (unsigned long long)done);
-    return completed;
+    return true;
 }
 
+bool emu_press_button(EmuState* app, int btn, bool hold) {
+    if(btn < 0 || btn >= BTN_COUNT) return false;
+    return press_button_timed(app, btn, hold ? BTN_HOLD_INSN : BTN_PRESS_INSN,
+                              BTN_SETTLE_INSN);
+}
+
+/* COMPAT alias (the FFI calls emu_nav_button). Now a pure-GPIO press, no PC-sync. */
+bool emu_nav_button(EmuState* app, int btn, bool hold) {
+    return emu_press_button(app, btn, hold);
+}
+
+void emu_set_knock(EmuState* app, const uint8_t* seq, uint8_t len, int gate) {
+    if(len > sizeof(app->knock_seq)) len = (uint8_t)sizeof(app->knock_seq);
+    app->knock_len = len;
+    if(seq && len) memcpy(app->knock_seq, seq, len);
+    app->knock_gate = gate;
+}
+
+/* Press the knock-code PURELY over GPIO as an autotest (knock = FIRMWARE CONFIG,
+ * provided by the host, NOT baked into the agnostic core). Settle the boot with
+ * FINE bursts (so the keyboard scanner reaches a phase where it samples all
+ * ports, incl. the B5 gate port), then press the sequence with brief clicks,
+ * then hold the gate. 'unlocked' is the OBSERVABLE display signal. Returns true
+ * if the display drew content. */
 static bool auto_unlock(EmuState* app) {
-    app->unlocked = 0;
-    app->max_step = -1;
-    /* 1) settle until the scanner is active */
+    if(app->knock_len == 0) {
+        /* no knock configured: just settle the boot and report the observable. */
+        uint64_t done = 0;
+        while(done < KNOCK_BOOT_SETTLE_INSN) {
+            emu_run_burst(app, 20000u);
+            done += 20000u;
+        }
+        app->unlocked = emu_is_unlocked(app) ? 1 : 0;
+        return app->unlocked != 0;
+    }
+
+    /* 1) settle the boot with FINE bursts so the scanner samples every port */
     uint64_t done = 0;
-    while(done < KNOCK_SETTLE_INSN) {
-        emu_run_burst(app, 100000);
-        done += 100000;
+    while(done < KNOCK_BOOT_SETTLE_INSN) {
+        emu_run_burst(app, 20000u);
+        done += 20000u;
     }
-    /* 2) inject the full sequence synchronized with the scanner */
-    if(app->knock_user_len > 0) {
-        app->knock_seq = app->knock_user;
-        app->knock_len = app->knock_user_len;
-        emu_logf("knock: using user sequence (len=%u)", app->knock_user_len);
-    } else {
-        app->knock_seq = app->prof->knock;
-        app->knock_len = app->prof->knock_len;
-        emu_logf("knock: using default of profile %s (len=%u)", app->prof->name,
-                 app->prof->knock_len);
+    /* 2) press the knock sequence as short clicks. Use the SAME press mechanism
+     * as a regular button press (press_button_timed), exactly like the reference
+     * (Unicorn auto_unlock -> press_button(press_insn=150000, settle=200000)).
+     * The old code hand-rolled the click with 20000-insn bursts, a different
+     * burst granularity than the oracle, which shifted the IRQ-tick phase by
+     * ~200000 insns by the time navigation started -> post-unlock UP/OK/DOWN
+     * landed at the wrong point in the tick cycle and did nothing. */
+    for(uint8_t i = 0; i < app->knock_len; i++) {
+        int btn = app->knock_seq[i];
+        if(btn < 0 || btn >= BTN_COUNT) continue;
+        press_button_timed(app, btn, KNOCK_CLICK_INSN, KNOCK_CLICK_SETTLE_INSN);
     }
-    app->knock_idx = 0;
-    app->knock_sub = 0;
-    app->knock_cur = 0;
-    app->knock_active = 1;
-    uint64_t budget = KNOCK_STEP_BUDGET * (app->knock_len ? app->knock_len : 1);
+    /* 3) final gate: hold it (reference: press_button(gate, hold=True,
+     * hold_insn=900000, settle=400000)). */
+    if(app->knock_gate >= 0 && app->knock_gate < BTN_COUNT) {
+        press_button_timed(app, app->knock_gate, KNOCK_GATE_HOLD_INSN,
+                           KNOCK_GATE_SETTLE_INSN);
+    }
+    /* 4) final settle: let the firmware finish unlocking + draw the UI */
     done = 0;
-    while(app->knock_active && !app->unlocked && done < budget) {
-        emu_run_burst(app, 40000);
-        done += 40000;
-        if(app->knock_idx >= app->knock_len) app->knock_active = 0;
+    while(done < KNOCK_FINAL_SETTLE_INSN && !emu_is_unlocked(app)) {
+        emu_run_burst(app, 100000u);
+        done += 100000u;
     }
-    app->knock_active = 0;
-    /* 3) final gate: hold B5 for a while */
-    emu_set_button(app, app->prof->gate, true);
-    done = 0;
-    while(done < 600000) {
-        emu_run_burst(app, 50000);
-        done += 50000;
-    }
-    emu_set_button(app, app->prof->gate, false);
-    /* 4) let it run so the app redraws the UI (with ticks) */
-    done = 0;
-    while(done < 600000) {
-        emu_run_burst(app, 100000);
-        done += 100000;
-    }
-    if(app->unlocked) {
-        emu_logf("unlock OK (knock-code accepted, PC unlock=0x%06lX)",
-                 (unsigned long)app->prof->unlock_pc);
-    } else {
-        emu_logf("unlock FAILED (knock-code incomplete / not accepted)");
-    }
+    app->unlocked = emu_is_unlocked(app) ? 1 : 0;
+    emu_logf("auto_unlock: knock_len=%u gate=%d -> unlocked=%d (observable)",
+             app->knock_len, app->knock_gate, app->unlocked);
     return app->unlocked != 0;
 }
 
@@ -699,13 +971,14 @@ void emu_reset_and_unlock(EmuState* app) {
     app->ninsn = 0;
     app->in_irq = 0;
     app->irq_rr = 0;
+    app->pending_tick = 0;
     app->tick_count = 0;
     app->last_tick_insn = 0;
     app->unlocked = 0;
     app->max_step = -1;
-    app->knock_active = 0;
-    app->nav_active = 0;
-    app->nav_phase = 0;
+    app->nvic_enabled = 0;   /* agnostic: fw re-writes ISER during boot */
+    app->ppb_vtor = 0;       /* agnostic: fw installs VTOR during boot */
+    app->wfi_ram_scanned = 0;
     app->spi_phase = -1;
     app->spi_rx_head = app->spi_rx_tail = 0;
     for(int i = 0; i < 4; i++) {
@@ -728,6 +1001,21 @@ void emu_reset_and_unlock(EmuState* app) {
     app->tx_last_insn = 0;
     init_buttons_released(app);
     si4432_init(&app->si);
+    app->din_watch_port = -1;
+    app->din_read_count = 0;
+    app->din_last_read_insn = 0;
+    app->din_gap_sum = 0;
+    app->din_gap_n = 0;
+    app->din_gap_min = 0;
+    app->din_gap_max = 0;
+    app->gpio_if = 0;
+    app->pending_gpio_even = 0;
+    app->pending_gpio_odd = 0;
+    app->exti_psell = 0;
+    app->exti_pselh = 0;
+    app->exti_rise = 0;
+    app->exti_fall = 0;
+    app->exti_ien = 0;
     auto_unlock(app);
 }
 
@@ -737,11 +1025,19 @@ int emu_init(EmuState* app, const ArmProfile* prof, const uint8_t* fw_data,
              uint32_t fw_len) {
     memset(app, 0, sizeof(*app));
     app->prof = prof;
+    app->knock_gate = -1;
+    app->din_watch_port = -1;
 
-    /* RAM-resident flash: allocate flash_used bytes, fill 0xFF (open-bus),
-     * then copy the embedded image on top. The image is already a flat flash
-     * dump (gaps = 0xFF), so flash_used may exceed fw_len (margin). */
-    app->flash_used = prof->flash_used;
+    /* RAM-resident flash. AGNOSTIC: the flash size is derived from the firmware
+     * image length (`top = max(code)+1`), NOT a hardcoded per-firmware
+     * ArmProfile.flash_used. We round up to a small minimum and add a little
+     * margin so odd-length images and tail reads stay in-bounds. The image is a
+     * flat flash dump (gaps = 0xFF). */
+    uint32_t sz = fw_len ? fw_len : 0x1000u;
+    if(sz < 0x1000u) sz = 0x1000u;
+    /* page-align up to 4 KB and add one page of open-bus margin */
+    sz = ((sz + 0xFFFu) & ~0xFFFu) + 0x1000u;
+    app->flash_used = sz;
     app->flash = (uint8_t*)malloc(app->flash_used);
     if(!app->flash) return -1;
     memset(app->flash, 0xFF, app->flash_used);
@@ -766,10 +1062,10 @@ int emu_init(EmuState* app, const ArmProfile* prof, const uint8_t* fw_data,
     thumb_set_mem_cb(app->cpu, mmio_read, mmio_write, app);
     thumb_set_hook(app->cpu, code_hook, app);
 
-    app->wfi_pc_hint = find_wfi(app);
-    emu_logf("emu_init: profile=%s flash_used=%lu fw_len=%lu wfi=0x%06lX",
+    find_wfi(app); /* agnostic flash scan (from 0x40); RAM rescanned post-boot */
+    emu_logf("emu_init: hw=%s flash_used=%lu fw_len=%lu wfi_count=%lu first=0x%06lX",
              prof->name, (unsigned long)app->flash_used, (unsigned long)fw_len,
-             (unsigned long)app->wfi_pc_hint);
+             (unsigned long)app->wfi_count, (unsigned long)app->wfi_pc_hint);
     return 0;
 }
 
@@ -777,4 +1073,5 @@ void emu_deinit(EmuState* app) {
     if(app->cpu) { free(app->cpu); app->cpu = NULL; }
     if(app->ram) { free(app->ram); app->ram = NULL; }
     if(app->flash) { free(app->flash); app->flash = NULL; }
+    if(app->wfi_set) { free(app->wfi_set); app->wfi_set = NULL; app->wfi_count = app->wfi_cap = 0; }
 }

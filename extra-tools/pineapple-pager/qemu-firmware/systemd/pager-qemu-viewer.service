@@ -1,0 +1,31 @@
+# pager-qemu-viewer.service -- same-origin viewer/proxy for the qemu firmware.
+#
+# Part of: extra-tools/pineapple-pager/qemu-firmware/systemd/
+# Serves the chasis viewer (index.html + app.js) AND proxies /api/* (incl. the
+# screen/keys WebSockets) to the firmware on :1471, resolving CORS/cookies.
+# Listens on :8471 -- a DIFFERENT port from the firmware's :1471 -- so the
+# browser (kiosk or desktop) talks to a single origin.
+# On-demand only (started by pager-qemu.target).
+
+[Unit]
+Description=WiFi Pineapple Pager qemu viewer proxy (:8471 -> firmware :1471)
+# Wants (not Requires): the proxy must SURVIVE a firmware restart so its retry
+# logic can ride out a transient outage instead of the viewer being torn down
+# with it (which would drop the browser's in-flight request and show an error).
+# The proxy already tolerates the firmware being briefly absent (it retries the
+# forward/WS-connect before returning anything), so a hard binding is wrong here.
+Wants=pager-qemu-firmware.service
+After=pager-qemu-firmware.service
+PartOf=pager-qemu.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/pineapple-pager/qemu/viewer/proxy.py \
+    --firmware 127.0.0.1:1471 --listen 0.0.0.0:8471
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=pager-qemu.target

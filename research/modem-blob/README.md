@@ -208,3 +208,37 @@ Usable today (no cal-mode): a per-frequency signal-power survey via QMI-NAS
 cell-search-granularity spectrum survey. Planned next step: a `rhodep-rf-survey`
 qmicli userspace tool. Details + command sketch in
 `../docs/05-modem-rf-gnss.md` §11.
+
+## Updates (sessions 10-13, 2026-10) — the wall moved from "deduced" to "empirically proven"
+
+Sessions 10-12 refined the mode-105 QMSL protocol (full byte-exact framing, SET_CALIBRATION_STATE
+working, IQ_CAPTURE accepted with `error_code=0`). See `docs/modem-diag-wip/SESSION10..12*.md`.
+
+**Session 13 (2026-10-15) executed, live on the device, every remaining lead** — the packets that
+session 11 had only built on paper, plus new variants. All RX-only (user confirmed RX-only/controlled
+antenna; TX never run). See `docs/modem-diag-wip/SESSION13-IQ-LIVE-EXECUTION.md`. Results, all 0 SSR:
+- IQ_CAPTURE ACQUIRE with **NUM_OF_SAMPLES=1024** + SAMP_FREQ/FORMAT/TYPE → `error_code=0,
+  num_captures=0`. (The wire NUM_OF_SAMPLES can't land: handler uses `memub(cfg+0x6c)`, an 8-bit
+  config default — proven in `blob-analysis/iq_capture_num_captures.md §8`.)
+- **RX_MEASURE**, **QUERY_RRA** → same empty-success body; QUERY_RRA returns **num_properties=0**
+  (the TRM has no radio allocated → no streaming carrier). ASSIGN_RRA / "missing NUM_OF_SAMPLES" /
+  "start with RX_MEASURE" all **refuted in vivo**.
+- Full QMSL factory cal (SET_MODE_ID + SET_CAL + SET_MODE band): SET_MODE under tech-mode → **0x13
+  rejected** (proprietary opcode, not guessable).
+- **ADC-capture-in-mem (HALPHY)** and **legacy IQ 900/901/902**: both ruled out by RE this session
+  (`blob-analysis/adc_capture_in_mem.md`, `legacy_iq_capture_900_902.md`) — HALPHY is out of the MBN
+  behind the same gate; the 900/902 cmd_ids are rejected by the router's high-byte gate.
+- **Reading the cal-mode gate in modem RAM to confirm: impossible and FATAL.** The MPSS carveout
+  (PA 0x8b800000, gate at PA 0x96f4f740) is XPU-locked; `/dev/mem` on it **reset the SoC twice** in
+  testing. SMEM is readable but does not hold the gate.
+
+Every mode-105 command returns the identical "parsed OK / zero data" body, which is the live
+signature that the single upstream blocker is the cal-mode gate `gp+0x740 (PA 0x96f4f740) == 2`,
+written only by resident/dlpager code outside the MBN by an FTM_SET_MODE-cal opcode that is in no
+public source and cannot be executed, read, or written from the AP.
+
+**Final verdict (now empirical, not just static):** raw-IQ RX capture is unreachable from the AP on
+mainline for this device. 95% of the chain works byte-exact; the last 5% is one unknown numeric
+opcode behind an XPU-locked, out-of-MBN resident driver. The only remaining avenues are off-AP: a
+QXDM/QRCT FTM trace of this SM6375, the closed `QMSL_MSVC10R.dll`, or an EDL cal-session ramdump.
+For general-purpose RX today, use the QMI-NAS power survey (above); for a BTS, a real SDR is required.

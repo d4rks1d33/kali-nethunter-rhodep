@@ -1,0 +1,52 @@
+#!/bin/sh
+# resetssids -- compatibility reimplementation of Hak5's /usr/sbin/resetssids.
+#
+# Part of: extra-tools/pineapple-port/compat/
+#
+# WHY:
+#   The panel's PineAP module clears the "new SSID" session counter with:
+#     modules/PineAP/api/module.php:424  exec('/usr/sbin/resetssids', $output, $ret);
+#   and reports an error to the user if the exit code is non-zero. The original
+#   is a tiny MIPS ELF whose authoritative strings (from the RE rootfs,
+#   /tmp/opencode/pineapple-re/rootfs-base/usr/sbin/resetssids) are:
+#       PineAP  /etc/pineapple/pineapple.db
+#       UPDATE ssids SET new_ssid = 0 WHERE new_ssid = 1;
+#       Successfully set SSID state.
+#   i.e. it opens the SSID DB and resets the new_ssid flag. This shim reproduces
+#   that behaviour exactly, with sqlite3(1), so the panel PHP is NOT modified.
+#
+# DB PATH RESOLUTION (in order):
+#   1. $1 (optional explicit path, like the original's argv handling)
+#   2. the UCI store's pineap.@config[0].ssid_db_path (what the panel/daemon use)
+#   3. /etc/pineapple/pineapple.db (the original's hardcoded default)
+#
+# EXIT: 0 on success (matches the original's "Successfully set SSID state."),
+#       non-zero if the DB cannot be opened/updated (so the panel shows its error).
+
+set -u
+
+SQLITE="${SQLITE3:-sqlite3}"
+UCI="${UCI:-/opt/pineapple/compat/uci}"
+DEFAULT_DB="/etc/pineapple/pineapple.db"
+
+db="${1:-}"
+if [ -z "$db" ]; then
+    # Prefer the configured path (same key gen-pineap-config.sh / the daemon use).
+    if [ -x "$UCI" ]; then
+        db="$("$UCI" get pineap.@config[0].ssid_db_path 2>/dev/null || true)"
+    fi
+    [ -n "$db" ] || db="$DEFAULT_DB"
+fi
+
+if [ ! -f "$db" ]; then
+    echo "resetssids(shim): Can't open database: $db" >&2
+    exit 1
+fi
+
+if "$SQLITE" "$db" "UPDATE ssids SET new_ssid = 0 WHERE new_ssid = 1;" 2>/dev/null; then
+    echo "Successfully set SSID state."
+    exit 0
+else
+    echo "resetssids(shim): Failed to execute statement on $db" >&2
+    exit 1
+fi

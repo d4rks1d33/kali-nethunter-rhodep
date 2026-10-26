@@ -1,0 +1,16 @@
+#!/bin/bash
+# PROMPT - WiFi Pineapple Pager DuckyScript command (host bridge).
+# Shows a prompt dialog and BLOCKS until the user acknowledges. Faithful to the
+# device: the firmware endpoint /payload/interact/prompt is blocking.
+# Usage: PROMPT "message"
+. /lib/hak5/commands.sh
+
+__message="$*"
+
+json=$(cat << EOF
+{ "message": $(SAFE_JSON_STRING "${__message}") }
+EOF
+)
+
+HAK5_API_POST "payload/interact/prompt" "${json}" && exit 0
+exit 1
